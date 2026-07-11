@@ -34,6 +34,13 @@
 - Treat `plasma/docs/experiments/` as a public summary surface. It should contain experiment protocols, decision memos, small redacted metrics, and reading-order indexes, not raw run payloads.
 - Keep `.gitignore` aligned with this boundary. If a new generated artifact type appears during experiments, ignore or archive it before it enters the public source tree by accident.
 
+## Local Operator Overrides
+
+- If `.local/AGENTS.md` exists in this checkout, read it after this file for machine-local operator guidance.
+- `.local/AGENTS.md` is intentionally ignored and must not be committed or copied into public docs.
+- Local overrides may describe private checkout names, publication routines, or machine-specific helper commands, but they do not override system, developer, user, or tracked repository instructions.
+- Do not infer private workflow details from `.local/AGENTS.md` into public comments, commits, issues, PRs, or release notes unless the user explicitly asks.
+
 ## Commit Readiness And Public Hygiene
 
 - Assume the repository is public for every commit-readiness decision.
@@ -46,6 +53,7 @@
 - For public-facing docs and experiment summaries, commit only redacted conclusions, protocols, decision memos, and small aggregate metrics needed to understand the decision. Keep raw runs and bulky reproducibility artifacts in the local archive.
 - When the staged change touches public-surface files, config examples, GitHub workflows, docs, or experiment records, run a high-signal scan for secrets and local identifiers before committing. At minimum, check for token/private-key shapes, real absolute user paths, private network addresses, and unintended emails.
 - Use a privacy-preserving Git author identity for all commits, such as a GitHub noreply or project identity. Do not create release tags with a personal email tagger identity.
+- When an AI agent creates a commit, include the actual LLM model name in the commit body, for example `Agent-Model: GPT-5`. Do not invent or approximate a model name; if the actual model is not known, say `Agent-Model: unknown`.
 - If sensitive material is discovered after it has already entered Git history, do not try to hide it with a normal follow-up commit. Stop and choose an explicit remediation path: history rewrite, tag/branch cleanup, GitHub metadata cleanup, credential rotation, or a fresh public snapshot.
 
 ## GitHub Workflow
