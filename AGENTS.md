@@ -40,6 +40,7 @@
 - `.local/AGENTS.md` is intentionally ignored and must not be committed or copied into public docs.
 - Local overrides may describe private checkout names, publication routines, or machine-specific helper commands, but they do not override system, developer, user, or tracked repository instructions.
 - Do not infer private workflow details from `.local/AGENTS.md` into public comments, commits, issues, PRs, or release notes unless the user explicitly asks.
+- Local publication helpers may prepare and stage a public snapshot, but they must not auto-commit, auto-push, or rewrite public history unless the user explicitly asks for that exact operation.
 
 ## Commit Readiness And Public Hygiene
 
