@@ -1,0 +1,2 @@
+phase,run_id,fixture_id,variant,seed,stage,started_at,stopped_at,observed_elapsed_sec,detail
+pilot,pilot-F01-S1-layered-seed-9001-attempt-1,F01,S1-layered,9001,turn2,2026-06-30T09:09:42Z,2026-06-30T09:18:50Z,548,"Stopped after turn1 showed 355242 input tokens and 24066 output tokens, making the registered pilot and primary execution infeasible in this execution window."

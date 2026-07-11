@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "phase": "report-isolation-parallel",
+  "started_at": "2026-07-01T15:59:48.846680Z",
+  "finished_at": "2026-07-01T16:11:42.559022Z",
+  "jobs": 6,
+  "requested_jobs": 6,
+  "replicate_ids": [
+    "301",
+    "302",
+    "303",
+    "304",
+    "305",
+    "306"
+  ],
+  "completed_blocks": 6,
+  "failed_blocks": 0,
+  "results": [
+    {
+      "replicate_id": "301",
+      "started_at": "2026-07-01T15:59:48.846966Z",
+      "finished_at": "2026-07-01T16:09:40.107858Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-301-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-301-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "302",
+      "started_at": "2026-07-01T15:59:48.847153Z",
+      "finished_at": "2026-07-01T16:11:05.200386Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-302-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-302-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "303",
+      "started_at": "2026-07-01T15:59:48.847275Z",
+      "finished_at": "2026-07-01T16:10:59.637419Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-303-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-303-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "304",
+      "started_at": "2026-07-01T15:59:48.847365Z",
+      "finished_at": "2026-07-01T16:10:42.373090Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-304-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-304-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "305",
+      "started_at": "2026-07-01T15:59:48.847483Z",
+      "finished_at": "2026-07-01T16:10:24.418835Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-305-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-305-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "306",
+      "started_at": "2026-07-01T15:59:48.847651Z",
+      "finished_at": "2026-07-01T16:11:42.558813Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-306-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-306-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    }
+  ],
+  "failures": []
+}

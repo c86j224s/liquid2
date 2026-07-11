@@ -1,0 +1,91 @@
+source_run_id,source_experiment,mission_id,source_cell,seed,attempt,mode,variant,status,readability,depth,breadth,synthesis_depth,investigation_reuse,source_groundedness,provenance_completeness,overclaim_rate,unsupported_conclusion_rate,unverifiable_conclusion_rate,internal_id_path_leakage,notes
+CQ1-AUTO-seed-0001-attempt-1,controller-quality,CQ1,AUTO,1,1,fork,F1,judged,5,5,5,5,0.900,0.960,0.950,0.030,0.040,0.020,0,원문 근거를 촘촘히 연결하면서 C1 경계와 리포트 모델의 긴장을 보수적으로 잘 정리했다.
+CQ1-AUTO-seed-0001-attempt-1,controller-quality,CQ1,AUTO,1,1,fork,F2,judged,5,5,5,5,1.000,0.940,0.920,0.040,0.050,0.030,0,원문 근거를 촘촘히 붙이면서 C1 경계와 AST·후보 모델의 긴장을 균형 있게 정리했다.
+CQ1-AUTO-seed-0001-attempt-1,controller-quality,CQ1,AUTO,1,1,fork,F3,judged,4,5,5,5,0.950,0.940,0.960,0.040,0.040,0.050,0,원문 근거를 촘촘히 사용하면서 C1 경계와 AST 관련 긴장을 조심스럽게 종합했다.
+CQ1-AUTO-seed-0001-attempt-1,controller-quality,CQ1,AUTO,1,1,fork,F0,judged,4,5,5,5,0.950,0.960,0.940,0.030,0.040,0.020,0,원문 근거와 경계 해석이 충실하며 과잉 주장도 적다.
+CQ2-AUTO-seed-0002-attempt-1,controller-quality,CQ2,AUTO,2,1,fork,F0,judged,5,5,5,5,0.950,0.960,0.900,0.030,0.040,0.030,0,문서 간 긴장을 잘 종합하고 구현 미확인 범위를 명확히 제한했다.
+CQ2-AUTO-seed-0002-attempt-1,controller-quality,CQ2,AUTO,2,1,fork,F2,judged,5,5,5,5,1.000,0.970,0.960,0.020,0.020,0.020,0,원자료와 조사에서 드러난 핵심 긴장을 충실히 종합한 보고서입니다.
+CQ2-AUTO-seed-0002-attempt-1,controller-quality,CQ2,AUTO,2,1,fork,F3,judged,5,5,5,5,0.950,0.970,0.960,0.020,0.020,0.020,0,원자료에 충실하면서 혼선의 핵심과 구현 확인 한계를 균형 있게 정리했다.
+CQ2-AUTO-seed-0002-attempt-1,controller-quality,CQ2,AUTO,2,1,fork,F1,judged,5,5,5,5,1.000,0.960,0.950,0.020,0.030,0.020,0,원자료와 조사 메모의 핵심을 잘 종합하고 구현 확인 한계를 명확히 구분했다.
+CQ3-AUTO-seed-0003-attempt-1,controller-quality,CQ3,AUTO,3,1,fork,F0,judged,5,5,5,5,0.950,0.950,0.950,0.030,0.040,0.020,0,원문 근거를 촘촘히 연결하면서 AST/Markdown 리포트 경계의 핵심 긴장을 잘 종합했다.
+CQ3-AUTO-seed-0003-attempt-1,controller-quality,CQ3,AUTO,3,1,fork,F1,judged,5,5,5,5,0.950,0.950,0.920,0.030,0.040,0.020,0,문서 간 AST/Markdown 긴장을 잘 포착하고 출처 기반으로 균형 있게 종합했다.
+CQ3-AUTO-seed-0003-attempt-1,controller-quality,CQ3,AUTO,3,1,fork,F3,judged,5,5,5,5,0.950,0.960,0.950,0.040,0.030,0.020,0,원문 간 AST/Markdown 및 evidence/claim 경계 긴장을 촘촘히 종합한 매우 근거 있는 보고서입니다.
+CQ3-AUTO-seed-0003-attempt-1,controller-quality,CQ3,AUTO,3,1,fork,F2,judged,5,5,5,5,0.980,0.960,0.950,0.030,0.030,0.020,0,핵심 긴장을 잘 종합했고 출처 근거도 촘촘하지만 일부 객체 경계 해석은 약간 추론적이다.
+CQ4-AUTO-seed-0004-attempt-1,controller-quality,CQ4,AUTO,4,1,fork,F0,judged,5,5,5,5,1.000,0.960,0.950,0.020,0.030,0.020,0,코드 근거와 세션 ID 구분을 매우 충실하게 설명했다.
+CQ4-AUTO-seed-0004-attempt-1,controller-quality,CQ4,AUTO,4,1,fork,F1,judged,5,5,5,5,0.950,0.960,0.920,0.030,0.030,0.040,0,핵심 ID 경계와 보고서 경로를 근거 있게 구분한 우수한 보고서입니다.
+CQ4-AUTO-seed-0004-attempt-1,controller-quality,CQ4,AUTO,4,1,fork,F3,judged,5,5,5,5,0.950,0.960,0.950,0.020,0.030,0.020,0,근거와 경계 구분이 매우 충실하지만 source_index.json 언급은 원문 밖이다.
+CQ4-AUTO-seed-0004-attempt-1,controller-quality,CQ4,AUTO,4,1,fork,F2,judged,5,5,5,5,0.950,0.960,0.930,0.020,0.030,0.040,0,원본 코드 근거와 불확실성 구분이 매우 충실한 보고서입니다.
+CQ5-AUTO-seed-0005-attempt-1,controller-quality,CQ5,AUTO,5,1,fork,F0,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.040,0.030,0,원자료에 밀착하면서 조사 메모의 핵심 긴장과 구현 공백을 잘 재사용한 강한 보고서입니다.
+CQ5-AUTO-seed-0005-attempt-1,controller-quality,CQ5,AUTO,5,1,fork,F1,judged,5,5,5,5,0.950,0.950,0.920,0.030,0.040,0.030,0,원자료 구분과 조사 메모의 핵심 긴장을 잘 종합한 매우 강한 보고서입니다.
+CQ5-AUTO-seed-0005-attempt-1,controller-quality,CQ5,AUTO,5,1,fork,F3,judged,5,5,5,5,0.900,0.960,0.930,0.020,0.030,0.030,0,원자료에 충실하고 핵심 긴장과 한계를 잘 종합한 보고서입니다.
+CQ5-AUTO-seed-0005-attempt-1,controller-quality,CQ5,AUTO,5,1,fork,F2,judged,5,5,5,5,0.900,0.950,0.900,0.050,0.050,0.080,0,세 원자료를 고르게 근거화하고 긴장과 한계를 명확히 분리한 매우 충실한 보고서입니다.
+CQ6-AUTO-seed-0006-attempt-1,controller-quality,CQ6,AUTO,6,1,fork,F0,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.030,0.040,0,원문 근거와 구현상 긴장을 잘 분리해 구조화한 보고서다.
+CQ6-AUTO-seed-0006-attempt-1,controller-quality,CQ6,AUTO,6,1,fork,F1,judged,5,5,5,5,0.900,0.950,0.950,0.030,0.040,0.020,0,원문 근거와 구현상의 긴장을 잘 종합한 높은 품질의 보고서입니다.
+CQ6-AUTO-seed-0006-attempt-1,controller-quality,CQ6,AUTO,6,1,fork,F3,judged,5,5,5,5,1.000,0.960,0.950,0.030,0.030,0.020,0,원문 근거와 조사에서 드러난 핵심 긴장을 잘 종합한 매우 견고한 보고서입니다.
+CQ6-AUTO-seed-0006-attempt-1,controller-quality,CQ6,AUTO,6,1,fork,F2,judged,5,5,5,5,1.000,0.950,0.950,0.030,0.030,0.050,0,"출처와 구현 단서를 균형 있게 묶고, 미확인 지점을 명확히 제한한 보고서입니다."
+CQ7-AUTO-seed-0007-attempt-1,controller-quality,CQ7,AUTO,7,1,fork,F0,judged,5,5,4,5,0.950,0.960,0.940,0.020,0.030,0.020,0,문서 근거와 남은 설계 공백을 잘 분리했지만 일부 kill criteria와 variant별 중단 조건은 덜 포괄적입니다.
+CQ7-AUTO-seed-0007-attempt-1,controller-quality,CQ7,AUTO,7,1,fork,F2,judged,5,4,4,4,0.900,0.930,0.900,0.040,0.050,0.050,0,원문 근거와 조사에서 드러난 핵심 긴장을 잘 재사용했지만 G0 동일 세션과 일부 승격 중단 기준은 더 넓게 다룰 수 있었다.
+CQ7-AUTO-seed-0007-attempt-1,controller-quality,CQ7,AUTO,7,1,fork,F3,judged,5,5,5,5,0.950,0.940,0.950,0.030,0.040,0.030,1,문서 근거와 해석 분리가 뛰어나지만 V/G/AUTO 조건 라벨 노출이 있다.
+CQ8-AUTO-seed-0008-attempt-1,controller-quality,CQ8,AUTO,8,1,fork,F0,judged,5,5,5,5,0.950,0.960,0.950,0.040,0.040,0.030,0,원문 근거와 추론 한계를 잘 분리해 역할 분담을 설득력 있게 정리했다.
+CQ7-AUTO-seed-0007-attempt-1,controller-quality,CQ7,AUTO,7,1,fork,F1,judged,5,4,4,4,0.900,0.920,0.900,0.050,0.060,0.030,0,문서 근거를 잘 묶었고 실험 통제와 제품 UX의 미정의 영역도 적절히 분리했다.
+CQ8-AUTO-seed-0008-attempt-1,controller-quality,CQ8,AUTO,8,1,fork,F1,judged,5,5,5,5,0.900,0.930,0.940,0.040,0.060,0.030,0,근거와 해석을 잘 분리했고 조사 메모의 핵심 공백도 과도하게 단정하지 않았다.
+CQ8-AUTO-seed-0008-attempt-1,controller-quality,CQ8,AUTO,8,1,fork,F3,judged,5,5,5,5,0.950,0.950,0.950,0.040,0.050,0.040,0,원문 근거와 추론 한계를 잘 구분한 높은 품질의 보고서다.
+RM1-R1-seed-1001-attempt-1,mcp-random-seek,RM1,R1,1001,1,fork,F0,judged,5,4,4,4,0.900,0.950,0.950,0.030,0.020,0.020,0,핵심 조건과 생성물-출처 구분을 명확히 종합한 원문 기반 요약이다.
+CQ8-AUTO-seed-0008-attempt-1,controller-quality,CQ8,AUTO,8,1,fork,F2,judged,5,4,5,4,0.900,0.920,0.900,0.080,0.080,0.040,0,원문 근거와 조사 메모의 핵심 긴장을 잘 종합했으며 일부 해석적 표현만 약간 강합니다.
+RM1-R1-seed-1001-attempt-1,mcp-random-seek,RM1,R1,1001,1,fork,F1,judged,5,5,5,5,0.950,0.970,0.960,0.020,0.020,0.010,0,핵심 조건과 오염 경계를 근거 중심으로 정확히 종합했다.
+RM1-R1-seed-1001-attempt-1,mcp-random-seek,RM1,R1,1001,1,fork,F2,judged,5,5,5,5,0.950,0.980,0.980,0.020,0.020,0.020,0,핵심 조건을 넓고 정확하게 종합했으며 생성물 접근과 근거 사용의 차이를 잘 구분했다.
+RM2-R1-seed-1002-attempt-1,mcp-random-seek,RM2,R1,1002,1,fork,F0,judged,5,5,5,5,0.950,0.940,0.920,0.060,0.050,0.030,0,문서 간 긴장을 잘 포착했고 근거 제시도 촘촘하다.
+RM2-R1-seed-1002-attempt-1,mcp-random-seek,RM2,R1,1002,1,fork,F1,judged,5,5,5,5,1.000,0.960,0.920,0.030,0.040,0.040,0,문서 간 긴장을 잘 종합했고 근거 표기도 전반적으로 충실합니다.
+RM1-R1-seed-1001-attempt-1,mcp-random-seek,RM1,R1,1001,1,fork,F3,judged,5,5,5,5,1.000,0.980,0.960,0.020,0.020,0.010,0,원문 근거와 조사에서 확인한 핵심 경계를 정확히 통합한 보고서입니다.
+RM2-R1-seed-1002-attempt-1,mcp-random-seek,RM2,R1,1002,1,fork,F2,judged,5,5,5,5,0.950,0.940,0.930,0.030,0.040,0.040,0,문서 간 긴장과 보수적 해석을 잘 종합했고 근거 표시도 대체로 충실합니다.
+RM2-R1-seed-1002-attempt-1,mcp-random-seek,RM2,R1,1002,1,fork,F3,judged,5,5,5,5,0.950,0.960,0.940,0.030,0.040,0.030,0,문서 간 긴장을 잘 포착하고 근거를 촘촘히 연결한 보고서입니다.
+RM3-R1-seed-1003-attempt-1,mcp-random-seek,RM3,R1,1003,1,fork,F0,judged,5,5,5,5,1.000,0.980,0.960,0.020,0.020,0.010,0,소스와 result/report 경계를 정확히 분리하고 남은 저장소 공백도 명확히 제한했다.
+RM3-R1-seed-1003-attempt-1,mcp-random-seek,RM3,R1,1003,1,fork,F1,judged,5,5,5,5,1.000,0.930,0.950,0.070,0.040,0.030,0,"조사 내용을 잘 재사용했고, 일부 trace 기록 조건 생략을 제외하면 출처에 매우 충실하다."
+RM3-R1-seed-1003-attempt-1,mcp-random-seek,RM3,R1,1003,1,fork,F3,judged,5,5,5,5,0.950,0.970,0.950,0.030,0.030,0.040,1,"근거와 경계 구분이 매우 탄탄하지만, `./sources`라는 실험 작업 경로성 표현이 노출되었습니다."
+RM4-R1-seed-1004-attempt-1,mcp-random-seek,RM4,R1,1004,1,fork,F0,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.040,0.040,0,원자료 구분과 navigation 해석의 한계를 잘 보존한 매우 근거 있는 보고서입니다.
+RM4-R1-seed-1004-attempt-1,mcp-random-seek,RM4,R1,1004,1,fork,F1,judged,5,5,5,5,0.950,0.950,0.950,0.040,0.040,0.030,0,원자료와 해석의 경계를 명확히 구분하고 조사 메모의 핵심도 적절히 재사용했다.
+RM3-R1-seed-1003-attempt-1,mcp-random-seek,RM3,R1,1003,1,fork,F2,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.030,0.030,0,근거와 한계를 명확히 구분한 매우 탄탄한 보고서입니다.
+RM4-R1-seed-1004-attempt-1,mcp-random-seek,RM4,R1,1004,1,fork,F2,judged,5,5,5,5,0.950,0.950,0.960,0.030,0.040,0.050,0,원자료 경계와 추론 한계를 명확히 구분한 매우 근거 있는 보고서다.
+RM4-R1-seed-1004-attempt-1,mcp-random-seek,RM4,R1,1004,1,fork,F3,judged,5,5,5,5,0.950,0.960,0.950,0.040,0.040,0.020,0,원자료의 경계와 조사에서 확인된 애매함을 잘 반영한 근거 중심 보고서입니다.
+RM5-R1-seed-1005-attempt-1,mcp-random-seek,RM5,R1,1005,1,fork,F0,judged,5,4,4,4,0.900,0.930,0.900,0.060,0.080,0.050,0,원문 근거를 폭넓게 엮어 category error와 실험/제품 방지책을 명확히 구분했다.
+RM5-R1-seed-1005-attempt-1,mcp-random-seek,RM5,R1,1005,1,fork,F1,judged,5,5,5,5,0.950,0.960,0.940,0.030,0.040,0.030,0,원자료 경계를 잘 지키면서 조사 핵심을 제품·실험 방지책으로 균형 있게 종합했다.
+RM5-R1-seed-1005-attempt-1,mcp-random-seek,RM5,R1,1005,1,fork,F2,judged,5,5,5,5,0.900,0.960,0.950,0.030,0.030,0.020,0,원문 근거와 실험·제품 방지책을 균형 있게 종합했다.
+RM5-R1-seed-1005-attempt-1,mcp-random-seek,RM5,R1,1005,1,fork,F3,judged,5,5,5,5,0.950,0.940,0.920,0.040,0.060,0.030,0,원자료의 경계와 실험·제품 방지책을 잘 종합했으며 일부 제품 UI 제안은 합리적 추론으로 보인다.
+RM6-R1-seed-1006-attempt-1,mcp-random-seek,RM6,R1,1006,1,fork,F0,judged,5,5,5,5,0.950,0.940,0.920,0.040,0.050,0.040,0,원문 간 충돌을 보존하면서 기본 경로와 legacy 경계를 균형 있게 정리했다.
+RM6-R1-seed-1006-attempt-1,mcp-random-seek,RM6,R1,1006,1,fork,F1,judged,5,5,5,5,0.950,0.940,0.960,0.040,0.050,0.030,0,원문 간 충돌과 보존 경계를 촘촘히 구분한 매우 탄탄한 보고서다.
+RM6-R1-seed-1006-attempt-1,mcp-random-seek,RM6,R1,1006,1,fork,F3,judged,4,5,5,5,0.950,0.950,0.950,0.040,0.040,0.030,0,원문 간 충돌을 보존하면서도 기본 경로와 legacy 경계를 근거 중심으로 잘 분리했다.
+RM6-R1-seed-1006-attempt-1,mcp-random-seek,RM6,R1,1006,1,fork,F2,judged,5,5,5,5,0.950,0.960,0.930,0.040,0.040,0.020,0,출처에 근거해 핵심 충돌과 보존 경계를 잘 종합했다.
+RM7-R1-seed-1007-attempt-1,mcp-random-seek,RM7,R1,1007,1,fork,F0,judged,5,5,5,5,1.000,0.980,0.970,0.020,0.020,0.030,0,"원자료에 밀착해 표면과 경계, 불확실성을 균형 있게 정리했다."
+RM7-R1-seed-1007-attempt-1,mcp-random-seek,RM7,R1,1007,1,fork,F1,judged,5,5,5,5,1.000,0.960,0.950,0.030,0.040,0.040,0,원자료에 잘 근거해 읽기·검색 표면과 애매한 snapshot 경계를 균형 있게 정리했다.
+RM7-R1-seed-1007-attempt-1,mcp-random-seek,RM7,R1,1007,1,fork,F2,judged,5,5,5,5,0.950,0.970,0.960,0.030,0.030,0.020,0,원자료 근거와 한계를 균형 있게 반영한 매우 충실한 보고서입니다.
+RM7-R1-seed-1007-attempt-1,mcp-random-seek,RM7,R1,1007,1,fork,F3,judged,5,5,5,5,1.000,0.970,0.960,0.030,0.030,0.020,0,원문 근거와 조사에서 드러난 긴장을 균형 있게 통합한 매우 충실한 보고서입니다.
+RM8-R1-seed-1008-attempt-1,mcp-random-seek,RM8,R1,1008,1,fork,F1,judged,5,5,5,5,1.000,0.970,0.950,0.030,0.020,0.020,0,저장·이벤트·라우팅·프론트엔드 경계를 근거와 함께 잘 분리했다.
+RM8-R1-seed-1008-attempt-1,mcp-random-seek,RM8,R1,1008,1,fork,F0,judged,5,5,5,5,0.950,0.900,0.820,0.040,0.050,0.070,0,전반적으로 근거와 종합이 뛰어나지만 일부 원본 경로 표기가 부정확합니다.
+RM8-R1-seed-1008-attempt-1,mcp-random-seek,RM8,R1,1008,1,fork,F2,judged,5,5,5,5,1.000,0.970,0.960,0.020,0.020,0.020,0,조사 메모의 핵심 긴장을 잘 재사용하면서 원문 코드 근거와 한계를 명확히 구분했다.
+RM8-R1-seed-1008-attempt-1,mcp-random-seek,RM8,R1,1008,1,fork,F3,judged,5,5,5,5,1.000,0.970,0.950,0.030,0.020,0.030,0,제공 소스에 충실하고 저장·조회·다운로드 경계를 정확히 종합했다.
+RM9-R1-seed-1009-attempt-1,mcp-random-seek,RM9,R1,1009,1,fork,F0,judged,5,5,5,5,1.000,0.980,0.950,0.020,0.020,0.020,0,소스 근거와 한계를 명확히 분리해 좁은 ledger 경계를 잘 설명했다.
+RM9-R1-seed-1009-attempt-1,mcp-random-seek,RM9,R1,1009,1,fork,F1,judged,5,5,5,5,0.950,0.970,0.950,0.020,0.020,0.010,0,근거와 한계를 잘 분리해 좁은 저장 경계와 projection 재생 흐름을 정확히 설명했다.
+RM9-R1-seed-1009-attempt-1,mcp-random-seek,RM9,R1,1009,1,fork,F2,judged,5,5,5,5,0.950,0.970,0.920,0.020,0.020,0.030,0,소스 근거와 한계 구분이 선명한 우수한 보고서입니다.
+RM9-R1-seed-1009-attempt-1,mcp-random-seek,RM9,R1,1009,1,fork,F3,judged,5,5,5,5,0.970,0.960,0.950,0.030,0.030,0.020,0,소스 근거와 한계를 잘 구분하며 조사 메모의 핵심을 충실히 재사용했다.
+RM10-R1-seed-1010-attempt-1,mcp-random-seek,RM10,R1,1010,1,fork,F0,judged,5,4,4,4,0.900,0.950,0.950,0.030,0.040,0.030,0,원문 근거와 조사상 한계를 잘 결합한 균형 잡힌 보고서입니다.
+RM10-R1-seed-1010-attempt-1,mcp-random-seek,RM10,R1,1010,1,fork,F1,judged,5,5,5,5,0.950,0.970,0.960,0.020,0.030,0.020,0,근거와 한계를 균형 있게 다룬 매우 충실한 보고서입니다.
+RM10-R1-seed-1010-attempt-1,mcp-random-seek,RM10,R1,1010,1,fork,F2,judged,5,5,5,5,1.000,0.960,0.950,0.030,0.030,0.040,0,출처 기반 구조 설명과 한계 표시가 모두 균형 있게 제시되었다.
+RM10-R1-seed-1010-attempt-1,mcp-random-seek,RM10,R1,1010,1,fork,F3,judged,5,5,5,5,1.000,0.980,0.980,0.020,0.020,0.010,0,원문 근거와 한계를 촘촘히 구분한 매우 충실한 보고서입니다.
+CQ1-AUTO-seed-0001-attempt-1,controller-quality,CQ1,AUTO,1,1,fork,F4,judged,4,5,5,5,0.950,0.960,0.940,0.040,0.040,0.030,0,원문 근거와 경계 긴장을 충실히 종합한 매우 강한 보고서다.
+CQ2-AUTO-seed-0002-attempt-1,controller-quality,CQ2,AUTO,2,1,fork,F4,judged,5,5,5,5,0.900,0.960,0.940,0.030,0.040,0.040,0,원자료 경계를 충실히 종합하고 구현 확인 불가 범위도 적절히 제한했다.
+CQ3-AUTO-seed-0003-attempt-1,controller-quality,CQ3,AUTO,3,1,fork,F4,judged,5,5,5,5,0.950,0.970,0.960,0.030,0.020,0.020,0,원문 전반을 촘촘히 인용하며 AST/Markdown 긴장과 저장 경계를 균형 있게 종합했다.
+CQ4-AUTO-seed-0004-attempt-1,controller-quality,CQ4,AUTO,4,1,fork,F4,judged,5,5,5,5,1.000,0.970,0.960,0.020,0.030,0.040,0,세션 ID 분리와 보고서 생성 경계를 원문 코드에 밀착해 정확히 종합했다.
+CQ5-AUTO-seed-0005-attempt-1,controller-quality,CQ5,AUTO,5,1,fork,F4,judged,5,5,5,5,0.900,0.950,0.950,0.030,0.050,0.030,0,원자료에 잘 근거하면서 핵심 긴장과 한계를 균형 있게 종합했다.
+CQ6-AUTO-seed-0006-attempt-1,controller-quality,CQ6,AUTO,6,1,fork,F4,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.030,0.040,0,근거와 불확실성을 잘 분리하며 핵심 긴장을 정확히 종합했다.
+CQ8-AUTO-seed-0008-attempt-1,controller-quality,CQ8,AUTO,8,1,fork,F4,judged,5,5,5,5,0.950,0.970,0.950,0.030,0.040,0.020,0,원문 근거와 신중한 추론이 잘 결합된 매우 완성도 높은 보고서입니다.
+CQ7-AUTO-seed-0007-attempt-1,controller-quality,CQ7,AUTO,7,1,fork,F4,judged,5,5,5,5,0.950,0.950,0.900,0.050,0.050,0.050,0,"문서 근거와 해석을 잘 분리했고 안전 경계, 중단 조건, 승격 보류 조건을 폭넓게 종합했다."
+RM1-R1-seed-1001-attempt-1,mcp-random-seek,RM1,R1,1001,1,fork,F4,judged,5,5,5,5,1.000,0.970,0.960,0.020,0.030,0.020,0,원문 근거와 핵심 긴장을 잘 연결한 충실한 요약이다.
+RM3-R1-seed-1003-attempt-1,mcp-random-seek,RM3,R1,1003,1,fork,F4,judged,5,5,5,5,0.960,0.970,0.960,0.030,0.030,0.020,0,근거와 경계를 균형 있게 정리한 매우 충실한 보고서입니다.
+RM2-R1-seed-1002-attempt-1,mcp-random-seek,RM2,R1,1002,1,fork,F4,judged,5,5,5,5,0.950,0.960,0.940,0.040,0.040,0.020,0,문서 간 긴장과 보수적 해석을 근거 중심으로 잘 종합했다.
+RM4-R1-seed-1004-attempt-1,mcp-random-seek,RM4,R1,1004,1,fork,F4,judged,5,5,5,5,0.950,0.960,0.950,0.040,0.040,0.020,0,원자료 경계를 정확히 유지하면서 조사 메모의 핵심 해석을 잘 종합했다.
+RM6-R1-seed-1006-attempt-1,mcp-random-seek,RM6,R1,1006,1,fork,F4,judged,5,5,5,5,0.950,0.960,0.950,0.030,0.040,0.020,0,충돌 지점을 보존하면서 출처 기반으로 매우 균형 있게 정리했다.
+RM5-R1-seed-1005-attempt-1,mcp-random-seek,RM5,R1,1005,1,fork,F4,judged,5,5,5,5,0.950,0.940,0.920,0.030,0.040,0.030,0,원문 근거를 촘촘히 연결하면서 실험과 제품 방지책을 균형 있게 종합했다.
+RM7-R1-seed-1007-attempt-1,mcp-random-seek,RM7,R1,1007,1,fork,F4,judged,5,5,5,5,1.000,0.980,0.960,0.020,0.020,0.030,0,조사 내용을 잘 흡수했고 코드 근거와 불확실성 구분이 매우 탄탄하다.
+RM8-R1-seed-1008-attempt-1,mcp-random-seek,RM8,R1,1008,1,fork,F4,judged,5,5,5,5,1.000,0.970,0.950,0.030,0.030,0.020,0,원문 코드와 조사 메모의 핵심 긴장을 잘 통합한 매우 충실한 보고서입니다.
+RM9-R1-seed-1009-attempt-1,mcp-random-seek,RM9,R1,1009,1,fork,F4,judged,5,5,5,5,1.000,0.950,0.960,0.030,0.030,0.020,0,근거와 한계를 잘 구분한 매우 충실한 보고서입니다.
+RM10-R1-seed-1010-attempt-1,mcp-random-seek,RM10,R1,1010,1,fork,F4,judged,5,5,5,5,0.950,0.960,0.950,0.040,0.030,0.020,0,근거 인용과 한계 구분이 매우 충실한 보고서입니다.

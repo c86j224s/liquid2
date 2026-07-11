@@ -1,0 +1,57 @@
+{
+  "bootstrap_ci95": [
+    -1.47035,
+    2.1685466666666664
+  ],
+  "class_sensitivity": [
+    {
+      "fixture_class": "ambiguous-intent",
+      "mean_delta": -2.1038500000000013,
+      "n": 10,
+      "wins": 3
+    },
+    {
+      "fixture_class": "broad-open",
+      "mean_delta": -0.1367000000000009,
+      "n": 15,
+      "wins": 8
+    },
+    {
+      "fixture_class": "code-or-architecture",
+      "mean_delta": -1.4309600000000018,
+      "n": 10,
+      "wins": 4
+    },
+    {
+      "fixture_class": "narrow-directed",
+      "mean_delta": 4.98137,
+      "n": 10,
+      "wins": 6
+    },
+    {
+      "fixture_class": "source-conflict",
+      "mean_delta": -0.8660799999999981,
+      "n": 10,
+      "wins": 2
+    },
+    {
+      "fixture_class": "thin-source",
+      "mean_delta": 2.824920000000003,
+      "n": 5,
+      "wins": 4
+    }
+  ],
+  "contamination_failures": 0,
+  "hard_failures": 0,
+  "losses": 31,
+  "mean_delta": 0.2979816666666665,
+  "paired_blocks": 60,
+  "phase": "primary",
+  "s0_broad_harm_ge2_rate": 0.8666666666666667,
+  "s1_broad_harm3_count": 0,
+  "s1_broad_harm_ge2_rate": 0.6666666666666666,
+  "scored_runs": 120,
+  "sign_test_p": 0.6940040940761316,
+  "ties": 2,
+  "wins": 27
+}

@@ -1,0 +1,20 @@
+# Liquid2 web runtime configuration example.
+#
+# Copy this file to liquid2/config.web.toml for a worktree-local web config.
+# The copied config.web.toml file is ignored by Git.
+#
+# Development runtime precedence for web values:
+#   environment variables and explicit CLI arguments
+#   liquid2/config.web.toml
+#   liquid2/config.toml
+#   ~/.config/liquid2-web-dev/config.toml
+#   ~/.config/liquid2-dev/config.toml
+#   app defaults for development mode
+
+[server]
+addr = "127.0.0.1"
+port = 6001
+
+[runtime]
+# 개발 서버임을 브라우저 UI에 작게 표시합니다. 릴리즈 설정에서는 비워두세요.
+environment_label = "DEV"

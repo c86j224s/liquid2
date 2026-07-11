@@ -1,0 +1,11 @@
+ALTER TABLE plasma_missions ADD COLUMN objective TEXT NOT NULL DEFAULT '';
+ALTER TABLE plasma_missions ADD COLUMN scope_json TEXT NOT NULL DEFAULT '{"included":[],"excluded":[]}';
+ALTER TABLE plasma_missions ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'active';
+ALTER TABLE plasma_missions ADD COLUMN last_event_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE plasma_missions ADD COLUMN last_sequence INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plasma_missions ADD COLUMN active_session_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE plasma_missions ADD COLUMN accepted_claim_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE plasma_missions ADD COLUMN open_question_ids_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE plasma_missions ADD COLUMN active_report_version_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE plasma_missions ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE plasma_missions ADD COLUMN needs_review_reasons_json TEXT NOT NULL DEFAULT '[]';

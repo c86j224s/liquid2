@@ -1,0 +1,13 @@
+mission,blind_id,run_id,variant,stage,evaluator_winner,contaminated
+M1,K1,M1-V2-seed-0001,V2,final,K1,False
+M1,K2,M1-V1-seed-0001,V1,final,K1,False
+M1,K3,M1-V0-seed-0001,V0,final,K1,True
+M1,K4,M1-V3-seed-0001,V3,final,K1,False
+M3,K1,M3-V2-seed-0001,V2,final,K2,True
+M3,K2,M3-V3-seed-0001,V3,final,K2,False
+M3,K3,M3-V1-seed-0001,V1,final,K2,True
+M3,K4,M3-V0-seed-0001,V0,final,K2,True
+M6,K1,M6-V0-seed-0001,V0,final,K4,False
+M6,K2,M6-V2-seed-0001,V2,final,K4,False
+M6,K3,M6-V1-seed-0001,V1,final,K4,False
+M6,K4,M6-V3-seed-0001,V3,final,K4,False

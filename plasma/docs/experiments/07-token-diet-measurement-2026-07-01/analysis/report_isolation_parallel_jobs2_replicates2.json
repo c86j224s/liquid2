@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "phase": "report-isolation-parallel",
+  "started_at": "2026-07-01T15:27:18.569385Z",
+  "finished_at": "2026-07-01T15:38:41.590099Z",
+  "jobs": 2,
+  "requested_jobs": 2,
+  "replicate_ids": [
+    "101",
+    "102"
+  ],
+  "completed_blocks": 2,
+  "failed_blocks": 0,
+  "results": [
+    {
+      "replicate_id": "101",
+      "started_at": "2026-07-01T15:27:18.569691Z",
+      "finished_at": "2026-07-01T15:37:04.219344Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-101-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-101-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    },
+    {
+      "replicate_id": "102",
+      "started_at": "2026-07-01T15:27:18.569866Z",
+      "finished_at": "2026-07-01T15:38:41.589891Z",
+      "r0_run_id": "web_report_isolated-report_isolation-r0_same_session-replicate-102-attempt-1",
+      "r1_run_id": "web_report_isolated-report_isolation-r1_isolated_fork-replicate-102-attempt-1",
+      "r0_status": "completed",
+      "r1_status": "completed",
+      "status": "completed"
+    }
+  ],
+  "failures": []
+}

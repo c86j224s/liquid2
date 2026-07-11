@@ -1,0 +1,70 @@
+# Liquid2 unified runtime configuration example.
+#
+# Prefer split files for new local configuration:
+#   liquid2/config.api.toml
+#   liquid2/config.web.toml
+#
+# This unified file remains supported as a compatibility fallback. Copy it to
+# liquid2/config.toml when one file is more convenient for a worktree-local
+# setup. The copied config.toml file is ignored by Git.
+#
+# Development precedence, highest first:
+#   environment variables and explicit CLI arguments
+#   liquid2/config.web.toml
+#   liquid2/config.api.toml
+#   liquid2/config.toml
+#   ~/.config/liquid2-web-dev/config.toml
+#   ~/.config/liquid2-api-dev/config.toml
+#   ~/.config/liquid2-dev/config.toml
+#   app defaults for development mode
+#
+# Release scripts do not read worktree-local config files. Put release settings
+# under ~/.config/liquid2*. This keeps release DBs independent from development
+# worktree files. Browser scripts only pass LIQUID2_RUNTIME_MODE=dev or
+# LIQUID2_RUNTIME_MODE=release; file selection and defaults are owned by the
+# Liquid2 API app.
+
+[liquid2-api.server]
+addr = "127.0.0.1"
+port = 6011
+cors_origins = [
+  "http://127.0.0.1:6001",
+  "http://127.0.0.1:6002",
+  "http://localhost:6001",
+  "http://localhost:6002",
+]
+
+[liquid2-api.paths]
+db_path = "/path/to/liquid2-dev.db"
+export_dir = "/path/to/liquid2-exports"
+backup_dir = "/path/to/liquid2-backups"
+
+[liquid2-api.runtime]
+jobs_enabled = true
+seed_demo = false
+
+[liquid2-api.logging]
+level = "info"
+format = "text"
+source = false
+
+[liquid2-api.translation]
+provider = ""
+
+# [liquid2-api.translation.codex]
+# command = "codex"
+# model = ""
+# timeout_seconds = 300
+
+[liquid2-web.server]
+addr = "127.0.0.1"
+port = 6001
+
+[liquid2-web.runtime]
+# 개발 서버임을 브라우저 UI에 작게 표시합니다. 릴리즈 설정에서는 비워두세요.
+environment_label = "DEV"
+
+# For release configuration, use the same structure under:
+#   ~/.config/liquid2/config.toml
+#   ~/.config/liquid2-api/config.toml
+#   ~/.config/liquid2-web/config.toml

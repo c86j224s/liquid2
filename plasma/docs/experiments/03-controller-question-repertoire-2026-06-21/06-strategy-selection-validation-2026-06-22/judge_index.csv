@@ -1,0 +1,17 @@
+mission,judge_kind,blind_id,run_id,variant,winner
+M1,final-report-only,K1,M1-V2-seed-0002,V2,pending
+M1,final-report-only,K2,M1-V3-seed-0002,V3,pending
+M1,transcript-quality,K1,M1-V2-seed-0002,V2,pending
+M1,transcript-quality,K2,M1-V3-seed-0002,V3,pending
+M3,final-report-only,K1,M3-V3-seed-0002,V3,pending
+M3,final-report-only,K2,M3-V2-seed-0002,V2,pending
+M3,transcript-quality,K1,M3-V3-seed-0002,V3,pending
+M3,transcript-quality,K2,M3-V2-seed-0002,V2,pending
+M6,final-report-only,K1,M6-V3-seed-0002,V3,pending
+M6,final-report-only,K2,M6-V2-seed-0002,V2,pending
+M6,transcript-quality,K1,M6-V3-seed-0002,V3,pending
+M6,transcript-quality,K2,M6-V2-seed-0002,V2,pending
+M5,final-report-only,K1,M5-V2-seed-0002,V2,pending
+M5,final-report-only,K2,M5-V3-seed-0002,V3,pending
+M5,transcript-quality,K1,M5-V2-seed-0002,V2,pending
+M5,transcript-quality,K2,M5-V3-seed-0002,V3,pending

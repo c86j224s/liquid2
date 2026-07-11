@@ -1,0 +1,18 @@
+[
+  {
+    "designed_run_id": "EXT-report__DH18__rep01",
+    "input_hard_fail_status": "external",
+    "input_manifest_paths": [],
+    "input_report_path": "external:report.md",
+    "input_report_sha256": "d56dd5c8fc6826cc0fe3fee8a38f47ef469b2ab063c362032657568792b173b1",
+    "input_report_word_count": 2055,
+    "input_variant": "external",
+    "mission_id": "EXT-report",
+    "repeat": 1,
+    "seed": "1",
+    "source_cell": "EXTERNAL",
+    "source_report_run_id": "EXT-report",
+    "status": "dry_run",
+    "variant": "DH18"
+  }
+]

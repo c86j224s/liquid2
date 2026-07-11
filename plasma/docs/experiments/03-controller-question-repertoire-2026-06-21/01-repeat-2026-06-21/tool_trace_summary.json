@@ -1,0 +1,31 @@
+{
+  "trace_kind": "codex_exec_jsonl",
+  "runs": [
+    {
+      "run_id": "M5-V0-seed-0002",
+      "turn_event_files": 5,
+      "final_report": "runs/M5-V0-seed-0002/final-report.md"
+    },
+    {
+      "run_id": "M5-V1-seed-0002",
+      "turn_event_files": 5,
+      "final_report": "runs/M5-V1-seed-0002/final-report.md"
+    },
+    {
+      "run_id": "M5-V2-seed-0002",
+      "turn_event_files": 5,
+      "final_report": "runs/M5-V2-seed-0002/final-report.md"
+    },
+    {
+      "run_id": "M5-V3-seed-0002",
+      "turn_event_files": 5,
+      "final_report": "runs/M5-V3-seed-0002/final-report.md"
+    }
+  ],
+  "summary": {
+    "turns_per_run": 5,
+    "controller_decisions_per_run": 3,
+    "final_report_requested": true,
+    "tool_trace_normalized": false
+  }
+}

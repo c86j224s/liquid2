@@ -1,0 +1,9 @@
+stage,blind_id,source_run,variant,product_insight,reliability_recovery,user_lifecycle_ux,test_gap_clarity,actionability,implementation_mapping
+intermediate,K1,M5-V2-seed-0002,V2,4,5,4,4,5,5
+intermediate,K2,M5-V0-seed-0002,V0,3,4,4,5,4,5
+intermediate,K3,M5-V3-seed-0002,V3,5,3,5,5,4,4
+intermediate,K4,M5-V1-seed-0002,V1,5,4,4,5,5,4
+neutral_final,K1,M5-V2-seed-0002,V2,5,5,4,5,5,
+neutral_final,K2,M5-V0-seed-0002,V0,4,4,4,4,4,
+neutral_final,K3,M5-V3-seed-0002,V3,4,3,5,4,4,
+neutral_final,K4,M5-V1-seed-0002,V1,4,4,5,4,5,

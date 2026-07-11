@@ -1,0 +1,5 @@
+run_id,variant,input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens,final_report_words,controller_decisions,final_assessment
+M5-V0-seed-0002,V0,26491389,25677312,97477,21897,887,3,Strong call-path audit but less product reframing
+M5-V1-seed-0002,V1,16363949,15639168,96857,26885,921,3,Cleanest product-versus-test triage
+M5-V2-seed-0002,V2,19072369,18138624,111599,27321,1234,3,Strongest recovery and observability insight
+M5-V3-seed-0002,V3,16491372,15850880,90118,22651,1235,3,Strongest user lifecycle and affordance map

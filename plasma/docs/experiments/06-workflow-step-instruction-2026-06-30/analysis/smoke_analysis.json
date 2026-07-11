@@ -1,0 +1,27 @@
+{
+  "bootstrap_ci95": [
+    6.0,
+    6.0
+  ],
+  "class_sensitivity": [
+    {
+      "fixture_class": "broad-open",
+      "mean_delta": 6.0,
+      "n": 1,
+      "wins": 1
+    }
+  ],
+  "contamination_failures": 0,
+  "hard_failures": 0,
+  "losses": 0,
+  "mean_delta": 6.0,
+  "paired_blocks": 1,
+  "phase": "smoke",
+  "s0_broad_harm_ge2_rate": 1.0,
+  "s1_broad_harm3_count": 0,
+  "s1_broad_harm_ge2_rate": 0.0,
+  "scored_runs": 2,
+  "sign_test_p": 1.0,
+  "ties": 0,
+  "wins": 1
+}

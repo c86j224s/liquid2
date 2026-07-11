@@ -1,0 +1,5 @@
+run_id,variant,main_agent_turns,controller_decisions,final_report_words,total_input_tokens,total_cached_input_tokens,total_output_tokens,total_reasoning_tokens,status,contaminated
+M5-V0-seed-0001,V0,3,1,684,8065496,7684352,36228,7933,completed,no_product_mutation
+M5-V1-seed-0001,V1,3,1,759,6224112,5736064,32327,6028,completed,no_product_mutation
+M5-V2-seed-0001,V2,3,1,747,4931319,4491648,31576,7790,completed,no_product_mutation
+M5-V3-seed-0001,V3,3,1,690,4341700,3985408,27525,6207,completed,no_product_mutation

@@ -1,0 +1,45 @@
+{
+  "bootstrap_ci95": [
+    -1.1038874999999972,
+    3.2547125
+  ],
+  "class_sensitivity": [
+    {
+      "fixture_class": "ambiguous-intent",
+      "mean_delta": 2.6086000000000027,
+      "n": 2,
+      "wins": 2
+    },
+    {
+      "fixture_class": "broad-open",
+      "mean_delta": 3.625,
+      "n": 2,
+      "wins": 2
+    },
+    {
+      "fixture_class": "narrow-directed",
+      "mean_delta": -0.7485500000000016,
+      "n": 2,
+      "wins": 1
+    },
+    {
+      "fixture_class": "source-conflict",
+      "mean_delta": -0.9161499999999947,
+      "n": 2,
+      "wins": 0
+    }
+  ],
+  "contamination_failures": 0,
+  "hard_failures": 0,
+  "losses": 3,
+  "mean_delta": 1.1422250000000016,
+  "paired_blocks": 8,
+  "phase": "pilot",
+  "s0_broad_harm_ge2_rate": 1.0,
+  "s1_broad_harm3_count": 0,
+  "s1_broad_harm_ge2_rate": 0.5,
+  "scored_runs": 16,
+  "sign_test_p": 0.7265625,
+  "ties": 0,
+  "wins": 5
+}

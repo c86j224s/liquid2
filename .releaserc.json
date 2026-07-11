@@ -1,0 +1,35 @@
+{
+  "branches": [
+    "main"
+  ],
+  "tagFormat": "liquid2-v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "angular"
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "angular"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          {
+            "path": "liquid2_client-macos.zip",
+            "label": "liquid2_client macOS app"
+          },
+          {
+            "path": "liquid2-api-macos.zip",
+            "label": "liquid2 API server for macOS"
+          }
+        ]
+      }
+    ]
+  ]
+}

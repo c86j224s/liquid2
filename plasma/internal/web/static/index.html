@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Plasma 작업공간</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <div class="brand">Plasma</div>
+          <div class="subtitle">대화 기반 연구 작업공간</div>
+        </div>
+        <div class="runtime">
+          <span id="environmentBadge" class="badge environment-badge hidden" title="실행 환경"></span>
+          <span id="healthBadge" class="badge muted">상태 확인 중</span>
+          <span class="badge">대화 중심 흐름</span>
+          <button id="missionPickerOpen" class="secondary mobile-only" type="button" aria-label="미션 선택" title="미션 선택">📋 미션</button>
+          <button id="focusToggle" class="secondary" type="button" aria-label="넓게 보기" title="넓게 보기 — 헤더 접고 대화 최대화" aria-pressed="false">⤢</button>
+          <button id="themeToggle" type="button" aria-label="테마 전환" title="테마 전환">🌙</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="rail">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>미션 <span id="missionListCount" class="count-chip"></span></h2>
+              <div class="panel-actions">
+                <button id="refreshMissions" class="icon-button" title="미션 새로고침">↻</button>
+                <button id="missionPickerClose" class="icon-button secondary mobile-only" type="button" aria-label="닫기" title="닫기">×</button>
+              </div>
+            </div>
+            <details id="newMissionDetails">
+              <summary>+ 새 미션</summary>
+              <form id="missionForm" class="stack">
+                <input id="missionTitle" name="title" placeholder="미션 제목" required>
+                <textarea id="missionObjective" name="objective" rows="3" placeholder="목표와 범위"></textarea>
+                <button type="submit">미션 만들기</button>
+              </form>
+            </details>
+            <div id="missionList" class="list"></div>
+          </section>
+        </aside>
+
+        <section class="main-column">
+          <section class="panel mission-banner">
+            <div class="mission-banner-head">
+              <div class="mission-title-row">
+                <h1 id="missionName">선택된 미션 없음</h1>
+                <button id="missionRecallButton" class="secondary mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
+              </div>
+              <p id="missionObjectiveText">미션을 만들거나 선택하세요.</p>
+            </div>
+            <div class="metric-row">
+              <span id="sourceCount" class="metric">소스 0개</span>
+              <span id="candidateCount" class="metric hidden">후보 0개</span>
+              <span id="savedCount" class="metric hidden">저장 0개</span>
+            </div>
+          </section>
+
+          <nav id="tabBar" class="tabbar" aria-label="작업 탭">
+            <button type="button" class="tab active" data-tab="conversation">대화</button>
+            <button type="button" class="tab" data-tab="sources">소스 <span id="sourceTabCandidateCount" class="count-chip"></span></button>
+            <button type="button" class="tab hidden" data-tab="evidence">Legacy</button>
+            <button type="button" class="tab" data-tab="reports">리포트 <span id="reportTabCount" class="count-chip"></span></button>
+            <button type="button" class="tab" data-tab="ledger">장부 <span id="ledgerTabCount" class="count-chip"></span></button>
+            <button type="button" class="tab" data-tab="settings">설정</button>
+          </nav>
+
+          <section class="tab-panel active" data-tab-panel="conversation">
+            <section class="panel conversation-panel">
+              <div class="panel-head">
+                <h2>대화</h2>
+                <div class="panel-actions">
+                  <span id="turnStatus" class="turn-status hidden"><span class="spinner"></span>에이전트 응답 대기 중</span>
+                  <button id="cancelTurnButton" class="secondary hidden" type="button">응답 취소</button>
+                </div>
+              </div>
+              <details id="agentControlsDetails">
+                <summary>에이전트 설정 <span id="agentControlsSummaryText" class="agent-controls-summary-text"></span></summary>
+                <div class="agent-controls">
+                  <label>
+                    <span>에이전트</span>
+                    <select id="agentExecutor">
+                      <option value="codex">Codex</option>
+                      <option value="claude" disabled>Claude 준비 중</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>새 세션 모델</span>
+                    <select id="agentModel"></select>
+                  </label>
+                  <label>
+                    <span>추론 강도(Codex)</span>
+                    <select id="agentReasoningEffort"></select>
+                  </label>
+                  <label>
+                    <span>도구 사용</span>
+                    <select id="mcpMode">
+                      <option value="auto">읽기 도구 자동 사용</option>
+                      <option value="explicit">명시 요청만</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>조향 전략</span>
+                    <select id="controllerStrategy">
+                      <option value="auto">자동 선택</option>
+                      <option value="v2">V2 보수형</option>
+                      <option value="v3">V3 확장형</option>
+                    </select>
+                  </label>
+                  <button id="resetAgentSessionButton" class="secondary" type="button">새 세션 시작</button>
+                  <span id="agentSessionStatus" class="session-status">세션 상태 없음</span>
+                  <span class="badge muted">에이전트 답변은 결과이며, 소스는 별도 원본 자료입니다.</span>
+                </div>
+              </details>
+              <details id="workflowControlDetails" class="workflow-control">
+                <summary>
+                  <span class="workflow-control-title">자율 진행</span>
+                  <span id="workflowStatusBadge" class="badge muted">대기 없음</span>
+                  <span id="workflowRunCount" class="count-chip"></span>
+                </summary>
+                <div class="workflow-control-body">
+                  <div class="workflow-actions">
+                    <button id="draftWorkflowGoalButton" class="secondary" type="button">목표 초안 생성</button>
+                    <button id="startWorkflowButton" type="button">시작</button>
+                    <button id="stopWorkflowButton" class="secondary" type="button" disabled>중지</button>
+                  </div>
+                  <label class="field-label" for="workflowInstruction">요청 원문</label>
+                  <textarea id="workflowInstruction" rows="2" placeholder="예: 다각도로 조사하고, 부족하면 더 넓게 파생해서 봐줘"></textarea>
+                  <label class="field-label hidden" for="workflowStepInstructionMode">스텝 지시 방식</label>
+                  <select id="workflowStepInstructionMode" class="hidden" aria-hidden="true" tabindex="-1">
+                    <option value="layered" selected>3층 지시</option>
+                  </select>
+                  <div id="workflowLayeredFields" class="workflow-layered-fields">
+                    <label class="field-label" for="workflowRunGoal">자율 진행 목표</label>
+                    <textarea id="workflowRunGoal" rows="2" placeholder="목표 초안 생성 후 확인하거나 직접 수정"></textarea>
+                    <label class="field-label" for="workflowStepInstruction">첫 스텝 지시</label>
+                    <textarea id="workflowStepInstruction" rows="2" placeholder="이번 스텝에서 바로 수행할 조사 행동"></textarea>
+                  </div>
+                  <div id="workflowRunList" class="workflow-run-list"></div>
+                </div>
+              </details>
+              <div id="sourceCandidateNotice" class="source-candidate-notice hidden" aria-live="polite">
+                <span>소스 후보 <strong id="sourceCandidateNoticeCount">0</strong>개가 있습니다.</span>
+                <button id="openSourceCandidatesButton" type="button" class="secondary">소스 후보 보기</button>
+              </div>
+              <div id="turnLog" class="turn-log"></div>
+              <div id="turnNav" class="turn-nav hidden" role="group" aria-label="대화 이동">
+                <button type="button" class="turn-nav-btn" data-turn-nav="top" title="맨 위로" aria-label="맨 위로">⤒</button>
+                <button type="button" class="turn-nav-btn" data-turn-nav="up" title="한 칸 위로" aria-label="한 칸 위로">↑</button>
+                <button type="button" class="turn-nav-btn" data-turn-nav="down" title="한 칸 아래로" aria-label="한 칸 아래로">↓</button>
+                <button type="button" class="turn-nav-btn" data-turn-nav="bottom" title="맨 아래로" aria-label="맨 아래로">⤓</button>
+              </div>
+              <form id="turnForm" class="composer">
+                <textarea id="turnText" rows="3" placeholder="미션에 대해 질문하거나 방향을 조정하세요"></textarea>
+                <button id="sendTurnButton" type="submit">보내기</button>
+              </form>
+            </section>
+          </section>
+
+          <section class="tab-panel" data-tab-panel="sources">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>소스</h2>
+                <span class="badge">원문 자료</span>
+              </div>
+              <div class="source-add-group">
+              <div class="source-tabstrip" role="tablist" aria-label="소스 추가 방법">
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="addTextSourceDetails">텍스트</button>
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="uploadSourceDetails">파일</button>
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="mediaSourceDetails">미디어</button>
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="pdfSourceDetails">PDF</button>
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="localPathSourceDetails">로컬 경로</button>
+                <button type="button" class="source-tab" role="tab" aria-selected="false" data-source-tab="confluenceSourceDetails">Confluence</button>
+              </div>
+              <details id="addTextSourceDetails" class="source-add">
+                <summary>텍스트 소스 추가</summary>
+                <form id="sourceForm" class="stack">
+                  <input id="sourceTitle" name="title" placeholder="소스 제목">
+                  <input id="sourceURI" name="external_uri" placeholder="원문 URI 또는 메모">
+                  <textarea id="sourceContent" name="content" rows="5" placeholder="소스 원문을 붙여넣기"></textarea>
+                  <div class="inline-actions">
+                    <button type="submit">텍스트 소스 추가</button>
+                    <button id="sourceFetchURLButton" class="secondary" type="button">URL에서 가져오기</button>
+                  </div>
+                </form>
+              </details>
+              <details id="uploadSourceDetails" class="source-add">
+                <summary>파일 업로드 소스 추가</summary>
+                <form id="sourceUploadForm" class="stack">
+                  <input id="sourceUploadFile" name="file" type="file" accept=".txt,.md,.markdown,.json,.jsonl,.xml,.html,.htm,.xhtml,.pdf,.png,.jpg,.jpeg,.gif,text/*,application/json,application/xml,application/pdf,image/png,image/jpeg,image/gif">
+                  <input id="sourceUploadTitle" name="title" placeholder="소스 제목 (비우면 파일명 사용)">
+                  <button type="submit">파일 소스 추가</button>
+                </form>
+              </details>
+              <details id="mediaSourceDetails" class="source-add">
+                <summary>미디어 URL 소스 추가</summary>
+                <form id="mediaSourceForm" class="stack">
+                  <input id="mediaSourceURL" name="url" placeholder="이미지, 오디오, 영상 URL">
+                  <input id="mediaSourceTitle" name="title" placeholder="소스 제목">
+                  <input id="mediaSourceLicense" name="license" placeholder="라이선스 (모르면 비워두기)">
+                  <input id="mediaSourceAttribution" name="attribution" placeholder="저작자 또는 attribution">
+                  <button type="submit">미디어 소스 추가</button>
+                </form>
+              </details>
+              <details id="pdfSourceDetails" class="source-add">
+                <summary>PDF URL 소스 추가</summary>
+                <form id="pdfSourceForm" class="stack">
+                  <input id="pdfSourceURL" name="url" placeholder="PDF URL">
+                  <input id="pdfSourceTitle" name="title" placeholder="소스 제목">
+                  <button type="submit">PDF 소스 추가</button>
+                </form>
+              </details>
+              <details id="localPathSourceDetails" class="source-add">
+                <summary>로컬 경로 소스 추가</summary>
+                <form id="localPathForm" class="stack">
+                  <select id="localPathRoot" aria-label="로컬 소스 root"></select>
+                  <div id="localPathBreadcrumb" class="local-path-breadcrumb"></div>
+                  <div id="localPathTree" class="local-path-tree"></div>
+                  <input id="localPathRelativePath" name="relative_path" placeholder="root 기준 상대 경로 (아래에서 폴더·파일 선택)">
+                  <input id="localPathTitle" name="title" placeholder="소스 제목 (파일 선택 시 자동 입력)">
+                  <label class="inline-control">
+                    <input id="localPathRestore" type="checkbox">
+                    <span>같은 제거된 소스가 있으면 복원</span>
+                  </label>
+                  <div class="inline-actions">
+                    <button id="localPathTreeButton" class="secondary" type="button">새로고침</button>
+                    <button id="localPathAttachButton" type="submit" disabled>이 경로 소스로 추가</button>
+                  </div>
+                </form>
+              </details>
+              <details id="confluenceSourceDetails" class="source-add">
+                <summary>Confluence 소스 추가</summary>
+                <div class="stack confluence-source">
+                  <!-- ① 연결 -->
+                  <div class="confluence-step">
+                    <div class="confluence-step-head"><span class="confluence-step-num">1</span><strong>연결</strong></div>
+                    <div class="confluence-status">
+                      <label>
+                        <span>연결</span>
+                        <select id="confluenceConnectionSelect"></select>
+                      </label>
+                      <button id="confluenceRefreshConnections" class="secondary" type="button">새로고침</button>
+                    </div>
+                    <div id="confluenceConnectionSummary" class="source-helper">저장된 Confluence 연결을 불러오세요.</div>
+                    <div class="inline-actions confluence-source-actions">
+                      <button id="openConfluenceSettings" type="button">＋ Confluence 연결하기</button>
+                    </div>
+                  </div>
+
+                  <!-- ② 페이지 찾기 -->
+                  <div class="confluence-step">
+                    <div class="confluence-step-head"><span class="confluence-step-num">2</span><strong>페이지 찾기</strong></div>
+                    <div class="confluence-status">
+                      <label>
+                        <span>Site</span>
+                        <select id="confluenceSiteSelect"></select>
+                      </label>
+                    </div>
+                    <form id="confluenceSearchForm" class="inline-form confluence-search">
+                      <input id="confluenceQuery" name="query" placeholder="검색어로 Confluence 페이지 찾기">
+                      <input id="confluenceSpaceKey" name="space_key" placeholder="Space key (선택)">
+                      <select id="confluenceLimit" aria-label="검색 개수">
+                        <option value="5">5개</option>
+                        <option value="10" selected>10개</option>
+                        <option value="20">20개</option>
+                      </select>
+                      <button type="submit">찾기</button>
+                    </form>
+                    <div class="inline-actions confluence-source-actions">
+                      <button id="confluenceOneClickStart" class="secondary" type="button" title="검색어 없이 눌러도 Space·page를 자동으로 훑어줍니다">자동으로 찾아주기</button>
+                    </div>
+                    <div id="confluenceResults" class="list compact"></div>
+
+                    <details class="confluence-more">
+                      <summary>다른 방법 · Space 탐색 / URL 붙여넣기</summary>
+                      <div class="stack">
+                        <div class="confluence-box">
+                          <div class="confluence-box-head">
+                            <strong>URL로 추가</strong>
+                            <span class="badge muted">page 직접 지정</span>
+                          </div>
+                          <form id="confluenceURLForm" class="inline-form confluence-url-form">
+                            <input id="confluencePageURL" name="url" placeholder="Confluence page URL">
+                            <button id="confluenceAddURLButton" type="submit">추가</button>
+                          </form>
+                          <div class="source-helper">선택한 연결·site의 Confluence page URL만 소스로 추가됩니다.</div>
+                        </div>
+                        <div id="confluenceBrowsePanel" class="confluence-box">
+                          <div class="confluence-box-head">
+                            <strong>Space와 page 탐색</strong>
+                            <span class="badge muted">후보 탐색</span>
+                          </div>
+                          <div class="inline-actions">
+                            <button id="confluenceLoadSpaces" class="secondary" type="button">Space 불러오기</button>
+                            <button id="confluenceLoadMoreSpaces" class="secondary hidden" type="button">Space 더 보기</button>
+                          </div>
+                          <div id="confluenceBrowseBreadcrumb" class="item-meta">Site를 선택하고 Space를 불러오세요.</div>
+                          <div id="confluenceSpaces" class="list compact"></div>
+                          <div id="confluencePages" class="list compact"></div>
+                          <div class="inline-actions">
+                            <button id="confluenceLoadMorePages" class="secondary hidden" type="button">Page 더 보기</button>
+                          </div>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+
+                  <!-- ③ 미리보기 후 소스로 추가 -->
+                  <div class="confluence-step">
+                    <div class="confluence-step-head"><span class="confluence-step-num">3</span><strong>미리보기 후 소스로 추가</strong></div>
+                    <div id="confluenceFlowStatus" class="source-helper">페이지를 고르면 미리보기가 열립니다. 확인 후 소스로 승인하세요.</div>
+                  <div id="confluencePreviewPanel" class="confluence-box hidden">
+                    <div class="confluence-box-head">
+                      <strong>후보 검토</strong>
+                      <span class="badge muted">미리보기는 소스가 아님</span>
+                    </div>
+                    <div id="confluencePreviewMeta" class="source-helper"></div>
+                    <pre id="confluencePreviewText" class="source-preview"></pre>
+                    <label>
+                      <span>범위 선택</span>
+                      <select id="confluenceRangeSelect"></select>
+                    </label>
+                    <div class="inline-actions">
+                      <button id="confluenceApproveFullSnapshot" type="button">전체 페이지를 소스로 승인</button>
+                      <button id="confluenceApproveRangeSnapshot" class="secondary" type="button">선택 범위를 소스로 승인</button>
+                    </div>
+                  </div>
+                  <div id="confluenceUpdatePanel" class="confluence-box hidden">
+                    <div class="confluence-box-head">
+                      <strong>업데이트 검토</strong>
+                      <span class="badge muted">미리보기는 소스가 아님</span>
+                    </div>
+                    <div id="confluenceUpdateMeta" class="source-helper"></div>
+                    <pre id="confluenceUpdatePreviewText" class="source-preview"></pre>
+                    <label>
+                      <span>새 범위 선택</span>
+                      <select id="confluenceUpdateRangeSelect"></select>
+                    </label>
+                    <div class="inline-actions">
+                      <button id="confluenceUpdatePreviewButton" class="secondary" type="button">새 버전 미리보기</button>
+                      <button id="confluenceApproveUpdate" type="button">새 스냅샷으로 승인</button>
+                    </div>
+                  </div>
+                  </div>
+
+                  <details class="confluence-agent-grant">
+                    <summary>
+                      <strong>에이전트가 대화 중 Confluence 검색하도록 허용</strong>
+                      <span id="confluenceAccessBadge" class="badge muted">기본 off</span>
+                    </summary>
+                    <div class="stack">
+                      <p class="source-helper">소스 추가와는 별개입니다. 이 권한은 에이전트가 대화 중 MCP로 Confluence를 검색하도록만 허용합니다. page를 소스로 붙이려면 위 ①~③ 단계로 snapshot을 승인하세요.</p>
+                      <div class="inline-form">
+                        <select id="confluenceAccessConnectionSelect" aria-label="agent search Confluence 연결"></select>
+                        <select id="confluenceAccessSiteSelect" aria-label="agent search Confluence site"></select>
+                        <input id="confluenceAccessSpaceKey" placeholder="Space key 제한 (선택)">
+                        <button id="confluenceAccessEnable" type="button">검색 허용 켜기</button>
+                        <button id="confluenceAccessDisable" class="secondary" type="button">끄기</button>
+                      </div>
+                      <div id="confluenceAccessStatus" class="source-helper">Confluence agent search는 미션마다 명시적으로 켜야 합니다.</div>
+                    </div>
+                  </details>
+                </div>
+              </details>
+              </div>
+              <form id="liquid2Form" class="inline-form">
+                <input id="liquid2Query" name="query" placeholder="Liquid2 검색어">
+                <button type="submit">검색</button>
+              </form>
+              <div id="liquid2Results" class="list compact"></div>
+              <div class="divider source-candidate-divider hidden"></div>
+              <h3 class="source-candidate-header hidden">소스 후보 <span id="sourceCandidateCount" class="count-chip"></span></h3>
+              <div id="sourceCandidateBulk" class="bulk-bar hidden" aria-live="polite">
+                <span class="badge"><span id="sourceCandidateBulkCount">0</span>개 선택</span>
+                <button id="sourceCandidateSelectAll" type="button" class="secondary">전체 선택</button>
+                <button id="sourceCandidateBulkApprove" type="button">소스로 추가</button>
+                <button id="sourceCandidateBulkReject" type="button" class="danger">기각</button>
+                <button id="sourceCandidateClearSelection" type="button" class="secondary">선택 해제</button>
+              </div>
+              <div id="sourceCandidateList" class="list compact hidden"></div>
+              <details id="rejectedSourceCandidateDetails" class="section-details hidden">
+                <summary>기각한 후보 <span id="rejectedSourceCandidateCount" class="count-chip"></span></summary>
+                <div id="rejectedSourceCandidateList" class="list compact"></div>
+              </details>
+              <div class="divider saved-source-divider"></div>
+              <div class="panel-head saved-source-header">
+                <h3>저장된 소스 <span id="sourceListCount" class="count-chip"></span></h3>
+                <label class="inline-control">
+                  <input id="includeRemovedSources" type="checkbox">
+                  <span>제거된 소스 보기</span>
+                </label>
+              </div>
+              <div id="sourceList" class="list"></div>
+            </section>
+          </section>
+
+          <section class="tab-panel hidden" data-tab-panel="evidence">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>검토와 저장 지식</h2>
+                <span class="badge">승인 필요</span>
+              </div>
+              <details id="manualCandidateDetails" class="section-details">
+                <summary>근거 후보 직접 추가</summary>
+                <form id="candidateForm" class="stack">
+                  <select id="candidateSource"></select>
+                  <select id="candidateEvidenceType" title="근거 신호 종류">
+                    <option value="fact">사실</option>
+                    <option value="observation" selected>관찰</option>
+                    <option value="quote">인용</option>
+                    <option value="statistic">통계</option>
+                    <option value="table_row">표 항목</option>
+                    <option value="interpretation">해석/평가</option>
+                    <option value="reaction">반응</option>
+                    <option value="rumor">루머/미확정설</option>
+                    <option value="controversy">논쟁 축</option>
+                    <option value="market_signal">시장 신호</option>
+                    <option value="code">코드</option>
+                    <option value="formula">수식</option>
+                    <option value="benchmark">벤치마크</option>
+                    <option value="open_question">열린 질문</option>
+                  </select>
+                  <textarea id="candidateSummary" rows="4" placeholder="소스에 근거해 저장할 내용을 적으세요"></textarea>
+                  <button type="submit">근거 후보 제안</button>
+                </form>
+              </details>
+              <div class="divider"></div>
+              <h3>검토 대기 후보 <span id="proposalListCount" class="count-chip"></span></h3>
+              <div id="proposalBulk" class="bulk-bar hidden" aria-live="polite">
+                <span class="badge"><span id="proposalBulkCount">0</span>개 선택</span>
+                <button id="proposalSelectAll" type="button" class="secondary">전체 선택</button>
+                <button id="proposalBulkApprove" type="button">승인</button>
+                <button id="proposalBulkReject" type="button" class="danger">기각</button>
+                <button id="proposalClearSelection" type="button" class="secondary">선택 해제</button>
+              </div>
+              <div id="proposalList" class="list"></div>
+              <details id="savedListDetails" class="section-details">
+                <summary>승인된 근거 <span id="savedCountSummary" class="count-chip"></span></summary>
+                <div id="savedList" class="list compact"></div>
+              </details>
+              <details id="claimConfidenceDetails" class="section-details">
+                <summary>주장 신뢰도 변화 <span id="claimConfidenceCount" class="count-chip"></span></summary>
+                <div id="claimConfidenceList" class="list compact"></div>
+              </details>
+              <details id="savedClaimListDetails" class="section-details">
+                <summary>승인된 주장 <span id="savedClaimListCount" class="count-chip"></span></summary>
+                <div id="savedClaimList" class="list compact"></div>
+              </details>
+            </section>
+          </section>
+
+          <section class="tab-panel" data-tab-panel="reports">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>리포트 <span id="reportListCount" class="count-chip"></span></h2>
+                <div class="panel-actions">
+                  <span id="reportStatus" class="report-status hidden"><span class="spinner"></span>리포트 초안 생성 중</span>
+                  <label class="inline-control" for="reportRigor">
+                    <span>엄격도</span>
+                    <select id="reportRigor">
+                      <option value="exploratory">탐색적</option>
+                      <option value="balanced" selected>균형형</option>
+                      <option value="strict">검증형</option>
+                    </select>
+                  </label>
+	                  <div class="report-mode-actions" aria-label="리포트 생성 방식">
+	                    <button id="draftQuickReport" title="계획 기반 Markdown 보고서 생성">보고서</button>
+	                    <button id="draftLongReport" class="secondary" title="섹션별 작성과 보존 조립 방식의 장문 보고서 생성">장문 보고서</button>
+	                    <button id="cancelReportButton" class="secondary hidden" type="button">생성 취소</button>
+	                  </div>
+                </div>
+              </div>
+              <div id="reportNotice" class="report-notice hidden"></div>
+              <div id="reportList" class="list compact"></div>
+            </section>
+          </section>
+
+          <section class="tab-panel" data-tab-panel="ledger">
+            <section class="panel ledger-panel">
+              <div class="panel-head">
+                <h2>장부 <span id="ledgerCount" class="count-chip"></span></h2>
+                <span class="badge muted">읽기 전용</span>
+              </div>
+              <div id="ledgerList" class="list compact"></div>
+            </section>
+          </section>
+
+          <section class="tab-panel" data-tab-panel="settings">
+            <section class="panel">
+              <div class="panel-head">
+                <h2>Settings</h2>
+                <span class="badge">전역 연결</span>
+              </div>
+              <details id="confluenceSettingsDetails" class="source-add" open>
+                <summary>Confluence 연결</summary>
+                <div class="stack">
+                  <p class="source-helper">Settings는 재사용 가능한 Confluence 연결을 저장합니다. 미션 Sources는 여기에서 만든 연결을 선택해 page snapshot만 명시적으로 소스로 승인합니다.</p>
+                  <div class="confluence-settings-head">
+                    <div id="confluenceSettingsConnectionSummary" class="source-helper">저장된 Confluence 연결을 불러오세요.</div>
+                    <button id="confluenceSettingsRefreshConnections" class="secondary" type="button">연결 새로고침</button>
+                  </div>
+                  <div id="confluenceSettingsConnections" class="confluence-connection-cards"></div>
+
+                  <details id="confluenceSettingsAddCard" class="confluence-add-card">
+                    <summary>＋ 새 API token 연결 추가</summary>
+                    <form id="confluenceSettingsAPIForm" class="stack">
+                      <p class="source-helper confluence-token-note">0.0에서는 Confluence 연결을 API token 방식으로만 사용합니다. Atlassian 계정 보안 페이지에서 API token을 만든 뒤 email, token, site URL을 입력하세요.</p>
+                      <a class="button-link secondary" href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener noreferrer">Atlassian API token 만들기</a>
+                      <input id="confluenceSettingsAPIEmail" name="email" autocomplete="username" placeholder="Atlassian email">
+                      <input id="confluenceSettingsAPIToken" name="api_token" type="password" autocomplete="off" placeholder="Atlassian API token">
+                      <input id="confluenceSettingsAPISiteURL" name="site_url" placeholder="Confluence site URL (예: https://example.atlassian.net)">
+                      <details class="section-details">
+                        <summary>표시 이름 직접 지정</summary>
+                        <div class="stack">
+                          <input id="confluenceSettingsAPIDisplayName" name="display_name" placeholder="연결 이름 (선택)">
+                          <input id="confluenceSettingsAPISiteName" name="site_name" placeholder="site 이름 (선택)">
+                        </div>
+                      </details>
+                      <button type="submit">API token 연결 추가</button>
+                    </form>
+                  </details>
+                </div>
+              </details>
+            </section>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="errorToast" class="error-toast hidden">
+      <div class="panel-head">
+        <h2>요청 실패</h2>
+        <div class="panel-actions">
+          <button id="copyError" class="icon-button" title="오류 복사">⧉</button>
+          <button id="closeError" class="icon-button" title="닫기">×</button>
+        </div>
+      </div>
+      <pre id="errorText"></pre>
+    </div>
+
+    <div id="detailModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+      <div class="modal-card">
+        <div class="panel-head">
+          <h2 id="detailTitle">상세 보기</h2>
+          <div class="panel-actions">
+            <button id="copyDetail" class="icon-button secondary" type="button" title="상세 내용 복사">⧉</button>
+            <button id="closeDetail" class="icon-button secondary" type="button" title="닫기">×</button>
+          </div>
+        </div>
+        <div id="detailBody" class="detail-body"></div>
+      </div>
+    </div>
+
+    <script src="/static/vendor/markdown-it.min.js"></script>
+    <script src="/static/vendor/purify.min.js"></script>
+    <script src="/static/app.js"></script>
+    <script src="/static/confluence.js"></script>
+    <script src="/static/confluence_settings.js"></script>
+    <script src="/static/confluence_access.js"></script>
+    <script src="/static/confluence_workflow.js"></script>
+    <script src="/static/confluence_browse.js"></script>
+    <script src="/static/confluence_review.js"></script>
+    <script src="/static/confluence_update.js"></script>
+  </body>
+</html>

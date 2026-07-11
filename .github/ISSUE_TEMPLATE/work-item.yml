@@ -1,0 +1,86 @@
+name: Work item
+description: GitHub-managed work item for agent collaboration
+title: "[type(scope): short summary]"
+labels:
+  - "issue:backlog"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Issue는 기본적으로 `issue:backlog`에서 시작합니다. 트리아지 또는
+        메인 관리 에이전트는 아래 필드가 한 에이전트, 한 브랜치, 한 PR로
+        처리할 만큼 구체적이고, 사용자의 명시 승인 또는 사전 위임 scope가
+        있을 때만 `issue:ready`로 전환할 수 있습니다.
+  - type: textarea
+    id: goal
+    attributes:
+      label: 목표
+      description: 무엇을 바꾸나요?
+    validations:
+      required: true
+  - type: textarea
+    id: reason
+    attributes:
+      label: 이유
+      description: 왜 필요한가요?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 수용 기준
+      description: 어떤 조건을 만족하면 완료로 볼 수 있나요?
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: 금지 범위
+      description: 이번 issue에서 하지 않을 일은 무엇인가요?
+    validations:
+      required: true
+  - type: input
+    id: target_area
+    attributes:
+      label: 대상 영역
+      description: "예: liquid2, plasma, root/docs, .github"
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 검증 방법
+      description: 어떤 테스트, 명령, 수동 확인으로 증명해야 하나요?
+    validations:
+      required: true
+  - type: dropdown
+    id: user_gate
+    attributes:
+      label: 사용자 확인 종류
+      description: 어떤 사용자 확인이 필요한가요?
+      options:
+        - none
+        - docs
+        - runtime
+        - release
+    validations:
+      required: true
+  - type: dropdown
+    id: release_impact
+    attributes:
+      label: 릴리즈 영향
+      description: 릴리즈 검토에서 어떻게 다뤄야 하나요?
+      options:
+        - internal only
+        - user-visible
+        - release blocker
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: decisions
+    attributes:
+      label: 열린 결정
+      description: "`issue:ready` 전환을 막는 결정이 있으면 적고, 없으면 `none`이라고 적습니다."
+    validations:
+      required: true

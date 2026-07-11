@@ -1,0 +1,15 @@
+# liquid2_api.model.ErrorDetail
+
+## Load the model package
+```dart
+import 'package:liquid2_api/api.dart';
+```
+
+## Properties
+Name | Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+**location** | **String** | Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' | [optional]
+**message** | **String** | Error message text | [optional]
+**value** | [**JsonObject**](.md) | The value at the given location | [optional]
+
+[[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

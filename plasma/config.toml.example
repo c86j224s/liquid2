@@ -1,0 +1,60 @@
+# Plasma local runtime configuration example.
+#
+# Copy this file to plasma/config.toml for a worktree-local development
+# configuration. The copied config.toml file is ignored by Git.
+#
+# Development precedence, highest first:
+#   environment variables
+#   plasma/config.toml
+#   ~/.config/plasma-dev/config.toml
+#   app defaults for development mode
+#
+# Browser scripts do not parse or inject these app runtime settings. They only
+# pass PLASMA_RUNTIME_MODE=dev or PLASMA_RUNTIME_MODE=release. Put release
+# settings in ~/.config/plasma/config.toml so dev and release DBs cannot be
+# mixed by a worktree-local development file.
+
+[plasma-server]
+addr = "127.0.0.1"
+port = 6002
+liquid2_url = "http://127.0.0.1:6011"
+# 개발 서버임을 브라우저 UI에 작게 표시합니다. 릴리즈 설정에서는 비워두세요.
+environment_label = "DEV"
+
+[plasma-paths]
+db_path = "/path/to/plasma-dev.db"
+# Omit static_dir to serve embedded assets. Use "auto" for repo static assets
+# during development, or set an explicit directory path.
+static_dir = "auto"
+
+[plasma-agents]
+enabled = ["codex"]
+workdir = "/tmp/plasma-agent-workdir"
+timeout = ""
+
+[plasma-agents.codex]
+command = "codex"
+# Interactive Codex sessions use Plasma's gpt-5.6-terra / medium default.
+# Do not add a normal model override here; choose a model per mission in Plasma.
+# These remain specialized workflow-goal drafting settings.
+workflow_goal_model = ""
+workflow_goal_reasoning_effort = "low"
+
+[plasma-agents.claude]
+command = "claude"
+model = "haiku"
+max_budget_usd = ""
+
+[plasma-local-sources.roots]
+# Use a parent directory that contains repositories, then attach sources by
+# relative path such as root=workspace and path=liquid2/README.md.
+workspace = "/path/to/repository-parent"
+docs = "/path/to/documents"
+
+# Confluence is API-token only in the 0.0 line. Register Confluence
+# connections from the Plasma Settings UI with an Atlassian email, API token,
+# and site URL. OAuth settings are intentionally not part of the default
+# example until the OAuth product path is reintroduced.
+
+# For release configuration, create ~/.config/plasma/config.toml with the same
+# structure and use release port 3002.

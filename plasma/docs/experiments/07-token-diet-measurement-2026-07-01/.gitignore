@@ -1,0 +1,6 @@
+local-redacted/
+*.tmp
+.output.lock
+.run_index.lock
+runs/.*.lock
+__pycache__/

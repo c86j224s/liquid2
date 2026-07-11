@@ -1,0 +1,21 @@
+experiment,mission_id,cell,seed,attempt,status,readability,depth,breadth,source_groundedness,overclaim_rate,unsupported_conclusion_rate,unverifiable_conclusion_rate,provenance_completeness,internal_id_path_leakage,distinct_original_sources_read,useful_offset_reads,dead_end_reads,repeated_reads,turns_to_first_useful_source,cited_claim_backing_rate,outline_use_count,reference_traversal_count,bounded_read_violations,generated_artifact_as_source_incidents,notes
+mcp-random-seek,RM1,R0,1001,1,judged,5,5,5,0.960,0.020,0.020,0.020,0.950,0,1,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM1,R1,1001,1,judged,5,4,5,0.950,0.030,0.020,0.020,0.920,0,0,28,,,,,2,,0,0,grep/tool calls=16
+mcp-random-seek,RM2,R0,1002,1,judged,5,5,5,0.930,0.050,0.070,0.080,0.900,0,4,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM2,R1,1002,1,judged,5,5,5,0.950,0.050,0.050,0.020,0.900,0,0,36,,,,,8,,0,0,grep/tool calls=20
+mcp-random-seek,RM3,R0,1003,1,judged,5,5,5,0.960,0.050,0.040,0.080,0.950,0,0,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM3,R1,1003,1,judged,5,5,5,0.950,0.030,0.040,0.050,0.920,0,0,76,,,,,8,,0,0,grep/tool calls=62
+mcp-random-seek,RM4,R0,1004,1,judged,5,5,5,0.950,0.040,0.040,0.050,0.950,0,3,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM4,R1,1004,1,judged,5,5,5,0.940,0.040,0.060,0.040,0.920,0,0,40,,,,,0,,0,0,grep/tool calls=22
+mcp-random-seek,RM5,R0,1005,1,judged,5,5,4,0.920,0.050,0.060,0.040,0.900,0,3,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM5,R1,1005,1,judged,5,5,5,0.940,0.040,0.050,0.080,0.880,0,0,44,,,,,0,,0,0,grep/tool calls=26
+mcp-random-seek,RM6,R0,1006,1,judged,5,5,5,0.940,0.060,0.070,0.040,0.920,0,3,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM6,R1,1006,1,judged,5,5,5,0.920,0.080,0.060,0.080,0.900,0,0,34,,,,,6,,0,0,grep/tool calls=20
+mcp-random-seek,RM7,R0,1007,1,judged,5,5,5,0.960,0.030,0.020,0.030,0.950,0,0,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM7,R1,1007,1,judged,5,5,5,0.960,0.030,0.030,0.040,0.950,0,0,44,,,,,0,,0,0,grep/tool calls=8
+mcp-random-seek,RM8,R0,1008,1,judged,5,5,5,0.970,0.020,0.020,0.010,0.960,0,0,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM8,R1,1008,1,judged,5,5,5,0.970,0.020,0.020,0.030,0.960,0,0,92,,,,,4,,0,0,grep/tool calls=30
+mcp-random-seek,RM9,R0,1009,1,judged,5,5,5,0.960,0.030,0.020,0.020,0.930,0,0,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM9,R1,1009,1,judged,5,5,5,0.970,0.030,0.020,0.020,0.950,0,0,22,,,,,6,,0,0,grep/tool calls=46
+mcp-random-seek,RM10,R0,1010,1,judged,5,5,5,0.960,0.040,0.030,0.030,0.950,0,1,0,,,,,0,,0,0,grep/tool calls=0
+mcp-random-seek,RM10,R1,1010,1,judged,5,5,5,0.960,0.040,0.030,0.030,0.920,0,1,0,,,,,0,,0,0,grep/tool calls=0

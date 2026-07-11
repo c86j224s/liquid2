@@ -1,0 +1,45 @@
+package app
+
+import "github.com/c86j224s/liquid2/plasma/internal/workflowstate"
+
+const WorkflowRunRequestedEvent = workflowstate.WorkflowRunRequestedEvent
+const WorkflowRunStartedEvent = workflowstate.WorkflowRunStartedEvent
+const WorkflowRunStopRequestedEvent = workflowstate.WorkflowRunStopRequestedEvent
+const WorkflowSourceSkippedEvent = workflowstate.WorkflowSourceSkippedEvent
+const WorkflowStepStartedEvent = workflowstate.WorkflowStepStartedEvent
+const WorkflowStepCompletedEvent = workflowstate.WorkflowStepCompletedEvent
+const WorkflowRunCompletedEvent = workflowstate.WorkflowRunCompletedEvent
+const WorkflowRunPausedEvent = workflowstate.WorkflowRunPausedEvent
+const WorkflowRunStoppedEvent = workflowstate.WorkflowRunStoppedEvent
+const WorkflowRunFailedEvent = workflowstate.WorkflowRunFailedEvent
+const WorkflowRunInterruptedEvent = workflowstate.WorkflowRunInterruptedEvent
+
+const WorkflowStatusQueued = workflowstate.WorkflowStatusQueued
+const WorkflowStatusRunning = workflowstate.WorkflowStatusRunning
+const WorkflowStatusStopping = workflowstate.WorkflowStatusStopping
+const WorkflowStatusCompleted = workflowstate.WorkflowStatusCompleted
+const WorkflowStatusPaused = workflowstate.WorkflowStatusPaused
+const WorkflowStatusStopped = workflowstate.WorkflowStatusStopped
+const WorkflowStatusFailed = workflowstate.WorkflowStatusFailed
+const WorkflowStatusInterrupted = workflowstate.WorkflowStatusInterrupted
+
+const WorkflowSurfaceWeb = workflowstate.WorkflowSurfaceWeb
+const WorkflowSurfaceCLI = workflowstate.WorkflowSurfaceCLI
+const WorkflowSurfaceMCP = workflowstate.WorkflowSurfaceMCP
+const WorkflowSurfaceAgentSession = workflowstate.WorkflowSurfaceAgentSession
+
+const WorkflowStepInstructionModeCurrent = workflowstate.WorkflowStepInstructionModeCurrent
+const WorkflowStepInstructionModeLayered = workflowstate.WorkflowStepInstructionModeLayered
+
+type RequestWorkflowRunRequest = workflowstate.RequestWorkflowRunRequest
+type RequestWorkflowStopRequest = workflowstate.RequestWorkflowStopRequest
+type WorkflowRunTerminalEventRequest = workflowstate.WorkflowRunTerminalEventRequest
+type WorkflowRunRequestedPayload = workflowstate.WorkflowRunRequestedPayload
+type WorkflowRunStopRequestedPayload = workflowstate.WorkflowRunStopRequestedPayload
+type WorkflowRunStartedPayload = workflowstate.WorkflowRunStartedPayload
+type WorkflowStepStartedPayload = workflowstate.WorkflowStepStartedPayload
+type WorkflowSourceSkippedPayload = workflowstate.WorkflowSourceSkippedPayload
+type WorkflowStepCompletedPayload = workflowstate.WorkflowStepCompletedPayload
+type WorkflowRunTerminalPayload = workflowstate.WorkflowRunTerminalPayload
+type WorkflowRunView = workflowstate.WorkflowRunView
+type WorkflowStepView = workflowstate.WorkflowStepView

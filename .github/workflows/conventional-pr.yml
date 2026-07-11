@@ -1,0 +1,26 @@
+name: Conventional PR Title
+
+on:
+  workflow_dispatch:
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    if: ${{ github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          pattern='^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([A-Za-z0-9._/-]+\))?!?: .+'
+          if [[ "${PR_TITLE}" =~ ${pattern} ]]; then
+            exit 0
+          fi
+
+          echo "::error title=Invalid PR title::Use Conventional Commits format, for example: feat: add macOS release workflow"
+          exit 1

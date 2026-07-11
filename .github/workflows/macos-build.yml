@@ -1,0 +1,83 @@
+name: macOS Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LIQUID2_API_BASE_URL: http://localhost:8080
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable macOS desktop
+        run: flutter config --enable-macos-desktop
+
+      - name: Install Flutter dependencies
+        working-directory: liquid2/client
+        run: flutter pub get
+
+      - name: Build macOS app
+        working-directory: liquid2/client
+        run: |
+          flutter build macos --release \
+            --dart-define=LIQUID2_API_BASE_URL="${LIQUID2_API_BASE_URL}"
+
+      - name: Build macOS API server
+        working-directory: liquid2
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/dist"
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags='-s -w' \
+            -o "${GITHUB_WORKSPACE}/dist/liquid2-api-darwin-amd64" ./cmd/api
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags='-s -w' \
+            -o "${GITHUB_WORKSPACE}/dist/liquid2-api-darwin-arm64" ./cmd/api
+          lipo -create -output "${GITHUB_WORKSPACE}/dist/liquid2-api" \
+            "${GITHUB_WORKSPACE}/dist/liquid2-api-darwin-amd64" \
+            "${GITHUB_WORKSPACE}/dist/liquid2-api-darwin-arm64"
+          chmod +x "${GITHUB_WORKSPACE}/dist/liquid2-api"
+
+      - name: Package app
+        run: |
+          cd liquid2/client/build/macos/Build/Products/Release
+          ditto -c -k --keepParent liquid2_client.app \
+            "${GITHUB_WORKSPACE}/liquid2_client-macos.zip"
+
+      - name: Package API server
+        run: |
+          cd dist
+          zip -X -9 "${GITHUB_WORKSPACE}/liquid2-api-macos.zip" liquid2-api
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liquid2_client-macos
+          path: liquid2_client-macos.zip
+          if-no-files-found: error
+
+      - name: Upload API artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: liquid2-api-macos
+          path: liquid2-api-macos.zip
+          if-no-files-found: error

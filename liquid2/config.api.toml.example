@@ -1,0 +1,44 @@
+# Liquid2 API runtime configuration example.
+#
+# Copy this file to liquid2/config.api.toml for a worktree-local API config.
+# The copied config.api.toml file is ignored by Git.
+#
+# Development runtime precedence for API values:
+#   environment variables and explicit CLI arguments
+#   liquid2/config.api.toml
+#   liquid2/config.toml
+#   ~/.config/liquid2-api-dev/config.toml
+#   ~/.config/liquid2-dev/config.toml
+#   app defaults for development mode
+
+[server]
+addr = "127.0.0.1"
+port = 6011
+cors_origins = [
+  "http://127.0.0.1:6001",
+  "http://127.0.0.1:6002",
+  "http://localhost:6001",
+  "http://localhost:6002",
+]
+
+[paths]
+db_path = "/path/to/liquid2-dev.db"
+export_dir = "/path/to/liquid2-exports"
+backup_dir = "/path/to/liquid2-backups"
+
+[runtime]
+jobs_enabled = true
+seed_demo = false
+
+[logging]
+level = "info"
+format = "text"
+source = false
+
+[translation]
+provider = ""
+
+# [translation.codex]
+# command = "codex"
+# model = ""
+# timeout_seconds = 300

@@ -1,0 +1,89 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.toml
+config.*.toml
+!config.toml.example
+!config.*.toml.example
+.claude/
+.local/
+
+# Local databases and backups
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+liquid2.db.backup-*
+backups/
+export/
+
+# Logs
+*.log
+logs/
+
+# Go
+bin/
+coverage.out
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+# General editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Fleet local state
+.fleet/drafts/
+.fleet/plans/
+.fleet/.fleet-project-codex-plugin.hash
+.fleet/knowledge/
+.fleet/retros/
+
+# Plasma external artifacts and generated experiment outputs
+research-artifacts/
+plasma/docs/product-follow-ups.md
+plasma/scripts/c1-controller-runner.py
+plasma/scripts/grounding-validation.py
+plasma/scripts/experiments/
+!plasma/scripts/experiments/
+!plasma/scripts/experiments/product_path_g2_report_experiment.py
+plasma/docs/experiments/**/runs/
+plasma/docs/experiments/**/audits/
+plasma/docs/experiments/**/judge_packets/
+plasma/docs/experiments/**/scorer_packets/
+plasma/docs/experiments/**/local-redacted/
+plasma/docs/experiments/**/missions/
+plasma/docs/experiments/**/tools/
+plasma/docs/experiments/**/run_goal_generation/
+plasma/docs/experiments/**/source_catalog.json
+plasma/docs/experiments/**/mission_seed.md
+plasma/docs/experiments/**/mapping.json
+plasma/docs/experiments/**/budget_summary.json
+plasma/docs/experiments/**/preview.html
+plasma/docs/experiments/**/pairwise_comparison.json
+plasma/docs/experiments/**/summary.json
+plasma/docs/experiments/**/contamination_failures.csv
+plasma/docs/experiments/**/report_isolation_preflight.json
+plasma/docs/experiments/**/mission_fixtures.jsonl
+plasma/docs/experiments/**/*.prompt.md
+plasma/docs/experiments/**/*-stderr.txt
+plasma/docs/experiments/**/*.events.jsonl
+plasma/docs/experiments/**/*.stderr.txt
+plasma/docs/experiments/**/*.raw.md
+plasma/docs/experiments/**/*manifest*.json
+plasma/docs/experiments/**/session_id.txt
+plasma/docs/experiments/**/generator_session_id.txt
+plasma/docs/experiments/**/main_session_id.txt
