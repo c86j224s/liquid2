@@ -206,6 +206,25 @@ go run ./cmd/plasma mcp \
 - `plasma.research.read`로 bounded chunk를 읽습니다.
 - 보고 전에 `plasma.research.references`로 관계를 확인합니다.
 
+현재 미션 메타데이터는 CLI 또는 mission-bound idempotent `plasma.mission.update` MCP 도구에서 같은 애플리케이션 계약으로 편집합니다.
+
+```sh
+go run ./cmd/plasma missions update mis_... -title "현재 제목" \
+  -scope-included "포함할 주제" -scope-excluded "제외할 주제"
+```
+
+MCP 수정은 사용자가 명시적으로 요청한 편집에만 사용합니다. Plasma가 내부에서 띄운 조사 에이전트의 기본 도구 목록에는 이 도구를 넣지 않습니다.
+
+요청별 보고서 방향은 선택 사항이며 해당 초안의 약한 편집 축으로만 동작합니다.
+
+```sh
+go run ./cmd/plasma reports draft mis_... -wait \
+  -agent-model gpt-5.5 -agent-reasoning-effort high \
+  -direction-hint "권고 전에 운영 위험을 비교"
+```
+
+힌트는 소스나 미션 설정이 아닙니다. Plasma는 이후 보고서 요청으로 힌트를 복사하지 않으며, 대화·말투 보정·보고서 수정·HTML 내보내기 프롬프트에도 힌트를 다시 넣지 않습니다. 다만 이는 프롬프트 전달 경계에 대한 보장이지 제공자 세션 기록을 지운다는 뜻은 아닙니다. 같은 제공자 세션을 의도적으로 이어 쓰는 경로에서는 앞선 보고서 프롬프트가 세션 맥락에 남아 있을 수 있습니다.
+
 기존 Markdown report artifact를 CLI로 patch합니다.
 
 ```sh
@@ -241,3 +260,7 @@ report artifact를 도구로 읽고 수정한 뒤 새 report artifact version을
 - [Evidence Signal Model](docs/evidence-signal-model.md)
 - [Evidence Signal Model Korean](docs/evidence-signal-model.ko.md)
 - [Experiment Index](docs/experiments/README.md)
+
+### 요청별 보고서 모델 선택
+
+Browser 보고서 제어와 `reports draft`에서 모델과 추론 강도를 비워 두면 같은 executor의 최신 미션 세션 설정을, 없으면 설정된 provider 기본값을 상속합니다. 모델만 지정하면 그 모델이 공개한 기본 추론 강도를 사용합니다. Plasma는 유효 조합을 검증한 뒤 확정값과 `agent_selection_source`를 `report.draft.pending`에 동결하며 stale 복구도 이 값을 재사용합니다.

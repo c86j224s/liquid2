@@ -16,6 +16,14 @@ func TestResolveUsesTerraMediumDefault(t *testing.T) {
 	}
 }
 
+func TestCatalogPublishesModelDefaultReasoningEffort(t *testing.T) {
+	for _, model := range Catalog() {
+		if model.DefaultReasoningEffort != "medium" {
+			t.Fatalf("model %q default = %q", model.Name, model.DefaultReasoningEffort)
+		}
+	}
+}
+
 func TestResolveValidatesModelCapabilities(t *testing.T) {
 	for _, test := range []struct {
 		model  string

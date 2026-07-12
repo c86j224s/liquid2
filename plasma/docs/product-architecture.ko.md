@@ -62,6 +62,14 @@ Liquid2는 source connector 또는 external API provider로만 통합할 수 있
 
 ## Mission Ledger
 
+### 명시적 미션 메타데이터 편집
+
+현재 미션 메타데이터는 하나의 `UpdateMissionMetadata` 애플리케이션 서비스에서 편집한다. Web의 `PATCH /api/missions/{id}`, CLI의 `missions update`, 미션에 묶인 멱등 MCP 도구 `plasma.mission.update`는 모두 이 서비스를 호출하는 연결 계층이다. 사용자 편집이 성공하면 입력받은 `title`, `objective`, 전체 `scope`만 담은 `mission.metadata.updated` 이벤트를 하나 추가한다. 각 필드는 장부에서 가장 나중에 기록된 값이 현재 값이 되며, 입력하지 않은 필드는 그대로 유지한다. 빈 `objective`를 명시하면 목표를 지우고, 빈 `scope`를 명시하면 포함·제외 목록을 모두 지운다. 공백뿐인 `title`은 허용하지 않는다.
+
+MCP 수정 도구는 사용자가 직접 제어하는 MCP client에는 제공하지만, Plasma가 내부에서 띄운 조사 에이전트의 기본 도구 목록에서는 제외한다. 에이전트가 사용자 편집을 가장하지 못하게 하여 이벤트의 사용자 소유 의미를 보존한다.
+
+장부가 계속 원본이며 `plasma_missions`는 장부에서 다시 만들 수 있는 현재 상태 캐시다. 명시적 편집은 이전 이벤트를 고치지 않으며 대화 중 방향을 조정하는 `mission.steered`와도 구별된다. `mission.steered`가 기존에 사용하던 작성 주체와 충돌 판단 규칙은 바뀌지 않는다. 메타데이터 편집 이벤트가 없는 기존 장부도 그대로 읽을 수 있다.
+
 Plasma에는 하나의 durable Mission Ledger가 있습니다. User-driven turn, bounded workflow run, MCP tool
 call, report request는 모두 같은 ledger 위의 event producer입니다.
 
@@ -260,7 +268,11 @@ reminder와 latest user turn만 보냅니다. 이전 turn history나 source body
 않습니다. Source inspection은 tool/connector를 통해 이루어져야 합니다.
 
 보고서 생성도 같은 원칙을 따릅니다. Report writer는 얇은 guidance만 받고, 필요한 정보는 ledger 위에서
-MCP read로 찾아야 합니다. `one_take`를 제외한 agent-backed report generation은 가능한 경우 현재 research
+MCP read로 찾아야 합니다.
+
+선택 사항인 `direction_hint`는 미션 상태나 근거가 아니라 해당 보고서 요청의 대기 상태에만 속한다. 앞뒤 공백을 제거한 뒤 값이 남아 있을 때만 해당 `report.draft.pending` 이벤트에 저장하므로, 서버가 중단되었다가 다시 시작되어도 같은 요청을 복원할 수 있다. 이 필드가 없는 기존 이벤트는 빈 값으로 읽으며, 이후 보고서 요청으로 값을 복사하지 않는다. 고정 안내문은 힌트를 강제 조건이 아닌 약한 편집 축으로 다루게 한다. Plasma는 원테이크 작성, 계획형 보고서의 계획과 작성, 장문 보고서의 계획과 섹션 작성 프롬프트에만 힌트를 명시적으로 넣는다. 일반 대화와 재개 대화, 미션 알림, 상태 회상, 자율 진행, 파트·전체 조립, 말투 보정, 보고서 수정, 기본·디자인 HTML 내보내기에는 새로운 방향 블록을 넣지 않는다. 이 허용 목록은 애플리케이션이 새 프롬프트를 만드는 방식을 보장할 뿐 제공자 세션 기록을 지우지는 않는다. 같은 제공자 세션을 의도적으로 이어 쓰는 경로에서는 앞선 보고서 프롬프트가 세션 맥락에 남아 있을 수 있다.
+
+`one_take`를 제외한 agent-backed report generation은 가능한 경우 현재 research
 provider session을 fork하여 report-only session에서 실행합니다.
 
 기본 보고서 경로는 G2 generation-time guidance를 사용합니다. H5 Korean tone pass는 기본적으로 꺼져 있습니다.
@@ -359,3 +371,7 @@ concern일 뿐입니다. Link나 agent text가 source가 되는 것은 아닙니
 - unbound MCP mission create/open tools
 - cross-process durable queue/lease table
 - read-first research surface를 넘어서는 MCP report control tools
+
+## 보고서 모델 선택 경계
+
+Web과 CLI adapter는 원시 요청, 같은 executor의 최신 미션 세션 메타데이터, 설정된 provider 기본값을 수집합니다. reporting package는 우선순위와 capability 검증을 소유합니다. 시작에 성공하면 유효 모델, 추론 강도, `agent_selection_source`를 `report.draft.pending`에 기록하며 새 이벤트 복구는 이 동결값만 역직렬화합니다. 출처가 없는 legacy pending은 기존 resume 경로를 유지합니다. 내구 상태는 ledger payload가 담당하므로 DB migration은 필요하지 않습니다. MCP 보고서 도구나 모델 tier allowlist를 추가하지 않으며 prompt, report mode, session fork, H5, patch, designed HTML, experiment도 바꾸지 않습니다.

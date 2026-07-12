@@ -4,9 +4,144 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
+	files := []string{"static/index.html", "static/app.js", "static/mission_metadata.js", "static/report_direction.js", "static/app.css"}
+	var combined strings.Builder
+	for _, name := range files {
+		content, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		combined.Write(content)
+		combined.WriteByte('\n')
+	}
+	text := combined.String()
+	for _, expected := range []string{"missionMetadataForm", "missionMetadataIncluded", "missionMetadataExcluded", "missionMetadataLines", ".filter(Boolean)", "method: 'PATCH'", "reportDirectionHint", "direction_hint", "clearAcceptedReportDirectionHint", "catch (err)"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing static contract %q", expected)
+		}
+	}
+	clearIndex := strings.Index(string(mustReadStatic(t, "static/app.js")), "clearAcceptedReportDirectionHint")
+	catchIndex := strings.Index(string(mustReadStatic(t, "static/app.js")), "} catch (err) {")
+	if clearIndex < 0 || catchIndex < 0 {
+		t.Fatal("missing success-clear or failure branch")
+	}
+}
+
+func mustReadStatic(t *testing.T, name string) []byte {
+	t.Helper()
+	content, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+func TestStaticReportModelSelectionContract(t *testing.T) {
+	combined := string(mustReadStatic(t, "static/index.html")) + string(mustReadStatic(t, "static/app.js")) + string(mustReadStatic(t, "static/report_model_selection.js"))
+	for _, expected := range []string{`id="reportAgentModel"`, `id="reportAgentReasoningEffort"`, `/static/report_model_selection.js`, "agent_model", "agent_reasoning_effort", "미션 설정 상속", "refreshEfforts", ".disabled = busy"} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing report model selection contract %q", expected)
+		}
+	}
+	if _, err := exec.LookPath("node"); err == nil {
+		command := exec.Command("node", "-e", `require('./static/report_model_selection.js'); const p=globalThis.ReportModelSelection.payload; if(JSON.stringify(p('',''))!==JSON.stringify({agent_model:'',agent_reasoning_effort:''})||p('gpt-5.5','').agent_model!=='gpt-5.5'||p('gpt-5.5','high').agent_reasoning_effort!=='high') process.exit(1)`)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("node payload fixture failed: %v: %s", err, output)
+		}
+	}
+}
+
+func TestStaticReportModelSelectionFollowsExecutorAndActiveGuards(t *testing.T) {
+	script := string(mustReadStatic(t, "static/app.js"))
+	executorBody := jsFunctionBody(t, script, "onAgentExecutorChange")
+	for _, expected := range []string{"ReportModelSelection.render", `$("agentExecutor").value`} {
+		if !strings.Contains(executorBody, expected) {
+			t.Fatalf("executor switch missing %q: %s", expected, executorBody)
+		}
+	}
+	formsBody := jsFunctionBody(t, script, "setFormsEnabled")
+	for _, expected := range []string{"reportAgentModel", "reportAgentReasoningEffort", "state.turnPending", "state.workflowPending", "state.reportPending", "draftQuickReport", "draftLongReport"} {
+		if !strings.Contains(formsBody, expected) {
+			t.Fatalf("report guard missing %q", expected)
+		}
+	}
+	module := string(mustReadStatic(t, "static/report_model_selection.js"))
+	for _, expected := range []string{"status?.models", "model?.reasoning_efforts", `effortSelect.innerHTML`, `value=""`} {
+		if !strings.Contains(module, expected) {
+			t.Fatalf("selection semantics missing %q", expected)
+		}
+	}
+}
+
+func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the report control state-transition fixture")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	source := jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
+	fixture := `
+const elements = {};
+for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport","cancelReportButton"]) {
+  elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
+}
+const $ = (id) => elements[id];
+const state = {detail:{},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+` + source + `
+const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport"];
+function assertDisabled(label) {
+  if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
+}
+for (const guard of ["turnPending","workflowPending","workflowGoalDraftPending"]) {
+  state.turnPending = state.workflowPending = state.workflowGoalDraftPending = false;
+  state[guard] = true;
+  setReportBusy(false);
+  assertDisabled(guard);
+}
+state.turnPending = state.workflowPending = state.workflowGoalDraftPending = false;
+setReportBusy(true);
+assertDisabled("reportPending");
+setReportBusy(false);
+if (controls.some((id) => elements[id].disabled)) throw new Error("controls did not re-enable after every guard cleared");
+`
+	command := exec.Command("node", "-e", fixture)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("report control state-transition fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestDraftReportRejectsEveryActiveWorkStateBeforeAPI(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the report start race fixture")
+	}
+	source := jsFunctionSource(t, string(mustReadStatic(t, "static/app.js")), "draftReport")
+	source = strings.Replace(source, "function draftReport", "async function draftReport", 1)
+	fixture := `
+let apiCalls = 0;
+const state = {detail:{projection:{title:"Mission"}},missionId:"mis_test",turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const requireMission = () => true;
+const api = async () => { apiCalls++; return {}; };
+const $ = () => { throw new Error("draftReport touched controls before rejecting active work"); };
+` + source + `
+(async () => {
+  for (const guard of ["turnPending","workflowPending","workflowGoalDraftPending","reportPending"]) {
+    state.turnPending = state.workflowPending = state.workflowGoalDraftPending = state.reportPending = false;
+    state[guard] = true;
+    await draftReport("planned");
+    if (apiCalls !== 0) throw new Error(guard + " allowed report API call");
+  }
+})().catch((error) => { console.error(error); process.exit(1); });
+`
+	command := exec.Command("node", "-e", fixture)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("draftReport active-work fixture failed: %v: %s", err, output)
+	}
+}
 
 func TestStaticAppLabelsPendingEvidenceSignalType(t *testing.T) {
 	script, err := os.ReadFile("static/app.js")
@@ -336,6 +471,10 @@ func TestStaticAppExposesConfluenceSourceWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	confluenceErrorsScript, err := os.ReadFile("static/confluence_errors.js")
+	if err != nil {
+		t.Fatal(err)
+	}
 	confluenceScript, err := os.ReadFile("static/confluence.js")
 	if err != nil {
 		t.Fatal(err)
@@ -364,7 +503,7 @@ func TestStaticAppExposesConfluenceSourceWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	combined := string(html) + "\n" + string(appScript) + "\n" + string(confluenceScript) + "\n" + string(confluenceSettingsScript) + "\n" + string(confluenceAccessScript) + "\n" + string(confluenceWorkflowScript) + "\n" + string(confluenceBrowseScript) + "\n" + string(confluenceReviewScript) + "\n" + string(confluenceUpdateScript)
+	combined := string(html) + "\n" + string(appScript) + "\n" + string(confluenceErrorsScript) + "\n" + string(confluenceScript) + "\n" + string(confluenceSettingsScript) + "\n" + string(confluenceAccessScript) + "\n" + string(confluenceWorkflowScript) + "\n" + string(confluenceBrowseScript) + "\n" + string(confluenceReviewScript) + "\n" + string(confluenceUpdateScript)
 	for _, expected := range []string{
 		`id="confluenceSourceDetails"`,
 		`data-tab="settings"`,
@@ -390,6 +529,7 @@ func TestStaticAppExposesConfluenceSourceWorkflow(t *testing.T) {
 		`id="confluenceSearchForm"`,
 		`id="confluenceResults"`,
 		`/static/confluence.js`,
+		`/static/confluence_errors.js`,
 		`/static/confluence_settings.js`,
 		`/static/confluence_access.js`,
 		`/static/confluence_workflow.js`,
@@ -477,6 +617,104 @@ func TestStaticAppExposesConfluenceSourceWorkflow(t *testing.T) {
 		strings.Contains(string(confluenceScript), "connector.ExternalURI") ||
 		strings.Contains(string(confluenceScript), "connector.external_uri") {
 		t.Fatalf("Confluence search candidate detail must not expose the raw connector payload")
+	}
+}
+
+func TestConfluenceErrorMessagesAreActionableAndSafe(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for Confluence error mapping fixture test")
+	}
+	script, err := os.ReadFile("static/confluence_errors.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeScript := string(script) + `
+const cases = [
+  ["wrong credentials", { details: { error: { status: 401, message: "backend secret" } } }, "사이트 URL, Atlassian 계정 이메일, API token"],
+  ["expired", { details: { error: { code: "confluence_token_expired", status: 401 } } }, "인증이 만료"],
+  ["revoked", { details: { error: { code: "confluence_connection_revoked", status: 401 } } }, "연결이 해제"],
+  ["forbidden", { details: { error: { category: "confluence_permission" } } }, "접근 권한"],
+  ["not found", { details: { error: { status: 404 } } }, "사이트와 페이지 주소"],
+  ["rate limited", { details: { error: { code: "confluence_rate_limited", retry_after: "30" } } }, "약 30초 후"],
+  ["version drift", { details: { error: { code: "confluence_version_changed" } } }, "새 스냅샷"],
+  ["site mismatch", { details: { error: { code: "confluence_cloud_mismatch" } } }, "사이트를 선택"],
+  ["page mismatch", { details: { error: { code: "confluence_page_mismatch" } } }, "사이트를 선택"],
+  ["too large", { details: { error: { code: "confluence_page_too_large" } } }, "범위를 선택"],
+  ["upstream", { details: { error: { category: "confluence_upstream" } } }, "잠시 후"],
+  ["network", { isNetworkError: true }, "네트워크 연결"],
+  ["generic", { details: { error: { message: "backend secret" } } }, "연결, 사이트, 페이지"]
+];
+const results = cases.map(([name, err, expected]) => {
+  const message = confluenceErrorMessage(err);
+  if (!message.includes(expected) || message.includes("backend secret")) {
+    throw new Error(name + ": " + message);
+  }
+  return name;
+});
+process.stdout.write(JSON.stringify(results));
+`
+	output, err := exec.Command("node", "-e", nodeScript).CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute Confluence error mapping fixture: %v\n%s", err, string(output))
+	}
+	var got []string
+	if err := json.Unmarshal(output, &got); err != nil {
+		t.Fatalf("decode Confluence error mapping fixture: %v\n%s", err, string(output))
+	}
+	if len(got) != 13 {
+		t.Fatalf("expected 13 Confluence error mappings, got %#v", got)
+	}
+}
+
+func TestConfluenceAsyncFailuresUseActionAwareErrorHelper(t *testing.T) {
+	directShowError := regexp.MustCompile(`\bshowError\s*\(`)
+	localValidationError := regexp.MustCompile(`\bshowError\s*\(\s*new\s+Error\s*\(\s*"([^"\\]|\\.)*"\s*\)\s*\)`)
+	if localValidationError.MatchString(`showError(new Error(error.message))`) {
+		t.Fatal("dynamic error content must not qualify as a local validation message")
+	}
+	files := []string{
+		"static/confluence.js",
+		"static/confluence_settings.js",
+		"static/confluence_access.js",
+		"static/confluence_browse.js",
+		"static/confluence_review.js",
+		"static/confluence_update.js",
+	}
+	for _, file := range files {
+		content := string(mustReadStatic(t, file))
+		if got, allowed := len(directShowError.FindAllStringIndex(content, -1)), len(localValidationError.FindAllStringIndex(content, -1)); got != allowed {
+			t.Fatalf("Confluence scripts may call showError only with explicit local new Error validation in %s: calls=%d local=%d", file, got, allowed)
+		}
+		catchCount := strings.Count(content, "} catch (err) {")
+		if catchCount == 0 {
+			t.Fatalf("expected Confluence async catch path in %s", file)
+		}
+		if got := strings.Count(content, "showConfluenceError(err)"); got != catchCount {
+			t.Fatalf("expected every Confluence catch path in %s to use action-aware helper: catches=%d helpers=%d", file, catchCount, got)
+		}
+	}
+}
+
+func TestConfluenceAPITokenConnectionValidatesCredentialsBeforeRequest(t *testing.T) {
+	content := string(mustReadStatic(t, "static/confluence_settings.js"))
+	body := jsFunctionBody(t, content, "connectConfluenceAPIToken")
+	for _, expected := range []string{
+		`const siteURL = $("confluenceSettingsAPISiteURL").value.trim();`,
+		`const accountName = $("confluenceSettingsAPIEmail").value.trim();`,
+		`const apiToken = $("confluenceSettingsAPIToken").value.trim();`,
+		"Confluence 사이트 URL이 필요합니다.",
+		"Atlassian 계정 이메일이 필요합니다.",
+		"Atlassian API token이 필요합니다.",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected API token connection validation %q", expected)
+		}
+	}
+	busyIndex := strings.Index(body, "setConfluenceBusy(true)")
+	for _, validation := range []string{"if (!siteURL)", "if (!accountName)", "if (!apiToken)"} {
+		if index := strings.Index(body, validation); index < 0 || index > busyIndex {
+			t.Fatalf("expected %s before request busy state", validation)
+		}
 	}
 }
 

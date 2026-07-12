@@ -13,19 +13,20 @@ const (
 
 // Model describes a selectable Codex model and its supported reasoning efforts.
 type Model struct {
-	Name             string   `json:"name"`
-	Label            string   `json:"label"`
-	ReasoningEfforts []string `json:"reasoning_efforts"`
+	Name                   string   `json:"name"`
+	Label                  string   `json:"label"`
+	ReasoningEfforts       []string `json:"reasoning_efforts"`
+	DefaultReasoningEffort string   `json:"default_reasoning_effort"`
 }
 
 var catalog = []Model{
-	{Name: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
-	{Name: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
-	{Name: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}},
-	{Name: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}},
-	{Name: "gpt-5.4", Label: "GPT-5.4", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}},
-	{Name: "gpt-5.4-mini", Label: "GPT-5.4 mini", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}},
-	{Name: "gpt-5.3-codex-spark", Label: "GPT-5.3 Codex Spark", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}},
+	{Name: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.4", Label: "GPT-5.4", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.4-mini", Label: "GPT-5.4 mini", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-5.3-codex-spark", Label: "GPT-5.3 Codex Spark", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
 }
 
 var genericReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
@@ -56,6 +57,9 @@ func Resolve(model, effort string) (string, string, error) {
 	effort = strings.ToLower(strings.TrimSpace(effort))
 	if effort == "" {
 		effort = DefaultReasoningEffort
+		if known, ok := lookup(model); ok {
+			effort = known.DefaultReasoningEffort
+		}
 	}
 	allowed := genericReasoningEfforts
 	if known, ok := lookup(model); ok {

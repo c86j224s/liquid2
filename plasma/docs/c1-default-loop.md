@@ -143,3 +143,5 @@ provider turn has a terminal event before resuming the same provider session for
 the requested work. Report drafts are provider-backed work too, but this slice
 starts them only when no normal turn, workflow run, or report draft is active for
 the mission.
+
+Each report draft resolves its model and reasoning effort once before pending append: explicit request, latest same-executor mission session, then configured provider default. An explicit model with omitted effort uses that model's default. Invalid pairs create no pending event or provider work. Recovery uses the frozen pending values and preserves a separate compatibility branch for source-less legacy pending events; report prompts, modes, fork behavior, H5, patch, and designed HTML remain unchanged.

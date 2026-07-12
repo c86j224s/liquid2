@@ -22,6 +22,13 @@ type missionGetInput struct {
 	Include   []string `json:"include"`
 }
 
+type missionUpdateInput struct {
+	CommonMutatingInput
+	Title     *string           `json:"title"`
+	Objective *string           `json:"objective"`
+	Scope     *app.MissionScope `json:"scope"`
+}
+
 type missionGetOutput struct {
 	MissionProjection   app.MissionProjection  `json:"mission_projection"`
 	Sources             []sourceSnapshotOutput `json:"sources,omitempty"`

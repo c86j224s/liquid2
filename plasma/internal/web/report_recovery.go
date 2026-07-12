@@ -39,7 +39,11 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 	}
 	return server.reportRunner().RunDraft(context.Background(), missionID, reporting.DraftRequest{
 		Title:                        req.Title,
+		DirectionHint:                req.DirectionHint,
 		AgentExecutor:                req.AgentExecutor,
+		AgentModel:                   req.AgentModel,
+		AgentReasoningEffort:         req.AgentReasoningEffort,
+		AgentSelectionSource:         req.AgentSelectionSource,
 		MCPMode:                      req.MCPMode,
 		RigorLevel:                   req.RigorLevel,
 		ReportMode:                   req.ReportMode,
@@ -54,7 +58,11 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftRequest, error) {
 	var payload struct {
 		Title                        string `json:"title"`
+		DirectionHint                string `json:"direction_hint"`
 		AgentExecutor                string `json:"agent_executor"`
+		AgentModel                   string `json:"agent_model"`
+		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
+		AgentSelectionSource         string `json:"agent_selection_source"`
 		MCPMode                      string `json:"mcp_mode"`
 		RigorLevel                   string `json:"rigor_level"`
 		ReportMode                   string `json:"report_mode"`
@@ -69,7 +77,11 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 	}
 	return reportDraftRequest{
 		Title:                        firstNonEmpty(payload.Title, "Mission report"),
+		DirectionHint:                reporting.NormalizeDirectionHint(payload.DirectionHint),
 		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
+		AgentModel:                   strings.TrimSpace(payload.AgentModel),
+		AgentReasoningEffort:         strings.TrimSpace(payload.AgentReasoningEffort),
+		AgentSelectionSource:         strings.TrimSpace(payload.AgentSelectionSource),
 		MCPMode:                      firstNonEmpty(payload.MCPMode, "auto"),
 		RigorLevel:                   firstNonEmpty(payload.RigorLevel, defaultReportRigorLevel),
 		ReportMode:                   firstNonEmpty(payload.ReportMode, defaultReportMode),

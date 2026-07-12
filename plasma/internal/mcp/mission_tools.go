@@ -65,3 +65,27 @@ func (server *Server) callMissionGet(ctx context.Context, call ToolCall) ToolRes
 		},
 	}
 }
+
+type missionMetadataUpdater interface {
+	UpdateMissionMetadata(context.Context, app.UpdateMissionMetadataRequest) (app.UpdateMissionMetadataResult, error)
+}
+
+func (server *Server) callMissionUpdate(ctx context.Context, call ToolCall) ToolResult {
+	var input missionUpdateInput
+	if err := decodeArgs(call.Arguments, &input); err != nil {
+		return errorResult(call.Name, input.MissionID, "validation", err.Error(), false, nil)
+	}
+	missionID := strings.TrimSpace(input.MissionID)
+	if input.Title == nil && input.Objective == nil && input.Scope == nil {
+		return errorResult(call.Name, missionID, "validation", "at least one metadata field is required", false, nil)
+	}
+	updater, ok := server.service.(missionMetadataUpdater)
+	if !ok {
+		return errorResult(call.Name, missionID, "internal", "mission metadata service is unavailable", false, nil)
+	}
+	result, err := updater.UpdateMissionMetadata(ctx, app.UpdateMissionMetadataRequest{EventID: newMCPID("evt"), MissionID: missionID, Producer: app.Producer{Type: strings.TrimSpace(input.Producer.Type), ID: strings.TrimSpace(input.Producer.ID)}, Title: input.Title, Objective: input.Objective, Scope: input.Scope})
+	if err != nil {
+		return errorFromErr(call.Name, missionID, err, nil)
+	}
+	return ToolResult{ToolName: call.Name, MissionID: missionID, CreatedEventIDs: []string{result.Event.EventID}, Content: result}
+}

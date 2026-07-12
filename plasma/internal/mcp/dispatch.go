@@ -27,6 +27,8 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 	switch call.Name {
 	case ToolMissionGet:
 		return server.callMissionGet(ctx, call)
+	case ToolMissionUpdate:
+		return server.withUserMutationIdempotency(ctx, call, server.callMissionUpdate)
 	case ToolSourcesList:
 		return server.callSourcesList(ctx, call)
 	case ToolSourcesRead:
@@ -146,6 +148,46 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 	default:
 		return errorResult(call.Name, "", "validation", "unknown tool", false, nil)
 	}
+}
+
+func (server *Server) withUserMutationIdempotency(ctx context.Context, call ToolCall, fn func(context.Context, ToolCall) ToolResult) ToolResult {
+	key, missionID, err := idempotencyKey(call)
+	if err != nil {
+		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
+	}
+	var input missionUpdateInput
+	if err := decodeArgs(call.Arguments, &input); err != nil {
+		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
+	}
+	if err := server.enforceBoundMission(missionID); err != nil {
+		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
+	}
+	if bound := strings.TrimSpace(server.binding.AgentSessionID); bound != "" && strings.TrimSpace(input.SessionID) != bound {
+		return errorResult(call.Name, missionID, "validation", "tool call session_id is outside this MCP session", false, nil)
+	}
+	if strings.TrimSpace(input.Producer.Type) != "user" || strings.TrimSpace(input.Producer.ID) == "" {
+		return errorResult(call.Name, missionID, "validation", "mission metadata updates require a user producer", false, nil)
+	}
+	hash, err := canonicalArgumentsHash(call.Arguments)
+	if err != nil {
+		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
+	}
+	server.mu.Lock()
+	if cached, ok := server.idempotency[key]; ok {
+		server.mu.Unlock()
+		if cached.ArgumentsHash != hash {
+			return errorResult(call.Name, missionID, "conflict", "idempotency_key reused with different arguments", false, nil)
+		}
+		return cached.Result
+	}
+	server.mu.Unlock()
+	result := fn(ctx, call)
+	if result.Error == nil {
+		server.mu.Lock()
+		server.idempotency[key] = idempotencyEntry{ArgumentsHash: hash, Result: result}
+		server.mu.Unlock()
+	}
+	return result
 }
 
 func reportPatchDisabledResult(call ToolCall) ToolResult {

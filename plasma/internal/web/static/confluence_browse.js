@@ -4,7 +4,7 @@ async function loadConfluenceSpaces(cursor = "") {
   const site = selectedConfluenceSite();
   const cloudID = confluenceSiteCloudID(site);
   if (!connectionID || !cloudID) {
-    showError(new Error("Space를 탐색하려면 Confluence 연결과 site가 필요합니다."));
+    showError(new Error("공간을 탐색하려면 Confluence 연결과 사이트가 필요합니다."));
     return;
   }
   setConfluenceBusy(true);
@@ -23,7 +23,7 @@ async function loadConfluenceSpaces(cursor = "") {
     renderConfluenceSpaces(state.confluenceSpaces);
     renderConfluencePages([]);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -33,7 +33,7 @@ function renderConfluenceSpaces(spaces) {
   const container = $("confluenceSpaces");
   if (!container) return;
   const context = state.confluenceBrowseContext || {};
-  $("confluenceBrowseBreadcrumb").textContent = spaces.length ? "Space를 선택하면 page 목록을 불러옵니다." : "Site를 선택하고 Space를 불러오세요.";
+  $("confluenceBrowseBreadcrumb").textContent = spaces.length ? "공간을 선택하면 페이지 목록을 불러옵니다." : "사이트를 선택하고 공간을 불러오세요.";
   container.innerHTML = spaces.length ? spaces.map((space) => {
     const id = space.space_id || space.SpaceID || "";
     const key = space.space_key || space.SpaceKey || "";
@@ -43,11 +43,11 @@ function renderConfluenceSpaces(spaces) {
         <div class="item-title">${escapeHTML(name)} ${key ? `<span class="badge muted">${escapeHTML(key)}</span>` : ""}</div>
         <div class="item-meta">${escapeHTML(id)}</div>
         <div class="item-actions">
-          <button type="button" data-confluence-space-id="${escapeAttr(id)}" data-confluence-space-name="${escapeAttr(name)}">Page 보기</button>
+          <button type="button" data-confluence-space-id="${escapeAttr(id)}" data-confluence-space-name="${escapeAttr(name)}">페이지 보기</button>
         </div>
       </div>
     `;
-  }).join("") : empty("Confluence Space 없음");
+  }).join("") : empty("Confluence 공간 없음");
   $("confluenceLoadMoreSpaces").classList.toggle("hidden", !context.spaces_cursor);
   $("confluenceLoadMoreSpaces").disabled = !context.spaces_cursor || state.confluenceBusy;
 }
@@ -75,7 +75,7 @@ async function loadConfluenceSpacePages(spaceID, spaceName = "", cursor = "") {
     };
     renderConfluencePages(state.confluencePages);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -97,7 +97,7 @@ async function loadConfluencePageChildren(pageID, title = "", cursor = "") {
     state.confluenceBrowseContext = { ...context, parent_page_id: pageID, parent_title: title, pages_cursor: result.NextCursor || result.next_cursor || "" };
     renderConfluencePages(state.confluencePages);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -120,12 +120,12 @@ function renderConfluencePages(pages) {
         <div class="item-meta">${escapeHTML(pageID)}</div>
         <div class="item-actions">
           ${webURL ? `<a class="button-link secondary" href="${escapeAttr(webURL)}" target="_blank" rel="noopener noreferrer">원문 열기</a>` : ""}
-          <button type="button" class="secondary" data-confluence-children-page-id="${escapeAttr(pageID)}" data-confluence-page-title="${escapeAttr(title)}">하위 page</button>
+          <button type="button" class="secondary" data-confluence-children-page-id="${escapeAttr(pageID)}" data-confluence-page-title="${escapeAttr(title)}">하위 페이지</button>
           <button type="button" data-confluence-page-index="${escapeAttr(index)}">후보 검토</button>
         </div>
       </div>
     `;
-  }).join("") : empty("Confluence page 없음");
+  }).join("") : empty("Confluence 페이지 없음");
   $("confluenceLoadMorePages").classList.toggle("hidden", !context.pages_cursor);
   $("confluenceLoadMorePages").disabled = !context.pages_cursor || state.confluenceBusy;
 }

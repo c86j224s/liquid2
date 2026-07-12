@@ -638,6 +638,41 @@ func TestRuntimeEndpointReturnsEnvironmentLabel(t *testing.T) {
 	}
 }
 
+func TestMissionMetadataPatchUpdatesSharedProjection(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Original", "objective": "Keep"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	updated := patchJSON(t, server.URL+"/api/missions/"+missionID, map[string]any{"title": " Updated ", "scope": map[string]any{"included": []string{" A ", ""}, "excluded": []string{}}})
+	if nestedString(t, updated, "projection", "title") != "Updated" {
+		t.Fatalf("unexpected update: %#v", updated)
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	if nestedString(t, detail, "projection", "objective") != "Keep" {
+		t.Fatalf("partial update cleared objective: %#v", detail)
+	}
+	status, _ := patchJSONFailure(t, server.URL+"/api/missions/"+missionID, map[string]any{})
+	if status != http.StatusBadRequest {
+		t.Fatalf("no-op status = %d", status)
+	}
+	request, _ := http.NewRequest(http.MethodPost, server.URL+"/api/missions/"+missionID, strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("wrong method status = %d", response.StatusCode)
+	}
+}
+
 func TestConfluenceConnectorAccessAPIUsesLedgerAndDoesNotAttachSources(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -2435,9 +2470,13 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":       "Quick report",
-		"rigor_level": "exploratory",
+		"title":          "Quick report",
+		"rigor_level":    "exploratory",
+		"direction_hint": "Emphasize operational trade-offs.",
 	})
+	if hint := nestedString(t, response, "pending_event", "Payload", "direction_hint"); hint != "Emphasize operational trade-offs." {
+		t.Fatalf("expected pending event to retain report direction, got %q", hint)
+	}
 	if mode := nestedString(t, response, "pending_event", "Payload", "report_mode"); mode != reportModePlanned {
 		t.Fatalf("expected planned report mode in pending event, got %q", mode)
 	}
@@ -2470,9 +2509,15 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if planReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue the mission session while planning, got %q", planReq.PreviousSessionID)
 	}
+	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reporting.DirectionAdvisory) {
+		t.Fatalf("planned report direction did not reach planning prompt:\n%s", planReq.Prompt)
+	}
 	reportReq := agent.requests[2]
 	if reportReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
+	}
+	if !strings.Contains(reportReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(reportReq.Prompt, reporting.DirectionAdvisory) {
+		t.Fatalf("planned report direction did not reach writing prompt:\n%s", reportReq.Prompt)
 	}
 	for _, expected := range []string{
 		"Plasma report as a Markdown artifact",
@@ -3591,9 +3636,11 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":       "Sectional report",
-		"rigor_level": "balanced",
-		"report_mode": "long_form",
+		"title":                  "Sectional report",
+		"rigor_level":            "balanced",
+		"report_mode":            "long_form",
+		"agent_model":            "gpt-5.5",
+		"agent_reasoning_effort": "high",
 	})
 	if mode := nestedString(t, response, "pending_event", "Payload", "report_mode"); mode != reportModeLongForm {
 		t.Fatalf("expected long-form report mode in pending event, got %q", mode)
@@ -3610,6 +3657,17 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	}
 	if len(agent.requests) != 5 {
 		t.Fatalf("expected plan, two sections, part assembly, and frame requests, got %d", len(agent.requests))
+	}
+	for _, request := range agent.requests {
+		if request.Model != "gpt-5.5" || request.ReasoningEffort != "high" {
+			t.Fatalf("long-form selection not propagated: %#v", request)
+		}
+	}
+	for _, eventType := range []string{"report.plan.created", "report.section.created", "report.part.created", "report.artifact.created"} {
+		selectionPayload := lastEventPayload(t, detail, eventType)
+		if selectionPayload["agent_model"] != "gpt-5.5" || selectionPayload["agent_reasoning_effort"] != "high" || selectionPayload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
+			t.Fatalf("%s frozen selection mismatch: %#v", eventType, selectionPayload)
+		}
 	}
 	if strings.Contains(agent.requests[0].Prompt, "Report writing guidance:") {
 		t.Fatalf("report planning prompt must not include generation writing guidance:\n%s", agent.requests[0].Prompt)
@@ -4860,6 +4918,56 @@ func TestReportDraftStalePendingResumesInMissionDetail(t *testing.T) {
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["pending_event_id"] != "evt_stale_report_pending_detail" {
 		t.Fatalf("expected artifact to close stale pending event, got %#v", payload)
+	}
+	if len(agent.requests) != 2 {
+		t.Fatalf("expected recovered plan and writer requests, got %#v", agent.requests)
+	}
+	for _, req := range agent.requests {
+		if !strings.Contains(req.Prompt, "Preserve the recovered operational focus.") || !strings.Contains(req.Prompt, reporting.DirectionAdvisory) {
+			t.Fatalf("recovered report direction did not reach prompt:\n%s", req.Prompt)
+		}
+	}
+}
+
+func TestReportDraftStalePendingKeepsFrozenSelection(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	agent := &fakeAgentExecutor{responses: []AgentResult{{Text: agentReportPlanJSON(agentReportPlan{Summary: "Plan", Sections: []agentReportSection{{Title: "Section", Purpose: "Purpose"}}}), SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Frozen recovery"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_frozen_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
+		"kind": "markdown_report_artifact_pending", "title": "Frozen", "agent_executor": "codex", "agent_model": "gpt-5.5", "agent_reasoning_effort": "high", "agent_selection_source": reporting.AgentSelectionSourceExplicitRequest,
+		"mcp_mode": "auto", "report_mode": "planned", "report_session_policy": "same_session", "started_at": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_newer_session", MissionID: missionID, EventType: "agent.session.reset", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
+		"agent_executor": "codex", "agent_model": "gpt-5.4", "agent_reasoning_effort": "low",
+	})}); err != nil {
+		t.Fatal(err)
+	}
+	getJSON(t, server.URL+"/api/missions/"+missionID)
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if len(agent.requests) != 2 {
+		t.Fatalf("expected recovered plan/body, got %#v", agent.requests)
+	}
+	for _, request := range agent.requests {
+		if request.Model != "gpt-5.5" || request.ReasoningEffort != "high" {
+			t.Fatalf("recovery consulted newer metadata: %#v", request)
+		}
+	}
+	for _, eventType := range []string{"report.plan.created", "report.artifact.created"} {
+		payload := lastEventPayload(t, detail, eventType)
+		if payload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
+			t.Fatalf("%s source mismatch: %#v", eventType, payload)
+		}
 	}
 }
 
@@ -6741,7 +6849,7 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 		wantModel  string
 		wantEffort string
 	}{
-		{name: "legacy resume", legacy: true},
+		{name: "legacy resume", legacy: true, wantModel: "gpt-5.6-terra", wantEffort: "medium"},
 		{name: "new mission", wantModel: "gpt-5.6-terra", wantEffort: "medium"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -6769,11 +6877,8 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 			if !ok {
 				t.Fatalf("expected report pending payload, got %#v", start)
 			}
-			if test.legacy && (pendingPayload["agent_model"] != "" || pendingPayload["agent_reasoning_effort"] != "") {
-				t.Fatalf("legacy report pending state must preserve empty settings, got %#v", pendingPayload)
-			}
-			if !test.legacy && (pendingPayload["agent_model"] != "" || pendingPayload["agent_reasoning_effort"] != "") {
-				t.Fatalf("new report pending state must preserve raw defaults, got %#v", pendingPayload)
+			if pendingPayload["agent_model"] != "gpt-5.6-terra" || pendingPayload["agent_reasoning_effort"] != "medium" || pendingPayload["agent_selection_source"] == "" {
+				t.Fatalf("fresh report pending state must freeze effective defaults, got %#v", pendingPayload)
 			}
 			waitForEventType(t, server.URL, missionID, "report.artifact.created")
 			if len(agent.requests) != 2 {
@@ -6887,6 +6992,95 @@ func TestMissionDetailIncludesAgentDefaultModelMetadata(t *testing.T) {
 	}
 	if claude["reasoning_effort_supported"] != false || !strings.Contains(nestedStringFromMap(t, claude, "reasoning_effort_note"), "지원하지 않습니다") {
 		t.Fatalf("unexpected claude reasoning metadata: %#v", claude)
+	}
+	claudeModels, ok := claude["models"].([]any)
+	if !ok {
+		t.Fatalf("missing Claude model catalog: %#v", claude)
+	}
+	for _, name := range []string{"haiku", "sonnet", "opus"} {
+		agentModelByName(t, claudeModels, name)
+	}
+}
+
+func TestReportDraftRequestSelectionIntegration(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		body       map[string]any
+		wantEffort string
+	}{
+		{name: "explicit pair", body: map[string]any{"agent_model": "gpt-5.5", "agent_reasoning_effort": "high"}, wantEffort: "high"},
+		{name: "explicit model default", body: map[string]any{"agent_model": "gpt-5.5"}, wantEffort: "medium"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			agent := &fakeAgentExecutor{responses: []AgentResult{{Text: agentReportPlanJSON(agentReportPlan{Summary: "Plan", Sections: []agentReportSection{{Title: "Section", Purpose: "Purpose"}}}), SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
+			server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+			defer server.Close()
+			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": test.name})
+			missionID := nestedString(t, mission, "projection", "mission_id")
+			body := map[string]any{"title": "Report", "report_mode": "planned"}
+			for key, value := range test.body {
+				body[key] = value
+			}
+			start := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", body)
+			pending, ok := nestedValue(t, start, "pending_event", "Payload").(map[string]any)
+			if !ok {
+				t.Fatalf("missing pending payload: %#v", start)
+			}
+			if pending["agent_model"] != "gpt-5.5" || pending["agent_reasoning_effort"] != test.wantEffort || pending["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
+				t.Fatalf("pending selection mismatch: %#v", pending)
+			}
+			detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+			if len(agent.requests) != 2 {
+				t.Fatalf("expected plan/body, got %#v", agent.requests)
+			}
+			for _, req := range agent.requests {
+				if req.Model != "gpt-5.5" || req.ReasoningEffort != test.wantEffort {
+					t.Fatalf("agent selection mismatch: %#v", req)
+				}
+			}
+			for _, eventType := range []string{"report.plan.created", "report.artifact.created"} {
+				payload := lastEventPayload(t, detail, eventType)
+				if payload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
+					t.Fatalf("%s source mismatch: %#v", eventType, payload)
+				}
+			}
+		})
+	}
+}
+
+func TestReportDraftInvalidSelectionHasNoSideEffects(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	agent := &fakeAgentExecutor{}
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "invalid selection"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	status, _ := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{"title": "Report", "report_mode": "planned", "agent_model": "gpt-5.6-luna", "agent_reasoning_effort": "ultra"})
+	if status != http.StatusBadRequest {
+		t.Fatalf("status = %d", status)
+	}
+	if len(agent.requests) != 0 {
+		t.Fatalf("agent called: %#v", agent.requests)
+	}
+	events, err := app.NewService(store).ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.EventType == "report.draft.pending" {
+			t.Fatalf("invalid selection appended pending: %#v", event)
+		}
 	}
 }
 
@@ -8683,6 +8877,37 @@ func deleteJSON(t *testing.T, url string) map[string]any {
 	return decoded
 }
 
+func patchJSON(t *testing.T, url string, payload any) map[string]any {
+	status, result := patchJSONFailure(t, url, payload)
+	if status != http.StatusOK {
+		t.Fatalf("PATCH %s returned %d: %#v", url, status, result)
+	}
+	return result
+}
+
+func patchJSONFailure(t *testing.T, url string, payload any) (int, map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := http.NewRequest(http.MethodPatch, url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var result map[string]any
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	return response.StatusCode, result
+}
+
 func putJSON(t *testing.T, url string, payload any) map[string]any {
 	t.Helper()
 	body := mustMarshalTestJSON(t, payload)
@@ -8979,6 +9204,7 @@ func appendStaleReportPending(t *testing.T, ctx context.Context, svc *app.Servic
 		Payload: mustJSON(map[string]any{
 			"kind":           "report_draft_pending",
 			"title":          "Stale report",
+			"direction_hint": "Preserve the recovered operational focus.",
 			"agent_executor": "codex",
 			"mcp_mode":       "auto",
 			"text":           "리포트 초안 생성 중입니다.",

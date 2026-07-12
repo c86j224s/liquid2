@@ -1497,11 +1497,14 @@ func agentExecutorStatusFor(name string, label string, executor AgentExecutor) a
 		status.ReasoningEffortSupported = true
 		status.DefaultReasoningEffort = agentmodels.DefaultReasoningEffort
 		for _, model := range agentmodels.Catalog() {
-			status.Models = append(status.Models, agentModelCapability{Name: model.Name, Label: model.Label, ReasoningEfforts: model.ReasoningEfforts})
+			status.Models = append(status.Models, agentModelCapability{Name: model.Name, Label: model.Label, ReasoningEfforts: model.ReasoningEfforts, DefaultReasoningEffort: model.DefaultReasoningEffort})
 		}
 	case "claude":
 		status.ReasoningEffortSupported = false
 		status.ReasoningEffortNote = "Claude 실행기는 아직 추론 강도 지정을 지원하지 않습니다."
+		for _, model := range []string{"haiku", "sonnet", "opus"} {
+			status.Models = append(status.Models, agentModelCapability{Name: model, Label: claudeModelDisplayName(model)})
+		}
 	}
 	return status
 }

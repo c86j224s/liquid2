@@ -7,8 +7,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
+	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/web"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
@@ -35,8 +37,11 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", "", "Plasma SQLite database path")
 	title := fs.String("title", "Mission report", "report title")
+	directionHint := fs.String("direction-hint", "", "request-specific weak editorial direction")
 	mode := fs.String("mode", reporting.DefaultMode, "report mode: planned or one_take; long_form is browser/API-only until the CLI section runner is added")
 	agentName := fs.String("agent", "", "agent executor")
+	agentModel := fs.String("agent-model", "", "report agent model for this request")
+	agentReasoningEffort := fs.String("agent-reasoning-effort", "", "report reasoning effort for this request")
 	mcpMode := fs.String("mcp-mode", "auto", "MCP mode")
 	wait := fs.Bool("wait", false, "run the report agent and wait for the artifact")
 	jsonOut := fs.Bool("json", false, "write JSON")
@@ -134,6 +139,26 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		return 1
 	}
 	preReportSessionID := workflowruntime.LatestAgentSessionID(events, resolvedAgentName)
+	providerModel := strings.TrimSpace(agentCfg.ClaudeModel)
+	if resolvedAgentName == "claude" && providerModel == "" {
+		providerModel = "haiku"
+	}
+	providerEffort := ""
+	reasoningSupported := false
+	if resolvedAgentName == "codex" {
+		providerModel = agentmodels.DefaultModel
+		providerEffort = agentmodels.DefaultReasoningEffort
+		reasoningSupported = true
+	}
+	selection, err := reporting.ResolveModelSelection(reporting.ModelSelectionInput{
+		Executor: resolvedAgentName, RequestModel: *agentModel, RequestReasoningEffort: *agentReasoningEffort,
+		SessionModel: conversation.LatestAgentModel(events, resolvedAgentName), SessionReasoningEffort: conversation.LatestAgentReasoningEffort(events, resolvedAgentName),
+		ProviderModel: providerModel, ProviderReasoningEffort: providerEffort, ReasoningEffortSupported: reasoningSupported,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "reports draft: %v\n", err)
+		return 2
+	}
 	_, canFork := executor.(web.AgentSessionForker)
 	_, canCheckFork := executor.(web.AgentSessionForkReadiness)
 	reportSessionPolicy, reportSessionPolicySelection, err := reporting.SelectSessionPolicy(reporting.SessionPolicySelectionInput{
@@ -156,7 +181,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		InFlight: inFlight,
 		NewID:    cliNewID,
 		GenerateDraft: func(runCtx context.Context, runMissionID string, req reporting.DraftRequest, pendingEventID string) error {
-			result := createCLIReportDraftArtifact(runCtx, svc, executor, runMissionID, pendingEventID, req.Title, req.AgentExecutor, req.MCPMode, req.ReportMode, req.ReportSessionPolicy, req.ReportSessionPolicySelection, req.PostReportHumanize, req.GenerationGuidanceProfile, req.GenerationGuidanceSHA256)
+			result := createCLIReportDraftArtifact(runCtx, svc, executor, runMissionID, pendingEventID, req)
 			if result.Err != nil {
 				_, _ = runner.AppendDraftFailed(runCtx, runMissionID, pendingEventID, req.AgentExecutor, req.ReportMode, result.Err)
 			}
@@ -166,7 +191,11 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	}
 	pendingEvent, err := runner.StartDraft(ctx, missionID, reporting.DraftRequest{
 		Title:                        reportTitle,
+		DirectionHint:                *directionHint,
 		AgentExecutor:                resolvedAgentName,
+		AgentModel:                   selection.Model,
+		AgentReasoningEffort:         selection.ReasoningEffort,
+		AgentSelectionSource:         selection.Source,
 		MCPMode:                      strings.TrimSpace(*mcpMode),
 		ReportMode:                   reportMode,
 		ReportSessionPolicy:          reportSessionPolicy,

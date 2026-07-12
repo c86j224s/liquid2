@@ -156,3 +156,5 @@ Active agent/MCP turn 안에서 workflow request가 들어오면 provider를 즉
 기록합니다. 현재 provider turn이 terminal event를 가진 뒤 같은 provider session으로 이어서 실행합니다.
 Report draft도 provider-backed work이므로, 같은 mission에 normal turn, workflow run, report draft가 active
 상태라면 새 report draft를 시작하지 않습니다.
+
+각 report draft는 pending 기록 전에 모델과 추론 강도를 요청 명시값, 같은 executor의 최신 미션 세션, 설정된 provider 기본값 순으로 한 번만 정합니다. 모델만 명시하면 해당 모델의 기본 추론 강도를 사용합니다. 유효하지 않은 조합은 pending이나 provider 작업을 만들지 않습니다. 복구는 동결된 pending 값을 사용하고 출처 없는 legacy pending만 별도 호환 경로를 유지하며 report prompt, mode, fork 동작, H5, patch, designed HTML은 변경하지 않습니다.

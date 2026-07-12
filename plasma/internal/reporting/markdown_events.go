@@ -15,6 +15,7 @@ type MarkdownReportEventBase struct {
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
+	AgentSelectionSource         string
 	AgentSessionID               string
 	PreviousAgentSessionID       string
 	ReturnedAgentSessionID       string
@@ -84,6 +85,7 @@ type MarkdownReportStageEventBase struct {
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
+	AgentSelectionSource         string
 	AgentSessionID               string
 	PreviousAgentSessionID       string
 	ReturnedAgentSessionID       string
@@ -251,6 +253,7 @@ func markdownReportBasePayload(req MarkdownReportEventBase) map[string]any {
 		"agent_executor":                  req.AgentExecutor,
 		"agent_model":                     req.AgentModel,
 		"agent_reasoning_effort":          req.AgentReasoningEffort,
+		"agent_selection_source":          req.AgentSelectionSource,
 		"agent_session_id":                req.AgentSessionID,
 		"previous_agent_session_id":       req.PreviousAgentSessionID,
 		"returned_agent_session_id":       req.ReturnedAgentSessionID,
@@ -287,6 +290,7 @@ func markdownReportStagePayload(req MarkdownReportStageEventBase) map[string]any
 		"agent_executor":                  req.AgentExecutor,
 		"agent_model":                     req.AgentModel,
 		"agent_reasoning_effort":          req.AgentReasoningEffort,
+		"agent_selection_source":          req.AgentSelectionSource,
 		"agent_session_id":                req.AgentSessionID,
 		"previous_agent_session_id":       req.PreviousAgentSessionID,
 		"returned_agent_session_id":       req.ReturnedAgentSessionID,

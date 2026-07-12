@@ -8,6 +8,7 @@ import (
 
 const (
 	ToolMissionGet               = "plasma.mission.get"
+	ToolMissionUpdate            = "plasma.mission.update"
 	ToolSourcesList              = "plasma.sources.list"
 	ToolSourcesRead              = "plasma.sources.read"
 	ToolSourcesTree              = "plasma.sources.tree"
@@ -88,6 +89,7 @@ func (server *Server) ListTools() []ToolDefinition {
 	}
 	tools := []ToolDefinition{
 		{Name: ToolMissionGet, Description: "Read a Plasma mission projection.", InputSchema: schemaMissionGet},
+		{Name: ToolMissionUpdate, Description: "Update supplied current mission metadata fields through the shared application service only when the user explicitly requests the edit.", InputSchema: schemaMissionUpdate},
 		{Name: ToolSourcesList, Description: "List active Plasma source snapshots for a mission, optionally including soft-removed sources.", InputSchema: schemaSourcesList},
 		{Name: ToolSourcesRead, Description: "Read bounded UTF-8 text from a snapshot_only source artifact, extracted text from uploaded/PDF sources, metadata-only output for binary media such as images, or observe a live local_path reference. For live directory local_path sources, pass subpath to read a child file inside the accepted source boundary. Use offset and next_offset to inspect long readable sources in multiple chunks.", InputSchema: schemaSourcesRead},
 		{Name: ToolSourcesTree, Description: "Observe a bounded directory tree for an accepted live local_path source snapshot. Optional subpath is scoped inside that source; root_id and absolute filesystem paths are not accepted.", InputSchema: schemaSourcesTree},

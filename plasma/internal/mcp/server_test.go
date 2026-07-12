@@ -25,6 +25,7 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 	tools := server.ListTools()
 	expected := map[string]bool{
 		ToolMissionGet:              false,
+		ToolMissionUpdate:           false,
 		ToolSourcesList:             false,
 		ToolSourcesRead:             false,
 		ToolSourcesTree:             false,
@@ -59,6 +60,33 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 		if !seen {
 			t.Fatalf("expected tool missing: %s", name)
 		}
+	}
+}
+
+func TestMissionUpdateToolUsesSharedServiceAndIsIdempotent(t *testing.T) {
+	service := &fakeMCPService{}
+	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
+	call := ToolCall{Name: ToolMissionUpdate, Arguments: json.RawMessage(`{"mission_id":"mis_1","session_id":"ses_1","idempotency_key":"once","producer":{"type":"user","id":"reviewer"},"title":" New ","scope":{"included":[" A ",""],"excluded":[]}}`)}
+	first := server.dispatchCall(context.Background(), call)
+	second := server.dispatchCall(context.Background(), call)
+	if first.Error != nil || second.Error != nil {
+		t.Fatalf("update errors: %#v %#v", first.Error, second.Error)
+	}
+	if len(service.metadataRequests) != 1 {
+		t.Fatalf("expected one service call, got %d", len(service.metadataRequests))
+	}
+	req := service.metadataRequests[0]
+	if req.Title == nil || *req.Title != " New " || req.Producer.Type != "user" || len(first.CreatedEventIDs) != 1 {
+		t.Fatalf("unexpected request/result: %#v %#v", req, first)
+	}
+
+	wrongMission := ToolCall{Name: ToolMissionUpdate, Arguments: json.RawMessage(`{"mission_id":"mis_2","session_id":"ses_1","idempotency_key":"wrong","producer":{"type":"user","id":"reviewer"},"title":"X"}`)}
+	if result := server.dispatchCall(context.Background(), wrongMission); result.Error == nil {
+		t.Fatal("expected bound mission rejection")
+	}
+	nonUser := ToolCall{Name: ToolMissionUpdate, Arguments: json.RawMessage(`{"mission_id":"mis_1","session_id":"ses_1","idempotency_key":"agent","producer":{"type":"agent_session","id":"ses_1"},"title":"X"}`)}
+	if result := server.dispatchCall(context.Background(), nonUser); result.Error == nil {
+		t.Fatal("expected non-user rejection")
 	}
 }
 
@@ -3090,6 +3118,17 @@ type fakeMCPService struct {
 	confidenceRequests   []app.UpdateClaimConfidenceRequest
 	questionRequests     []app.CreateQuestionRecordRequest
 	proposalRequests     []app.CreateProposalBundleRequest
+	metadataRequests     []app.UpdateMissionMetadataRequest
+}
+
+func (f *fakeMCPService) UpdateMissionMetadata(_ context.Context, req app.UpdateMissionMetadataRequest) (app.UpdateMissionMetadataResult, error) {
+	f.metadataRequests = append(f.metadataRequests, req)
+	projection := app.MissionProjection{MissionID: req.MissionID}
+	if req.Title != nil {
+		projection.Title = strings.TrimSpace(*req.Title)
+	}
+	event := app.LedgerEvent{EventID: req.EventID, MissionID: req.MissionID, EventType: "mission.metadata.updated", Producer: req.Producer}
+	return app.UpdateMissionMetadataResult{Event: event, Projection: projection}, nil
 }
 
 func (f *fakeMCPService) GetProjection(_ context.Context, missionID string) (app.MissionProjection, error) {

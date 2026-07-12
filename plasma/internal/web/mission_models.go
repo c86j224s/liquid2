@@ -90,9 +90,10 @@ type agentExecutorStatus struct {
 }
 
 type agentModelCapability struct {
-	Name             string   `json:"name"`
-	Label            string   `json:"label"`
-	ReasoningEfforts []string `json:"reasoning_efforts"`
+	Name                   string   `json:"name"`
+	Label                  string   `json:"label"`
+	ReasoningEfforts       []string `json:"reasoning_efforts"`
+	DefaultReasoningEffort string   `json:"default_reasoning_effort"`
 }
 
 type recallMission struct {

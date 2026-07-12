@@ -25,6 +25,21 @@ import (
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
+func TestCLIReportDirectionPromptAllowlist(t *testing.T) {
+	const hint = "CLI_DIRECTION_SENTINEL"
+	for name, prompt := range map[string]string{
+		"plan":   cliPromptWithDirection(cliReportPlanPrompt("t", "mis_1", "ses_1"), hint),
+		"writer": cliPromptWithDirection(cliReportPrompt("t", "mis_1", "ses_1", "planned", "evt_1", ""), hint),
+	} {
+		if !strings.Contains(prompt, hint) || !strings.Contains(prompt, "weak editorial axis") {
+			t.Fatalf("%s prompt missing direction: %q", name, prompt)
+		}
+	}
+	if strings.Contains(cliReportPrompt("t", "mis_1", "ses_1", "one_take", "", ""), hint) {
+		t.Fatal("no-hint report inherited direction")
+	}
+}
+
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "plasma-cmd-test-*")
 	if err != nil {
@@ -324,6 +339,53 @@ func TestRunMissionCommandsCreateListShow(t *testing.T) {
 	shown := decodeCLIJSON(t, out.String())
 	if got := nestedCLIString(t, shown, "projection", "mission_id"); got != missionID {
 		t.Fatalf("expected mission %q, got %q", missionID, got)
+	}
+}
+
+func TestRunMissionUpdatePreservesOmittedFieldsAndReplacesScope(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	var out, errOut bytes.Buffer
+	code := run(context.Background(), []string{"missions", "create", "-db", dbPath, "-title", "Original", "-objective", "Keep", "-json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("missions create returned %d stderr=%q", code, errOut.String())
+	}
+	missionID := nestedCLIString(t, decodeCLIJSON(t, out.String()), "projection", "mission_id")
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{
+		"missions", "update", missionID, "-db", dbPath, "-title", " Updated ",
+		"-scope-included", " A ", "-scope-included", "B", "-scope-excluded", " X ", "-json",
+	}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("missions update returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	updated := decodeCLIJSON(t, out.String())
+	if got := nestedCLIString(t, updated, "projection", "title"); got != "Updated" {
+		t.Fatalf("updated title = %q", got)
+	}
+	if got := nestedCLIString(t, updated, "projection", "objective"); got != "Keep" {
+		t.Fatalf("omitted objective changed to %q", got)
+	}
+	projection := updated["projection"].(map[string]any)
+	scope := projection["scope"].(map[string]any)
+	if got := fmt.Sprint(scope["included"]); got != "[A B]" {
+		t.Fatalf("included scope = %s", got)
+	}
+	if got := fmt.Sprint(scope["excluded"]); got != "[X]" {
+		t.Fatalf("excluded scope = %s", got)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "update", missionID, "-db", dbPath, "-clear-scope"}, &out, &errOut)
+	if code != 0 || !strings.Contains(out.String(), "updated mission "+missionID) {
+		t.Fatalf("clear scope returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "update", missionID, "-db", dbPath, "-clear-scope", "-scope-included", "A"}, &out, &errOut)
+	if code != 2 || !strings.Contains(errOut.String(), "cannot be combined") {
+		t.Fatalf("conflicting scope flags returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 }
 
@@ -1808,6 +1870,9 @@ func TestCodexEnabledToolsExposeResearchSurface(t *testing.T) {
 	if containsString(tools, mcp.ToolMissionGet) {
 		t.Fatalf("Codex enabled tools should not include legacy mission.get: %#v", tools)
 	}
+	if containsString(tools, mcp.ToolMissionUpdate) {
+		t.Fatalf("Codex enabled tools should not let an agent impersonate a user metadata edit: %#v", tools)
+	}
 }
 
 func TestCodexSharedDBPathRequiresFileBackedDatabase(t *testing.T) {
@@ -1998,6 +2063,124 @@ func hasCLIArgPair(args []string, flagName string, value string) bool {
 		}
 	}
 	return false
+}
+
+func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	missionID := createCLITestMission(t, dbPath)
+	fake := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
+	oldFactory := newCLIAgentExecutor
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return fake, nil }
+	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
+
+	var out, errOut bytes.Buffer
+	code := run(context.Background(), []string{"reports", "draft", missionID, "-db", dbPath, "-wait", "-agent-model", "gpt-5.5", "-agent-reasoning-effort", "high"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("explicit draft returned %d: %s", code, errOut.String())
+	}
+	if len(fake.requests) != 2 {
+		t.Fatalf("expected plan/body requests, got %#v", fake.requests)
+	}
+	for _, req := range fake.requests {
+		if req.Model != "gpt-5.5" || req.ReasoningEffort != "high" {
+			t.Fatalf("selection not propagated: %#v", req)
+		}
+	}
+	store, err := sqlite.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err := app.NewService(store).ListEvents(context.Background(), missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, eventType := range []string{"report.draft.pending", "report.plan.created", "report.artifact.created"} {
+		payload := cliLatestEventPayload(t, events, eventType)
+		if payload["agent_model"] != "gpt-5.5" || payload["agent_reasoning_effort"] != "high" || payload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
+			t.Fatalf("%s selection mismatch: %#v", eventType, payload)
+		}
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	defaultMissionID := createCLITestMission(t, dbPath)
+	defaultAgent := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "default-session"}, {Text: "# Report", SessionID: "default-session"}}}
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return defaultAgent, nil }
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"reports", "draft", defaultMissionID, "-db", dbPath, "-wait", "-agent-model", "gpt-5.5"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("model-default draft returned %d: %s", code, errOut.String())
+	}
+	for _, req := range defaultAgent.requests {
+		if req.Model != "gpt-5.5" || req.ReasoningEffort != "medium" {
+			t.Fatalf("model default mismatch: %#v", req)
+		}
+	}
+
+	invalidMissionID := createCLITestMission(t, dbPath)
+	invalidAgent := &cliForkingFakeAgent{forkSessionID: "fork"}
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return invalidAgent, nil }
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"reports", "draft", invalidMissionID, "-db", dbPath, "-wait", "-agent-model", "gpt-5.6-luna", "-agent-reasoning-effort", "ultra"}, &out, &errOut)
+	if code != 2 || len(invalidAgent.requests) != 0 || len(invalidAgent.forkSources) != 0 {
+		t.Fatalf("invalid pair side effects: code=%d requests=%#v forks=%#v stderr=%q", code, invalidAgent.requests, invalidAgent.forkSources, errOut.String())
+	}
+	store, err = sqlite.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err = app.NewService(store).ListEvents(context.Background(), invalidMissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cliCountEventType(events, "report.draft.pending") != 0 {
+		t.Fatalf("invalid pair appended pending: %#v", events)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunReportsDraftClaudeEmptyConfigFreezesHaiku(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	missionID := createCLITestMission(t, dbPath)
+	fake := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "claude-session"}, {Text: "# Report", SessionID: "claude-session"}}}
+	oldFactory := newCLIAgentExecutor
+	newCLIAgentExecutor = func(_ context.Context, cfg cliAgentConfig) (web.AgentExecutor, error) {
+		if cfg.AgentName != "claude" || cfg.ClaudeModel != "" {
+			t.Fatalf("unexpected config: %#v", cfg)
+		}
+		return fake, nil
+	}
+	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
+	var out, errOut bytes.Buffer
+	code := run(context.Background(), []string{"reports", "draft", missionID, "-db", dbPath, "-wait", "-agent", "claude"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("claude draft returned %d: %s", code, errOut.String())
+	}
+	for _, req := range fake.requests {
+		if req.Model != "haiku" || req.ReasoningEffort != "" {
+			t.Fatalf("claude request mismatch: %#v", req)
+		}
+	}
+	store, err := sqlite.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := app.NewService(store).ListEvents(context.Background(), missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, eventType := range []string{"report.draft.pending", "report.plan.created", "report.artifact.created"} {
+		payload := cliLatestEventPayload(t, events, eventType)
+		if payload["agent_model"] != "haiku" || payload["agent_selection_source"] != reporting.AgentSelectionSourceProviderDefault {
+			t.Fatalf("%s mismatch: %#v", eventType, payload)
+		}
+	}
 }
 
 type cliFakeAgent struct {

@@ -18,7 +18,7 @@ async function checkConfluenceSourceUpdate(snapshotID) {
     $("confluenceUpdatePanel")?.scrollIntoView({ block: "nearest" });
     await reloadMission();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -74,7 +74,7 @@ async function previewConfluenceUpdate() {
     state.confluenceUpdatePreview = { ...update, preview };
     renderConfluenceUpdatePanel(state.confluenceUpdatePreview);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -109,7 +109,7 @@ async function approveConfluenceUpdate() {
     renderConfluenceUpdatePanel(null);
     await reloadMission();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }

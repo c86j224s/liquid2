@@ -4,6 +4,7 @@ import "encoding/json"
 
 var (
 	schemaMissionGet              = objectSchema([]string{"mission_id"}, baseProperties())
+	schemaMissionUpdate           = missionUpdateSchema()
 	schemaSourcesList             = objectSchema([]string{"mission_id"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "include_removed": map[string]any{"type": "boolean"}, "include_superseded": map[string]any{"type": "boolean"}})
 	schemaSourcesRead             = objectSchema([]string{"mission_id", "snapshot_id"}, sourceReadProperties())
 	schemaSourcesTree             = objectSchema([]string{"mission_id", "snapshot_id"}, sourceTreeProperties())
@@ -261,6 +262,22 @@ var (
 		}),
 	)
 )
+
+func missionUpdateSchema() json.RawMessage {
+	properties := commonMutatingProperties()
+	properties["producer"] = objectSchemaValue([]string{"type", "id"}, map[string]any{"type": map[string]any{"type": "string", "const": "user"}, "id": stringSchema()})
+	properties["title"] = stringSchema()
+	properties["objective"] = stringSchema()
+	properties["scope"] = objectSchemaValue([]string{"included", "excluded"}, map[string]any{"included": arraySchema(stringSchema()), "excluded": arraySchema(stringSchema())})
+	value := map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required":   []string{"mission_id", "session_id", "idempotency_key", "producer"},
+		"properties": properties,
+		"anyOf":      []any{map[string]any{"required": []string{"title"}}, map[string]any{"required": []string{"objective"}}, map[string]any{"required": []string{"scope"}}},
+	}
+	encoded, _ := json.Marshal(value)
+	return encoded
+}
 
 func objectSchema(required []string, properties map[string]any) json.RawMessage {
 	schema := map[string]any{

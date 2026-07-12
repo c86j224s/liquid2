@@ -1006,10 +1006,13 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	if active := server.activeWorkflowRun(ctx, missionID); active != nil {
 		return nil, fmt.Errorf("%w: workflow %s is %s for this mission", app.ErrInvalidInput, active.WorkflowRunID, active.Status)
 	}
-	// Pending state keeps the mission's raw selection. The worker resolves it
-	// when constructing agent requests, after the report start is durable.
-	req.AgentModel = server.latestAgentSessionModel(ctx, missionID, executorName)
-	req.AgentReasoningEffort = server.latestAgentReasoningEffort(ctx, missionID, executorName)
+	selection, err := server.resolveReportModelSelection(ctx, missionID, req)
+	if err != nil {
+		return nil, err
+	}
+	req.AgentModel = selection.Model
+	req.AgentReasoningEffort = selection.ReasoningEffort
+	req.AgentSelectionSource = selection.Source
 	executor := server.agentExecutor(executorName)
 	reportSessionPolicy, reportSessionPolicySelection, err := server.selectReportSessionPolicy(ctx, missionID, executorName, reportMode, strings.TrimSpace(req.ReportSessionPolicy), executor)
 	if err != nil {
@@ -1019,9 +1022,11 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	req.ReportSessionPolicySelection = reportSessionPolicySelection
 	pendingEvent, err := server.reportRunner().StartDraft(ctx, missionID, reporting.DraftRequest{
 		Title:                        title,
+		DirectionHint:                req.DirectionHint,
 		AgentExecutor:                executorName,
 		AgentModel:                   req.AgentModel,
 		AgentReasoningEffort:         req.AgentReasoningEffort,
+		AgentSelectionSource:         req.AgentSelectionSource,
 		MCPMode:                      mcpMode,
 		RigorLevel:                   rigor.level,
 		RigorLabel:                   rigor.label,
@@ -1247,9 +1252,11 @@ func (server *Server) reportRunner() reporting.Runner {
 		GenerateDraft: func(ctx context.Context, missionID string, req reporting.DraftRequest, pendingEventID string) error {
 			_, err := server.createReportDraft(ctx, missionID, reportDraftRequest{
 				Title:                        req.Title,
+				DirectionHint:                req.DirectionHint,
 				AgentExecutor:                req.AgentExecutor,
 				AgentModel:                   req.AgentModel,
 				AgentReasoningEffort:         req.AgentReasoningEffort,
+				AgentSelectionSource:         req.AgentSelectionSource,
 				MCPMode:                      req.MCPMode,
 				RigorLevel:                   req.RigorLevel,
 				ReportMode:                   req.ReportMode,
@@ -1375,9 +1382,11 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	}
 	agentModel := strings.TrimSpace(req.AgentModel)
 	agentReasoningEffort := strings.TrimSpace(req.AgentReasoningEffort)
-	agentModel, agentReasoningEffort, err = resolveAgentSettings(executorName, agentModel, agentReasoningEffort, server.latestAgentSessionID(ctx, missionID, executorName))
-	if err != nil {
-		return nil, err
+	if strings.TrimSpace(req.AgentSelectionSource) == "" {
+		agentModel, agentReasoningEffort, err = resolveAgentSettings(executorName, agentModel, agentReasoningEffort, server.latestAgentSessionID(ctx, missionID, executorName))
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := server.validateReportSessionPolicy(ctx, missionID, executorName, reportMode, reportSessionPolicy, executor, false); err != nil {
 		return nil, err
@@ -1392,11 +1401,11 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	}
 	switch reportMode {
 	case reportModeLongForm:
-		return server.createSectionalLongFormReportDraft(ctx, missionID, title, executorName, agentModel, agentReasoningEffort, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
+		return server.createSectionalLongFormReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
 	case reportModePlanned:
-		return server.createPlannedReportDraft(ctx, missionID, title, executorName, agentModel, agentReasoningEffort, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
+		return server.createPlannedReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
 	default:
-		return server.createOneTakeReportDraft(ctx, missionID, title, executorName, agentModel, agentReasoningEffort, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
+		return server.createOneTakeReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
 	}
 }
 
@@ -1639,7 +1648,7 @@ func reportPatchMCPTools() []string {
 	}
 }
 
-func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID string, title string, executorName string, agentModel string, agentReasoningEffort string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
+func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
 	artifactID := newID("art")
 	toolSessionID := newID("ses")
 	reportSessionPolicy = firstNonEmpty(reportSessionPolicy, reportSessionPolicySameSession)
@@ -1648,7 +1657,7 @@ func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID st
 	started := time.Now()
 	result, err := executor.Run(ctx, AgentRequest{
 		UserText:          "generate quick markdown report artifact",
-		Prompt:            agentOneTakeMarkdownReportPrompt(title, missionID, toolSessionID, rigor, generationGuidanceProfile),
+		Prompt:            withReportDirection(agentOneTakeMarkdownReportPrompt(title, missionID, toolSessionID, rigor, generationGuidanceProfile), directionHint),
 		Model:             agentModel,
 		ReasoningEffort:   agentReasoningEffort,
 		MissionID:         missionID,
@@ -1690,6 +1699,7 @@ func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID st
 			AgentExecutor:                executorName,
 			AgentModel:                   agentModel,
 			AgentReasoningEffort:         agentReasoningEffort,
+			AgentSelectionSource:         agentSelectionSource,
 			AgentSessionID:               result.SessionID,
 			PreviousAgentSessionID:       previousSessionID,
 			ReturnedAgentSessionID:       returnedSessionID,
@@ -1748,7 +1758,7 @@ func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID st
 	return map[string]any{"artifact": artifact, "event": event, "markdown": markdown, "humanized": humanized}, nil
 }
 
-func (server *Server) createPlannedReportDraft(ctx context.Context, missionID string, title string, executorName string, agentModel string, agentReasoningEffort string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
+func (server *Server) createPlannedReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
 	artifactID := newID("art")
 	planToolSessionID := newID("ses")
 	if strings.TrimSpace(reportSessionPolicy) == "" {
@@ -1782,7 +1792,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 	planStarted := time.Now()
 	planResult, err := executor.Run(ctx, AgentRequest{
 		UserText:          "plan markdown report artifact",
-		Prompt:            agentReportPlanPrompt(title, missionID, planToolSessionID, rigor),
+		Prompt:            withReportDirection(agentReportPlanPrompt(title, missionID, planToolSessionID, rigor), directionHint),
 		Model:             agentModel,
 		ReasoningEffort:   agentReasoningEffort,
 		MissionID:         missionID,
@@ -1813,6 +1823,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 			AgentExecutor:                executorName,
 			AgentModel:                   agentModel,
 			AgentReasoningEffort:         agentReasoningEffort,
+			AgentSelectionSource:         agentSelectionSource,
 			AgentSessionID:               planResult.SessionID,
 			PreviousAgentSessionID:       reportStartSessionID,
 			ReturnedAgentSessionID:       returnedPlanSessionID,
@@ -1856,7 +1867,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 	reportStarted := time.Now()
 	result, err := executor.Run(ctx, AgentRequest{
 		UserText:          "generate markdown report artifact",
-		Prompt:            agentMarkdownReportPrompt(title, missionID, toolSessionID, rigor, plan, generationGuidanceProfile),
+		Prompt:            withReportDirection(agentMarkdownReportPrompt(title, missionID, toolSessionID, rigor, plan, generationGuidanceProfile), directionHint),
 		Model:             agentModel,
 		ReasoningEffort:   agentReasoningEffort,
 		MissionID:         missionID,
@@ -1898,6 +1909,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 			AgentExecutor:                executorName,
 			AgentModel:                   agentModel,
 			AgentReasoningEffort:         agentReasoningEffort,
+			AgentSelectionSource:         agentSelectionSource,
 			AgentSessionID:               result.SessionID,
 			PreviousAgentSessionID:       planResult.SessionID,
 			ReturnedAgentSessionID:       returnedSessionID,
@@ -1959,7 +1971,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 	return map[string]any{"artifact": artifact, "event": event, "markdown": markdown, "humanized": humanized}, nil
 }
 
-func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, missionID string, title string, executorName string, agentModel string, agentReasoningEffort string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
+func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
 	started := time.Now()
 	progress, err := server.loadSectionalReportProgress(ctx, missionID, pendingEventID)
 	if err != nil {
@@ -2009,7 +2021,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		planStarted := time.Now()
 		planResult, err := executor.Run(ctx, AgentRequest{
 			UserText:          "plan sectional long-form markdown report",
-			Prompt:            agentSectionalReportPlanPrompt(title, missionID, planToolSessionID, rigor),
+			Prompt:            withReportDirection(agentSectionalReportPlanPrompt(title, missionID, planToolSessionID, rigor), directionHint),
 			Model:             agentModel,
 			ReasoningEffort:   agentReasoningEffort,
 			MissionID:         missionID,
@@ -2041,6 +2053,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				AgentExecutor:                executorName,
 				AgentModel:                   agentModel,
 				AgentReasoningEffort:         agentReasoningEffort,
+				AgentSelectionSource:         agentSelectionSource,
 				AgentSessionID:               planResult.SessionID,
 				PreviousAgentSessionID:       reportStartSessionID,
 				ReturnedAgentSessionID:       returnedPlanSessionID,
@@ -2108,7 +2121,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			sectionStarted := time.Now()
 			result, err := executor.Run(ctx, AgentRequest{
 				UserText:          fmt.Sprintf("draft section %d.%d for sectional long-form markdown report", partIndex+1, sectionIndex+1),
-				Prompt:            agentSectionDraftPrompt(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile),
+				Prompt:            withReportDirection(agentSectionDraftPrompt(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile), directionHint),
 				Model:             agentModel,
 				ReasoningEffort:   agentReasoningEffort,
 				MissionID:         missionID,
@@ -2156,6 +2169,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 					AgentExecutor:                executorName,
 					AgentModel:                   agentModel,
 					AgentReasoningEffort:         agentReasoningEffort,
+					AgentSelectionSource:         agentSelectionSource,
 					AgentSessionID:               result.SessionID,
 					PreviousAgentSessionID:       previousStageSessionID,
 					ReturnedAgentSessionID:       returnedSessionID,
@@ -2257,6 +2271,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				AgentExecutor:                executorName,
 				AgentModel:                   agentModel,
 				AgentReasoningEffort:         agentReasoningEffort,
+				AgentSelectionSource:         agentSelectionSource,
 				AgentSessionID:               result.SessionID,
 				PreviousAgentSessionID:       previousStageSessionID,
 				ReturnedAgentSessionID:       returnedSessionID,
@@ -2348,6 +2363,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			AgentExecutor:                executorName,
 			AgentModel:                   agentModel,
 			AgentReasoningEffort:         agentReasoningEffort,
+			AgentSelectionSource:         agentSelectionSource,
 			AgentSessionID:               frameResult.SessionID,
 			PreviousAgentSessionID:       previousStageSessionID,
 			ReturnedAgentSessionID:       returnedSessionID,

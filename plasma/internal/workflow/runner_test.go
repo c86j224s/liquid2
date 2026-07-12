@@ -478,6 +478,8 @@ func TestStepPromptUsesLayeredShapeForLegacyCurrentMode(t *testing.T) {
 		"outranks the derived goal",
 		"Do not let the derived goal close off possibilities",
 		"Your answer is a result, not a source",
+		"Use decision \"continue\" when the current step is complete",
+		"Do not use stop merely because the current step instruction is complete",
 		"소스 후보:",
 		"채택 의견:",
 		"PLASMA_WORKFLOW_CONTROL",
@@ -499,6 +501,7 @@ func TestStepPromptUsesLayeredShapeForLegacyCurrentMode(t *testing.T) {
 		"report AST",
 		"full source bodies",
 		"full transcripts",
+		`Use decision "stop" when the mission has no useful next workflow step or this instruction is complete`,
 	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("workflow prompt contains forbidden text %q:\n%s", forbidden, prompt)
@@ -524,6 +527,8 @@ func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
 		"Investigate one thing",
 		"outranks the derived goal",
 		"Do not let the derived goal close off possibilities",
+		"Use decision \"continue\" when the current step is complete",
+		"Do not use stop merely because the current step instruction is complete",
 		"PLASMA_WORKFLOW_CONTROL",
 	} {
 		if !strings.Contains(prompt, expected) {

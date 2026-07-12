@@ -54,8 +54,18 @@
               <div class="mission-title-row">
                 <h1 id="missionName">선택된 미션 없음</h1>
                 <button id="missionRecallButton" class="secondary mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
+				<button id="missionMetadataEdit" class="secondary mission-recall-button" type="button">편집</button>
               </div>
               <p id="missionObjectiveText">미션을 만들거나 선택하세요.</p>
+			  <form id="missionMetadataForm" class="mission-metadata-editor hidden">
+				<label>제목<input id="missionMetadataTitle" required></label>
+				<label>목표<textarea id="missionMetadataObjective" rows="2"></textarea></label>
+				<div class="mission-metadata-scope">
+				  <label>포함 범위<textarea id="missionMetadataIncluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
+				  <label>제외 범위<textarea id="missionMetadataExcluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
+				</div>
+				<div class="inline-actions"><button type="submit">저장</button><button id="missionMetadataCancel" class="secondary" type="button">취소</button><span id="missionMetadataError" class="field-error" role="alert"></span></div>
+			  </form>
             </div>
             <div class="metric-row">
               <span id="sourceCount" class="metric">소스 0개</span>
@@ -260,13 +270,13 @@
                     <div class="confluence-step-head"><span class="confluence-step-num">2</span><strong>페이지 찾기</strong></div>
                     <div class="confluence-status">
                       <label>
-                        <span>Site</span>
+                        <span>사이트</span>
                         <select id="confluenceSiteSelect"></select>
                       </label>
                     </div>
                     <form id="confluenceSearchForm" class="inline-form confluence-search">
                       <input id="confluenceQuery" name="query" placeholder="검색어로 Confluence 페이지 찾기">
-                      <input id="confluenceSpaceKey" name="space_key" placeholder="Space key (선택)">
+                      <input id="confluenceSpaceKey" name="space_key" placeholder="공간 키 (선택)">
                       <select id="confluenceLimit" aria-label="검색 개수">
                         <option value="5">5개</option>
                         <option value="10" selected>10개</option>
@@ -275,38 +285,38 @@
                       <button type="submit">찾기</button>
                     </form>
                     <div class="inline-actions confluence-source-actions">
-                      <button id="confluenceOneClickStart" class="secondary" type="button" title="검색어 없이 눌러도 Space·page를 자동으로 훑어줍니다">자동으로 찾아주기</button>
+                      <button id="confluenceOneClickStart" class="secondary" type="button" title="검색어 없이 눌러도 공간·페이지를 자동으로 훑어줍니다">자동으로 찾아주기</button>
                     </div>
                     <div id="confluenceResults" class="list compact"></div>
 
                     <details class="confluence-more">
-                      <summary>다른 방법 · Space 탐색 / URL 붙여넣기</summary>
+                      <summary>다른 방법 · 공간 탐색 / URL 붙여넣기</summary>
                       <div class="stack">
                         <div class="confluence-box">
                           <div class="confluence-box-head">
                             <strong>URL로 추가</strong>
-                            <span class="badge muted">page 직접 지정</span>
+                            <span class="badge muted">페이지 직접 지정</span>
                           </div>
                           <form id="confluenceURLForm" class="inline-form confluence-url-form">
-                            <input id="confluencePageURL" name="url" placeholder="Confluence page URL">
+                            <input id="confluencePageURL" name="url" placeholder="Confluence 페이지 URL">
                             <button id="confluenceAddURLButton" type="submit">추가</button>
                           </form>
-                          <div class="source-helper">선택한 연결·site의 Confluence page URL만 소스로 추가됩니다.</div>
+                          <div class="source-helper">선택한 연결·사이트의 Confluence 페이지 URL만 소스로 추가됩니다.</div>
                         </div>
                         <div id="confluenceBrowsePanel" class="confluence-box">
                           <div class="confluence-box-head">
-                            <strong>Space와 page 탐색</strong>
+                            <strong>공간과 페이지 탐색</strong>
                             <span class="badge muted">후보 탐색</span>
                           </div>
                           <div class="inline-actions">
-                            <button id="confluenceLoadSpaces" class="secondary" type="button">Space 불러오기</button>
-                            <button id="confluenceLoadMoreSpaces" class="secondary hidden" type="button">Space 더 보기</button>
+                            <button id="confluenceLoadSpaces" class="secondary" type="button">공간 불러오기</button>
+                            <button id="confluenceLoadMoreSpaces" class="secondary hidden" type="button">공간 더 보기</button>
                           </div>
-                          <div id="confluenceBrowseBreadcrumb" class="item-meta">Site를 선택하고 Space를 불러오세요.</div>
+                          <div id="confluenceBrowseBreadcrumb" class="item-meta">사이트를 선택하고 공간을 불러오세요.</div>
                           <div id="confluenceSpaces" class="list compact"></div>
                           <div id="confluencePages" class="list compact"></div>
                           <div class="inline-actions">
-                            <button id="confluenceLoadMorePages" class="secondary hidden" type="button">Page 더 보기</button>
+                            <button id="confluenceLoadMorePages" class="secondary hidden" type="button">페이지 더 보기</button>
                           </div>
                         </div>
                       </div>
@@ -357,11 +367,11 @@
                       <span id="confluenceAccessBadge" class="badge muted">기본 off</span>
                     </summary>
                     <div class="stack">
-                      <p class="source-helper">소스 추가와는 별개입니다. 이 권한은 에이전트가 대화 중 MCP로 Confluence를 검색하도록만 허용합니다. page를 소스로 붙이려면 위 ①~③ 단계로 snapshot을 승인하세요.</p>
+                      <p class="source-helper">소스 추가와는 별개입니다. 이 권한은 에이전트가 대화 중 MCP로 Confluence를 검색하도록만 허용합니다. 페이지를 소스로 붙이려면 위 ①~③ 단계로 스냅샷을 승인하세요.</p>
                       <div class="inline-form">
                         <select id="confluenceAccessConnectionSelect" aria-label="agent search Confluence 연결"></select>
-                        <select id="confluenceAccessSiteSelect" aria-label="agent search Confluence site"></select>
-                        <input id="confluenceAccessSpaceKey" placeholder="Space key 제한 (선택)">
+                        <select id="confluenceAccessSiteSelect" aria-label="에이전트 검색 Confluence 사이트"></select>
+                        <input id="confluenceAccessSpaceKey" placeholder="공간 키 제한 (선택)">
                         <button id="confluenceAccessEnable" type="button">검색 허용 켜기</button>
                         <button id="confluenceAccessDisable" class="secondary" type="button">끄기</button>
                       </div>
@@ -471,6 +481,10 @@
                       <option value="strict">검증형</option>
                     </select>
                   </label>
+				  <div class="report-model-controls">
+					<label class="inline-control" for="reportAgentModel"><span>모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
+					<label class="inline-control" for="reportAgentReasoningEffort"><span>추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
+				  </div>
 	                  <div class="report-mode-actions" aria-label="리포트 생성 방식">
 	                    <button id="draftQuickReport" title="계획 기반 Markdown 보고서 생성">보고서</button>
 	                    <button id="draftLongReport" class="secondary" title="섹션별 작성과 보존 조립 방식의 장문 보고서 생성">장문 보고서</button>
@@ -478,6 +492,9 @@
 	                  </div>
                 </div>
               </div>
+			  <label class="report-direction-field" for="reportDirectionHint">이번 보고서 방향
+				<textarea id="reportDirectionHint" rows="2" placeholder="이 요청에만 적용할 약한 편집 방향"></textarea>
+			  </label>
               <div id="reportNotice" class="report-notice hidden"></div>
               <div id="reportList" class="list compact"></div>
             </section>
@@ -502,7 +519,7 @@
               <details id="confluenceSettingsDetails" class="source-add" open>
                 <summary>Confluence 연결</summary>
                 <div class="stack">
-                  <p class="source-helper">Settings는 재사용 가능한 Confluence 연결을 저장합니다. 미션 Sources는 여기에서 만든 연결을 선택해 page snapshot만 명시적으로 소스로 승인합니다.</p>
+                  <p class="source-helper">설정은 재사용 가능한 Confluence 연결을 저장합니다. 미션 소스는 여기에서 만든 연결을 선택해 페이지 스냅샷만 명시적으로 소스로 승인합니다.</p>
                   <div class="confluence-settings-head">
                     <div id="confluenceSettingsConnectionSummary" class="source-helper">저장된 Confluence 연결을 불러오세요.</div>
                     <button id="confluenceSettingsRefreshConnections" class="secondary" type="button">연결 새로고침</button>
@@ -512,16 +529,16 @@
                   <details id="confluenceSettingsAddCard" class="confluence-add-card">
                     <summary>＋ 새 API token 연결 추가</summary>
                     <form id="confluenceSettingsAPIForm" class="stack">
-                      <p class="source-helper confluence-token-note">0.0에서는 Confluence 연결을 API token 방식으로만 사용합니다. Atlassian 계정 보안 페이지에서 API token을 만든 뒤 email, token, site URL을 입력하세요.</p>
+                      <p class="source-helper confluence-token-note">0.0에서는 Confluence 연결을 API token 방식으로만 사용합니다. Atlassian 계정 보안 페이지에서 API token을 만든 뒤 이메일, token, 사이트 URL을 입력하세요.</p>
                       <a class="button-link secondary" href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank" rel="noopener noreferrer">Atlassian API token 만들기</a>
                       <input id="confluenceSettingsAPIEmail" name="email" autocomplete="username" placeholder="Atlassian email">
                       <input id="confluenceSettingsAPIToken" name="api_token" type="password" autocomplete="off" placeholder="Atlassian API token">
-                      <input id="confluenceSettingsAPISiteURL" name="site_url" placeholder="Confluence site URL (예: https://example.atlassian.net)">
+                      <input id="confluenceSettingsAPISiteURL" name="site_url" placeholder="Confluence 사이트 URL (예: https://example.atlassian.net)">
                       <details class="section-details">
                         <summary>표시 이름 직접 지정</summary>
                         <div class="stack">
                           <input id="confluenceSettingsAPIDisplayName" name="display_name" placeholder="연결 이름 (선택)">
-                          <input id="confluenceSettingsAPISiteName" name="site_name" placeholder="site 이름 (선택)">
+                          <input id="confluenceSettingsAPISiteName" name="site_name" placeholder="사이트 이름 (선택)">
                         </div>
                       </details>
                       <button type="submit">API token 연결 추가</button>
@@ -561,7 +578,11 @@
 
     <script src="/static/vendor/markdown-it.min.js"></script>
     <script src="/static/vendor/purify.min.js"></script>
+	<script src="/static/report_model_selection.js"></script>
     <script src="/static/app.js"></script>
+	<script src="/static/mission_metadata.js"></script>
+	<script src="/static/report_direction.js"></script>
+    <script src="/static/confluence_errors.js"></script>
     <script src="/static/confluence.js"></script>
     <script src="/static/confluence_settings.js"></script>
     <script src="/static/confluence_access.js"></script>

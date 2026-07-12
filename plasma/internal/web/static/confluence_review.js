@@ -8,7 +8,7 @@ async function previewConfluenceCandidate(index) {
   const pageID = confluenceCandidatePageID(candidate);
   const version = Number(candidate.Version || candidate.version || 0);
   if (!connectionID || !cloudID || !pageID) {
-    showError(new Error("Confluence source를 저장하려면 연결, 사이트, 페이지 정보가 필요합니다."));
+    showError(new Error("Confluence 소스를 저장하려면 연결, 사이트, 페이지 정보가 필요합니다."));
     return;
   }
   await previewConfluencePage({ ...candidate, page_id: pageID, cloud_id: cloudID, version }, connectionID, cloudID);
@@ -36,7 +36,7 @@ async function previewConfluencePage(page, forcedConnectionID = "", forcedCloudI
     setConfluenceFlowStatus("후보 미리보기를 열었습니다. 내용을 확인한 뒤 소스로 승인하세요.");
     $("confluencePreviewPanel")?.scrollIntoView({ block: "nearest" });
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -78,9 +78,9 @@ function confluencePageMetaHTML(page) {
   const version = page.version || page.Version || "";
   const updated = page.updated_at || page.UpdatedAt || "";
   const parts = [];
-  if (siteURL) parts.push(`site ${siteURL}`);
-  if (space) parts.push(`space ${space}`);
-  if (pageID) parts.push(`page ${pageID}`);
+  if (siteURL) parts.push(`사이트 ${siteURL}`);
+  if (space) parts.push(`공간 ${space}`);
+  if (pageID) parts.push(`페이지 ${pageID}`);
   if (version) parts.push(`v${version}`);
   if (updated) parts.push(`수정 ${timeShort(updated)}`);
   return `
@@ -100,7 +100,7 @@ async function approveConfluenceSnapshot(useRange) {
     cloud_id: preview.cloud_id,
     page_id: page.page_id || page.PageID,
     expected_version: Number(page.version || page.Version || 0),
-    reason: useRange ? "Plasma 작업공간에서 Confluence page 범위를 승인함" : "Plasma 작업공간에서 Confluence page를 승인함"
+    reason: useRange ? "Plasma 작업공간에서 Confluence 페이지 범위를 승인함" : "Plasma 작업공간에서 Confluence 페이지를 승인함"
   };
   if (useRange) {
     const option = $("confluenceRangeSelect").selectedOptions[0];
@@ -114,10 +114,10 @@ async function approveConfluenceSnapshot(useRange) {
     await api(`/api/missions/${state.missionId}/sources/confluence/snapshot`, { method: "POST", body });
     state.confluencePreview = null;
     renderConfluencePreview(null);
-    setConfluenceFlowStatus("Confluence Page를 소스로 저장했습니다. 같은 결과에서 다른 후보도 계속 검토할 수 있습니다.");
+    setConfluenceFlowStatus("Confluence 페이지를 소스로 저장했습니다. 같은 결과에서 다른 후보도 계속 검토할 수 있습니다.");
     await reloadMission();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }

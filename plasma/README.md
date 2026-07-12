@@ -218,6 +218,25 @@ A typical MCP-driven flow is:
 - Use `plasma.research.read` to inspect bounded chunks.
 - Use `plasma.research.references` to check relationships before reporting.
 
+Edit current mission metadata through the same application contract from CLI or the mission-bound idempotent `plasma.mission.update` MCP tool:
+
+```sh
+go run ./cmd/plasma missions update mis_... -title "Current title" \
+  -scope-included "included topic" -scope-excluded "excluded topic"
+```
+
+The MCP mutation is reserved for an explicit user-requested edit. Plasma-spawned research agents do not receive it in their default tool allowlist.
+
+Request-specific report direction is optional and acts only as a weak editorial axis for that draft:
+
+```sh
+go run ./cmd/plasma reports draft mis_... -wait \
+  -agent-model gpt-5.5 -agent-reasoning-effort high \
+  -direction-hint "Compare operational risks before recommendations"
+```
+
+The hint is not a source or mission setting. Plasma does not copy it into later report requests or explicitly inject it into conversation, humanization, patching, or HTML-export prompts. This is a prompt-routing guarantee, not deletion of provider-session history: a path that deliberately resumes the same provider session may still retain the earlier report prompt in that session's context.
+
 Patch an existing Markdown report artifact from the CLI:
 
 ```sh
@@ -253,3 +272,7 @@ finalizes a new report artifact version. The base artifact is kept unchanged.
 - [Evidence Signal Model](docs/evidence-signal-model.md)
 - [Evidence Signal Model Korean](docs/evidence-signal-model.ko.md)
 - [Experiment Index](docs/experiments/README.md)
+
+### Per-request report model selection
+
+The Browser report controls and `reports draft` may leave model and reasoning effort empty to inherit the latest same-executor mission session, then the configured provider default. Supplying a model without an effort uses that model's published default. Plasma validates and freezes the effective pair plus `agent_selection_source` in `report.draft.pending`; stale recovery reuses those values.

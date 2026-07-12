@@ -32,7 +32,7 @@ function renderConfluenceSettingsSummary(connections) {
   if (!el) return;
   el.classList.remove("warn");
   el.textContent = connections.length
-    ? `저장된 Confluence 연결 ${connections.length}개. 카드를 펼쳐 site 확인·이름 변경·삭제할 수 있습니다.`
+    ? `저장된 Confluence 연결 ${connections.length}개. 카드를 펼쳐 사이트 확인·이름 변경·삭제할 수 있습니다.`
     : "저장된 Confluence 연결이 없습니다. 아래 ‘＋ 새 API token 연결 추가’로 연결하세요.";
 }
 
@@ -43,7 +43,7 @@ function confluenceSettingsSitesHTML(connection) {
       <div class="item-title">${escapeHTML(confluenceSiteName(site))}</div>
       <div class="item-meta">${escapeHTML(confluenceSiteCloudID(site))}${confluenceSiteURL(site) ? ` / ${escapeHTML(confluenceSiteURL(site))}` : ""}</div>
     </div>
-  `).join("") : empty("저장된 Confluence site 없음");
+  `).join("") : empty("저장된 Confluence 사이트 없음");
 }
 
 function renderConfluenceSettingsConnections(connections) {
@@ -75,7 +75,7 @@ function renderConfluenceSettingsConnections(connections) {
           <span class="badge">${escapeHTML(confluenceAuthLabel(connection))}</span>
           ${revoked ? `<span class="badge warn">해제됨</span>` : ""}
           ${isOAuth ? `<span class="badge warn">0.0 사용 불가</span>` : ""}
-          <span class="muted-inline conn-card-sites-count">site ${sites.length}개</span>
+          <span class="muted-inline conn-card-sites-count">사이트 ${sites.length}개</span>
         </summary>
         <div class="conn-card-body stack">
           <div class="item-meta">${escapeHTML(id)}${scopes.length ? ` · scope ${escapeHTML(scopes.join(", "))}` : ""}</div>
@@ -85,7 +85,7 @@ function renderConfluenceSettingsConnections(connections) {
             <button type="button" class="secondary" data-conn-action="rename" ${disabled}>이름 변경</button>
           </div>
           <div class="inline-actions conn-card-actions">
-            <button type="button" class="secondary" data-conn-action="refresh-sites" ${disabled}>Site 새로고침</button>
+            <button type="button" class="secondary" data-conn-action="refresh-sites" ${disabled}>사이트 새로고침</button>
             <button type="button" class="secondary" data-conn-action="revoke" ${disabled}>로컬 해제</button>
             <button type="button" class="danger" data-conn-action="delete" ${disabled}>연결 삭제</button>
           </div>
@@ -117,8 +117,18 @@ function onConfluenceSettingsCardClick(event) {
 async function connectConfluenceAPIToken(event) {
   event.preventDefault();
   const siteURL = $("confluenceSettingsAPISiteURL").value.trim();
+  const accountName = $("confluenceSettingsAPIEmail").value.trim();
+  const apiToken = $("confluenceSettingsAPIToken").value.trim();
   if (!siteURL) {
-    showError(new Error("API token 수동 연결에는 Confluence site URL이 필요합니다."));
+    showError(new Error("API token 수동 연결에는 Confluence 사이트 URL이 필요합니다."));
+    return;
+  }
+  if (!accountName) {
+    showError(new Error("API token 연결에는 Atlassian 계정 이메일이 필요합니다."));
+    return;
+  }
+  if (!apiToken) {
+    showError(new Error("API token 연결에는 Atlassian API token이 필요합니다. 필요하면 새 token을 만드세요."));
     return;
   }
   setConfluenceBusy(true);
@@ -128,8 +138,8 @@ async function connectConfluenceAPIToken(event) {
       body: {
         display_name: $("confluenceSettingsAPIDisplayName").value.trim() || "Confluence",
         auth_type: "api_token",
-        account_name: $("confluenceSettingsAPIEmail").value.trim(),
-        api_token: $("confluenceSettingsAPIToken").value.trim(),
+        account_name: accountName,
+        api_token: apiToken,
         sites: [{
           name: $("confluenceSettingsAPISiteName").value.trim(),
           url: siteURL
@@ -139,9 +149,9 @@ async function connectConfluenceAPIToken(event) {
     $("confluenceSettingsAPIToken").value = "";
     $("confluenceSettingsAddCard")?.removeAttribute("open");
     await loadConfluenceConnections();
-    setConfluenceSettingsStatus("API token 연결을 추가했습니다. 미션 Sources에서 연결과 site를 선택해 page를 소스로 승인할 수 있습니다.");
+    setConfluenceSettingsStatus("API token 연결을 추가했습니다. 미션 소스에서 연결과 사이트를 선택해 페이지를 소스로 승인할 수 있습니다.");
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -160,7 +170,7 @@ async function renameConfluenceSettingsConnection(connectionID, displayName) {
     });
     await loadConfluenceConnections(connectionID);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -177,7 +187,7 @@ async function revokeConfluenceSettingsConnection(connectionID) {
     clearConfluenceDiscovery();
     await loadConfluenceConnections(connectionID);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -194,7 +204,7 @@ async function deleteConfluenceSettingsConnection(connectionID) {
     clearConfluenceDiscovery();
     await loadConfluenceConnections();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -209,7 +219,7 @@ async function refreshConfluenceSettingsSites(connectionID) {
     return;
   }
   if (confluenceConnectionAuthType(connection) === "api_token") {
-    showError(new Error("API token 연결은 등록할 때 저장한 site 정보를 사용합니다. site를 바꾸려면 연결을 다시 추가하세요."));
+    showError(new Error("API token 연결은 등록할 때 저장한 사이트 정보를 사용합니다. 사이트를 바꾸려면 연결을 다시 추가하세요."));
     return;
   }
   if (confluenceConnectionAuthType(connection) === "oauth") {
@@ -224,7 +234,7 @@ async function refreshConfluenceSettingsSites(connectionID) {
     });
     await loadConfluenceConnections(connectionID);
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }

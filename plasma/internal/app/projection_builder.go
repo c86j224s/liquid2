@@ -62,6 +62,8 @@ func BuildProjection(missionID string, events []LedgerEvent) (MissionProjection,
 			builder.applyMissionCreated(event)
 		case "mission.steered":
 			builder.applyMissionSteered(event)
+		case "mission.metadata.updated":
+			builder.applyMissionMetadataUpdated(event)
 		case "mission.archived":
 			builder.projection.LifecycleState = "archived"
 		case "session.attached":
@@ -94,6 +96,36 @@ func BuildProjection(missionID string, events []LedgerEvent) (MissionProjection,
 	}
 
 	return builder.projection, nil
+}
+
+func (b *projectionBuildState) applyMissionMetadataUpdated(event LedgerEvent) {
+	if event.Producer.Type != "user" {
+		b.markNeedsReview("non-user mission.metadata.updated is invalid")
+		return
+	}
+	var body struct {
+		Title     *string       `json:"title"`
+		Objective *string       `json:"objective"`
+		Scope     *MissionScope `json:"scope"`
+	}
+	if json.Unmarshal(event.Payload, &body) != nil || (body.Title == nil && body.Objective == nil && body.Scope == nil) {
+		b.markNeedsReview("invalid mission.metadata.updated payload")
+		return
+	}
+	if body.Title != nil {
+		value := strings.TrimSpace(*body.Title)
+		if value == "" {
+			b.markNeedsReview("invalid mission.metadata.updated title")
+			return
+		}
+		b.projection.Title = value
+	}
+	if body.Objective != nil {
+		b.projection.Objective = strings.TrimSpace(*body.Objective)
+	}
+	if body.Scope != nil {
+		b.projection.Scope = normalizeMissionScope(*body.Scope)
+	}
 }
 
 type projectionBuildState struct {

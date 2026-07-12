@@ -12,6 +12,9 @@ type CLIMarkdownReportPlanCreatedEventRequest struct {
 	PendingEventID               string
 	Title                        string
 	AgentExecutor                string
+	AgentModel                   string
+	AgentReasoningEffort         string
+	AgentSelectionSource         string
 	AgentSessionID               string
 	PreviousAgentSessionID       string
 	ToolSessionID                string
@@ -39,6 +42,9 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	Title                        string
 	Artifact                     app.RawArtifact
 	AgentExecutor                string
+	AgentModel                   string
+	AgentReasoningEffort         string
+	AgentSelectionSource         string
 	AgentSessionID               string
 	PreviousAgentSessionID       string
 	ToolSessionID                string
@@ -73,6 +79,9 @@ func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCre
 			"pending_event_id":                strings.TrimSpace(req.PendingEventID),
 			"title":                           strings.TrimSpace(req.Title),
 			"agent_executor":                  strings.TrimSpace(req.AgentExecutor),
+			"agent_model":                     strings.TrimSpace(req.AgentModel),
+			"agent_reasoning_effort":          strings.TrimSpace(req.AgentReasoningEffort),
+			"agent_selection_source":          strings.TrimSpace(req.AgentSelectionSource),
 			"agent_session_id":                strings.TrimSpace(req.AgentSessionID),
 			"previous_agent_session_id":       strings.TrimSpace(req.PreviousAgentSessionID),
 			"tool_session_id":                 strings.TrimSpace(req.ToolSessionID),
@@ -114,6 +123,9 @@ func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArt
 			"artifact_id":                     artifact.ArtifactID,
 			"media_type":                      artifact.MediaType,
 			"agent_executor":                  strings.TrimSpace(req.AgentExecutor),
+			"agent_model":                     strings.TrimSpace(req.AgentModel),
+			"agent_reasoning_effort":          strings.TrimSpace(req.AgentReasoningEffort),
+			"agent_selection_source":          strings.TrimSpace(req.AgentSelectionSource),
 			"agent_session_id":                strings.TrimSpace(req.AgentSessionID),
 			"previous_agent_session_id":       strings.TrimSpace(req.PreviousAgentSessionID),
 			"tool_session_id":                 strings.TrimSpace(req.ToolSessionID),

@@ -44,6 +44,10 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 	}
 	missionID := parts[0]
 	if len(parts) == 1 {
+		if r.Method == http.MethodPatch {
+			server.handleMissionMetadataUpdate(w, r, missionID)
+			return
+		}
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return

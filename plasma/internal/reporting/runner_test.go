@@ -54,6 +54,39 @@ func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 	t.Fatalf("expected shared runner failure event, got %#v", svc.events)
 }
 
+func TestDraftDirectionPendingIsOptionalAndRecoverable(t *testing.T) {
+	legacy, err := DraftRequestFromPendingEvent(app.LedgerEvent{Payload: json.RawMessage(`{"title":"Old"}`)})
+	if err != nil || legacy.DirectionHint != "" {
+		t.Fatalf("legacy recovery = %#v, %v", legacy, err)
+	}
+	recovered, err := DraftRequestFromPendingEvent(app.LedgerEvent{Payload: json.RawMessage(`{"title":"New","direction_hint":"  focus here  "}`)})
+	if err != nil || recovered.DirectionHint != "focus here" {
+		t.Fatalf("hint recovery = %#v, %v", recovered, err)
+	}
+
+	svc := &fakeRunnerService{}
+	runner := Runner{Service: svc, InFlight: &InFlight{}, NewID: testRunnerID, GenerateDraft: func(context.Context, string, DraftRequest, string) error { return nil }}
+	runner.InFlight.SetNewID(testRunnerID)
+	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report", DirectionHint: "  focus here  "}, app.Producer{Type: "user", ID: "u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runnerPayloadString(t, pending, "direction_hint") != "focus here" {
+		t.Fatalf("pending payload: %s", pending.Payload)
+	}
+	without, err := runner.StartDraft(context.Background(), "mis_2", DraftRequest{Title: "Other"}, app.Producer{Type: "user", ID: "u"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(without.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := payload["direction_hint"]; exists {
+		t.Fatalf("empty direction serialized: %s", without.Payload)
+	}
+}
+
 func TestModeNormalizationKeepsOneTakeExplicit(t *testing.T) {
 	mode, err := NormalizeMode("one-take")
 	if err != nil {

@@ -92,7 +92,7 @@ async function loadConfluenceConnections(preferredConnectionID = "") {
     if (typeof renderConfluenceSettingsControls === "function") renderConfluenceSettingsControls(preferredConnectionID);
     if (typeof renderConfluenceAccessControls === "function") renderConfluenceAccessControls();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
     renderConfluenceControls();
     if (typeof renderConfluenceSettingsControls === "function") renderConfluenceSettingsControls();
     if (typeof renderConfluenceAccessControls === "function") renderConfluenceAccessControls();
@@ -122,7 +122,7 @@ function renderConfluenceControls(preferredConnectionID = "") {
   // connected it becomes a quiet "관리" link.
   const settingsBtn = $("openConfluenceSettings");
   if (settingsBtn) {
-    settingsBtn.textContent = connection ? "연결 관리 (Settings)" : "＋ Confluence 연결하기";
+    settingsBtn.textContent = connection ? "연결 관리 (설정)" : "＋ Confluence 연결하기";
     settingsBtn.classList.toggle("secondary", Boolean(connection));
   }
   for (const id of [
@@ -152,8 +152,8 @@ function renderConfluenceConnectionSummary(connection) {
   if (!connection) {
     const hasOAuthOnly = (state.confluenceConnections || []).some((item) => confluenceConnectionAuthType(item) === "oauth");
     el.textContent = hasOAuthOnly
-      ? "API token Confluence 연결이 없습니다. 기존 OAuth 연결은 0.0에서 사용하지 않습니다. Settings에서 API token 연결을 추가하세요."
-      : "Confluence 연결이 없습니다. Settings에서 API token 연결을 만든 뒤 이 미션에서 page를 소스로 승인하세요.";
+      ? "API token Confluence 연결이 없습니다. 기존 OAuth 연결은 0.0에서 사용하지 않습니다. 설정에서 API token 연결을 추가하세요."
+      : "Confluence 연결이 없습니다. 설정에서 API token 연결을 만든 뒤 이 미션에서 페이지를 소스로 승인하세요.";
     return;
   }
   const sites = confluenceConnectionSites(connection);
@@ -166,7 +166,7 @@ function renderConfluenceConnectionSummary(connection) {
     <span class="badge">${escapeHTML(confluenceAuthLabel(connection))}</span>
     ${revoked ? `<span class="badge warn">해제됨</span>` : ""}
     <span>${escapeHTML(confluenceConnectionID(connection))}</span>
-    <span class="muted-inline">site ${sites.length}개</span>
+    <span class="muted-inline">사이트 ${sites.length}개</span>
     ${expires ? `<span class="muted-inline">만료 ${escapeHTML(timeShort(expires))}</span>` : ""}
     ${updated ? `<span class="muted-inline">수정 ${escapeHTML(timeShort(updated))}</span>` : ""}
     ${scopes.length ? `<span class="muted-inline">scope ${escapeHTML(scopes.join(", "))}</span>` : ""}
@@ -186,7 +186,7 @@ function renderConfluenceSiteOptions(connection) {
           : confluenceSiteName(site);
         return `<option value="${escapeAttr(cloudID)}">${escapeHTML(label)}</option>`;
       }).join("")
-    : `<option value="">site 없음</option>`;
+    : `<option value="">사이트 없음</option>`;
   if (sites.some((site) => confluenceSiteCloudID(site) === current)) {
     select.value = current;
   }
@@ -206,15 +206,15 @@ async function addConfluenceURLSource(event) {
   const site = selectedConfluenceSite();
   const cloudID = confluenceSiteCloudID(site);
   if (!url) {
-    showError(new Error("Confluence page URL이 필요합니다."));
+    showError(new Error("Confluence 페이지 URL이 필요합니다."));
     return;
   }
   if (!connectionID || !cloudID) {
-    showError(new Error("Confluence 연결과 site를 선택한 뒤 URL을 추가하세요."));
+    showError(new Error("Confluence 연결과 사이트를 선택한 뒤 URL을 추가하세요."));
     return;
   }
   if (typeof looksLikeConfluenceURL === "function" && !looksLikeConfluenceURL(url)) {
-    showError(new Error("Confluence page URL만 이 영역에서 추가할 수 있습니다."));
+    showError(new Error("Confluence 페이지 URL만 이 영역에서 추가할 수 있습니다."));
     return;
   }
   setConfluenceBusy(true);
@@ -233,7 +233,7 @@ async function addConfluenceURLSource(event) {
     setConfluenceFlowStatus("Confluence URL을 소스로 추가했습니다.");
     await reloadMission();
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -246,7 +246,7 @@ async function searchConfluenceResults({ previewSingle = false } = {}) {
   const cloudID = confluenceSiteCloudID(site);
   const query = $("confluenceQuery").value.trim();
   if (!connectionID || !cloudID || !query) {
-    showError(new Error("Confluence 연결, site, 검색어가 필요합니다."));
+    showError(new Error("Confluence 연결, 사이트, 검색어가 필요합니다."));
     return;
   }
   setConfluenceBusy(true);
@@ -266,7 +266,7 @@ async function searchConfluenceResults({ previewSingle = false } = {}) {
     renderConfluenceResults(state.confluenceSearchResults);
     setConfluenceFlowStatus(state.confluenceSearchResults.length ? `검색 결과 ${state.confluenceSearchResults.length}개를 찾았습니다. 후보를 검토한 뒤 소스로 승인하세요.` : "검색 결과가 없습니다. 검색어를 바꿔 다시 시도하세요.", state.confluenceSearchResults.length ? "" : "warn");
   } catch (err) {
-    showError(err);
+    showConfluenceError(err);
   } finally {
     setConfluenceBusy(false);
   }
@@ -282,7 +282,7 @@ function clearConfluenceSearchResults() {
 }
 
 function confluenceCandidateDetailPayload(candidate) {
-  const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence page";
+  const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence 페이지";
   const sourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
   const siteURL = confluenceDisplayableExternalURI(candidate.SiteURL || candidate.site_url || "");
   const pageID = confluenceCandidatePageID(candidate);
@@ -305,7 +305,7 @@ function renderConfluenceResults(candidates) {
   const container = $("confluenceResults");
   if (!container) return;
   container.innerHTML = candidates.length ? candidates.map((candidate, index) => {
-    const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence page";
+    const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence 페이지";
     const sourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
     const space = candidate.SpaceKey || candidate.space_key || "";
     const version = candidate.Version || candidate.version || 0;
@@ -314,7 +314,7 @@ function renderConfluenceResults(candidates) {
     return `
       <div class="item">
         <div class="item-title">${escapeHTML(title)} <span class="badge muted">v${escapeHTML(version || "?")}</span></div>
-        <div class="item-meta">${space ? `Space ${escapeHTML(space)} / ` : ""}${escapeHTML(sourceURI || confluenceCandidatePageID(candidate))}</div>
+        <div class="item-meta">${space ? `공간 ${escapeHTML(space)} / ` : ""}${escapeHTML(sourceURI || confluenceCandidatePageID(candidate))}</div>
         ${updated ? `<div class="item-meta">수정: ${escapeHTML(timeShort(updated))}</div>` : ""}
         <div class="item-actions">
           ${sourceURI ? `<a class="button-link secondary" href="${escapeAttr(sourceURI)}" target="_blank" rel="noopener noreferrer">원문 열기</a>` : ""}
@@ -334,13 +334,13 @@ async function runConfluenceOneClickFlow({ fromOAuth = false } = {}) {
   }
   let connection = selectedConfluenceConnection();
   if (!connection) {
-    setConfluenceFlowStatus("저장된 연결이 없습니다. Settings에서 Confluence 연결을 만든 뒤 다시 시도하세요.", "warn");
+    setConfluenceFlowStatus("저장된 연결이 없습니다. 설정에서 Confluence 연결을 만든 뒤 다시 시도하세요.", "warn");
     openSettingsTab();
     return;
   }
   let site = selectedConfluenceSite();
   if (!site) {
-    setConfluenceFlowStatus("선택할 Confluence site가 없습니다. Settings에서 site를 새로고침하거나 연결 권한을 확인하세요.", "warn");
+    setConfluenceFlowStatus("선택할 Confluence 사이트가 없습니다. 설정에서 사이트를 새로고침하거나 연결 권한을 확인하세요.", "warn");
     return;
   }
   const query = $("confluenceQuery")?.value.trim() || "";
@@ -352,7 +352,7 @@ async function runConfluenceOneClickFlow({ fromOAuth = false } = {}) {
   const currentContext = state.confluenceBrowseContext || {};
   const sameSite = currentContext.connection_id === confluenceSelectedConnectionID() && currentContext.cloud_id === confluenceSiteCloudID(site);
   if (!sameSite || !state.confluenceSpaces.length) {
-    setConfluenceFlowStatus(fromOAuth ? "연결이 완료되어 Space 목록을 불러오고 있습니다." : "Space 목록을 불러오고 있습니다.");
+    setConfluenceFlowStatus(fromOAuth ? "연결이 완료되어 공간 목록을 불러오고 있습니다." : "공간 목록을 불러오고 있습니다.");
     await loadConfluenceSpaces();
   }
   if (state.confluenceSpaces.length === 1 && !state.confluencePages.length) {
@@ -360,19 +360,19 @@ async function runConfluenceOneClickFlow({ fromOAuth = false } = {}) {
     await loadConfluenceSpacePages(space.space_id || space.SpaceID || "", space.name || space.Name || "");
   }
   if (state.confluencePages.length === 1) {
-    setConfluenceFlowStatus("Page가 하나라 후보 검토 화면까지 열었습니다. 내용을 확인한 뒤 소스로 승인하세요.");
+    setConfluenceFlowStatus("페이지가 하나라 후보 검토 화면까지 열었습니다. 내용을 확인한 뒤 소스로 승인하세요.");
     await previewConfluencePage(state.confluencePages[0]);
     return;
   }
   if (state.confluencePages.length > 1) {
-    setConfluenceFlowStatus(`Page ${state.confluencePages.length}개를 찾았습니다. 필요한 Page를 후보 검토하세요.`);
+    setConfluenceFlowStatus(`페이지 ${state.confluencePages.length}개를 찾았습니다. 필요한 페이지를 후보 검토하세요.`);
     return;
   }
   if (state.confluenceSpaces.length > 1) {
-    setConfluenceFlowStatus(`Space ${state.confluenceSpaces.length}개를 찾았습니다. Space를 선택하면 Page 목록으로 이어집니다.`);
+    setConfluenceFlowStatus(`공간 ${state.confluenceSpaces.length}개를 찾았습니다. 공간을 선택하면 페이지 목록으로 이어집니다.`);
     return;
   }
-  setConfluenceFlowStatus("탐색 가능한 Space나 Page를 찾지 못했습니다.", "warn");
+  setConfluenceFlowStatus("탐색 가능한 공간이나 페이지를 찾지 못했습니다.", "warn");
 }
 
 function initConfluenceOAuthListener() {
@@ -384,7 +384,7 @@ function initConfluenceOAuthListener() {
     if (payload.ok) {
       openSettingsTab();
       await loadConfluenceConnections(payload.connection_id || "");
-      if (typeof setConfluenceSettingsStatus === "function") setConfluenceSettingsStatus("Confluence 연결이 완료되었습니다. 미션 Sources에서 연결과 site를 선택해 page를 소스로 승인할 수 있습니다.");
+      if (typeof setConfluenceSettingsStatus === "function") setConfluenceSettingsStatus("Confluence 연결이 완료되었습니다. 미션 소스에서 연결과 사이트를 선택해 페이지를 소스로 승인할 수 있습니다.");
       return;
     }
     if (typeof setConfluenceSettingsStatus === "function") setConfluenceSettingsStatus(payload.message || "Confluence 연결이 완료되지 않았습니다.", "warn");

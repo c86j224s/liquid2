@@ -1,6 +1,7 @@
 package app
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -231,5 +232,53 @@ func TestBuildProjectionMarksConflictingSteering(t *testing.T) {
 	}
 	if !projection.NeedsReview {
 		t.Fatal("expected needs_review for conflicting steering")
+	}
+}
+
+func TestBuildProjectionAppliesMetadataFieldsBySequence(t *testing.T) {
+	events := []LedgerEvent{
+		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial","objective":"Initial objective","scope":{"included":["A"]}}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"objective":"Steered"}`)},
+		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"title":"Edited","scope":{"included":[],"excluded":[" X ",""]}}`)},
+		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Final"}`)},
+	}
+	projection, err := BuildProjection("mis_1", events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.Title != "Edited" || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, MissionScope{Included: []string{}, Excluded: []string{"X"}}) {
+		t.Fatalf("unexpected projection: %#v", projection)
+	}
+}
+
+func TestBuildProjectionRejectsInvalidMetadataEvents(t *testing.T) {
+	for _, event := range []LedgerEvent{
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "agent", ID: "a"}, Payload: []byte(`{"title":"Hidden"}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":" "}`)},
+	} {
+		projection, err := BuildProjection("mis_1", []LedgerEvent{{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":"Original"}`)}, event})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if projection.Title != "Original" || !projection.NeedsReview {
+			t.Fatalf("invalid event mutated projection: %#v", projection)
+		}
+	}
+}
+
+func TestBuildProjectionMetadataEditDoesNotReplaceSteeringOwners(t *testing.T) {
+	events := []LedgerEvent{
+		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial"}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"First","scope":{"included":["A"]}}`)},
+		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Edited","scope":{"included":["B"]}}`)},
+		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"Final","scope":{"included":["C"]}}`)},
+	}
+	projection, err := BuildProjection("mis_1", events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projection.NeedsReview || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, MissionScope{Included: []string{"C"}}) {
+		t.Fatalf("metadata edit changed steering ownership: %#v", projection)
 	}
 }

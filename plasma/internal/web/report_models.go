@@ -99,9 +99,11 @@ type reportRefViolation struct {
 
 type reportDraftRequest struct {
 	Title                        string `json:"title"`
+	DirectionHint                string `json:"direction_hint"`
 	AgentExecutor                string `json:"agent_executor"`
-	AgentModel                   string
-	AgentReasoningEffort         string
+	AgentModel                   string `json:"agent_model"`
+	AgentReasoningEffort         string `json:"agent_reasoning_effort"`
+	AgentSelectionSource         string `json:"agent_selection_source"`
 	MCPMode                      string `json:"mcp_mode"`
 	RigorLevel                   string `json:"rigor_level"`
 	ReportMode                   string `json:"report_mode"`

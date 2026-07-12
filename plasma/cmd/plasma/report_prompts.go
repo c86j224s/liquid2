@@ -24,6 +24,14 @@ Rules:
 - Return a concise Korean generation plan as Markdown bullets.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID))
 }
 
+func cliPromptWithDirection(prompt, hint string) string {
+	block := reporting.FormatDirectionHint(hint)
+	if block == "" {
+		return prompt
+	}
+	return strings.TrimSpace(prompt) + "\n\n" + block
+}
+
 func cliReportGenerationGuidanceSelection(profile string) (string, string, error) {
 	return web.SelectReportGenerationGuidance(profile)
 }

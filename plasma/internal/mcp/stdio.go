@@ -135,6 +135,7 @@ func (server *Server) instructions() string {
 	instructions += " Soft-removed and superseded sources are hidden from plasma.sources.list by default and should not be used for new reading or reporting unless explicitly requested for audit/history review."
 	instructions += " In the C1 default loop, use MCP/source read tools to answer the user directly. When you find original material worth user review, use plasma.sources.candidates.propose to record it as a review candidate only. When proposing a plasma.sources.search result, copy source_uri into url and title into title so connector names such as Confluence page titles are preserved. Do not create evidence, claim, confidence, or proposal records unless the server was explicitly started for the legacy research loop."
 	instructions += " Workflow control tools can request, inspect, or stop bounded mission workflow runs; start queues ledger work for the current user turn and bound agent executor, and does not invoke the provider inside the MCP call."
+	instructions += " Mission metadata editing is user-owned: call plasma.mission.update only for an explicit user request, never as autonomous cleanup or steering. Plasma-spawned research agents do not receive this tool by default."
 	instructions += " Tool calls made through a mission-bound server are logged as mcp.tool.called ledger events for user-visible debugging and report-generation trace review."
 	binding := server.binding
 	if binding.MissionID != "" {

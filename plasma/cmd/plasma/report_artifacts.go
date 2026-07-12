@@ -254,7 +254,12 @@ func cliPromoteReportPatchFinalizedArtifact(ctx context.Context, svc *app.Servic
 	return event, artifact, nil
 }
 
-func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executor web.AgentExecutor, missionID string, pendingEventID string, reportTitle string, agentName string, mcpMode string, reportMode string, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string) cliReportDraftRunResult {
+func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executor web.AgentExecutor, missionID string, pendingEventID string, req reporting.DraftRequest) cliReportDraftRunResult {
+	reportTitle, directionHint, agentName := req.Title, req.DirectionHint, req.AgentExecutor
+	mcpMode, reportMode := req.MCPMode, req.ReportMode
+	reportSessionPolicy, reportSessionPolicySelection := req.ReportSessionPolicy, req.ReportSessionPolicySelection
+	postReportHumanize := req.PostReportHumanize
+	generationGuidanceProfile, generationGuidanceSHA256 := req.GenerationGuidanceProfile, req.GenerationGuidanceSHA256
 	postReportHumanize = cliNormalizePostReportHumanize(postReportHumanize)
 	generationGuidanceProfile = strings.TrimSpace(generationGuidanceProfile)
 	generationGuidanceSHA256 = strings.TrimSpace(generationGuidanceSHA256)
@@ -292,11 +297,13 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		planPreviousSessionID := previousSessionID
 		planResult, err := executor.Run(ctx, web.AgentRequest{
 			UserText:          "plan markdown report artifact",
-			Prompt:            cliReportPlanPrompt(reportTitle, missionID, planToolSessionID),
+			Prompt:            cliPromptWithDirection(cliReportPlanPrompt(reportTitle, missionID, planToolSessionID), directionHint),
 			MissionID:         missionID,
 			ToolSessionID:     planToolSessionID,
 			PreviousSessionID: planPreviousSessionID,
 			AgentExecutor:     strings.TrimSpace(agentName),
+			Model:             req.AgentModel,
+			ReasoningEffort:   req.AgentReasoningEffort,
 			MCPMode:           strings.TrimSpace(mcpMode),
 		})
 		if err != nil {
@@ -314,6 +321,9 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 			PendingEventID:               pendingEventID,
 			Title:                        reportTitle,
 			AgentExecutor:                strings.TrimSpace(agentName),
+			AgentModel:                   req.AgentModel,
+			AgentReasoningEffort:         req.AgentReasoningEffort,
+			AgentSelectionSource:         req.AgentSelectionSource,
 			AgentSessionID:               sessionID,
 			PreviousAgentSessionID:       planPreviousSessionID,
 			ToolSessionID:                planToolSessionID,
@@ -342,11 +352,13 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	reportPreviousSessionID := previousSessionID
 	result, err := executor.Run(ctx, web.AgentRequest{
 		UserText:          "generate markdown report artifact",
-		Prompt:            cliReportPrompt(reportTitle, missionID, toolSessionID, reportMode, planEventID, generationGuidanceProfile),
+		Prompt:            cliPromptWithDirection(cliReportPrompt(reportTitle, missionID, toolSessionID, reportMode, planEventID, generationGuidanceProfile), directionHint),
 		MissionID:         missionID,
 		ToolSessionID:     toolSessionID,
 		PreviousSessionID: reportPreviousSessionID,
 		AgentExecutor:     strings.TrimSpace(agentName),
+		Model:             req.AgentModel,
+		ReasoningEffort:   req.AgentReasoningEffort,
 		MCPMode:           strings.TrimSpace(mcpMode),
 	})
 	if err != nil {
@@ -378,6 +390,9 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		Title:                        reportTitle,
 		Artifact:                     artifact,
 		AgentExecutor:                strings.TrimSpace(agentName),
+		AgentModel:                   req.AgentModel,
+		AgentReasoningEffort:         req.AgentReasoningEffort,
+		AgentSelectionSource:         req.AgentSelectionSource,
 		AgentSessionID:               sessionID,
 		PreviousAgentSessionID:       reportPreviousSessionID,
 		ToolSessionID:                toolSessionID,

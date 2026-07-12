@@ -52,7 +52,8 @@ Rules:
 - End with exactly one control marker line:
 %s {"decision":"continue|stop","reason":"short reason","next_instruction":"optional next step"}
 
-Use decision "stop" when the mission has no useful next workflow step or this instruction is complete.`, intro, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
+Use decision "continue" when the current step is complete but the user's original autonomous-run request or derived run goal still has useful remaining work. Include a concrete next_instruction.
+Use decision "stop" only when the user's original autonomous-run request and derived run goal are satisfied, or no useful next workflow step remains. Do not use stop merely because the current step instruction is complete.`, intro, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
 }
 
 func firstNonEmptyWorkflowPrompt(values ...string) string {

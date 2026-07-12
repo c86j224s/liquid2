@@ -70,6 +70,14 @@ Liquid2 can be integrated only as a source connector or external API provider.
 
 ## Mission Ledger
 
+### Explicit mission metadata editing
+
+Current mission metadata is edited through the single `UpdateMissionMetadata` application service. Web `PATCH /api/missions/{id}`, CLI `missions update`, and the mission-bound idempotent MCP tool `plasma.mission.update` are adapters over that service. A successful user edit appends one sparse `mission.metadata.updated` event containing only the supplied `title`, `objective`, and whole `scope` fields. Supplied values win independently by ledger sequence; omitted fields remain unchanged. An empty supplied objective clears it, an empty supplied scope clears both lists, and a blank supplied title is invalid.
+
+The MCP mutation is available to an explicit user-controlled MCP client, but is excluded from the default tool allowlist of Plasma-spawned research agents. This keeps the event user-owned instead of allowing an agent to impersonate a user edit.
+
+The ledger remains authoritative and `plasma_missions` remains a rebuildable projection cache. Explicit editing does not rewrite earlier events and is distinct from conversational `mission.steered`; its producer ownership and conflict semantics are unchanged. Existing ledgers without metadata events remain compatible.
+
 Plasma has one durable Mission Ledger. User-driven turns, bounded workflow runs,
 MCP tool calls, and report requests are event producers over the same ledger:
 
@@ -319,7 +327,11 @@ PDFs, or external repositories. Source inspection should happen through
 available tools/connectors, not by copying every source body into every agent
 turn. Report generation should follow the same rule: the report writer receives
 thin guidance and performs MCP reads over the ledger instead of receiving a
-large injected recall payload. Agent-backed report generation forks the current
+large injected recall payload.
+
+An optional `direction_hint` is request-scoped report pending state, not mission state or evidence. After whitespace trimming, a non-empty value is stored only in the corresponding `report.draft.pending` payload so stale recovery can reproduce that request; omitted legacy payloads decode to empty and later requests do not copy the field. Its fixed advisory treats the hint as a weak editorial axis. Plasma explicitly injects it only into one-take writing, planned planning/writing, and long-form planning/section writing. Normal or resumed conversation, mission reminders, recall, workflows, part/frame assembly, H5 humanization, report patching, and basic or designed HTML export do not receive a new direction block. This allowlist governs application prompt construction; it does not erase provider-session history, so a path that deliberately resumes the same provider session can still retain the earlier report prompt in context.
+
+Agent-backed report generation forks the current
 research provider session when possible for every report mode except
 `one_take`, keeps report planning and Markdown generation in that report-only
 session, and stores returned Markdown as Plasma-owned report artifacts. The
@@ -442,3 +454,7 @@ The next design wave should decide:
 - unbound MCP mission create/open tools
 - cross-process durable queue/lease tables for background execution
 - MCP report control tools beyond the read-first research surface
+
+## Report model selection boundary
+
+Web and CLI adapters collect the raw request, latest same-executor mission-session metadata, and configured provider defaults. The reporting package owns precedence and capability validation. A successful start writes the effective model, effort, and `agent_selection_source` to `report.draft.pending`; new-event recovery only deserializes that frozen selection, while source-less legacy pending events retain the legacy resume path. Ledger payloads provide durable state, so this requires no database migration. This does not add an MCP report tool or model-tier allowlist and does not change prompts, report modes, session forks, H5, patch, designed HTML, or experiments.

@@ -196,6 +196,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("candidateForm").addEventListener("submit", proposeEvidence);
   $("draftQuickReport").addEventListener("click", () => draftReport("planned"));
   $("draftLongReport").addEventListener("click", () => draftReport("long_form"));
+	$("reportAgentModel").addEventListener("change", () => {
+		const status = ReportModelSelection.configuredStatus(state.detail?.agent_executors || [], $("agentExecutor").value);
+		ReportModelSelection.refreshEfforts(status);
+	});
   $("cancelReportButton").addEventListener("click", cancelReport);
   $("copyError").addEventListener("click", copyError);
   $("closeError").addEventListener("click", hideError);
@@ -545,6 +549,7 @@ async function sendTurn(event) {
     createdAt: new Date().toISOString()
   };
   setTurnBusy(true);
+	syncReportControls();
   $("turnText").value = "";
   if (state.detail) renderTurns(state.detail.events || []);
   try {
@@ -566,6 +571,7 @@ async function sendTurn(event) {
     state.turnPending = false;
     state.pendingTurn = null;
     setTurnBusy(false);
+		syncReportControls();
     if (state.missionId === missionId) {
       $("turnText").value = text;
       if (state.detail) renderTurns(state.detail.events || []);
@@ -615,6 +621,7 @@ async function startWorkflow() {
   body.run_goal = runGoal;
   state.workflowPending = true;
   setWorkflowBusy(true);
+	syncReportControls();
   try {
     await api(`/api/missions/${state.missionId}/workflows`, {
       method: "POST",
@@ -628,6 +635,7 @@ async function startWorkflow() {
   } catch (err) {
     state.workflowPending = false;
     setWorkflowBusy(false);
+		syncReportControls();
     showError(err);
   }
 }
@@ -666,6 +674,7 @@ async function draftWorkflowGoal() {
   }
   state.workflowGoalDraftPending = true;
   setWorkflowBusy(false);
+	syncReportControls();
   const button = $("draftWorkflowGoalButton");
   button.textContent = "초안 생성 중";
   try {
@@ -689,6 +698,7 @@ async function draftWorkflowGoal() {
     state.workflowGoalDraftPending = false;
     button.textContent = "목표 초안 생성";
     setFormsEnabled(true);
+		syncReportControls();
   }
 }
 
@@ -739,6 +749,7 @@ async function continueWorkflowRun(workflowRunID) {
   body.run_goal = run.run_goal || run.user_instruction_raw || instruction;
   state.workflowPending = true;
   setWorkflowBusy(true);
+	syncReportControls();
   try {
     await api(`/api/missions/${state.missionId}/workflows`, {
       method: "POST",
@@ -748,6 +759,7 @@ async function continueWorkflowRun(workflowRunID) {
   } catch (err) {
     state.workflowPending = false;
     setWorkflowBusy(false);
+		syncReportControls();
     showError(err);
   }
 }
@@ -1307,20 +1319,24 @@ async function decideProposal(proposalID, action) {
 
 async function draftReport(reportMode = "one_take") {
   if (!requireMission()) return;
-  if (state.reportPending) return;
+	if (state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending) return;
   const title = `${state.detail?.projection?.title || "미션"} 리포트`;
   setReportBusy(true);
   setReportNotice(reportPendingMessage({ Payload: { title, report_mode: reportMode, rigor_level: $("reportRigor").value || "balanced" } }));
   let result;
+	const reportSelection = ReportModelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
   try {
     result = await api(`/api/missions/${state.missionId}/reports`, {
       method: "POST",
       body: {
         title,
         agent_executor: $("agentExecutor").value,
+		agent_model: reportSelection.agent_model,
+		agent_reasoning_effort: reportSelection.agent_reasoning_effort,
         mcp_mode: $("mcpMode").value,
         rigor_level: $("reportRigor").value || "balanced",
-        report_mode: reportMode
+		report_mode: reportMode,
+		direction_hint: typeof currentReportDirectionHint === "function" ? currentReportDirectionHint() : ""
       }
     });
   } catch (err) {
@@ -1329,6 +1345,7 @@ async function draftReport(reportMode = "one_take") {
     showError(err);
     return;
   }
+	if (typeof clearAcceptedReportDirectionHint === "function") clearAcceptedReportDirectionHint();
   setReportNotice(result.pending_event
     ? reportPendingMessage(result.pending_event)
     : reportPendingMessage({ Payload: { title, report_mode: reportMode, rigor_level: $("reportRigor").value || "balanced" } }));
@@ -1740,10 +1757,12 @@ function renderDetail() {
   renderAgentOptions(detail.agent_executors || []);
   renderAgentModelOptions(events);
   renderAgentReasoningEffortOptions(events);
+	ReportModelSelection.render(detail.agent_executors || [], $("agentExecutor").value);
   renderAgentSessionStatus(events);
   renderWorkflowControls(workflowRuns);
   $("missionName").textContent = detail.projection.title || detail.projection.mission_id;
   $("missionObjectiveText").textContent = detail.projection.objective || "목표 없음";
+	if (typeof renderMissionMetadataEditor === "function") renderMissionMetadataEditor(detail.projection);
 
   const sources = detail.sources || [];
   const records = detail.records || {};
@@ -1804,6 +1823,7 @@ function onAgentExecutorChange() {
   state.agentReasoningEffortTouched = false;
   renderAgentModelOptions(state.detail?.events || []);
   renderAgentReasoningEffortOptions(state.detail?.events || []);
+	ReportModelSelection.render(state.detail?.agent_executors || [], $("agentExecutor").value);
   const effortSelect = $("agentReasoningEffort");
   if (effortSelect) {
     const blocked = state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending || !state.detail;
@@ -4024,16 +4044,16 @@ function approvedClaims(proposals, claims) {
 }
 
 function setFormsEnabled(enabled) {
-  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
+  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
     const el = $(id);
     if (el) {
       el.disabled = !enabled ||
         (id === "agentExecutor" && Boolean(lockedAgentExecutor())) ||
         (id === "agentReasoningEffort" && agentReasoningEffortSelectionDisabled(false)) ||
-        (state.reportPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "draftQuickReport", "draftLongReport", "reportRigor"].includes(id)) ||
+		(state.reportPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "draftQuickReport", "draftLongReport", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort"].includes(id)) ||
         (state.workflowGoalDraftPending && ["turnText", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"].includes(id)) ||
-        (state.turnPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton"].includes(id)) ||
-        (state.workflowPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"].includes(id));
+		(state.turnPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"].includes(id)) ||
+		(state.workflowPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"].includes(id));
     }
   }
   for (const form of ["turnForm", "sourceForm", "sourceUploadForm", "mediaSourceForm", "pdfSourceForm", "localPathForm", "confluenceURLForm", "confluenceSearchForm", "liquid2Form", "candidateForm"]) {
@@ -4063,14 +4083,21 @@ function setTurnBusy(busy) {
 
 function setReportBusy(busy) {
   state.reportPending = busy;
+	syncReportControls();
   $("reportStatus").classList.toggle("hidden", !busy);
-  $("reportRigor").disabled = busy || !state.detail;
-  $("draftQuickReport").disabled = busy || !state.detail;
-  $("draftLongReport").disabled = busy || !state.detail;
   $("cancelReportButton").disabled = !busy || !state.detail;
   $("cancelReportButton").classList.toggle("hidden", !busy);
   $("draftQuickReport").textContent = busy ? "생성 중" : "보고서";
   $("draftLongReport").textContent = busy ? "생성 중" : "장문 보고서";
+}
+
+function syncReportControls() {
+	const blocked = state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending || !state.detail;
+	$("reportRigor").disabled = blocked;
+	$("reportAgentModel").disabled = blocked;
+	$("reportAgentReasoningEffort").disabled = blocked;
+	$("draftQuickReport").disabled = blocked;
+	$("draftLongReport").disabled = blocked;
 }
 
 function setWorkflowBusy(busy) {

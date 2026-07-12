@@ -56,9 +56,11 @@ type Service interface {
 
 type DraftRequest struct {
 	Title                        string
+	DirectionHint                string
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
+	AgentSelectionSource         string
 	MCPMode                      string
 	RigorLevel                   string
 	RigorLabel                   string
@@ -480,31 +482,36 @@ func ModeLabel(mode string) string {
 
 func (runner Runner) StartDraft(ctx context.Context, missionID string, req DraftRequest, producer app.Producer) (app.LedgerEvent, error) {
 	req = normalizeDraftRequest(req)
+	payload := map[string]any{
+		"kind":                            "markdown_report_artifact_pending",
+		"title":                           req.Title,
+		"agent_executor":                  req.AgentExecutor,
+		"agent_model":                     req.AgentModel,
+		"agent_reasoning_effort":          req.AgentReasoningEffort,
+		"agent_selection_source":          req.AgentSelectionSource,
+		"mcp_mode":                        req.MCPMode,
+		"rigor_level":                     req.RigorLevel,
+		"rigor_label":                     req.RigorLabel,
+		"report_mode":                     req.ReportMode,
+		"report_mode_label":               ModeLabel(req.ReportMode),
+		"report_session_policy":           req.ReportSessionPolicy,
+		"report_session_policy_selection": req.ReportSessionPolicySelection,
+		"post_report_humanize":            req.PostReportHumanize,
+		"humanize_enabled":                req.PostReportHumanize != "disabled",
+		"generation_guidance_profile":     req.GenerationGuidanceProfile,
+		"generation_guidance_sha256":      req.GenerationGuidanceSHA256,
+		"text":                            "리포트 초안 생성 중입니다.",
+		"started_at":                      time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if req.DirectionHint != "" {
+		payload["direction_hint"] = req.DirectionHint
+	}
 	appended, err := runner.Service.AppendEventsIfNoActiveAgentWork(ctx, missionID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.draft.pending",
 		Producer:  producer,
-		Payload: mustJSON(map[string]any{
-			"kind":                            "markdown_report_artifact_pending",
-			"title":                           req.Title,
-			"agent_executor":                  req.AgentExecutor,
-			"agent_model":                     req.AgentModel,
-			"agent_reasoning_effort":          req.AgentReasoningEffort,
-			"mcp_mode":                        req.MCPMode,
-			"rigor_level":                     req.RigorLevel,
-			"rigor_label":                     req.RigorLabel,
-			"report_mode":                     req.ReportMode,
-			"report_mode_label":               ModeLabel(req.ReportMode),
-			"report_session_policy":           req.ReportSessionPolicy,
-			"report_session_policy_selection": req.ReportSessionPolicySelection,
-			"post_report_humanize":            req.PostReportHumanize,
-			"humanize_enabled":                req.PostReportHumanize != "disabled",
-			"generation_guidance_profile":     req.GenerationGuidanceProfile,
-			"generation_guidance_sha256":      req.GenerationGuidanceSHA256,
-			"text":                            "리포트 초안 생성 중입니다.",
-			"started_at":                      time.Now().UTC().Format(time.RFC3339Nano),
-		}),
+		Payload:   mustJSON(payload),
 	}})
 	if err != nil {
 		return app.LedgerEvent{}, err
@@ -1073,9 +1080,11 @@ func allowedFailurePayloadKey(key string) bool {
 func DraftRequestFromPendingEvent(event app.LedgerEvent) (DraftRequest, error) {
 	var payload struct {
 		Title                        string `json:"title"`
+		DirectionHint                string `json:"direction_hint"`
 		AgentExecutor                string `json:"agent_executor"`
 		AgentModel                   string `json:"agent_model"`
 		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
+		AgentSelectionSource         string `json:"agent_selection_source"`
 		MCPMode                      string `json:"mcp_mode"`
 		RigorLevel                   string `json:"rigor_level"`
 		RigorLabel                   string `json:"rigor_label"`
@@ -1091,9 +1100,11 @@ func DraftRequestFromPendingEvent(event app.LedgerEvent) (DraftRequest, error) {
 	}
 	return normalizeDraftRequest(DraftRequest{
 		Title:                        firstNonEmpty(payload.Title, "Mission report"),
+		DirectionHint:                payload.DirectionHint,
 		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
 		AgentModel:                   payload.AgentModel,
 		AgentReasoningEffort:         payload.AgentReasoningEffort,
+		AgentSelectionSource:         payload.AgentSelectionSource,
 		MCPMode:                      firstNonEmpty(payload.MCPMode, "auto"),
 		RigorLevel:                   payload.RigorLevel,
 		RigorLabel:                   payload.RigorLabel,
@@ -1261,6 +1272,7 @@ func (runner Runner) id(prefix string) string {
 }
 
 func normalizeDraftRequest(req DraftRequest) DraftRequest {
+	req.DirectionHint = NormalizeDirectionHint(req.DirectionHint)
 	req.Title = firstNonEmpty(req.Title, "Mission report")
 	req.AgentExecutor = firstNonEmpty(req.AgentExecutor, "codex")
 	req.AgentModel = strings.TrimSpace(req.AgentModel)
