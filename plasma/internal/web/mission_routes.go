@@ -57,6 +57,12 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 	}
 
 	switch parts[1] {
+	case "activity":
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		server.handleMissionActivity(w, r, missionID)
 	case "events":
 		server.handleMissionEvents(w, r, missionID)
 	case "recall":
@@ -86,6 +92,22 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (server *Server) handleMissionActivity(w http.ResponseWriter, r *http.Request, missionID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	activity, err := server.service.MissionActivity(r.Context(), missionID)
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, missionActivityResponse{
+		Activity: activity,
+		Cursor:   server.missionActivityCursor(activity.LastSequence),
+	})
 }
 
 func (server *Server) handleMissionEvents(w http.ResponseWriter, r *http.Request, missionID string) {
@@ -165,7 +187,10 @@ func (server *Server) handleMissionRecall(w http.ResponseWriter, r *http.Request
 }
 
 func (server *Server) writeMissionDetail(w http.ResponseWriter, r *http.Request, missionID string) {
-	server.reconcileWorkflowState(r.Context(), missionID)
+	if err := server.reconcileMissionRecovery(r.Context(), missionID); err != nil {
+		writeAppError(w, err)
+		return
+	}
 	detail, err := server.missionDetail(r.Context(), missionID)
 	if err != nil {
 		writeAppError(w, err)
@@ -210,17 +235,6 @@ func (server *Server) createMission(ctx context.Context, req createMissionReques
 }
 
 func (server *Server) missionDetail(ctx context.Context, missionID string) (missionDetailResponse, error) {
-	unlock := server.reports.lock(missionID)
-	if err := server.reconcileStaleReportDrafts(ctx, missionID); err != nil {
-		unlock()
-		return missionDetailResponse{}, err
-	}
-	if err := server.reconcileStaleDesignedReportExports(ctx, missionID); err != nil {
-		unlock()
-		return missionDetailResponse{}, err
-	}
-	unlock()
-
 	projection, err := server.service.GetProjection(ctx, missionID)
 	if err != nil {
 		return missionDetailResponse{}, err
@@ -255,6 +269,7 @@ func (server *Server) missionDetail(ctx context.Context, missionID string) (miss
 	}
 	return missionDetailResponse{
 		Projection:          projection,
+		ActivityCursor:      server.missionActivityCursor(lastMissionEventSequence(events)),
 		Events:              events,
 		Sources:             sources,
 		Records:             records,
@@ -264,7 +279,16 @@ func (server *Server) missionDetail(ctx context.Context, missionID string) (miss
 		Recall:              recall,
 		AgentExecutors:      server.agentStatuses(),
 		LockedAgentExecutor: app.LockedAgentExecutorFromEvents(events),
+		ActiveWork:          app.ActiveWorkFromMissionState(events, workflowRuns),
+		ReportProgress:      app.ReportProgressFromEvents(events),
 	}, nil
+}
+
+func lastMissionEventSequence(events []app.LedgerEvent) int64 {
+	if len(events) == 0 {
+		return 0
+	}
+	return events[len(events)-1].Sequence
 }
 
 func (server *Server) collectRecords(ctx context.Context, missionID string, events []app.LedgerEvent) (recordsResponse, error) {

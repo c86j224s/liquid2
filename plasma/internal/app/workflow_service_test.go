@@ -11,6 +11,11 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
+func appendReportTerminalFixture(svc *Service, ctx context.Context, pendingID string, req AppendEventRequest) error {
+	_, _, err := svc.AppendReportTerminalIfOpen(ctx, "mis_1", pendingID, []AppendEventRequest{req})
+	return err
+}
+
 type workflowStore struct {
 	fakeStore
 	events []LedgerEvent
@@ -30,6 +35,26 @@ func (s *workflowStore) ListLedgerEvents(_ context.Context, missionID string) ([
 		}
 	}
 	return events, nil
+}
+
+func (s *workflowStore) AppendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]LedgerEvent) ([]LedgerEvent, error)) ([]LedgerEvent, error) {
+	events, err := s.ListLedgerEvents(ctx, missionID)
+	if err != nil {
+		return nil, err
+	}
+	toAppend, err := build(events)
+	if err != nil {
+		return nil, err
+	}
+	appended := make([]LedgerEvent, 0, len(toAppend))
+	for _, event := range toAppend {
+		stored, err := s.AppendLedgerEvent(ctx, event)
+		if err != nil {
+			return nil, err
+		}
+		appended = append(appended, stored)
+	}
+	return appended, nil
 }
 
 func TestRequestWorkflowRunAppendsRequestedEventAndProjectsQueuedRun(t *testing.T) {
@@ -99,7 +124,7 @@ func TestRequestWorkflowRunDefaultsBudgetAndUsesLayeredInstructionMode(t *testin
 	if err != nil {
 		t.Fatalf("RequestWorkflowRun returned error: %v", err)
 	}
-	if view.MaxSteps != 10 || view.MaxDurationMS != int64((25*time.Minute)/time.Millisecond) {
+	if view.MaxSteps != 20 || view.MaxDurationMS != 0 {
 		t.Fatalf("unexpected default workflow budget: %#v", view)
 	}
 	if view.StepInstructionMode != WorkflowStepInstructionModeLayered {
@@ -117,6 +142,72 @@ func TestRequestWorkflowRunDefaultsBudgetAndUsesLayeredInstructionMode(t *testin
 	}
 	if payload.UserInstructionRaw != "Make bounded progress." || payload.RunGoal != "Make bounded progress." {
 		t.Fatalf("layered mode should store original request and run goal fallbacks: %#v", payload)
+	}
+}
+
+func TestRequestWorkflowRunRejectsNegativeDuration(t *testing.T) {
+	svc := NewService(&workflowStore{})
+	_, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+		WorkflowRunID:      "wfr_negative_duration",
+		MissionID:          "mis_1",
+		RequestedBySurface: WorkflowSurfaceWeb,
+		AgentExecutor:      "codex",
+		MCPMode:            "auto",
+		Instruction:        "Make bounded progress.",
+		MaxDurationMS:      -1,
+	})
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected invalid input, got %v", err)
+	}
+}
+
+func TestRequestWorkflowRunRejectsBudgetValuesAboveServerBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  RequestWorkflowRunRequest
+	}{
+		{
+			name: "max steps",
+			req:  RequestWorkflowRunRequest{MaxSteps: 21},
+		},
+		{
+			name: "max duration",
+			req:  RequestWorkflowRunRequest{MaxDurationMS: 86_400_001},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := tc.req
+			req.WorkflowRunID = "wfr_budget_limit"
+			req.MissionID = "mis_1"
+			req.RequestedBySurface = WorkflowSurfaceWeb
+			req.AgentExecutor = "codex"
+			req.MCPMode = "auto"
+			req.Instruction = "Make bounded progress."
+
+			_, err := NewService(&workflowStore{}).RequestWorkflowRun(context.Background(), req)
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expected invalid input, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRequestWorkflowRunAcceptsServerBudgetUpperBounds(t *testing.T) {
+	view, err := NewService(&workflowStore{}).RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+		WorkflowRunID:      "wfr_budget_upper_bounds",
+		MissionID:          "mis_1",
+		RequestedBySurface: WorkflowSurfaceWeb,
+		AgentExecutor:      "codex",
+		MCPMode:            "auto",
+		Instruction:        "Make bounded progress.",
+		MaxSteps:           20,
+		MaxDurationMS:      86_400_000,
+	})
+	if err != nil {
+		t.Fatalf("expected upper bounds to be accepted, got %v", err)
+	}
+	if view.MaxSteps != 20 || view.MaxDurationMS != 86_400_000 {
+		t.Fatalf("unexpected workflow budget: %#v", view)
 	}
 }
 
@@ -507,7 +598,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportDesign(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report design rejection, got %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_design_pending", AppendEventRequest{
 		EventID:   "evt_report_design_done",
 		MissionID: "mis_1",
 		EventType: "report.artifact.exported",
@@ -553,7 +644,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportHumanize(t *testing.T) 
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report humanize rejection, got %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_humanize_pending", AppendEventRequest{
 		EventID:   "evt_report_humanize_done",
 		MissionID: "mis_1",
 		EventType: "report.humanize.skipped",
@@ -598,7 +689,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportPatch(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report patch rejection, got %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_patch_pending", AppendEventRequest{
 		EventID:   "evt_report_patch_failed",
 		MissionID: "mis_1",
 		EventType: "report.patch.failed",
@@ -635,7 +726,7 @@ func TestAppendEventsIfNoActiveAgentWorkAllowsCompletedLegacyReportDraft(t *test
 	}); err != nil {
 		t.Fatalf("append report.draft.pending returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_pending", AppendEventRequest{
 		EventID:   "evt_report_drafted",
 		MissionID: "mis_1",
 		EventType: "report.drafted",
@@ -891,6 +982,62 @@ func TestAppendWorkflowEventValidatesPayloadContract(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected invalid input, got %v", err)
+	}
+}
+
+func TestAppendWorkflowRunRequestedEventAcceptsZeroDuration(t *testing.T) {
+	svc := NewService(&workflowStore{})
+	_, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+		EventID:   "evt_zero_duration",
+		MissionID: "mis_1",
+		EventType: WorkflowRunRequestedEvent,
+		Producer:  Producer{Type: "workflow", ID: "web"},
+		Payload: mustJSONRaw(map[string]any{
+			"workflow_run_id":      "wfr_zero_duration",
+			"mission_id":           "mis_1",
+			"requested_by_surface": WorkflowSurfaceWeb,
+			"agent_executor":       "codex",
+			"mcp_mode":             "auto",
+			"instruction":          "run",
+			"max_steps":            1,
+			"max_duration_ms":      0,
+		}),
+	})
+	if err != nil {
+		t.Fatalf("expected zero duration to be accepted, got %v", err)
+	}
+}
+
+func TestAppendWorkflowRunRequestedEventRejectsBudgetValuesOutsideBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		maxSteps      int
+		maxDurationMS int64
+	}{
+		{name: "too many steps", maxSteps: 21, maxDurationMS: 0},
+		{name: "duration above limit", maxSteps: 1, maxDurationMS: 86_400_001},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewService(&workflowStore{}).AppendEvent(context.Background(), AppendEventRequest{
+				EventID:   "evt_invalid_budget",
+				MissionID: "mis_1",
+				EventType: WorkflowRunRequestedEvent,
+				Producer:  Producer{Type: "workflow", ID: "web"},
+				Payload: mustJSONRaw(map[string]any{
+					"workflow_run_id":      "wfr_invalid_budget",
+					"mission_id":           "mis_1",
+					"requested_by_surface": WorkflowSurfaceWeb,
+					"agent_executor":       "codex",
+					"mcp_mode":             "auto",
+					"instruction":          "run",
+					"max_steps":            tc.maxSteps,
+					"max_duration_ms":      tc.maxDurationMS,
+				}),
+			})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expected invalid input, got %v", err)
+			}
+		})
 	}
 }
 

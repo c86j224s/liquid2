@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ type ReportHumanizeIDFunc func(prefix string) string
 type ReportHumanizeService interface {
 	GetRawArtifact(context.Context, string) (app.RawArtifact, error)
 	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
+	AppendReportTerminalIfOpen(context.Context, string, string, []app.AppendEventRequest) ([]app.LedgerEvent, bool, error)
 }
 
 type reportHumanizeEventLister interface {
@@ -189,7 +191,7 @@ func HumanizeMarkdownReport(ctx context.Context, service ReportHumanizeService, 
 		_, _ = appendReportHumanizeRejectedPatch(ctx, service, idFunc, missionID, input, toolSessionID, humanizePendingEventID, artifact, finalizedEvent, "terminal_already_closed")
 		return ReportHumanizeResult{}, nil
 	}
-	event, err := service.AppendEvent(ctx, reporting.BuildHumanizedMarkdownExportAppendRequest(reporting.HumanizedMarkdownExportEventRequest{
+	event, closed, err := appendReportHumanizeTerminal(ctx, service, missionID, humanizePendingEventID, reporting.BuildHumanizedMarkdownExportAppendRequest(reporting.HumanizedMarkdownExportEventRequest{
 		HumanizeEventBase:      reportHumanizeEventBase(idFunc("evt"), missionID, input, toolSessionID, humanizePendingEventID, app.Producer{Type: "agent_session", ID: fallbackSessionID(validated.SessionID, toolSessionID)}),
 		PatchEventID:           finalizedEvent.EventID,
 		Artifact:               artifact,
@@ -203,6 +205,9 @@ func HumanizeMarkdownReport(ctx context.Context, service ReportHumanizeService, 
 	}))
 	if err != nil {
 		_, _ = appendReportHumanizeFailed(ctx, service, idFunc, missionID, input, toolSessionID, humanizePendingEventID, durationMS, err)
+		return ReportHumanizeResult{}, nil
+	}
+	if !closed {
 		return ReportHumanizeResult{}, nil
 	}
 	return ReportHumanizeResult{Artifact: artifact, Event: event, Markdown: humanized, Applied: true}, nil
@@ -229,26 +234,25 @@ func appendReportHumanizePending(ctx context.Context, service ReportHumanizeServ
 func appendReportHumanizeSkipped(ctx context.Context, service ReportHumanizeService, idFunc ReportHumanizeIDFunc, missionID string, input reportHumanizeInput, toolSessionID string, humanizePendingEventID string, durationMS int64) (app.LedgerEvent, error) {
 	ledgerCtx, cancel := reportHumanizeTerminalWriteContext(ctx)
 	defer cancel()
-	if reportHumanizeTerminalExists(ledgerCtx, service, missionID, humanizePendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
-	return service.AppendEvent(ledgerCtx, reporting.BuildHumanizeSkippedAppendRequest(reporting.HumanizeSkippedEventRequest{
+	event, _, err := appendReportHumanizeTerminal(ledgerCtx, service, missionID, humanizePendingEventID, reporting.BuildHumanizeSkippedAppendRequest(reporting.HumanizeSkippedEventRequest{
 		HumanizeEventBase: reportHumanizeEventBase(idFunc("evt"), missionID, input, toolSessionID, humanizePendingEventID, app.Producer{Type: "agent", ID: firstNonEmpty(input.ExecutorName, "plasma")}),
 		DurationMS:        durationMS,
 	}))
+	return event, err
 }
 
 func appendReportHumanizeFailed(ctx context.Context, service ReportHumanizeService, idFunc ReportHumanizeIDFunc, missionID string, input reportHumanizeInput, toolSessionID string, humanizePendingEventID string, durationMS int64, cause error) (app.LedgerEvent, error) {
 	ledgerCtx, cancel := reportHumanizeTerminalWriteContext(ctx)
 	defer cancel()
-	if reportHumanizeTerminalExists(ledgerCtx, service, missionID, humanizePendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
-	return service.AppendEvent(ledgerCtx, reporting.BuildHumanizeFailedAppendRequest(reporting.HumanizeFailedEventRequest{
+	event, _, err := appendReportHumanizeTerminal(ledgerCtx, service, missionID, humanizePendingEventID, reporting.BuildHumanizeFailedAppendRequest(reporting.HumanizeFailedEventRequest{
 		HumanizeEventBase: reportHumanizeEventBase(idFunc("evt"), missionID, input, toolSessionID, humanizePendingEventID, app.Producer{Type: "agent", ID: firstNonEmpty(input.ExecutorName, "plasma")}),
 		DurationMS:        durationMS,
 		Error:             cause.Error(),
 	}))
+	if err != nil {
+		log.Printf("report_terminal_write_failed mission_id=%q pending_event_id=%q report_type=%q intended_event_type=%q err=%q", missionID, humanizePendingEventID, "humanize", "report.humanize.failed", err)
+	}
+	return event, err
 }
 
 func reportHumanizePendingPayloadFromEvent(event app.LedgerEvent) reportHumanizePendingPayload {
@@ -263,12 +267,9 @@ func reportHumanizeInFlightPendingEventID(event app.LedgerEvent) string {
 }
 
 func (server *Server) appendReportHumanizeStaleFailed(ctx context.Context, missionID string, pending app.LedgerEvent) (app.LedgerEvent, error) {
-	if server.hasReportDraftTerminalEvent(ctx, missionID, pending.EventID) {
-		return app.LedgerEvent{}, nil
-	}
 	payload := reportHumanizePendingPayloadFromEvent(pending)
 	executor := firstNonEmpty(strings.TrimSpace(payload.AgentExecutor), "plasma")
-	return server.service.AppendEvent(ctx, reporting.BuildHumanizeFailedAppendRequest(reporting.HumanizeFailedEventRequest{
+	event, _, err := appendReportHumanizeTerminal(ctx, server.service, missionID, pending.EventID, reporting.BuildHumanizeFailedAppendRequest(reporting.HumanizeFailedEventRequest{
 		HumanizeEventBase: reporting.HumanizeEventBase{
 			EventID:                newID("evt"),
 			MissionID:              missionID,
@@ -297,6 +298,7 @@ func (server *Server) appendReportHumanizeStaleFailed(ctx context.Context, missi
 		OmitDuration: true,
 		FailedAt:     time.Now().UTC().Format(time.RFC3339Nano),
 	}))
+	return event, err
 }
 
 func (server *Server) recoverStaleReportHumanizeFinalizedPatch(ctx context.Context, missionID string, pending app.LedgerEvent) (bool, error) {
@@ -376,11 +378,8 @@ func reportHumanizeInputFromPendingPayload(payload reportHumanizePendingPayload,
 func appendReportHumanizeRecoveredExport(ctx context.Context, service ReportHumanizeService, idFunc ReportHumanizeIDFunc, missionID string, input reportHumanizeInput, toolSessionID string, humanizePendingEventID string, artifact app.RawArtifact, finalized app.LedgerEvent, original string, humanized string) (app.LedgerEvent, error) {
 	ledgerCtx, cancel := reportHumanizeTerminalWriteContext(ctx)
 	defer cancel()
-	if reportHumanizeTerminalExists(ledgerCtx, service, missionID, humanizePendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
 	producerID := firstNonEmpty(strings.TrimSpace(input.PreviousSessionID), strings.TrimSpace(toolSessionID), strings.TrimSpace(finalized.CorrelationID))
-	return service.AppendEvent(ledgerCtx, reporting.BuildHumanizedMarkdownExportAppendRequest(reporting.HumanizedMarkdownExportEventRequest{
+	event, _, err := appendReportHumanizeTerminal(ledgerCtx, service, missionID, humanizePendingEventID, reporting.BuildHumanizedMarkdownExportAppendRequest(reporting.HumanizedMarkdownExportEventRequest{
 		HumanizeEventBase:      reportHumanizeEventBase(idFunc("evt"), missionID, input, toolSessionID, humanizePendingEventID, app.Producer{Type: "agent_session", ID: producerID}),
 		PatchEventID:           finalized.EventID,
 		Artifact:               artifact,
@@ -391,6 +390,7 @@ func appendReportHumanizeRecoveredExport(ctx context.Context, service ReportHuma
 		RecoveredAfterRestart:  true,
 		Text:                   "서버 재시작 전에 완료된 H5 말투 보정 Markdown artifact를 검증해 복구했습니다.",
 	}))
+	return event, err
 }
 
 func reportHumanizeEventBase(eventID string, missionID string, input reportHumanizeInput, toolSessionID string, pendingEventID string, producer app.Producer) reporting.HumanizeEventBase {
@@ -428,6 +428,14 @@ func reportHumanizeTerminalExists(ctx context.Context, service ReportHumanizeSer
 	}
 	_, ok = reporting.CompletedPendingEventIDs(events)[pendingEventID]
 	return ok
+}
+
+func appendReportHumanizeTerminal(ctx context.Context, service ReportHumanizeService, missionID, pendingEventID string, req app.AppendEventRequest) (app.LedgerEvent, bool, error) {
+	appended, closed, err := service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{req})
+	if err != nil || !closed {
+		return app.LedgerEvent{}, closed, err
+	}
+	return appended[0], true, nil
 }
 
 func reportHumanizeTerminalWriteContext(ctx context.Context) (context.Context, context.CancelFunc) {

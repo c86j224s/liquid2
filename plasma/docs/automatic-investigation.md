@@ -39,9 +39,12 @@ bounded workflow run이다. controller는 향후 정체 감지나 방향 회복 
 원본 자료를 소스로 직접 붙이거나 다음 steering turn으로 같은 미션에서 대화를
 이어간다.
 
-첫 구현은 무한 실행이 아니다. 모든 run은 최대 step 수, 최대 실행 시간, stop
-condition을 가진다. 기본 예산은 최대 10 step과 최대 25분이다. Web, CLI, MCP는
-같은 run ID와 같은 projection으로 상태를 읽고 중지를 요청한다.
+기본 run은 최대 20 step으로 제한되지만 전체 실행 시간 제한은 없다. 기본값 적용 뒤
+`max_steps`는 1..20, `max_duration_ms`는 0..86400000 범위만 허용한다. duration 0은
+전체 실행 시간 제한이 없음을 뜻하며, 양수만 기존의 전체 실행 시간 예산을
+적용한다. 각 step의 agent 실행은 25분 예산을 가지며, 최초 호출과 자동 압축 및
+재시도는 하나의 절대 마감 시간을 공유한다. Web, CLI, MCP는 같은 run ID와 같은
+projection으로 상태를 읽고 중지를 요청한다.
 
 ## Start Conditions
 
@@ -181,9 +184,9 @@ credential-bearing URL은 후보 파싱과 MCP 제안 양쪽에서 거부한다.
 7. 사용자가 읽을 수 있는 result를 남긴다.
 8. runner가 읽을 수 있는 작은 control decision을 남긴다. decision은 `continue`,
    `stop`, 다음 지시, 사유를 포함한다.
-9. runner가 control decision, stop 요청, 최대 step 수, 최대 실행 시간, provider
+9. runner가 control decision, stop 요청, 최대 step 수, 선택적인 전체 실행 시간, provider
    오류를 확인해 계속할지 terminal 이벤트를 남길지 결정한다.
-10. 최대 step 수나 최대 실행 시간에 도달했지만 마지막 decision이 `continue`이면
+10. 최대 step 수나 설정된 전체 실행 시간에 도달했지만 마지막 decision이 `continue`이면
     runner는 완료가 아니라 `paused` 상태로 종료하고 다음 지시를 남긴다.
 
 각 step이 시작되기 전에 runner는 active source projection을 다시 확인한다. workflow
@@ -193,8 +196,10 @@ reporting, source planning 대상에서 제외된다. 이미 안전하게 시작
 중단하는 것이 첫 구현 목표는 아니며, 완료된 read는 그 시점의 `source.observed`
 이벤트로 감사 가능하게 남는다.
 
-이 반복은 무한히 돌면 안 된다. 사용자 요청마다 제한된 시간, 제한된 읽기 대상 수,
-제한된 도구 호출 수를 둔다.
+이 반복은 최대 step 수로 제한된다. 각 step의 agent 실행 체인에는 25분 제한이 있고,
+필요하면 run 요청에 양의 전체 실행 시간 예산을 별도로 지정할 수 있다. 이 step
+마감은 일반 대화, workflow 목표 초안, report 생성, ledger 기록, terminal 이벤트
+기록에는 전파되지 않는다.
 
 ## Workflow Status Surface
 
@@ -267,6 +272,11 @@ transcript 복사가 아니라 턴별 요약이나 결정 근거만 저장하는
 `plasma.workflow.start`는 provider를 직접 실행하지 않고 요청을 queued 상태로
 남긴다. 이 요청은 현재 `turn.user`와 현재 `agent_executor` binding에 묶이며,
 다른 executor를 지정하면 queued run을 만들지 않고 거절된다.
+
+Plasma가 spawn한 기본 연구 에이전트에는 `plasma.workflow.start`를 노출하지 않고
+`plasma.workflow.status`와 `plasma.workflow.stop`만 노출한다. 브라우저와 CLI start는
+유지하며, 사용자가 명시적으로 구성한 MCP 클라이언트는 `-enabled-tool plasma.workflow.start`로
+start를 활성화할 수 있다.
 
 실행 중 프로세스가 사라지거나 terminal 이벤트 없이 오래 멈춘 run은 projection에서
 `interrupted`로 보여준다. 첫 구현은 새 durable queue/lease table을 만들지 않는다.

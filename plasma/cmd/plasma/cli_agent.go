@@ -30,7 +30,6 @@ func agentMCPEnabledTools() []string {
 		mcp.ToolSourcesSearch,
 		mcp.ToolSourceCandidatesPropose,
 		mcp.ToolSourceCandidatesRead,
-		mcp.ToolWorkflowStart,
 		mcp.ToolWorkflowStatus,
 		mcp.ToolWorkflowStop,
 	}

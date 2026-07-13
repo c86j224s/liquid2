@@ -39,6 +39,8 @@ Automatic investigation은 같은 mission workflow의 확장입니다. 사용자
 ## 현재 기능
 
 - Conversation turn, source event, MCP call log, report artifact를 담는 mission ledger.
+- 진행 중 작업과 현재 브라우저에서 아직 확인하지 않은 완료 또는 실패 작업을 보여주는 mission 목록 활동 표시.
+  확인 상태는 현재 브라우저에만 저장됩니다.
 - Mission creation, conversation, source management, source candidate review, automatic investigation,
   report generation을 위한 browser workspace.
 - Text와 textual URL source snapshot.

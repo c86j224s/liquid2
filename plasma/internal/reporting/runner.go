@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +51,8 @@ const (
 
 type Service interface {
 	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
+	AppendEvents(context.Context, string, []app.AppendEventRequest) ([]app.LedgerEvent, error)
+	AppendReportTerminalIfOpen(context.Context, string, string, []app.AppendEventRequest) ([]app.LedgerEvent, bool, error)
 	AppendEventsIfNoActiveAgentWork(context.Context, string, []app.AppendEventRequest) ([]app.LedgerEvent, error)
 	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
 }
@@ -188,6 +191,13 @@ type Runner struct {
 	GenerateDesign   func(context.Context, string, DesignRequest, string) error
 	GenerateHumanize func(context.Context, string, HumanizeRequest, string) error
 	GeneratePatch    func(context.Context, string, PatchRequest, string) error
+}
+
+func logTerminalWriteFailure(missionID, pendingEventID, reportType, intendedEventType string, err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("report_terminal_write_failed mission_id=%q pending_event_id=%q report_type=%q intended_event_type=%q err=%q", missionID, pendingEventID, reportType, intendedEventType, err)
 }
 
 func BuildSelfContainedHTMLExportAppendRequest(req SelfContainedHTMLExportEventRequest) app.AppendEventRequest {
@@ -482,6 +492,7 @@ func ModeLabel(mode string) string {
 
 func (runner Runner) StartDraft(ctx context.Context, missionID string, req DraftRequest, producer app.Producer) (app.LedgerEvent, error) {
 	req = normalizeDraftRequest(req)
+	pendingEventID := runner.id("evt")
 	payload := map[string]any{
 		"kind":                            "markdown_report_artifact_pending",
 		"title":                           req.Title,
@@ -502,12 +513,15 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 		"generation_guidance_sha256":      req.GenerationGuidanceSHA256,
 		"text":                            "리포트 초안 생성 중입니다.",
 		"started_at":                      time.Now().UTC().Format(time.RFC3339Nano),
+		"origin_pending_event_id":         pendingEventID,
+		"attempt_number":                  1,
+		"retry_strategy":                  "initial",
 	}
 	if req.DirectionHint != "" {
 		payload["direction_hint"] = req.DirectionHint
 	}
 	appended, err := runner.Service.AppendEventsIfNoActiveAgentWork(ctx, missionID, []app.AppendEventRequest{{
-		EventID:   runner.id("evt"),
+		EventID:   pendingEventID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
 		Producer:  producer,
@@ -543,7 +557,9 @@ func (runner Runner) RunDraft(ctx context.Context, missionID string, req DraftRe
 		if runner.isSamePendingAlreadyRunning(missionID, pendingEventID) || runner.hasTerminalEvent(context.Background(), missionID, pendingEventID) {
 			return nil
 		}
-		_, _ = runner.AppendDraftFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.ReportMode, errors.New("report draft is already running for this mission"))
+		if _, err := runner.AppendDraftFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.ReportMode, errors.New("report draft is already running for this mission")); err != nil {
+			logTerminalWriteFailure(missionID, pendingEventID, "draft", "report.draft.failed", err)
+		}
 		return fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
 	}
 	go func() {
@@ -555,7 +571,9 @@ func (runner Runner) RunDraft(ctx context.Context, missionID string, req DraftRe
 		if err := runner.GenerateDraft(workerCtx, missionID, req, pendingEventID); err != nil {
 			failCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, _ = runner.AppendDraftFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.ReportMode, err)
+			if _, appendErr := runner.AppendDraftFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.ReportMode, err); appendErr != nil {
+				logTerminalWriteFailure(missionID, pendingEventID, "draft", "report.draft.failed", appendErr)
+			}
 		}
 	}()
 	return nil
@@ -611,7 +629,9 @@ func (runner Runner) RunDesign(ctx context.Context, missionID string, req Design
 		if runner.isSamePendingAlreadyRunning(missionID, pendingEventID) || runner.hasTerminalEvent(context.Background(), missionID, pendingEventID) {
 			return nil
 		}
-		_, _ = runner.AppendDesignFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.RendererVersion, errors.New("report draft is already running for this mission"))
+		if _, err := runner.AppendDesignFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.RendererVersion, errors.New("report draft is already running for this mission")); err != nil {
+			logTerminalWriteFailure(missionID, pendingEventID, "design", "report.design.failed", err)
+		}
 		return fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
 	}
 	go func() {
@@ -623,7 +643,9 @@ func (runner Runner) RunDesign(ctx context.Context, missionID string, req Design
 		if err := runner.GenerateDesign(workerCtx, missionID, req, pendingEventID); err != nil {
 			failCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, _ = runner.AppendDesignFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.RendererVersion, err)
+			if _, appendErr := runner.AppendDesignFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.RendererVersion, err); appendErr != nil {
+				logTerminalWriteFailure(missionID, pendingEventID, "design", "report.design.failed", appendErr)
+			}
 		}
 	}()
 	return nil
@@ -694,7 +716,9 @@ func (runner Runner) RunHumanize(ctx context.Context, missionID string, req Huma
 		if runner.isSamePendingAlreadyRunning(missionID, pendingEventID) || runner.hasTerminalEvent(context.Background(), missionID, pendingEventID) {
 			return nil
 		}
-		_, _ = runner.AppendHumanizeFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.ReportMode, errors.New("report draft is already running for this mission"))
+		if _, err := runner.AppendHumanizeFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.ReportMode, errors.New("report draft is already running for this mission")); err != nil {
+			logTerminalWriteFailure(missionID, pendingEventID, "humanize", "report.humanize.failed", err)
+		}
 		return fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
 	}
 	go func() {
@@ -706,7 +730,9 @@ func (runner Runner) RunHumanize(ctx context.Context, missionID string, req Huma
 		if err := runner.GenerateHumanize(workerCtx, missionID, req, pendingEventID); err != nil {
 			failCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, _ = runner.AppendHumanizeFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.ReportMode, err)
+			if _, appendErr := runner.AppendHumanizeFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.SourceArtifactID, req.ReportMode, err); appendErr != nil {
+				logTerminalWriteFailure(missionID, pendingEventID, "humanize", "report.humanize.failed", appendErr)
+			}
 		}
 	}()
 	return nil
@@ -768,7 +794,9 @@ func (runner Runner) RunPatch(ctx context.Context, missionID string, req PatchRe
 		if runner.isSamePendingAlreadyRunning(missionID, pendingEventID) || runner.hasTerminalEvent(context.Background(), missionID, pendingEventID) {
 			return nil
 		}
-		_, _ = runner.AppendPatchFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.BaseArtifactID, errors.New("report draft is already running for this mission"))
+		if _, err := runner.AppendPatchFailed(context.Background(), missionID, pendingEventID, req.AgentExecutor, req.BaseArtifactID, errors.New("report draft is already running for this mission")); err != nil {
+			logTerminalWriteFailure(missionID, pendingEventID, "patch", "report.patch.failed", err)
+		}
 		return fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
 	}
 	go func() {
@@ -780,16 +808,15 @@ func (runner Runner) RunPatch(ctx context.Context, missionID string, req PatchRe
 		if err := runner.GeneratePatch(workerCtx, missionID, req, pendingEventID); err != nil {
 			failCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			_, _ = runner.AppendPatchFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.BaseArtifactID, err)
+			if _, appendErr := runner.AppendPatchFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.BaseArtifactID, err); appendErr != nil {
+				logTerminalWriteFailure(missionID, pendingEventID, "patch", "report.patch.failed", appendErr)
+			}
 		}
 	}()
 	return nil
 }
 
 func (runner Runner) AppendDraftFailed(ctx context.Context, missionID string, pendingEventID string, executor string, reportMode string, cause error) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
 	executor = firstNonEmpty(strings.TrimSpace(executor), "plasma")
 	mode, err := NormalizeMode(reportMode)
 	if err != nil {
@@ -806,19 +833,40 @@ func (runner Runner) AppendDraftFailed(ctx context.Context, missionID string, pe
 		"failed_at":         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	mergeFailurePayload(payload, cause)
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID:   runner.id("evt"),
+	terminalID := runner.id("evt")
+	terminal := app.AppendEventRequest{EventID: terminalID,
 		MissionID: missionID,
 		EventType: "report.draft.failed",
 		Producer:  app.Producer{Type: "agent", ID: executor},
-		Payload:   mustJSON(payload),
-	})
+		Payload:   mustJSON(payload)}
+	var stage *StageFailureError
+	if !errors.As(cause, &stage) {
+		appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{terminal})
+		if err != nil || !ok {
+			return app.LedgerEvent{}, err
+		}
+		return appended[0], nil
+	}
+	if strings.TrimSpace(stage.EventID) == "" {
+		stage.EventID = runner.id("evt")
+	}
+	payload["failed_stage_kind"] = stage.Kind
+	payload["failed_stage_id"] = stage.ID()
+	payload["part_index"] = stage.PartIndex
+	payload["section_index"] = stage.SectionIndex
+	payload["stage_failure_event_id"] = stage.EventID
+	payload["safe_error_class"] = stage.ErrorClass
+	payload["safe_error_message"] = stage.Message
+	terminal.Payload = mustJSON(payload)
+	stageReq := stage.AppendRequest(missionID, pendingEventID, terminalID, app.Producer{Type: "agent", ID: executor})
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{stageReq, terminal})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[1], nil
 }
 
 func (runner Runner) AppendPatchFailed(ctx context.Context, missionID string, pendingEventID string, executor string, baseArtifactID string, cause error) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
 	executor = validAgentExecutorOrEmpty(executor)
 	producerID := firstNonEmpty(executor, "plasma")
 	payload := map[string]any{
@@ -831,19 +879,20 @@ func (runner Runner) AppendPatchFailed(ctx context.Context, missionID string, pe
 		"failed_at":        time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	mergeFailurePayload(payload, cause)
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.patch.failed",
 		Producer:  app.Producer{Type: "agent", ID: producerID},
 		Payload:   mustJSON(payload),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendHumanizeFailed(ctx context.Context, missionID string, pendingEventID string, executor string, sourceArtifactID string, reportMode string, cause error) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
 	executor = validAgentExecutorOrEmpty(executor)
 	producerID := firstNonEmpty(executor, "plasma")
 	mode, err := NormalizeMode(reportMode)
@@ -867,19 +916,20 @@ func (runner Runner) AppendHumanizeFailed(ctx context.Context, missionID string,
 		"failed_at":                   time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	mergeFailurePayload(payload, cause)
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.humanize.failed",
 		Producer:  app.Producer{Type: "agent", ID: producerID},
 		Payload:   mustJSON(payload),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendDesignFailed(ctx context.Context, missionID string, pendingEventID string, executor string, sourceArtifactID string, rendererVersion string, cause error) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pendingEventID) {
-		return app.LedgerEvent{}, nil
-	}
 	executor = firstNonEmpty(strings.TrimSpace(executor), "plasma")
 	payload := map[string]any{
 		"kind":               "designed_html_report_failed",
@@ -893,13 +943,17 @@ func (runner Runner) AppendDesignFailed(ctx context.Context, missionID string, p
 		"failed_at":          time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	mergeFailurePayload(payload, cause)
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.design.failed",
 		Producer:  app.Producer{Type: "agent", ID: executor},
 		Payload:   mustJSON(payload),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendCanceled(ctx context.Context, missionID string, pending app.LedgerEvent, canceledInFlight bool, producer app.Producer) (app.LedgerEvent, error) {
@@ -916,9 +970,6 @@ func (runner Runner) AppendCanceled(ctx context.Context, missionID string, pendi
 }
 
 func (runner Runner) AppendDraftCanceled(ctx context.Context, missionID string, pending app.LedgerEvent, canceledInFlight bool, producer app.Producer) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pending.EventID) {
-		return app.LedgerEvent{}, nil
-	}
 	var payload struct {
 		AgentExecutor string `json:"agent_executor"`
 		ReportMode    string `json:"report_mode"`
@@ -929,7 +980,7 @@ func (runner Runner) AppendDraftCanceled(ctx context.Context, missionID string, 
 	if err != nil {
 		mode = DefaultMode
 	}
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	req := app.AppendEventRequest{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.draft.failed",
@@ -946,19 +997,21 @@ func (runner Runner) AppendDraftCanceled(ctx context.Context, missionID string, 
 			"in_flight":         canceledInFlight,
 			"canceled_at":       time.Now().UTC().Format(time.RFC3339Nano),
 		}),
-	})
+	}
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pending.EventID, []app.AppendEventRequest{req})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendPatchCanceled(ctx context.Context, missionID string, pending app.LedgerEvent, canceledInFlight bool, producer app.Producer) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pending.EventID) {
-		return app.LedgerEvent{}, nil
-	}
 	req, err := PatchRequestFromPendingEvent(pending)
 	if err != nil {
 		req.AgentExecutor = "plasma"
 	}
 	executor := validAgentExecutorOrEmpty(req.AgentExecutor)
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pending.EventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.patch.failed",
@@ -974,13 +1027,14 @@ func (runner Runner) AppendPatchCanceled(ctx context.Context, missionID string, 
 			"in_flight":        canceledInFlight,
 			"canceled_at":      time.Now().UTC().Format(time.RFC3339Nano),
 		}),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendDesignCanceled(ctx context.Context, missionID string, pending app.LedgerEvent, canceledInFlight bool, producer app.Producer) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pending.EventID) {
-		return app.LedgerEvent{}, nil
-	}
 	var payload struct {
 		SourceArtifactID string `json:"source_artifact_id"`
 		AgentExecutor    string `json:"agent_executor"`
@@ -988,7 +1042,7 @@ func (runner Runner) AppendDesignCanceled(ctx context.Context, missionID string,
 	}
 	_ = json.Unmarshal(pending.Payload, &payload)
 	executor := firstNonEmpty(payload.AgentExecutor, "plasma")
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pending.EventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.design.failed",
@@ -1006,16 +1060,17 @@ func (runner Runner) AppendDesignCanceled(ctx context.Context, missionID string,
 			"in_flight":          canceledInFlight,
 			"canceled_at":        time.Now().UTC().Format(time.RFC3339Nano),
 		}),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func (runner Runner) AppendHumanizeCanceled(ctx context.Context, missionID string, pending app.LedgerEvent, canceledInFlight bool, producer app.Producer) (app.LedgerEvent, error) {
-	if runner.hasTerminalEvent(ctx, missionID, pending.EventID) {
-		return app.LedgerEvent{}, nil
-	}
 	payload := humanizePendingPayloadFromEvent(pending)
 	executor := firstNonEmpty(payload.AgentExecutor, "plasma")
-	return runner.Service.AppendEvent(ctx, app.AppendEventRequest{
+	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pending.EventID, []app.AppendEventRequest{{
 		EventID:   runner.id("evt"),
 		MissionID: missionID,
 		EventType: "report.humanize.failed",
@@ -1046,7 +1101,11 @@ func (runner Runner) AppendHumanizeCanceled(ctx context.Context, missionID strin
 			"relationship":                "canceled_post_report_tone_pass_of_source_artifact",
 			"preserved_original_markdown": true,
 		}),
-	})
+	}})
+	if err != nil || !ok {
+		return app.LedgerEvent{}, err
+	}
+	return appended[0], nil
 }
 
 func mergeFailurePayload(payload map[string]any, cause error) {

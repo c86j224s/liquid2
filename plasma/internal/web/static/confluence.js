@@ -82,16 +82,27 @@ function setConfluenceBusy(busy) {
   renderConfluenceUpdatePanel(state.confluenceUpdatePreview);
 }
 
-async function loadConfluenceConnections(preferredConnectionID = "") {
+function resetConfluenceMissionUI() {
+  renderConfluenceSpaces([]);
+  renderConfluencePages([]);
+  renderConfluencePreview(null);
+  renderConfluenceUpdatePanel(null);
+  renderConfluenceAccessControls();
+  renderConfluenceControls();
+}
+
+async function loadConfluenceConnections(preferredConnectionID = "", owner = captureMissionSelection()) {
   try {
     const current = preferredConnectionID || $("confluenceConnectionSelect")?.value || "";
     const result = await api(`/api/settings/connectors/confluence/connections`);
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceConnections = result.connections || result.Connections || [];
     state.confluenceOAuthConfigured = Boolean(result.oauth_configured ?? result.OAuthConfigured);
     renderConfluenceControls(current);
     if (typeof renderConfluenceSettingsControls === "function") renderConfluenceSettingsControls(preferredConnectionID);
     if (typeof renderConfluenceAccessControls === "function") renderConfluenceAccessControls();
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     showConfluenceError(err);
     renderConfluenceControls();
     if (typeof renderConfluenceSettingsControls === "function") renderConfluenceSettingsControls();
@@ -217,10 +228,11 @@ async function addConfluenceURLSource(event) {
     showError(new Error("Confluence 페이지 URL만 이 영역에서 추가할 수 있습니다."));
     return;
   }
+  const owner = captureMissionSelection();
   setConfluenceBusy(true);
   try {
     const title = typeof sourceCandidateTitleForURL === "function" ? sourceCandidateTitleForURL(url) : "";
-    await api(`/api/missions/${state.missionId}/sources/confluence/url`, {
+    await missionApi(owner, "/sources/confluence/url", {
       method: "POST",
       body: {
         url,
@@ -229,18 +241,20 @@ async function addConfluenceURLSource(event) {
         cloud_id: cloudID
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("confluencePageURL").value = "";
     setConfluenceFlowStatus("Confluence URL을 소스로 추가했습니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showConfluenceError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
 async function searchConfluenceResults({ previewSingle = false } = {}) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   const connectionID = confluenceSelectedConnectionID();
   const site = selectedConfluenceSite();
   const cloudID = confluenceSiteCloudID(site);
@@ -251,7 +265,7 @@ async function searchConfluenceResults({ previewSingle = false } = {}) {
   }
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/search`, {
+    const result = await missionApi(owner, "/sources/confluence/search", {
       method: "POST",
       body: {
         connection_id: connectionID,
@@ -261,16 +275,17 @@ async function searchConfluenceResults({ previewSingle = false } = {}) {
         limit: Number($("confluenceLimit").value || 10)
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceSearchResults = result.Candidates || result.candidates || [];
     state.confluenceSearchContext = { connection_id: connectionID, cloud_id: cloudID };
     renderConfluenceResults(state.confluenceSearchResults);
     setConfluenceFlowStatus(state.confluenceSearchResults.length ? `검색 결과 ${state.confluenceSearchResults.length}개를 찾았습니다. 후보를 검토한 뒤 소스로 승인하세요.` : "검색 결과가 없습니다. 검색어를 바꿔 다시 시도하세요.", state.confluenceSearchResults.length ? "" : "warn");
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
-  if (previewSingle && state.confluenceSearchResults.length === 1) {
+  if (ownsMissionSelection(owner) && previewSingle && state.confluenceSearchResults.length === 1) {
     await previewConfluenceCandidate(0);
   }
 }

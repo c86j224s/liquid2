@@ -58,6 +58,7 @@ type Runner struct {
 	Now                   func() time.Time
 	NewID                 func(string) string
 	SourceCandidateStager func(context.Context, app.LedgerEvent)
+	StepTimeout           time.Duration
 }
 
 type ControlDecision struct {
@@ -196,7 +197,9 @@ func (runner Runner) runStep(ctx context.Context, view app.WorkflowRunView) (app
 	previousSessionID := LatestAgentSessionID(events, view.AgentExecutor)
 	started := runner.now()
 	prompt := StepPrompt(view, instruction, toolSessionID, previousSessionID != "")
-	result, err := runner.Agent.Run(ctx, AgentRequest{
+	agentCtx, cancelAgent := context.WithTimeout(ctx, runner.stepTimeout())
+	defer cancelAgent()
+	result, err := runner.Agent.Run(agentCtx, AgentRequest{
 		UserText:          instruction,
 		Prompt:            prompt,
 		Model:             runner.AgentModel,
@@ -208,25 +211,34 @@ func (runner Runner) runStep(ctx context.Context, view app.WorkflowRunView) (app
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
 	})
+	err = agentExecutionError(agentCtx, err)
 	durationMS := runner.now().Sub(started).Milliseconds()
 	compactionAttempted := false
 	compactionEventID := ""
 	totalDurationMS := int64(0)
 	if err != nil {
-		if ctx.Err() == nil && !errors.Is(err, context.Canceled) && shouldAutoCompactAfterAgentError(previousSessionID, err, result) {
+		if ctx.Err() == nil && agentCtx.Err() == nil && !errors.Is(err, context.Canceled) && shouldAutoCompactAfterAgentError(previousSessionID, err, result) {
 			var retryErr error
-			result, durationMS, totalDurationMS, compactionEventID, retryErr = runner.retryStepAfterAutoCompaction(ctx, view, userEvent.EventID, stepID, toolSessionID, instruction, prompt, previousSessionID, err, result, durationMS)
+			var agentErrorRecorded bool
+			result, durationMS, totalDurationMS, compactionEventID, agentErrorRecorded, retryErr = runner.retryStepAfterAutoCompaction(agentCtx, ctx, view, userEvent.EventID, stepID, toolSessionID, instruction, prompt, previousSessionID, err, result, durationMS)
 			if retryErr == nil {
 				compactionAttempted = true
 				err = nil
 			} else {
+				if !agentErrorRecorded {
+					_, _ = runner.appendAgentError(ctx, view, userEvent.EventID, stepID, toolSessionID, previousSessionID, result, durationMS, retryErr)
+				}
 				return app.WorkflowRunView{}, retryErr
 			}
 		}
 	}
 	if err != nil {
-		_, _ = runner.appendAgentError(ctx, view, userEvent.EventID, stepID, toolSessionID, previousSessionID, result, durationMS, err)
-		return app.WorkflowRunView{}, err
+		cause := err
+		if errors.Is(agentCtx.Err(), context.DeadlineExceeded) && ctx.Err() == nil {
+			cause = context.DeadlineExceeded
+		}
+		_, _ = runner.appendAgentError(ctx, view, userEvent.EventID, stepID, toolSessionID, previousSessionID, result, durationMS, cause)
+		return app.WorkflowRunView{}, cause
 	}
 	returnedSessionID := strings.TrimSpace(result.SessionID)
 	result, err = validatedSameSessionResult(result, previousSessionID)
@@ -302,9 +314,9 @@ func (runner Runner) runStep(ctx context.Context, view app.WorkflowRunView) (app
 	return runner.Service.GetWorkflowRun(ctx, view.MissionID, view.WorkflowRunID)
 }
 
-func (runner Runner) retryStepAfterAutoCompaction(ctx context.Context, view app.WorkflowRunView, userEventID string, stepID string, toolSessionID string, instruction string, prompt string, previousSessionID string, initialErr error, initialResult AgentResult, initialDurationMS int64) (AgentResult, int64, int64, string, error) {
+func (runner Runner) retryStepAfterAutoCompaction(agentCtx context.Context, ledgerCtx context.Context, view app.WorkflowRunView, userEventID string, stepID string, toolSessionID string, instruction string, prompt string, previousSessionID string, initialErr error, initialResult AgentResult, initialDurationMS int64) (AgentResult, int64, int64, string, bool, error) {
 	compactStarted := runner.now()
-	compactResult, err := runner.Agent.Run(ctx, AgentRequest{
+	compactResult, err := runner.Agent.Run(agentCtx, AgentRequest{
 		UserText:          "compact session context",
 		Prompt:            workflowCompactPrompt(),
 		Model:             runner.AgentModel,
@@ -317,31 +329,32 @@ func (runner Runner) retryStepAfterAutoCompaction(ctx context.Context, view app.
 		MCPMode:           view.MCPMode,
 		Compaction:        true,
 	})
+	err = agentExecutionError(agentCtx, err)
 	compactDurationMS := runner.now().Sub(compactStarted).Milliseconds()
 	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return AgentResult{}, 0, 0, "", err
+		if agentCtx.Err() != nil || errors.Is(err, context.Canceled) {
+			return AgentResult{}, 0, 0, "", false, err
 		}
-		_, _ = runner.appendAgentError(ctx, view, userEventID, stepID, toolSessionID, previousSessionID, compactResult, initialDurationMS+compactDurationMS, err, map[string]any{
+		_, appendErr := runner.appendAgentError(ledgerCtx, view, userEventID, stepID, toolSessionID, previousSessionID, compactResult, initialDurationMS+compactDurationMS, err, map[string]any{
 			"compaction_attempted": true,
 			"original_error":       initialErr.Error(),
 			"original_log_excerpt": headTailExcerpt(initialResult.Log, 2000),
 			"text":                 "워크플로우 단계에서 에이전트 컨텍스트가 가득 차 자동 압축을 시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다.",
 		})
-		return AgentResult{}, 0, 0, "", err
+		return AgentResult{}, 0, 0, "", appendErr == nil, err
 	}
 	returnedCompactSessionID := strings.TrimSpace(compactResult.SessionID)
 	compactResult, err = validatedSameSessionResult(compactResult, previousSessionID)
 	if err != nil {
-		_, _ = runner.appendAgentError(ctx, view, userEventID, stepID, toolSessionID, previousSessionID, compactResult, initialDurationMS+compactDurationMS, err, map[string]any{
+		_, appendErr := runner.appendAgentError(ledgerCtx, view, userEventID, stepID, toolSessionID, previousSessionID, compactResult, initialDurationMS+compactDurationMS, err, map[string]any{
 			"compaction_attempted":      true,
 			"original_error":            initialErr.Error(),
 			"returned_agent_session_id": returnedCompactSessionID,
 			"text":                      "워크플로우 단계의 자동 압축 요청에서 에이전트가 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다.",
 		})
-		return AgentResult{}, 0, 0, "", err
+		return AgentResult{}, 0, 0, "", appendErr == nil, err
 	}
-	compactEvent, err := runner.Service.AppendEvent(ctx, conversation.BuildTurnAgentCompactedAppendRequest(conversation.TurnAgentCompactedEventRequest{
+	compactEvent, err := runner.Service.AppendEvent(ledgerCtx, conversation.BuildTurnAgentCompactedAppendRequest(conversation.TurnAgentCompactedEventRequest{
 		EventID:                runner.newID("evt"),
 		MissionID:              view.MissionID,
 		AgentExecutor:          view.AgentExecutor,
@@ -363,11 +376,11 @@ func (runner Runner) retryStepAfterAutoCompaction(ctx context.Context, view app.
 		Producer:               app.Producer{Type: "agent", ID: view.AgentExecutor},
 	}))
 	if err != nil {
-		return AgentResult{}, 0, 0, "", err
+		return AgentResult{}, 0, 0, "", false, err
 	}
 
 	retryStarted := runner.now()
-	result, err := runner.Agent.Run(ctx, AgentRequest{
+	result, err := runner.Agent.Run(agentCtx, AgentRequest{
 		UserText:          instruction,
 		Prompt:            prompt,
 		Model:             runner.AgentModel,
@@ -379,34 +392,35 @@ func (runner Runner) retryStepAfterAutoCompaction(ctx context.Context, view app.
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
 	})
+	err = agentExecutionError(agentCtx, err)
 	retryDurationMS := runner.now().Sub(retryStarted).Milliseconds()
 	totalDurationMS := initialDurationMS + compactDurationMS + retryDurationMS
 	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return AgentResult{}, 0, 0, "", err
+		if agentCtx.Err() != nil || errors.Is(err, context.Canceled) {
+			return AgentResult{}, 0, 0, "", false, err
 		}
-		_, _ = runner.appendAgentError(ctx, view, userEventID, stepID, toolSessionID, previousSessionID, result, retryDurationMS, err, map[string]any{
+		_, appendErr := runner.appendAgentError(ledgerCtx, view, userEventID, stepID, toolSessionID, previousSessionID, result, retryDurationMS, err, map[string]any{
 			"compaction_attempted": true,
 			"compaction_event_id":  compactEvent.EventID,
 			"original_error":       initialErr.Error(),
 			"total_duration_ms":    totalDurationMS,
 			"text":                 "워크플로우 단계에서 같은 세션을 자동 압축한 뒤 재시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다.",
 		})
-		return AgentResult{}, 0, 0, "", err
+		return AgentResult{}, 0, 0, "", appendErr == nil, err
 	}
 	returnedSessionID := strings.TrimSpace(result.SessionID)
 	result, err = validatedSameSessionResult(result, previousSessionID)
 	if err != nil {
-		_, _ = runner.appendAgentError(ctx, view, userEventID, stepID, toolSessionID, previousSessionID, result, retryDurationMS, err, map[string]any{
+		_, appendErr := runner.appendAgentError(ledgerCtx, view, userEventID, stepID, toolSessionID, previousSessionID, result, retryDurationMS, err, map[string]any{
 			"compaction_attempted":      true,
 			"compaction_event_id":       compactEvent.EventID,
 			"returned_agent_session_id": returnedSessionID,
 			"total_duration_ms":         totalDurationMS,
 			"text":                      "워크플로우 단계의 자동 압축 후 재시도에서 에이전트가 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다.",
 		})
-		return AgentResult{}, 0, 0, "", err
+		return AgentResult{}, 0, 0, "", appendErr == nil, err
 	}
-	return result, retryDurationMS, totalDurationMS, compactEvent.EventID, nil
+	return result, retryDurationMS, totalDurationMS, compactEvent.EventID, false, nil
 }
 
 func (runner Runner) appendRemovedSourceSkips(ctx context.Context, view app.WorkflowRunView, stepID string, stepIndex int) error {
@@ -758,6 +772,20 @@ func (runner Runner) now() time.Time {
 		return runner.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+func (runner Runner) stepTimeout() time.Duration {
+	if runner.StepTimeout <= 0 {
+		return 25 * time.Minute
+	}
+	return runner.StepTimeout
+}
+
+func agentExecutionError(ctx context.Context, runErr error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return runErr
 }
 
 func (runner Runner) newID(prefix string) string {

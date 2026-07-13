@@ -40,6 +40,7 @@ type Server struct {
 	fetchPDF                    pdfSourceFetchFunc
 	environmentLabel            string
 	staticDir                   string
+	activityServerID            string
 }
 
 type Options struct {
@@ -102,6 +103,7 @@ func NewServer(service *app.Service, options Options) http.Handler {
 		fetchPDF:                    pdfFetcher,
 		environmentLabel:            strings.TrimSpace(options.EnvironmentLabel),
 		staticDir:                   strings.TrimSpace(options.StaticDir),
+		activityServerID:            newID("act"),
 	}
 	server.runningReports.SetNewID(newID)
 	return server

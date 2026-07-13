@@ -20,6 +20,19 @@ func TestHasOpenAgentPendingTracksTerminalResponseByUserEvent(t *testing.T) {
 	}
 }
 
+func TestOpenPendingEventsReturnNewestOpenEvent(t *testing.T) {
+	events := []Event{
+		event(t, "evt_turn", "turn.agent.pending", map[string]any{"user_event_id": "evt_user"}),
+		event(t, "evt_report", "report.draft.pending", map[string]any{}),
+	}
+	if pending, ok := OpenAgentPendingEvent(events); !ok || pending.EventID != "evt_turn" {
+		t.Fatalf("unexpected open agent pending event: %#v, %v", pending, ok)
+	}
+	if pending, ok := OpenReportPendingEvent(events); !ok || pending.EventID != "evt_report" {
+		t.Fatalf("unexpected open report pending event: %#v, %v", pending, ok)
+	}
+}
+
 func TestValidateWorkflowStartAfterEventRequiresOpenUserTurn(t *testing.T) {
 	events := []Event{
 		event(t, "evt_user", "turn.user", map[string]any{"kind": "user_turn"}),

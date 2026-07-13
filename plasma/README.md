@@ -45,6 +45,8 @@ create a separate hidden research product.
 
 - Mission ledger with conversation turns, source events, MCP call logs, and
   report artifacts.
+- Mission list activity indicators for running work and locally unseen completed
+  or failed work; seen state stays in the current browser only.
 - Browser workspace for mission creation, conversation, source management,
   source candidate review, automatic investigation, and report generation.
 - Source snapshots for text and textual URLs.

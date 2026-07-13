@@ -19,10 +19,14 @@ type fakeAgent struct {
 	err       error
 	requests  []AgentRequest
 	onRun     func()
+	deadlines []time.Time
 }
 
-func (agent *fakeAgent) Run(_ context.Context, req AgentRequest) (AgentResult, error) {
+func (agent *fakeAgent) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
 	agent.requests = append(agent.requests, req)
+	if deadline, ok := ctx.Deadline(); ok {
+		agent.deadlines = append(agent.deadlines, deadline)
+	}
 	if agent.onRun != nil {
 		agent.onRun()
 		agent.onRun = nil
@@ -50,6 +54,73 @@ func (agent *fakeAgent) Run(_ context.Context, req AgentRequest) (AgentResult, e
 		agent.errs = agent.errs[1:]
 	}
 	return response, err
+}
+
+type blockingAgent struct {
+	parentHadDeadline bool
+}
+
+func (agent *blockingAgent) Run(ctx context.Context, _ AgentRequest) (AgentResult, error) {
+	_, agent.parentHadDeadline = ctx.Deadline()
+	<-ctx.Done()
+	return AgentResult{}, ctx.Err()
+}
+
+type deadlineIgnoringAgent struct {
+	expireOnCall int
+	calls        int
+}
+
+type delayedAgentErrorService struct {
+	*app.Service
+	delay   time.Duration
+	delayed bool
+}
+
+type failFirstAgentErrorService struct {
+	*app.Service
+	attempts int
+	delay    time.Duration
+}
+
+func (svc *failFirstAgentErrorService) AppendEvent(ctx context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+	if req.EventType == "turn.agent.response" {
+		var payload map[string]any
+		if json.Unmarshal(req.Payload, &payload) == nil && payload["kind"] == "agent_error" {
+			svc.attempts++
+			if svc.attempts == 1 {
+				time.Sleep(svc.delay)
+				return app.LedgerEvent{}, errors.New("injected agent_error append failure")
+			}
+		}
+	}
+	return svc.Service.AppendEvent(ctx, req)
+}
+
+func (svc *delayedAgentErrorService) AppendEvent(ctx context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+	if req.EventType == "turn.agent.response" {
+		var payload map[string]any
+		if json.Unmarshal(req.Payload, &payload) == nil && payload["kind"] == "agent_error" {
+			time.Sleep(svc.delay)
+			svc.delayed = true
+		}
+	}
+	return svc.Service.AppendEvent(ctx, req)
+}
+
+func (agent *deadlineIgnoringAgent) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
+	agent.calls++
+	if agent.calls == agent.expireOnCall {
+		<-ctx.Done()
+		return AgentResult{Text: "late success\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: firstNonEmpty(req.PreviousSessionID, "agent-session-1")}, nil
+	}
+	if agent.calls == 1 {
+		return AgentResult{Log: "Codex ran out of room in the model's context window.", SessionID: req.PreviousSessionID}, errors.New("agent command failed")
+	}
+	if req.Compaction {
+		return AgentResult{Text: "compact summary", SessionID: req.PreviousSessionID}, nil
+	}
+	return AgentResult{Text: "done\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: firstNonEmpty(req.PreviousSessionID, "agent-session-1")}, nil
 }
 
 func TestRunnerDefersUntilCurrentTurnTerminalExists(t *testing.T) {
@@ -264,6 +335,246 @@ func TestRunnerPausesAtMaxDurationWhenAgentWantsToContinue(t *testing.T) {
 	}
 }
 
+func TestRunnerUnlimitedDurationDoesNotUseRunWideBudget(t *testing.T) {
+	ctx := context.Background()
+	svc := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, svc)
+	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_unlimited", MaxSteps: 2})
+
+	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
+	agent := &fakeAgent{responses: []AgentResult{
+		{Text: "first\n" + controlMarker + ` {"decision":"continue","reason":"more","next_instruction":"continue"}`, SessionID: "agent-session-1"},
+		{Text: "second\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"},
+	}}
+	agent.onRun = func() { now = now.Add(30 * time.Minute) }
+	runner := testRunner(svc, agent)
+	runner.Now = func() time.Time { return now }
+	view, err := runner.Run(ctx, mission.MissionID, "wfr_unlimited")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if view.Status != app.WorkflowStatusCompleted || len(agent.requests) != 2 {
+		t.Fatalf("expected unlimited run to continue beyond 25 minutes, got view=%#v requests=%d", view, len(agent.requests))
+	}
+}
+
+func TestRunnerDefaultStepTimeoutIsTwentyFiveMinutes(t *testing.T) {
+	svc := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, svc)
+	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_default_step_timeout", MaxSteps: 1})
+	agent := &fakeAgent{responses: []AgentResult{{Text: "done\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"}}}
+	before := time.Now()
+	view, err := testRunner(svc, agent).Run(context.Background(), mission.MissionID, "wfr_default_step_timeout")
+	if err != nil || view.Status != app.WorkflowStatusCompleted {
+		t.Fatalf("Run returned view=%#v error=%v", view, err)
+	}
+	if len(agent.deadlines) != 1 {
+		t.Fatalf("expected one agent deadline, got %#v", agent.deadlines)
+	}
+	remaining := agent.deadlines[0].Sub(before)
+	if remaining < 24*time.Minute+59*time.Second || remaining > 25*time.Minute+time.Second {
+		t.Fatalf("expected deadline approximately 25 minutes ahead, got %v", remaining)
+	}
+}
+
+func TestRunnerStepTimeoutDurablyClosesPendingTurnAndWorkflow(t *testing.T) {
+	svc := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, svc)
+	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_step_timeout", MaxSteps: 1})
+	agent := &blockingAgent{}
+	runner := Runner{Service: svc, Agent: agent, StepTimeout: 10 * time.Millisecond}
+	view, err := runner.Run(context.Background(), mission.MissionID, "wfr_step_timeout")
+	if err != nil {
+		t.Fatalf("Run should durably record timeout failure, got %v", err)
+	}
+	if !agent.parentHadDeadline || view.Status != app.WorkflowStatusFailed {
+		t.Fatalf("expected timed agent call and failed projection, got deadline=%v view=%#v", agent.parentHadDeadline, view)
+	}
+	events, err := svc.ListEvents(context.Background(), mission.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ordered []string
+	var errorPayload map[string]any
+	for _, event := range events {
+		if event.EventType == "turn.agent.pending" || event.EventType == "turn.agent.response" || event.EventType == app.WorkflowRunFailedEvent {
+			ordered = append(ordered, event.EventType)
+		}
+		if event.EventType == "turn.agent.response" {
+			if err := json.Unmarshal(event.Payload, &errorPayload); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if strings.Join(ordered, ",") != "turn.agent.pending,turn.agent.response,"+app.WorkflowRunFailedEvent {
+		t.Fatalf("unexpected timeout event order: %#v", ordered)
+	}
+	if errorPayload["kind"] != "agent_error" || !strings.Contains(errorPayload["error"].(string), "context deadline exceeded") {
+		t.Fatalf("unexpected timeout response: %#v", errorPayload)
+	}
+	if hasOpenAgentPending(events) {
+		t.Fatalf("expected pending turn to be closed, got %#v", events)
+	}
+}
+
+func TestRunnerRejectsSuccessReturnedAfterAgentDeadline(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		expireOnCall int
+	}{
+		{name: "initial", expireOnCall: 1},
+		{name: "compaction", expireOnCall: 2},
+		{name: "retry", expireOnCall: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newWorkflowTestService(t)
+			mission := createWorkflowMission(t, svc)
+			if tc.expireOnCall > 1 {
+				appendRawEvent(t, svc, mission.MissionID, "evt_user_previous", "turn.user", map[string]any{"kind": "user_turn", "text": "hello"})
+				appendRawEvent(t, svc, mission.MissionID, "evt_agent_previous", "turn.agent.response", map[string]any{
+					"kind":             "agent_response",
+					"user_event_id":    "evt_user_previous",
+					"agent_executor":   "codex",
+					"agent_session_id": "agent-session-1",
+				})
+			}
+			workflowRunID := "wfr_late_success_" + tc.name
+			requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: workflowRunID, MaxSteps: 1})
+			agent := &deadlineIgnoringAgent{expireOnCall: tc.expireOnCall}
+			view, err := (Runner{Service: svc, Agent: agent, StepTimeout: 10 * time.Millisecond}).Run(context.Background(), mission.MissionID, workflowRunID)
+			if err != nil {
+				t.Fatalf("Run should durably record timeout failure, got %v", err)
+			}
+			if view.Status != app.WorkflowStatusFailed || agent.calls != tc.expireOnCall {
+				t.Fatalf("expected deadline failure on call %d, got view=%#v calls=%d", tc.expireOnCall, view, agent.calls)
+			}
+			events, err := svc.ListEvents(context.Background(), mission.MissionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var timeoutResponses int
+			for _, event := range events {
+				if event.EventType != "turn.agent.response" {
+					continue
+				}
+				var payload map[string]any
+				if err := json.Unmarshal(event.Payload, &payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload["kind"] == "agent_error" && strings.Contains(payload["error"].(string), "context deadline exceeded") {
+					timeoutResponses++
+				}
+			}
+			if timeoutResponses != 1 || hasOpenAgentPending(events) || countEvents(events, app.WorkflowRunFailedEvent) != 1 {
+				t.Fatalf("expected durable timeout closure, got timeout responses=%d events=%#v", timeoutResponses, events)
+			}
+		})
+	}
+}
+
+func TestRunnerDoesNotDuplicateAgentErrorWhenRecordedAppendOutlivesStepDeadline(t *testing.T) {
+	ctx := context.Background()
+	baseService := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, baseService)
+	appendRawEvent(t, baseService, mission.MissionID, "evt_user_previous", "turn.user", map[string]any{"kind": "user_turn", "text": "hello"})
+	appendRawEvent(t, baseService, mission.MissionID, "evt_agent_previous", "turn.agent.response", map[string]any{
+		"kind":             "agent_response",
+		"user_event_id":    "evt_user_previous",
+		"agent_executor":   "codex",
+		"agent_session_id": "agent-session-1",
+	})
+	requestWorkflow(t, baseService, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_delayed_agent_error", MaxSteps: 1})
+
+	agent := &fakeAgent{
+		responses: []AgentResult{
+			{Log: "Codex ran out of room in the model's context window.", SessionID: "agent-session-1"},
+			{SessionID: "agent-session-1"},
+		},
+		errs: []error{errors.New("agent command failed"), errors.New("compaction failed")},
+	}
+	service := &delayedAgentErrorService{Service: baseService, delay: 30 * time.Millisecond}
+	view, err := (Runner{Service: service, Agent: agent, StepTimeout: 10 * time.Millisecond}).Run(ctx, mission.MissionID, "wfr_delayed_agent_error")
+	if err != nil {
+		t.Fatalf("Run should durably record failure, got %v", err)
+	}
+	if !service.delayed || view.Status != app.WorkflowStatusFailed {
+		t.Fatalf("expected delayed error append and failed workflow, got delayed=%v view=%#v", service.delayed, view)
+	}
+	events, err := baseService.ListEvents(ctx, mission.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentErrors := 0
+	for _, event := range events {
+		if event.EventType != "turn.agent.response" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload["kind"] == "agent_error" {
+			agentErrors++
+		}
+	}
+	if agentErrors != 1 || countEvents(events, app.WorkflowRunFailedEvent) != 1 || hasOpenAgentPending(events) {
+		t.Fatalf("expected one agent error and durable workflow failure, got agent_errors=%d events=%#v", agentErrors, events)
+	}
+}
+
+func TestRunnerFallsBackWhenAutoCompactionAgentErrorAppendFails(t *testing.T) {
+	ctx := context.Background()
+	baseService := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, baseService)
+	appendRawEvent(t, baseService, mission.MissionID, "evt_user_previous", "turn.user", map[string]any{"kind": "user_turn", "text": "hello"})
+	appendRawEvent(t, baseService, mission.MissionID, "evt_agent_previous", "turn.agent.response", map[string]any{
+		"kind":             "agent_response",
+		"user_event_id":    "evt_user_previous",
+		"agent_executor":   "codex",
+		"agent_session_id": "agent-session-1",
+	})
+	requestWorkflow(t, baseService, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_agent_error_fallback", MaxSteps: 1})
+
+	agent := &fakeAgent{
+		responses: []AgentResult{
+			{Log: "Codex ran out of room in the model's context window.", SessionID: "agent-session-1"},
+			{SessionID: "agent-session-1"},
+		},
+		errs: []error{errors.New("agent command failed"), errors.New("compaction failed")},
+	}
+	service := &failFirstAgentErrorService{Service: baseService, delay: 30 * time.Millisecond}
+	view, err := (Runner{Service: service, Agent: agent, StepTimeout: 10 * time.Millisecond}).Run(ctx, mission.MissionID, "wfr_agent_error_fallback")
+	if err != nil {
+		t.Fatalf("Run should durably record failure through fallback, got %v", err)
+	}
+	if service.attempts != 2 || view.Status != app.WorkflowStatusFailed {
+		t.Fatalf("expected one failed append, one fallback, and failed workflow, got attempts=%d view=%#v", service.attempts, view)
+	}
+	events, err := baseService.ListEvents(ctx, mission.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentErrors := 0
+	agentErrorText := ""
+	terminalErrorText := ""
+	for _, event := range events {
+		var payload map[string]any
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		if event.EventType == "turn.agent.response" && payload["kind"] == "agent_error" {
+			agentErrors++
+			agentErrorText, _ = payload["error"].(string)
+		}
+		if event.EventType == app.WorkflowRunFailedEvent {
+			terminalErrorText, _ = payload["error"].(string)
+		}
+	}
+	if agentErrors != 1 || agentErrorText != "compaction failed" || terminalErrorText != "compaction failed" || countEvents(events, app.WorkflowRunFailedEvent) != 1 || hasOpenAgentPending(events) {
+		t.Fatalf("expected matching compaction failure to close pending turn and workflow once, got agent_errors=%d agent_error=%q terminal_error=%q events=%#v", agentErrors, agentErrorText, terminalErrorText, events)
+	}
+}
+
 func TestRunnerProposesExplicitSourceCandidatesFromWorkflowResponse(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
@@ -387,6 +698,9 @@ func TestRunnerAutoCompactsAndRetriesWhenContextWindowIsFull(t *testing.T) {
 	}
 	if agent.requests[2].Compaction || agent.requests[2].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected third request to retry same session, got %#v", agent.requests[2])
+	}
+	if len(agent.deadlines) != 3 || !agent.deadlines[0].Equal(agent.deadlines[1]) || !agent.deadlines[0].Equal(agent.deadlines[2]) {
+		t.Fatalf("expected initial, compaction, and retry to share one deadline, got %#v", agent.deadlines)
 	}
 	events, err := svc.ListEvents(ctx, mission.MissionID)
 	if err != nil {
@@ -568,9 +882,6 @@ func requestWorkflow(t *testing.T, svc *app.Service, missionID string, req app.R
 	req.MCPMode = "auto"
 	if req.Instruction == "" {
 		req.Instruction = "Make bounded progress."
-	}
-	if req.MaxDurationMS == 0 {
-		req.MaxDurationMS = 60000
 	}
 	view, err := svc.RequestWorkflowRun(context.Background(), req)
 	if err != nil {

@@ -1,0 +1,105 @@
+.report-pipeline {
+  margin: 12px 0;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.pipeline-header,
+.pipeline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pipeline-header { justify-content: space-between; }
+.pipeline-header h3,
+.pipeline-header p { margin: 0; }
+.pipeline-header h3 { color: var(--ink); font-size: 14px; }
+.pipeline-report-title { color: var(--ink2); font-size: 13px; font-weight: 600; }
+.pipeline-header div > span,
+.pipeline-header p span { color: var(--muted); font-size: 12px; }
+.pipeline-header p { display: flex; align-items: baseline; gap: 8px; }
+.pipeline-current { justify-content: flex-end; flex-wrap: wrap; }
+.pipeline-current-step { color: var(--ink2); font-weight: 600; }
+.pipeline-current-status { color: var(--muted); }
+.pipeline-attempt-meta { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
+.pipeline-attempt-meta div { display: flex; gap: 6px; }
+.pipeline-attempt-meta dt,
+.pipeline-attempt-meta dd { margin: 0; }
+.pipeline-attempt-meta dt { font-weight: 600; }
+.pipeline-details { margin-top: 10px; }
+.pipeline-details > summary { color: var(--ink2); cursor: pointer; font-size: 13px; font-weight: 600; }
+.pipeline-visual { width: 100%; min-width: 0; max-width: 100%; margin: 10px 0 4px; overflow-x: auto; overscroll-behavior-inline: contain; }
+.pipeline-graph { display: block; width: max(100%, var(--pipeline-width)); height: 136px; }
+.pipeline-connector { fill: none; stroke: var(--line2); stroke-width: 2; }
+.pipeline-graph marker path { fill: var(--line2); }
+.pipeline-visual-lane rect { fill: color-mix(in srgb, var(--surface) 86%, var(--line2)); stroke: var(--line2); }
+.pipeline-lane-label { fill: var(--ink2); font-size: 12px; font-weight: 600; }
+.pipeline-visual-dot { fill: var(--muted); }
+.pipeline-visual-label { fill: var(--ink2); font-size: 12px; font-weight: 600; }
+.pipeline-visual-time { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.pipeline-visual-node.state-completed .pipeline-visual-dot { fill: var(--green); }
+.pipeline-visual-node.state-running .pipeline-visual-dot { fill: var(--amber); }
+.pipeline-visual-node.state-running .pipeline-visual-dot {
+  animation: pipeline-node-pulse 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px var(--amber));
+}
+.pipeline-visual-node.state-failed .pipeline-visual-dot { fill: var(--red); }
+.pipeline-visual-node.state-skipped .pipeline-visual-dot { fill: var(--line2); }
+.pipeline-graph .pipeline-visual-lane,
+.pipeline-graph .pipeline-visual-node:not(.pipeline-visual-node-plan),
+.pipeline-graph .pipeline-connector {
+  opacity: 1;
+  transition: opacity 240ms ease-out;
+}
+.pipeline-graph-revealing .pipeline-visual-lane,
+.pipeline-graph-revealing .pipeline-visual-node:not(.pipeline-visual-node-plan),
+.pipeline-graph-revealing .pipeline-connector {
+  opacity: 0;
+}
+
+@keyframes pipeline-node-pulse {
+  0%, 100% { opacity: 1; r: 5; }
+  50% { opacity: .68; r: 6.5; }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pipeline-flow { margin: 0; padding: 0; }
+.pipeline-lane ul { margin: 0; padding: 0; }
+.pipeline-node { list-style: none; }
+.pipeline-icon { color: var(--muted); }
+.state-completed .pipeline-icon { color: var(--green); }
+.state-running .pipeline-icon { color: var(--amber); }
+.state-failed .pipeline-icon,
+.state-failed .pipeline-error { color: var(--red); }
+.pipeline-status,
+.pipeline-error,
+.pipeline-timing { color: var(--muted); }
+.pipeline-reason { color: var(--muted); overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .pipeline-header { align-items: flex-start; }
+  .pipeline-current { justify-content: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-visual-node.state-running .pipeline-visual-dot { animation: none; filter: none; }
+  .pipeline-graph .pipeline-visual-lane,
+  .pipeline-graph .pipeline-visual-node:not(.pipeline-visual-node-plan),
+  .pipeline-graph .pipeline-connector { transition: none; }
+}

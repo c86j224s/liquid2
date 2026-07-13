@@ -91,6 +91,15 @@ MCP tool calls, and report requests are event producers over the same ledger:
   workflow control operations.
 - Report requests record pending, artifact-created, or failed events and save
   default reports as Markdown artifacts.
+- Report attempts use `report.draft.pending` event IDs as durable identities.
+  The read model replays pending, plan, section, part, artifact, and terminal
+  events into discrete pipeline states. A failed retry appends a new pending
+  attempt with origin/parent lineage and a durable request ID; it never reopens
+  or mutates the failed attempt. `resume_failed` may read only validated
+  completed artifacts from its own ancestor chain, while `restart` starts with
+  no ancestor output. Section and part failures have additive safe failure
+  events; prompts, source bodies, provider responses, credentials, and provider
+  session identifiers are not transport error content.
 - Long-running report work goes through a shared report runner boundary used by
   browser, CLI, and export surfaces. The runner owns pending/failure events,
   mode defaults, and in-flight ownership; surfaces supply an executor and request
@@ -408,6 +417,17 @@ the current user event and current agent executor; a request for a different
 executor is rejected before it creates a queued run. If an in-process runner
 disappears, the projection reports the run as interrupted so the user can stop it
 or start a new bounded run without manual database edits.
+
+New runs default to 20 steps and no total workflow duration limit. After defaulting,
+`max_steps` must be within 1..20 and `max_duration_ms` within 0..86400000; zero
+duration retains no run-wide elapsed-time budget. A positive `max_duration_ms`
+retains the legacy run-wide elapsed-time budget. Each workflow
+step gives the agent execution chain one fixed 25-minute deadline shared by the
+initial call, automatic compaction, and retry. Source refreshes, ledger appends,
+workflow terminal writes, normal conversation, workflow goal drafting, and all
+report generation paths use separate contexts that do not inherit this workflow
+step deadline.
+
 If an active source is soft-removed during a workflow, the next step refreshes
 source state and appends `workflow.source.skipped` for that source and removal
 event before continuing. The runner does not silently use removed sources by
@@ -422,6 +442,11 @@ workflow events; `plasma.workflow.start` does not invoke the provider inside the
 MCP call and must be tied to the current user turn and bound executor so the host
 can drain it after that turn has a terminal response.
 
+Plasma-spawned Codex and Claude research agents receive `plasma.workflow.status`
+and `plasma.workflow.stop`, but not `plasma.workflow.start`, in their default MCP
+tool allowlist. Browser and CLI workflow start remain available, and an explicit
+user-controlled MCP invocation can enable start with `-enabled-tool plasma.workflow.start`.
+
 Report drafting is also provider-backed work. It can run after a conversation or
 workflow reaches a terminal state, but it must not overlap a normal turn or
 workflow run for the same mission because the report may fork or resume provider
@@ -434,6 +459,23 @@ that records the new pending/request event. The SQLite store runs those
 conditional appends in one transaction with immediate transaction locking, so
 separate Web and CLI processes share the same final guard instead of relying only
 on process-local locks.
+
+The Web mission detail adds a mission-scoped `active_work` read model for the
+selected mission only. It projects every open agent turn, report pending event,
+and non-terminal workflow run from durable state, with stable reason codes,
+affected controls, and exact cancel or view actions. The browser clears request-local busy
+and notice state on a mission switch, then renders this projection; report
+in-flight handles remain process-local cancellation and ownership helpers, never
+product state.
+
+The additive mission-list activity summary is also ledger-derived. It carries
+the latest full-ledger sequence, current active work, and the latest classified
+terminal activity without creating a global notification ledger. SQLite loads
+the list-specific event subset in bulk; the browser keeps a per-mission seen
+sequence only in local storage, removes entries for missions no longer listed,
+and refreshes only already observed active mission summaries periodically. A
+successful mission detail selection advances that local watermark;
+the server ledger and product state do not change.
 
 The browser renders agent replies as sanitized Markdown using vendored
 `markdown-it` and DOMPurify. That rendering is a display concern only; it does

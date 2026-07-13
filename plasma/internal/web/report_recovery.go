@@ -102,29 +102,100 @@ func (server *Server) loadSectionalReportProgress(ctx context.Context, missionID
 		sections: map[sectionalReportIndex]sectionalReportDraft{},
 		parts:    map[int]sectionalReportPartDraft{},
 	}
-	for _, event := range events {
-		if event.EventType == "report.plan.created" {
-			if err := server.applySectionalPlanProgress(ctx, pendingEventID, event, &progress); err != nil {
-				return sectionalReportProgress{}, err
+	lineage, err := reportRecoveryLineage(events, pendingEventID)
+	if err != nil {
+		return sectionalReportProgress{}, err
+	}
+	for _, attemptID := range lineage {
+		for _, event := range events {
+			if event.EventType == "report.plan.created" {
+				if err := server.applySectionalPlanProgress(ctx, attemptID, event, &progress); err != nil {
+					return sectionalReportProgress{}, err
+				}
 			}
 		}
 	}
 	if !progress.hasPlan {
 		return progress, nil
 	}
-	for _, event := range events {
-		switch event.EventType {
-		case "report.section.created":
-			if err := server.applySectionProgress(ctx, pendingEventID, progress.planEvent.EventID, event, &progress); err != nil {
-				return sectionalReportProgress{}, err
-			}
-		case "report.part.created":
-			if err := server.applyPartProgress(ctx, pendingEventID, progress.planEvent.EventID, event, &progress); err != nil {
-				return sectionalReportProgress{}, err
+	for _, attemptID := range lineage {
+		for _, event := range events {
+			switch event.EventType {
+			case "report.section.created":
+				if err := server.applySectionProgress(ctx, attemptID, progress.planEvent.EventID, event, &progress); err != nil {
+					return sectionalReportProgress{}, err
+				}
+			case "report.part.created":
+				if err := server.applyPartProgress(ctx, attemptID, progress.planEvent.EventID, event, &progress); err != nil {
+					return sectionalReportProgress{}, err
+				}
 			}
 		}
 	}
 	return progress, nil
+}
+
+func reportRecoveryLineage(events []app.LedgerEvent, pendingID string) ([]string, error) {
+	type pending struct{ Origin, Parent, Strategy string }
+	pendingByID := map[string]pending{}
+	for _, event := range events {
+		if event.EventType != "report.draft.pending" {
+			continue
+		}
+		var p struct {
+			Origin   string `json:"origin_pending_event_id"`
+			Parent   string `json:"retry_of_pending_event_id"`
+			Strategy string `json:"retry_strategy"`
+		}
+		if json.Unmarshal(event.Payload, &p) != nil {
+			return nil, fmt.Errorf("%w: invalid report attempt", app.ErrInvalidInput)
+		}
+		if p.Origin == "" {
+			p.Origin = event.EventID
+		}
+		pendingByID[event.EventID] = pending{p.Origin, p.Parent, p.Strategy}
+	}
+	current, ok := pendingByID[pendingID]
+	if !ok {
+		return nil, fmt.Errorf("%w: report attempt missing", app.ErrInvalidInput)
+	}
+	if current.Strategy == "restart" {
+		parent, ok := pendingByID[current.Parent]
+		if current.Parent == "" || !ok || parent.Origin != current.Origin {
+			return nil, fmt.Errorf("%w: invalid report restart lineage", app.ErrInvalidInput)
+		}
+		return []string{pendingID}, nil
+	}
+	if current.Parent == "" {
+		if current.Origin != pendingID {
+			return nil, fmt.Errorf("%w: invalid report root lineage", app.ErrInvalidInput)
+		}
+		return []string{pendingID}, nil
+	}
+	chain := []string{}
+	seen := map[string]bool{}
+	for depth := 0; depth < 64; depth++ {
+		if seen[pendingID] {
+			return nil, fmt.Errorf("%w: report lineage cycle", app.ErrInvalidInput)
+		}
+		seen[pendingID] = true
+		item, ok := pendingByID[pendingID]
+		if !ok {
+			return nil, fmt.Errorf("%w: report lineage ancestor missing", app.ErrInvalidInput)
+		}
+		if item.Origin != current.Origin {
+			return nil, fmt.Errorf("%w: report lineage origin mismatch", app.ErrInvalidInput)
+		}
+		chain = append([]string{pendingID}, chain...)
+		if item.Strategy == "restart" {
+			return chain, nil
+		}
+		if item.Parent == "" {
+			return chain, nil
+		}
+		pendingID = item.Parent
+	}
+	return nil, fmt.Errorf("%w: report lineage too deep", app.ErrInvalidInput)
 }
 
 func (server *Server) applySectionalPlanProgress(ctx context.Context, pendingEventID string, event app.LedgerEvent, progress *sectionalReportProgress) error {

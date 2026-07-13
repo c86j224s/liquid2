@@ -53,6 +53,52 @@ func TestLedgerAppendAndRead(t *testing.T) {
 	}
 }
 
+func TestListMissionActivityInputsReturnsOnlyRelevantEvents(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	for _, missionID := range []string{"mis_1", "mis_2"} {
+		if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendEvent := func(eventID, missionID, eventType string, payload string) {
+		t.Helper()
+		if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+			EventID: eventID, MissionID: missionID, EventType: eventType,
+			Producer: app.Producer{Type: "test", ID: "test"}, Payload: []byte(payload),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendEvent("evt_m1_created", "mis_1", "mission.created", `{}`)
+	appendEvent("evt_m1_source", "mis_1", "source.added", `{"source_id":"src_1"}`)
+	appendEvent("evt_m1_pending", "mis_1", "turn.agent.pending", `{"user_event_id":"evt_user"}`)
+	appendEvent("evt_m1_response", "mis_1", "turn.agent.response", `{"kind":"agent_response","user_event_id":"evt_user"}`)
+	appendEvent("evt_m1_metadata", "mis_1", "mission.metadata.updated", `{}`)
+	appendEvent("evt_m2_created", "mis_2", "mission.created", `{}`)
+
+	inputs, err := store.ListMissionActivityInputs(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 2 {
+		t.Fatalf("input count = %d, want 2", len(inputs))
+	}
+	if inputs[0].MissionID != "mis_1" || inputs[0].LastSequence != 5 {
+		t.Fatalf("first input = %#v", inputs[0])
+	}
+	if got := inputs[0].Events; len(got) != 2 || got[0].EventType != "turn.agent.pending" || got[1].EventType != "turn.agent.response" {
+		t.Fatalf("activity events = %#v", got)
+	}
+	if inputs[1].MissionID != "mis_2" || inputs[1].LastSequence != 1 || len(inputs[1].Events) != 0 {
+		t.Fatalf("second input = %#v", inputs[1])
+	}
+	filtered, err := store.ListMissionActivityInputs(ctx, []string{"mis_1"})
+	if err != nil || len(filtered) != 1 || filtered[0].MissionID != "mis_1" || filtered[0].LastSequence != 5 {
+		t.Fatalf("filtered inputs = %#v, err=%v", filtered, err)
+	}
+}
+
 func TestLedgerConditionalAppendReadsAndWritesInOneTransaction(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()

@@ -24,14 +24,15 @@ func TestOpenCreatesSeparatePlasmaDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrationVersions returned error: %v", err)
 	}
-	if len(versions) != 7 ||
+	if len(versions) != 8 ||
 		versions[0] != "0001_bootstrap.sql" ||
 		versions[1] != "0002_mission_ledger.sql" ||
 		versions[2] != "0003_mission_projection.sql" ||
 		versions[3] != "0004_source_snapshots.sql" ||
 		versions[4] != "0005_research_records.sql" ||
 		versions[5] != "0006_report_canvas.sql" ||
-		versions[6] != "0007_confluence_connections.sql" {
+		versions[6] != "0007_confluence_connections.sql" ||
+		versions[7] != "0008_mission_activity_list.sql" {
 		t.Fatalf("unexpected migration versions: %#v", versions)
 	}
 }
@@ -56,8 +57,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM plasma_schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 7 {
-		t.Fatalf("expected seven migration rows, got %d", count)
+	if count != 8 {
+		t.Fatalf("expected eight migration rows, got %d", count)
 	}
 }
 

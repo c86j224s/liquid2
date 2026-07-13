@@ -10,7 +10,48 @@ type Mission struct {
 	Title     string
 	CreatedAt time.Time
 	UpdatedAt time.Time
+	Activity  MissionActivitySummary `json:"activity"`
 }
+
+// MissionActivityInput is the minimum durable ledger input needed to derive a
+// mission-list activity summary. LastSequence includes every ledger event;
+// Events contains only activity-relevant event types.
+type MissionActivityInput struct {
+	MissionID    string
+	LastSequence int64
+	Events       []LedgerEvent
+}
+
+// MissionActivitySummary is the lightweight, mission-scoped activity view for
+// lists. It is derived from the durable ledger and never stores read state.
+type MissionActivitySummary struct {
+	LastSequence           int64                 `json:"last_sequence"`
+	ActiveWork             ActiveWorkState       `json:"active_work"`
+	LatestTerminalActivity *TerminalActivityView `json:"latest_terminal_activity,omitempty"`
+}
+
+type TerminalActivityKind string
+
+type TerminalActivityOutcome string
+
+type TerminalActivityView struct {
+	EventID  string                  `json:"event_id"`
+	Sequence int64                   `json:"sequence"`
+	Kind     TerminalActivityKind    `json:"kind"`
+	Outcome  TerminalActivityOutcome `json:"outcome"`
+}
+
+const (
+	TerminalActivityTurn     TerminalActivityKind = ActiveWorkTurn
+	TerminalActivityReport   TerminalActivityKind = ActiveWorkReport
+	TerminalActivityWorkflow TerminalActivityKind = ActiveWorkWorkflow
+
+	TerminalActivityCompleted TerminalActivityOutcome = "completed"
+	TerminalActivityFailed    TerminalActivityOutcome = "failed"
+	TerminalActivityCanceled  TerminalActivityOutcome = "canceled"
+	TerminalActivityPaused    TerminalActivityOutcome = "paused"
+	TerminalActivityStopped   TerminalActivityOutcome = "stopped"
+)
 
 type Producer struct {
 	Type string `json:"type"`

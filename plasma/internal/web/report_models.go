@@ -125,6 +125,12 @@ type reportPatchRequest struct {
 	ReportSessionPolicy  string `json:"report_session_policy"`
 }
 
+type reportRetryRequest struct {
+	FailedPendingEventID string `json:"failed_pending_event_id"`
+	Strategy             string `json:"strategy"`
+	RetryRequestID       string `json:"retry_request_id"`
+}
+
 type reportExportRequest struct {
 	Target string `json:"target"`
 }

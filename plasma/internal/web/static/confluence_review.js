@@ -16,6 +16,7 @@ async function previewConfluenceCandidate(index) {
 
 async function previewConfluencePage(page, forcedConnectionID = "", forcedCloudID = "") {
   if (!requireMission() || !page || state.confluenceBusy) return;
+  const owner = captureMissionSelection();
   const context = state.confluenceBrowseContext || {};
   const connectionID = forcedConnectionID || context.connection_id || confluenceSelectedConnectionID();
   const cloudID = forcedCloudID || page.cloud_id || page.CloudID || context.cloud_id || confluenceSiteCloudID(selectedConfluenceSite());
@@ -27,18 +28,19 @@ async function previewConfluencePage(page, forcedConnectionID = "", forcedCloudI
   }
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/preview`, {
+    const result = await missionApi(owner, "/sources/confluence/preview", {
       method: "POST",
       body: { connection_id: connectionID, cloud_id: cloudID, page_id: pageID, expected_version: version }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluencePreview = { result, connection_id: connectionID, cloud_id: cloudID };
     renderConfluencePreview(state.confluencePreview);
     setConfluenceFlowStatus("후보 미리보기를 열었습니다. 내용을 확인한 뒤 소스로 승인하세요.");
     $("confluencePreviewPanel")?.scrollIntoView({ block: "nearest" });
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
@@ -109,16 +111,18 @@ async function approveConfluenceSnapshot(useRange) {
     body.range_start = Number(option.dataset.start || 0);
     body.range_end = Number(option.dataset.end || 0);
   }
+  const owner = captureMissionSelection();
   setConfluenceBusy(true);
   try {
-    await api(`/api/missions/${state.missionId}/sources/confluence/snapshot`, { method: "POST", body });
+    await missionApi(owner, "/sources/confluence/snapshot", { method: "POST", body });
+    if (!ownsMissionSelection(owner)) return;
     state.confluencePreview = null;
     renderConfluencePreview(null);
     setConfluenceFlowStatus("Confluence 페이지를 소스로 저장했습니다. 같은 결과에서 다른 후보도 계속 검토할 수 있습니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showConfluenceError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }

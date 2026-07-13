@@ -34,6 +34,145 @@ func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
 
+func TestMissionDetailActiveWorkIsMissionScoped(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	activeMission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Active"})
+	activeMissionID := nestedString(t, activeMission, "projection", "mission_id")
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_active_report", MissionID: activeMissionID, EventType: "report.draft.pending",
+		Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Active report"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	idleMission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Idle"})
+	idleMissionID := nestedString(t, idleMission, "projection", "mission_id")
+
+	activeDetail := getJSON(t, server.URL+"/api/missions/"+activeMissionID)
+	activeWork := nestedMap(t, activeDetail, "active_work")
+	blocks, ok := activeWork["blocks"].([]any)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("expected one active mission block, got %#v", activeWork)
+	}
+	block, ok := blocks[0].(map[string]any)
+	if !ok || block["reason_code"] != app.BlockingReasonReport {
+		t.Fatalf("expected active mission report block, got %#v", activeDetail["active_work"])
+	}
+	idleDetail := getJSON(t, server.URL+"/api/missions/"+idleMissionID)
+	idleBlocks := nestedMap(t, idleDetail, "active_work")["blocks"]
+	if idleBlocks != nil {
+		blocks, ok := idleBlocks.([]any)
+		if !ok || len(blocks) != 0 {
+			t.Fatalf("idle mission must not inherit another mission active work: %#v", idleDetail["active_work"])
+		}
+	}
+}
+
+func TestMissionListIncludesMissionActivitySummary(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Activity"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_list_pending", MissionID: missionID, EventType: "turn.agent.pending",
+		Producer: app.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	listed := getJSON(t, server.URL+"/api/missions")
+	missions, ok := listed["missions"].([]any)
+	if !ok || len(missions) != 1 {
+		t.Fatalf("mission list = %#v", listed)
+	}
+	item, ok := missions[0].(map[string]any)
+	if !ok {
+		t.Fatalf("mission item = %#v", missions[0])
+	}
+	activity := nestedMap(t, item, "activity")
+	if activity["last_sequence"] != float64(2) {
+		t.Fatalf("activity last sequence = %#v", activity)
+	}
+	activeWork := nestedMap(t, activity, "active_work")
+	items, ok := activeWork["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("activity active work = %#v", activeWork)
+	}
+}
+
+func TestMissionListActivitySummaryExposesAgentFailure(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Failure activity"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_list_error_pending", MissionID: missionID, EventType: "turn.agent.pending",
+		Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_list_error", MissionID: missionID, EventType: "turn.agent.response",
+		Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"kind": "agent_error", "user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	listed := getJSON(t, server.URL+"/api/missions")
+	missions, ok := listed["missions"].([]any)
+	if !ok || len(missions) != 1 {
+		t.Fatalf("mission list = %#v", listed)
+	}
+	item, ok := missions[0].(map[string]any)
+	if !ok {
+		t.Fatalf("mission item = %#v", missions[0])
+	}
+	activity := nestedMap(t, item, "activity")
+	latest := nestedMap(t, activity, "latest_terminal_activity")
+	if activity["last_sequence"] != float64(3) || latest["kind"] != string(app.TerminalActivityTurn) || latest["outcome"] != string(app.TerminalActivityFailed) {
+		t.Fatalf("activity = %#v", activity)
+	}
+	activityResponse := getJSON(t, server.URL+"/api/missions/"+missionID+"/activity")
+	polled := nestedMap(t, activityResponse, "activity")
+	polledLatest := nestedMap(t, polled, "latest_terminal_activity")
+	if polled["last_sequence"] != float64(3) || polledLatest["outcome"] != string(app.TerminalActivityFailed) {
+		t.Fatalf("polled activity = %#v", activityResponse)
+	}
+	cursor := nestedMap(t, activityResponse, "cursor")
+	if cursor["schema"] != missionActivityCursorSchema || cursor["sequence"] != float64(3) || cursor["server_id"] == "" {
+		t.Fatalf("activity cursor = %#v", cursor)
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	detailCursor := nestedMap(t, detail, "activity_cursor")
+	if detailCursor["schema"] != missionActivityCursorSchema || detailCursor["sequence"] != float64(3) || detailCursor["server_id"] != cursor["server_id"] {
+		t.Fatalf("detail activity cursor = %#v, activity cursor = %#v", detailCursor, cursor)
+	}
+}
+
 func TestWorkspaceFlow(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -43,7 +182,7 @@ func TestWorkspaceFlow(t *testing.T) {
 	defer store.Close()
 
 	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
+	agent := &fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: agentReportPlanJSON(agentReportPlan{
 			Summary: "Cover HTTPS DNS records from the approved source.",
@@ -1876,7 +2015,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 	  "glossary": [{"term": "artifact", "definition": "Plasma에 저장된 산출물입니다."}]
 	}`
 	contentModelWithSecondImage := strings.Replace(contentModel, `"title": "오디세이 리포트"`, `"title": "오디세이 리포트 확장"`, 1)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
+	agent := &fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 		{Text: contentModel, SessionID: "agent-session-designed"},
 		{Text: contentModelWithSecondImage, SessionID: "agent-session-designed-2"},
 	}}
@@ -2419,6 +2558,9 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	server.Close()
+	server = httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	defer server.Close()
 	status, _ := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/designed_html_export", map[string]any{"agent_executor": "codex"})
 	if status != http.StatusConflict {
 		t.Fatalf("expected fresh request to conflict while stale pending resumes, got %d", status)
@@ -2572,7 +2714,7 @@ func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
 
 	svc := app.NewService(store)
 	agent := &fakeForkingAgentExecutor{
-		fakeAgentExecutor: fakeAgentExecutor{responses: []AgentResult{
+		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 			{Text: "mission answer", SessionID: "research-session-1"},
 			{Text: agentReportPlanJSON(agentReportPlan{
 				Summary: "Use an isolated report session for report work.",
@@ -2650,7 +2792,7 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 
 	svc := app.NewService(store)
 	agent := &fakeForkingAgentExecutor{
-		fakeAgentExecutor: fakeAgentExecutor{responses: []AgentResult{
+		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 			{Text: "mission answer", SessionID: "research-session-1"},
 			{Text: agentReportAnyJSON(agentSectionalReportPlan{
 				Summary: "Use an isolated session for the long-form report.",
@@ -2940,7 +3082,7 @@ func TestReportDraftOneTakeKeepsSameSessionEvenWhenForkIsAvailable(t *testing.T)
 
 	svc := app.NewService(store)
 	agent := &fakeForkingAgentExecutor{
-		fakeAgentExecutor: fakeAgentExecutor{responses: []AgentResult{
+		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 			{Text: "mission answer", SessionID: "research-session-1"},
 			{Text: "# Quick Report\n\nSame-session quick report.", SessionID: "research-session-1", Resumed: true},
 		}},
@@ -3927,6 +4069,36 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RequestWorkflowStop returned error: %v", err)
 	}
+	server.Close()
+	server = httptest.NewServer(NewServer(svc, Options{AgentExecutor: &fakeAgentExecutor{}}))
+	defer server.Close()
+	runs, err := svc.ListWorkflowRuns(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := ""
+	for _, view := range runs {
+		if view.WorkflowRunID == run.WorkflowRunID {
+			status = view.Status
+			break
+		}
+	}
+	if status != app.WorkflowStatusStopping {
+		t.Fatalf("server construction reconciled workflow before detail GET, got %q", status)
+	}
+	activity := getJSON(t, server.URL+"/api/missions/"+missionID+"/activity")
+	if nestedMap(t, activity, "activity")["last_sequence"] == nil {
+		t.Fatalf("activity response missing summary: %#v", activity)
+	}
+	runs, err = svc.ListWorkflowRuns(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range runs {
+		if view.WorkflowRunID == run.WorkflowRunID && view.Status != app.WorkflowStatusStopping {
+			t.Fatalf("activity read reconciled workflow before detail GET, got %q", view.Status)
+		}
+	}
 
 	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
 	if status := workflowRunStatus(t, detail, run.WorkflowRunID); status != app.WorkflowStatusStopped {
@@ -3991,6 +4163,11 @@ func TestWebWorkflowGoalDraftUsesConfiguredDraftModel(t *testing.T) {
 		Text:      `{"run_goal":"원문을 넓게 보존한 목표","step_instruction":"첫 번째로 기존 소스를 훑는다"}`,
 		SessionID: "draft-session-1",
 	}}}
+	agent.onRun = func(ctx context.Context, _ AgentRequest) {
+		if deadline, ok := ctx.Deadline(); ok {
+			t.Errorf("workflow goal draft must not inherit a deadline, got %v", deadline)
+		}
+	}
 	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent, WorkflowGoalReasoningEffort: "low"}))
 	defer server.Close()
 
@@ -4021,6 +4198,30 @@ func TestWebWorkflowGoalDraftUsesConfiguredDraftModel(t *testing.T) {
 	req := agent.requests[0]
 	if req.Model != "" || req.ReasoningEffort != "low" || req.MissionID != missionID || !strings.Contains(req.Prompt, "Do not research the topic") || !strings.Contains(req.Prompt, "다각도로 조사해줘") {
 		t.Fatalf("unexpected draft agent request: %#v", req)
+	}
+}
+
+func TestNormalConversationHasNoDeadlineWhenAgentTimeoutIsUnset(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	agent := &fakeAgentExecutor{responses: []AgentResult{{Text: "answer", SessionID: "session-1"}}}
+	agent.onRun = func(runCtx context.Context, _ AgentRequest) {
+		if deadline, ok := runCtx.Deadline(); ok {
+			t.Errorf("normal conversation must not inherit a deadline, got %v", deadline)
+		}
+	}
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "No deadline conversation"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "hello"})
+	waitForEventType(t, server.URL, missionID, "turn.agent.response")
+	if len(agent.requests) != 1 {
+		t.Fatalf("expected one agent request, got %#v", agent.requests)
 	}
 }
 
@@ -4881,7 +5082,7 @@ func TestMissionSourcesHidesSupersededByDefault(t *testing.T) {
 	}
 }
 
-func TestReportDraftStalePendingResumesInMissionDetail(t *testing.T) {
+func TestDetailGETReconciliationResumesStaleReportDraft(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -4906,7 +5107,25 @@ func TestReportDraftStalePendingResumesInMissionDetail(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Stale report detail test"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	appendStaleReportPending(t, ctx, svc, missionID, "evt_stale_report_pending_detail")
+	server.Close()
+	server = httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	defer server.Close()
 
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasReportArtifactCreated(events) {
+		t.Fatal("server construction resumed stale report before detail GET")
+	}
+	getJSON(t, server.URL+"/api/missions/"+missionID+"/activity")
+	events, err = svc.ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hasReportArtifactCreated(events) {
+		t.Fatal("activity read resumed stale report before detail GET")
+	}
 	getJSON(t, server.URL+"/api/missions/"+missionID)
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if hasOpenReportDraftDetail(detail) {
@@ -4927,6 +5146,15 @@ func TestReportDraftStalePendingResumesInMissionDetail(t *testing.T) {
 			t.Fatalf("recovered report direction did not reach prompt:\n%s", req.Prompt)
 		}
 	}
+}
+
+func hasReportArtifactCreated(events []app.LedgerEvent) bool {
+	for _, event := range events {
+		if event.EventType == "report.artifact.created" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestReportDraftStalePendingKeepsFrozenSelection(t *testing.T) {
@@ -9661,14 +9889,18 @@ func createClaimForReportRepairTest(
 }
 
 type fakeAgentExecutor struct {
-	requests  []AgentRequest
-	responses []AgentResult
-	errors    []error
-	onRun     func(context.Context, AgentRequest)
+	requests       []AgentRequest
+	responses      []AgentResult
+	errors         []error
+	onRun          func(context.Context, AgentRequest)
+	rejectDeadline bool
 }
 
 func (executor *fakeAgentExecutor) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
 	executor.requests = append(executor.requests, req)
+	if _, ok := ctx.Deadline(); ok && executor.rejectDeadline {
+		return AgentResult{}, errors.New("unexpected agent execution deadline")
+	}
 	if executor.onRun != nil {
 		executor.onRun(ctx, req)
 	}

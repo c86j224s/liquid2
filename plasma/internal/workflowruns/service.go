@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	DefaultMaxSteps      = 10
-	DefaultMaxDurationMS = int64((25 * time.Minute) / time.Millisecond)
+	DefaultMaxSteps      = 20
+	DefaultMaxDurationMS = int64(0)
+	MaxStepsLimit        = 20
+	MaxDurationMSLimit   = int64(86_400_000)
 	InstructionLimit     = 4000
 	SummaryLimit         = 600
 	StaleAfter           = 30 * time.Minute
@@ -352,11 +354,8 @@ func ValidateEventPayload(eventType string, missionID string, payload json.RawMe
 		if strings.TrimSpace(typed.Instruction) == "" {
 			return invalidInputf("instruction is required")
 		}
-		if typed.MaxSteps <= 0 {
-			return invalidInputf("max_steps must be positive")
-		}
-		if typed.MaxDurationMS <= 0 {
-			return invalidInputf("max_duration_ms must be positive")
+		if err := validateRunBounds(typed.MaxSteps, typed.MaxDurationMS); err != nil {
+			return err
 		}
 	case workflowstate.WorkflowStepStartedEvent:
 		var typed workflowstate.WorkflowStepStartedPayload
@@ -451,12 +450,12 @@ func normalizeRunRequest(req workflowstate.RequestWorkflowRunRequest, newID IDGe
 		maxSteps = DefaultMaxSteps
 	}
 	maxDurationMS := req.MaxDurationMS
-	if maxDurationMS <= 0 {
-		maxDurationMS = DefaultMaxDurationMS
+	if err := validateRunBounds(maxSteps, maxDurationMS); err != nil {
+		return workflowstate.RequestWorkflowRunRequest{}, err
 	}
 	stopCondition := strings.TrimSpace(req.StopCondition)
 	if stopCondition == "" {
-		stopCondition = "Stop when max steps, max duration, explicit user stop, provider failure, or agent-declared completion is reached."
+		stopCondition = "Stop when max steps, explicit user stop, provider failure, or agent-declared completion is reached."
 	}
 	argumentSummary := limitText(req.ArgumentSummary, SummaryLimit)
 	if argumentSummary == "" {
@@ -486,6 +485,16 @@ func normalizeRunRequest(req workflowstate.RequestWorkflowRunRequest, newID IDGe
 		ArgumentSummary:           argumentSummary,
 		ContinueFromWorkflowRunID: continueFromWorkflowRunID,
 	}, nil
+}
+
+func validateRunBounds(maxSteps int, maxDurationMS int64) error {
+	if maxSteps < 1 || maxSteps > MaxStepsLimit {
+		return invalidInputf("max_steps must be between 1 and %d", MaxStepsLimit)
+	}
+	if maxDurationMS < 0 || maxDurationMS > MaxDurationMSLimit {
+		return invalidInputf("max_duration_ms must be between 0 and %d", MaxDurationMSLimit)
+	}
+	return nil
 }
 
 func validateID(prefix, id string) error {

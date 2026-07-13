@@ -28,6 +28,10 @@ func (server *Server) handleMissionReports(w http.ResponseWriter, r *http.Reques
 		server.handleCancelMissionReport(w, r, missionID)
 		return
 	}
+	if len(rest) == 1 && rest[0] == "retry" {
+		server.handleRetryMissionReport(w, r, missionID)
+		return
+	}
 	if len(rest) == 1 && rest[0] == "patch" {
 		server.handlePatchMissionReport(w, r, missionID)
 		return
@@ -67,6 +71,32 @@ func (server *Server) handleMissionReports(w http.ResponseWriter, r *http.Reques
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (server *Server) handleRetryMissionReport(w http.ResponseWriter, r *http.Request, missionID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req reportRetryRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	unlock := server.reports.lock(missionID)
+	defer unlock()
+	pending, err := server.service.RequestReportRetry(r.Context(), app.ReportRetryRequest{
+		EventID: newID("evt"), MissionID: missionID, FailedPendingEventID: req.FailedPendingEventID,
+		Strategy: req.Strategy, RetryRequestID: req.RetryRequestID, Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+	})
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	if err := server.resumeReportDraftWorker(r.Context(), missionID, pending); err != nil {
+		writeAppError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"pending_event": pending, "status": "pending"})
 }
 
 func (server *Server) handlePatchMissionReport(w http.ResponseWriter, r *http.Request, missionID string) {
@@ -684,7 +714,7 @@ func (server *Server) createDesignedReportHTMLExport(ctx context.Context, missio
 	if err != nil {
 		return app.ReportExportResult{}, err
 	}
-	event, err := server.service.AppendEvent(ctx, reporting.BuildDesignedHTMLExportAppendRequest(reporting.DesignedHTMLExportEventRequest{
+	terminal := reporting.BuildDesignedHTMLExportAppendRequest(reporting.DesignedHTMLExportEventRequest{
 		EventID:                newID("evt"),
 		MissionID:              missionID,
 		PendingEventID:         pendingEventID,
@@ -703,10 +733,15 @@ func (server *Server) createDesignedReportHTMLExport(ctx context.Context, missio
 		AgentUsage:             result.Usage,
 		AgentResumed:           result.Resumed,
 		Producer:               app.Producer{Type: "agent_session", ID: fallbackSessionID(result.SessionID, toolSessionID)},
-	}))
+	})
+	appended, closed, err := server.service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []app.AppendEventRequest{terminal})
 	if err != nil {
 		return app.ReportExportResult{}, err
 	}
+	if !closed {
+		return app.ReportExportResult{}, fmt.Errorf("%w: designed HTML report operation is already closed", app.ErrConflict)
+	}
+	event := appended[0]
 	return app.ReportExportResult{Artifact: artifact, Event: event}, nil
 }
 
@@ -720,16 +755,10 @@ func (server *Server) reconcileStaleDesignedReportExports(ctx context.Context, m
 		if event.EventType != "report.design.pending" {
 			continue
 		}
-		if _, ok := completed[event.EventID]; ok {
+		if _, ok := completed[event.EventID]; ok || server.runningReports.Owns(missionID, event.EventID) {
 			continue
 		}
-		if server.runningReports.Owns(missionID, event.EventID) {
-			continue
-		}
-		if err := server.reportRunner().ResumeDesign(ctx, missionID, event); err != nil {
-			return err
-		}
-		return nil
+		return server.reportRunner().ResumeDesign(ctx, missionID, event)
 	}
 	return nil
 }
@@ -994,9 +1023,6 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	if err := server.reconcileStaleAgentTurn(ctx, missionID); err != nil {
 		return nil, err
 	}
-	if err := server.reconcileStaleReportDrafts(ctx, missionID); err != nil {
-		return nil, err
-	}
 	if server.hasOpenReportDraft(ctx, missionID) {
 		return nil, errReportDraftRunning
 	}
@@ -1113,9 +1139,6 @@ func (server *Server) startReportPatch(ctx context.Context, missionID string, re
 	if err := server.reconcileStaleAgentTurn(ctx, missionID); err != nil {
 		return nil, err
 	}
-	if err := server.reconcileStaleReportDrafts(ctx, missionID); err != nil {
-		return nil, err
-	}
 	if server.hasOpenReportDraft(ctx, missionID) {
 		return nil, errReportDraftRunning
 	}
@@ -1207,9 +1230,6 @@ func (server *Server) startReportHumanize(ctx context.Context, missionID string,
 		return nil, err
 	}
 	if err := server.reconcileStaleAgentTurn(ctx, missionID); err != nil {
-		return nil, err
-	}
-	if err := server.reconcileStaleReportDrafts(ctx, missionID); err != nil {
 		return nil, err
 	}
 	if server.hasOpenReportDraft(ctx, missionID) {
@@ -1315,18 +1335,11 @@ func (server *Server) reconcileStaleReportDrafts(ctx context.Context, missionID 
 		}
 		switch event.EventType {
 		case "report.draft.pending":
-			if server.runningReports.Owns(missionID, event.EventID) {
-				continue
+			if !server.runningReports.Owns(missionID, event.EventID) {
+				return server.resumeReportDraftWorker(ctx, missionID, event)
 			}
-			if err := server.resumeReportDraftWorker(ctx, missionID, event); err != nil {
-				return err
-			}
-			return nil
 		case "report.humanize.pending":
 			if server.runningReports.Owns(missionID, event.EventID) {
-				continue
-			}
-			if reportPendingEventID := reportHumanizeInFlightPendingEventID(event); reportPendingEventID != "" && server.runningReports.Owns(missionID, reportPendingEventID) {
 				continue
 			}
 			if recovered, err := server.recoverStaleReportHumanizeFinalizedPatch(ctx, missionID, event); err != nil {
@@ -1334,18 +1347,11 @@ func (server *Server) reconcileStaleReportDrafts(ctx context.Context, missionID 
 			} else if recovered {
 				return nil
 			}
-			if err := server.reportRunner().ResumeHumanize(ctx, missionID, event); err != nil {
-				return err
-			}
-			return nil
+			return server.reportRunner().ResumeHumanize(ctx, missionID, event)
 		case "report.patch.pending":
-			if server.runningReports.Owns(missionID, event.EventID) {
-				continue
+			if !server.runningReports.Owns(missionID, event.EventID) {
+				return server.reportRunner().ResumePatch(ctx, missionID, event)
 			}
-			if err := server.reportRunner().ResumePatch(ctx, missionID, event); err != nil {
-				return err
-			}
-			return nil
 		}
 	}
 	return nil
@@ -2032,16 +2038,16 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		})
 		planDurationMS := time.Since(planStarted).Milliseconds()
 		if err != nil {
-			return nil, fmt.Errorf("sectional report planning agent failed: %w", reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
+			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
 		}
 		returnedPlanSessionID := strings.TrimSpace(planResult.SessionID)
 		planResult, err = validatedSameSessionResult(planResult, reportStartSessionID)
 		if err != nil {
-			return nil, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID)
+			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
 		}
 		plan, err = parseAgentSectionalReportPlan(planResult.Text)
 		if err != nil {
-			return nil, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID)
+			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
 		}
 		reportPlanSessionID = planResult.SessionID
 		planEvent, err = server.service.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
@@ -2091,7 +2097,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			PlanReviewState:    "auto_accepted",
 		}))
 		if err != nil {
-			return nil, err
+			return nil, longFormStageFailure("plan", "", 0, 0, err)
 		}
 		currentSessionID = strings.TrimSpace(planResult.SessionID)
 	}
@@ -2132,17 +2138,17 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			})
 			sectionDurationMS := time.Since(sectionStarted).Milliseconds()
 			if err != nil {
-				return nil, fmt.Errorf("sectional report section agent failed: %w", reportAgentFailure(err, result, "report_section", sectionDurationMS, previousStageSessionID))
+				return nil, longFormStageFailure("section", planEvent.EventID, partIndex+1, sectionIndex+1, reportAgentFailure(err, result, "report_section", sectionDurationMS, previousStageSessionID))
 			}
 			returnedSessionID := strings.TrimSpace(result.SessionID)
 			result, err = validatedSameSessionResult(result, previousStageSessionID)
 			if err != nil {
-				return nil, reportAgentFailure(err, result, "report_section", sectionDurationMS, previousStageSessionID)
+				return nil, longFormStageFailure("section", planEvent.EventID, partIndex+1, sectionIndex+1, reportAgentFailure(err, result, "report_section", sectionDurationMS, previousStageSessionID))
 			}
 			currentSessionID = strings.TrimSpace(result.SessionID)
 			markdown := strings.TrimSpace(result.Text)
 			if markdown == "" {
-				return nil, reportAgentFailure(fmt.Errorf("%w: section report agent returned empty Markdown", app.ErrInvalidInput), result, "report_section", sectionDurationMS, previousStageSessionID)
+				return nil, longFormStageFailure("section", planEvent.EventID, partIndex+1, sectionIndex+1, reportAgentFailure(fmt.Errorf("%w: section report agent returned empty Markdown", app.ErrInvalidInput), result, "report_section", sectionDurationMS, previousStageSessionID))
 			}
 			artifact, err := server.service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
 				ArtifactID: newID("art"),
@@ -2153,7 +2159,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				Content:    []byte(markdown),
 			})
 			if err != nil {
-				return nil, err
+				return nil, longFormStageFailure("section", planEvent.EventID, partIndex+1, sectionIndex+1, err)
 			}
 			wordCount := reportWordCount(markdown)
 			sectionWordTotal += wordCount
@@ -2203,7 +2209,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				WordCount:    wordCount,
 			}))
 			if err != nil {
-				return nil, err
+				return nil, longFormStageFailure("section", planEvent.EventID, partIndex+1, sectionIndex+1, err)
 			}
 			partDrafts = append(partDrafts, sectionalReportDraft{Title: section.Title, Markdown: markdown, ArtifactID: artifact.ArtifactID, WordCount: wordCount})
 		}
@@ -2234,17 +2240,17 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		})
 		partDurationMS := time.Since(partStarted).Milliseconds()
 		if err != nil {
-			return nil, fmt.Errorf("sectional report part assembly agent failed: %w", reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
+			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
 		}
 		returnedSessionID := strings.TrimSpace(result.SessionID)
 		result, err = validatedSameSessionResult(result, previousStageSessionID)
 		if err != nil {
-			return nil, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID)
+			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
 		}
 		currentSessionID = strings.TrimSpace(result.SessionID)
 		assembly, err := parseAgentPartAssembly(result.Text)
 		if err != nil {
-			return nil, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID)
+			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
 		}
 		partMarkdown := assembleSectionalPartMarkdown(part, sectionDraftsByPart[partIndex], assembly, partIndex)
 		artifact, err := server.service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
@@ -2256,7 +2262,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Content:    []byte(partMarkdown),
 		})
 		if err != nil {
-			return nil, err
+			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, err)
 		}
 		partWordCount := reportWordCount(partMarkdown)
 		partArtifactIDs = append(partArtifactIDs, artifact.ArtifactID)
@@ -2305,7 +2311,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			WordCount:    partWordCount,
 		}))
 		if err != nil {
-			return nil, err
+			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, err)
 		}
 		partDrafts = append(partDrafts, sectionalReportPartDraft{Title: part.Title, Markdown: partMarkdown, ArtifactID: artifact.ArtifactID, WordCount: partWordCount})
 	}
@@ -2326,20 +2332,20 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 	})
 	frameDurationMS := time.Since(frameStarted).Milliseconds()
 	if err != nil {
-		return nil, fmt.Errorf("sectional report frame agent failed: %w", reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
 	}
 	returnedSessionID := strings.TrimSpace(frameResult.SessionID)
 	frameResult, err = validatedSameSessionResult(frameResult, previousStageSessionID)
 	if err != nil {
-		return nil, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID)
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
 	}
 	frame, err := parseAgentSectionalFrame(frameResult.Text)
 	if err != nil {
-		return nil, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID)
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
 	}
 	markdown := assembleSectionalFinalMarkdown(title, frame, partDrafts)
 	if strings.TrimSpace(markdown) == "" {
-		return nil, fmt.Errorf("%w: sectional report assembled empty Markdown", app.ErrInvalidInput)
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, fmt.Errorf("%w: sectional report assembled empty Markdown", app.ErrInvalidInput))
 	}
 	finalWordCount := reportWordCount(markdown)
 	preservationRatio := float64(finalWordCount) / float64(maxInt(1, sectionWordTotal))
@@ -2352,7 +2358,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		Content:    []byte(markdown),
 	})
 	if err != nil {
-		return nil, err
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, err)
 	}
 	event, err := server.service.AppendEvent(ctx, reporting.BuildMarkdownReportArtifactCreatedAppendRequest(reporting.MarkdownReportArtifactCreatedEventRequest{
 		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
@@ -2410,7 +2416,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		IncludeLongFormFields: true,
 	}))
 	if err != nil {
-		return nil, err
+		return nil, longFormStageFailure("artifact", planEvent.EventID, 0, 0, err)
 	}
 	if postReportHumanize == "disabled" {
 		return map[string]any{"artifact": artifact, "event": event, "markdown": markdown}, nil

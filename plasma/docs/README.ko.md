@@ -40,6 +40,8 @@ Plasma를 처음 이해하려면 아래 순서로 읽는 것이 좋습니다.
   연결 문서입니다. 별도 정리 범위가 생기면 새 이슈에서 다룹니다.
 - [Media And Document Source Implementation Design](media-source-implementation-design.md)
 - [Token Diet Instrumentation](token-diet-instrumentation.md)
+- [Mission Polling Measurement](mission-polling-measurement.md) /
+  [미션 폴링 측정](mission-polling-measurement.ko.md)
 
 ## Source와 Connector
 

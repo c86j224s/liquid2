@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
@@ -41,8 +40,8 @@ func runWorkflowStart(ctx context.Context, args []string, stdout, stderr io.Writ
 	runGoal := fs.String("run-goal", "", "derived autonomous-run goal for layered mode")
 	agentName := fs.String("agent", "", "agent executor")
 	mcpMode := fs.String("mcp-mode", "auto", "MCP mode")
-	maxSteps := fs.Int("max-steps", 10, "maximum workflow steps")
-	maxDurationMS := fs.Int64("max-duration-ms", int64((25*time.Minute)/time.Millisecond), "maximum workflow duration in milliseconds")
+	maxSteps := fs.Int("max-steps", app.DefaultWorkflowMaxSteps, "maximum workflow steps")
+	maxDurationMS := fs.Int64("max-duration-ms", 0, "maximum workflow duration in milliseconds; 0 disables the total budget")
 	wait := fs.Bool("wait", false, "run immediately and wait for terminal status")
 	jsonOut := fs.Bool("json", false, "write JSON")
 	liquid2URL := fs.String("liquid2-url", "", "optional Liquid2 base URL")

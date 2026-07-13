@@ -33,6 +33,588 @@ func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
 	}
 }
 
+func TestReportPipelineStaticGraphAndRetryContracts(t *testing.T) {
+	script := string(mustReadStatic(t, "static/report_pipeline.js"))
+	styles := string(mustReadStatic(t, "static/report_pipeline.css"))
+	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-lane", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("missing report pipeline contract %q", expected)
+		}
+	}
+	for _, expected := range []string{".pipeline-details", ".pipeline-attempt-meta", ".pipeline-visual", "max-width: 100%", "overflow-x: auto", "min-width: 0", "width: max(100%, var(--pipeline-width))", ".pipeline-visual-dot", ".pipeline-visual-time", "font-variant-numeric: tabular-nums", "pipeline-node-pulse", "prefers-reduced-motion: reduce", "pipeline-graph-revealing"} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing report pipeline style contract %q", expected)
+		}
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	fixture := `
+const fs=require("fs"), vm=require("vm");
+(async()=>{
+  let reloads=0, current=true;
+  const requests=[];
+  const button=(strategy)=>({dataset:{reportRetry:strategy},disabled:false,addEventListener(_event,listener){this.listener=listener;}});
+  const resume=button("resume_failed"), restart=button("restart");
+  let pipelineVisual={scrollLeft:73};
+  const host={_innerHTML:"",get innerHTML(){return this._innerHTML;},set innerHTML(value){this._innerHTML=value;pipelineVisual={scrollLeft:0};},querySelector(selector){return selector===".pipeline-visual"?pipelineVisual:null;},querySelectorAll(selector){
+    if(selector==="[data-report-retry]") return [resume,restart];
+    return [];
+  }};
+  const context={window:{},state:{detail:{events:[{EventID:"evt_failed",Payload:{title:"<안전한 제목>",started_at:"2026-07-13T01:02:03Z"}}]}},document:{getElementById(id){return id==="reportPipeline"?host:null}},crypto:{randomUUID(){return "retry"}},
+    captureMissionSelection(){return {missionId:"mis_a"}},
+    missionFetch(_owner,_path,options){requests.push(JSON.parse(options.body));return Promise.resolve({ok:true});},
+    ownsMissionSelection(){return current;},reloadMission(){reloads++;},isStaleMissionOperation(){return false}};
+  vm.createContext(context);vm.runInContext(fs.readFileSync("static/report_pipeline.js","utf8"),context);
+  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"running",started_at:"2026-07-13T01:02:03Z"},{id:"part-1",kind:"part",part_index:1,state:"failed",error:"safe",started_at:"2026-07-13T01:02:03Z",duration_ms:360000000}],retry:{resume_failed:true,restart:true}});
+  const html=host.innerHTML;
+  if(!html.includes("<h3 id=\"reportPipelineTitle\">최신 리포트 생성 파이프라인</h3>")||!html.includes("&lt;안전한 제목&gt;")||!html.includes("전체 생성 시작")||!html.includes("<time datetime=\"2026-07-13T01:02:03Z\">")||!html.includes("시도 1")||!html.includes("시작")||!html.includes("소요 12초")||!html.includes("경과")||!html.includes("<details class=\"pipeline-details\">")||html.includes("<details class=\"pipeline-details\" open")||!html.includes("<svg class=\"pipeline-graph\"")||!html.includes("--pipeline-width:")||!html.includes("<ol class=\"pipeline-flow sr-only\"")||!html.includes("<li class=\"pipeline-lane\""))process.exit(1);
+  if(pipelineVisual.scrollLeft!==73)process.exit(10);
+  const graphNodes=[...html.matchAll(/data-pipeline-node-width="(\d+)" transform="translate\((\d+) 62\)"/g)].map(([,width,x])=>({width:Number(width),x:Number(x)}));
+  if(graphNodes.length!==5||graphNodes.some((node,index)=>index>0&&node.x-graphNodes[index-1].x<(node.width+graphNodes[index-1].width)/2+32))process.exit(11);
+  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("aria-label=\"part 1 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
+  if(!(html.indexOf("pipeline-plan") < html.indexOf("pipeline-section-1-1") && html.indexOf("pipeline-section-1-1") < html.indexOf("pipeline-final") && html.indexOf("pipeline-final") < html.indexOf("pipeline-artifact")))process.exit(7);
+  if(typeof resume.listener!=="function"||typeof restart.listener!=="function")process.exit(3);
+  await resume.listener();
+  current=false;
+  await restart.listener();
+  if(requests.length!==2||requests[0].strategy!=="resume_failed"||requests[1].strategy!=="restart")process.exit(4);
+  if(reloads!==1)process.exit(5);
+  context.state.detail.events=[{EventID:"evt_missing",Payload:{}}];
+  context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
+  if(!host.innerHTML.includes("제목 없는 리포트")||!host.innerHTML.includes("생성 시작 시각 알 수 없음")||!host.innerHTML.includes("시도 번호 알 수 없음")||!host.innerHTML.includes("계획 수립")||!host.innerHTML.includes("진행 중")||!host.innerHTML.includes("pipeline-plan")||host.innerHTML.includes("pipeline-final")||host.innerHTML.includes("pipeline-artifact")||host.innerHTML.includes("pipeline-lane"))process.exit(8);
+  host.dataset={};
+  context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
+  context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"running"}]});
+  if(!host.innerHTML.includes("pipeline-graph-revealing")||!host.innerHTML.includes("파트 1 작성")||!host.innerHTML.includes("진행 중")||pipelineVisual.scrollLeft!==73)process.exit(9);
+})().catch((error)=>{console.error(error);process.exit(6);});`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("pipeline DOM fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticMissionScopedActiveWorkContracts(t *testing.T) {
+	combined := string(mustReadStatic(t, "static/index.html")) + string(mustReadStatic(t, "static/app.js")) + string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		"active_work", "resetMissionTransientState", "ownsMissionSelection",
+		"conversationActiveWork", "reportActiveWork", "report_generation_running",
+		"workflow_running", "agent_turn_running", "data-active-work-action",
+		".active-work-notice", "flex-wrap: wrap",
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing mission-scoped active-work contract %q", expected)
+		}
+	}
+}
+
+func TestMissionActivityWatermarkHandlesMalformedStorageAndMarksAfterSelection(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	functions := []string{
+		jsFunctionSource(t, script, "renderMissionActivity"),
+		jsFunctionSource(t, script, "missionActivityIndicator"),
+		jsFunctionSource(t, script, "missionActivitySeenSequence"),
+		jsFunctionSource(t, script, "missionActivitySeenWatermarks"),
+		jsFunctionSource(t, script, "markMissionActivitySeen"),
+		jsFunctionSource(t, script, "pruneMissionActivitySeenWatermarks"),
+	}
+	fixture := `
+const MISSION_ACTIVITY_SEEN_STORAGE_KEY = "plasma.missionActivitySeen.v1";
+let stored = "malformed";
+let quotaBlocked = false;
+const localStorage = { getItem: () => stored, setItem: (_, value) => { if (quotaBlocked) throw new Error("quota"); stored = value; } };
+` + strings.Join(functions, "\n") + `
+const mission = {MissionID:"mis_1", activity:{active_work:{items:[]}, latest_terminal_activity:{sequence:7,outcome:"failed"}}};
+const failedIndicator = renderMissionActivity(mission);
+if (!failedIndicator.includes("mission-activity-failed")) throw new Error("unseen failure is missing");
+if (!failedIndicator.includes("sr-only") || failedIndicator.includes("role=\"status\"")) throw new Error("activity indicator accessibility semantics are wrong");
+markMissionActivitySeen("mis_1", 7);
+if (renderMissionActivity(mission) !== "") throw new Error("seen failure remains visible");
+if (JSON.parse(stored).mis_1 !== 7) throw new Error("watermark was not saved");
+if (!renderMissionActivity({...mission, activity:{active_work:{items:[{}]}}}).includes("mission-activity-running")) throw new Error("running state is missing");
+if (!renderMissionActivity({MissionID:"mis_2", activity:{active_work:{items:[]}, latest_terminal_activity:{sequence:4,outcome:"completed"}}}).includes("mission-activity-completed")) throw new Error("unseen completion is missing");
+stored = JSON.stringify({mis_1:7,mis_deleted:4});
+pruneMissionActivitySeenWatermarks([{MissionID:"mis_1"}]);
+if (JSON.stringify(JSON.parse(stored)) !== JSON.stringify({mis_1:7})) throw new Error("deleted mission watermark was retained");
+quotaBlocked = true;
+markMissionActivitySeen("mis_1", 8);
+if (renderMissionActivity({...mission, activity:{latest_terminal_activity:{sequence:8,outcome:"failed"}}}) === "") throw new Error("quota failure hid the unseen result");
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("mission activity watermark fixture: %v: %s", err, out)
+	}
+}
+
+func TestSelectMissionMarksActivitySeenOnlyAfterDetailLoad(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	remember := jsFunctionSource(t, script, "rememberMissionID")
+	cursor := jsFunctionSource(t, script, "missionActivityCursor")
+	detailCursor := jsFunctionSource(t, script, "detailMissionActivityCursor")
+	apply := jsFunctionSource(t, script, "applyMissionDetail")
+	source := strings.Replace(jsFunctionSource(t, script, "selectMission"), "function selectMission", "async function selectMission", 1)
+	fixture := `
+const MISSION_STORAGE_KEY = "plasma.activeMissionId";
+const state = { detail: null, missionActivityCursors: {} };
+let shouldFail = false; let marked = []; let renderedFailure = 0;
+const beginMissionSelection = (missionId) => ({ missionId });
+const ownsDetailRequest = () => true;
+const api = async () => { if (shouldFail) throw new Error("failed"); return {projection:{last_sequence:9},activity_cursor:{schema:"mission-activity/v1",sequence:9,server_id:"server-a"}}; };
+const localStorage = { setItem() { throw new Error("quota"); } };
+const markMissionActivitySeen = (...args) => marked.push(args);
+const renderDetail = () => {}; const renderMissions = () => {};
+const refreshMissionList = async () => {}; const loadConfluenceConnections = async () => {};
+const loadConfluenceAccess = async () => {}; const renderMissionLoadFailed = () => { renderedFailure++; };
+` + remember + `
+` + cursor + `
+` + detailCursor + `
+` + apply + `
+` + source + `
+(async () => {
+  await selectMission("mis_1");
+  if (marked.length !== 1 || marked[0][0] !== "mis_1" || marked[0][1] !== 9) throw new Error("successful load was not marked");
+  shouldFail = true;
+  await selectMission("mis_2");
+  if (marked.length !== 1 || renderedFailure !== 1) throw new Error("failed load changed watermark");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("selection activity watermark fixture: %v: %s", err, out)
+	}
+}
+
+func TestReloadMissionUsesFullSelectionRefresh(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	asyncSource := func(name string) string {
+		return strings.Replace(jsFunctionSource(t, script, name), "function "+name, "async function "+name, 1)
+	}
+	fixture := `
+const MISSION_STORAGE_KEY = "plasma.activeMissionId";
+const state = {missionId:"mis_1",selectionGeneration:1,detailGeneration:0,detail:null,missionActivityCursors:{}};
+const requests=[]; let listRefreshes=0, connectionRefreshes=0, accessRefreshes=0;
+const api=async(path)=>{requests.push(path); return {projection:{last_sequence:4},activity_cursor:{schema:"mission-activity/v1",sequence:4,server_id:"server-a"}};};
+const beginMissionSelection=(missionId)=>({missionId,selectionGeneration:state.selectionGeneration,detailGeneration:++state.detailGeneration});
+const ownsMissionSelection=(owner)=>owner.missionId===state.missionId && owner.selectionGeneration===state.selectionGeneration;
+const ownsDetailRequest=(owner)=>ownsMissionSelection(owner) && owner.detailGeneration===state.detailGeneration;
+const localStorage={setItem(){}}; const rememberMissionID=()=>{}; const markMissionActivitySeen=()=>{};
+const renderDetail=()=>{}; const renderMissions=()=>{}; const renderMissionLoadFailed=()=>{throw new Error("detail load failed");};
+const refreshMissionList=async()=>{listRefreshes++;}; const loadConfluenceConnections=async()=>{connectionRefreshes++;}; const loadConfluenceAccess=async()=>{accessRefreshes++;};
+` + jsFunctionSource(t, script, "missionActivityCursor") + `
+` + jsFunctionSource(t, script, "detailMissionActivityCursor") + `
+` + jsFunctionSource(t, script, "applyMissionDetail") + `
+` + asyncSource("selectMission") + `
+` + asyncSource("reloadMission") + `
+(async()=>{
+  await reloadMission(); await Promise.resolve();
+  if(requests.join()!=="/api/missions/mis_1" || listRefreshes!==1 || connectionRefreshes!==1 || accessRefreshes!==1) throw new Error("reload did not retain full selection refresh");
+})().catch((err)=>{console.error(err);process.exit(1);});`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("reload selection refresh fixture: %v: %s", err, out)
+	}
+}
+
+func TestMissionActivityPollSleepsWithoutObservedActiveWork(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	source := jsFunctionSource(t, script, "scheduleMissionActivityPoll")
+	refresh := strings.Replace(jsFunctionSource(t, script, "refreshObservedMissionActivity"), "function refreshObservedMissionActivity", "async function refreshObservedMissionActivity", 1)
+	fixture := `
+let scheduled = 0; const callbacks = [];
+const state = {missions:[],missionActivityPollTimer:0,missionActivityPollInFlight:false};
+const window = {clearTimeout(){},setTimeout(callback){ scheduled++; callbacks.push(callback); return scheduled; }};
+const document = {hidden:false};
+const captureMissionSelection = () => ({missionId:""});
+` + source + `
+scheduleMissionActivityPoll();
+if (scheduled !== 0 || state.missionActivityPollTimer !== 0) throw new Error("idle list scheduled a global activity poll");
+state.missions = [{activity:{active_work:{items:[{}]}}}];
+scheduleMissionActivityPoll();
+if (scheduled !== 1 || state.missionActivityPollTimer !== 1) throw new Error("active work did not schedule a refresh");
+const requests = [];
+state.missions = [
+  {MissionID:"mis_active",activity:{last_sequence:4,active_work:{items:[{}]}}},
+  {MissionID:"mis_idle",activity:{last_sequence:8,active_work:{items:[]}}}
+];
+const api = async (path) => { requests.push(path); return {activity:{last_sequence:5,active_work:{items:[]},latest_terminal_activity:{sequence:5,outcome:"completed"}}}; };
+let renders = 0; const renderMissions = () => { renders++; };
+` + refresh + `
+(async () => {
+  await callbacks.shift()();
+  if (requests.join() !== "/api/missions/mis_active/activity") throw new Error("poll refreshed the full list or an idle mission");
+  if (state.missions[0].activity.last_sequence !== 5 || state.missions[1].activity.last_sequence !== 8 || renders !== 1) throw new Error("targeted activity refresh did not merge summaries correctly");
+  if (scheduled !== 1 || state.missionActivityPollTimer !== 0) throw new Error("terminal activity scheduled another poll");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("mission activity polling fixture: %v: %s", err, out)
+	}
+}
+
+func TestWorkStartsRefreshMissionActivityList(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	asyncSource := func(name string) string {
+		return strings.Replace(jsFunctionSource(t, script, name), "function "+name, "async function "+name, 1)
+	}
+	fixture := `
+const WORKFLOW_DEFAULT_MAX_STEPS = 20;
+const WORKFLOW_DEFAULT_MAX_DURATION_MS = 0;
+const MISSION_STORAGE_KEY = "plasma.activeMissionId";
+const state = {missionId:"mis_1",selectionGeneration:1,detailGeneration:0,detail:{projection:{title:"Mission"}},missions:[],missionActivityCursors:{},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,workflowGoalDraftRaw:"",reportPending:false,pendingTurn:null,missionActivityPollTimer:0,missionActivityPollInFlight:false};
+const nodes = {
+  turnText:{value:"Question"}, agentExecutor:{value:"codex"}, mcpMode:{value:"auto"}, controllerStrategy:{value:"auto"},
+  workflowInstruction:{value:"Research"}, workflowRunGoal:{value:""}, workflowStepInstruction:{value:""},
+  reportAgentModel:{value:""}, reportAgentReasoningEffort:{value:""}, reportRigor:{value:"balanced"}
+};
+const $ = (id) => nodes[id] || {value:""};
+let detailLoads = 0, listLoads = 0, scheduled = 0; const started = [];
+const api = async (path) => {
+  if (path === "/api/missions") { listLoads++; return {missions:[{MissionID:"mis_1",activity:{last_sequence:listLoads,active_work:{items:[{}]}}}]}; }
+  if (path === "/api/missions/mis_1") { detailLoads++; return {projection:{last_sequence:detailLoads,title:"Mission"},activity_cursor:{schema:"mission-activity/v1",sequence:detailLoads,server_id:"server-a"}}; }
+  throw new Error("unexpected api path " + path);
+};
+const missionApi = async (_, path) => { started.push(path); return {pending_event:{}}; };
+const beginMissionSelection = (missionId) => ({missionId,selectionGeneration:state.selectionGeneration,detailGeneration:++state.detailGeneration});
+const captureMissionSelection = () => ({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = (owner) => owner.missionId === state.missionId && owner.selectionGeneration === state.selectionGeneration;
+const ownsDetailRequest = () => true;
+const requireMission = () => true;
+const localStorage = {setItem(){}}; const rememberMissionID = () => {}; const markMissionActivitySeen = () => {};
+const pruneMissionActivitySeenWatermarks = () => {};
+const renderDetail = () => {}; const renderMissions = () => {}; const renderMissionLoadFailed = () => { throw new Error("detail load failed"); };
+const loadConfluenceConnections = async () => {}; const loadConfluenceAccess = async () => {};
+const setTurnBusy = () => {}; const syncReportControls = () => {}; const renderTurns = () => {}; const showError = (err) => { throw err; };
+const workflowStepInstructionMode = () => "layered"; const workflowRawInputValue = () => "Research"; const setWorkflowBusy = () => {};
+const setReportBusy = (busy) => { state.reportPending = busy; }; const setReportNotice = () => {}; const reportPendingMessage = () => "pending";
+const ReportModelSelection = {payload:() => ({agent_model:"",agent_reasoning_effort:""})};
+const currentReportDirectionHint = () => ""; const clearAcceptedReportDirectionHint = () => {};
+const document = {hidden:false}; const window = {clearTimeout(){},setTimeout(){ scheduled++; return scheduled; }};
+` + asyncSource("refreshMissionList") + `
+` + jsFunctionSource(t, script, "missionActivityCursor") + `
+` + jsFunctionSource(t, script, "detailMissionActivityCursor") + `
+` + jsFunctionSource(t, script, "applyMissionDetail") + `
+` + asyncSource("refreshSelectedMissionDetail") + `
+` + asyncSource("selectMission") + `
+` + asyncSource("reloadMission") + `
+` + jsFunctionSource(t, script, "scheduleMissionActivityPoll") + `
+` + asyncSource("sendTurn") + `
+` + asyncSource("startWorkflow") + `
+` + asyncSource("draftReport") + `
+async function assertWorkStart(name, run, expectedPath) {
+  detailLoads = 0; listLoads = 0; scheduled = 0; started.length = 0; state.missions = []; state.missionActivityPollTimer = 0;
+  state.turnPending = false; state.workflowPending = false; state.workflowGoalDraftPending = false; state.reportPending = false; state.pendingTurn = null;
+  await run();
+  await Promise.resolve(); await Promise.resolve();
+  if (started.join() !== expectedPath) throw new Error(name + " did not start expected work: " + started.join());
+  if (detailLoads !== 1) throw new Error(name + " did not reload mission detail");
+  if (listLoads !== 1) throw new Error(name + " did not refresh mission list activity");
+  if (scheduled !== 0 || state.missionActivityPollTimer) throw new Error(name + " scheduled redundant global activity polling");
+}
+(async () => {
+  await assertWorkStart("sendTurn", () => sendTurn({preventDefault(){}}), "/turns");
+  await assertWorkStart("startWorkflow", startWorkflow, "/workflows");
+  await assertWorkStart("draftReport", () => draftReport("planned"), "/reports");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("work-start mission activity fixture: %v: %s", err, out)
+	}
+}
+
+func TestResetMissionTransientStateClearsPreviousMissionWork(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the mission-switch state fixture")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	source := jsFunctionSource(t, script, "resetMissionTransientState")
+	fixture := `
+let pollCleared = false;
+let notice = "stale report";
+const state = {
+  detail:{}, turnPending:true, reportPending:true, workflowPending:true,
+  workflowGoalDraftPending:true, workflowGoalDraftRaw:"old", pendingTurn:{},
+  sourceCandidateBusy:new Set(["source"]), selectedSourceCandidates:new Set(["candidate"]),
+  selectedProposals:new Set(["proposal"]), selectedReportKey:"report", reportPreview:{}
+};
+const clearPendingPoll = () => { pollCleared = true; };
+const setReportNotice = (value) => { notice = value; };
+const renderActiveWork = () => {};
+const setFormsEnabled = () => {};
+const renderMissionLoading = () => {};
+const resetConfluenceMissionUI = () => {};
+const hideDetail = () => {};
+const empty = () => "";
+const $ = () => null;
+` + source + `
+resetMissionTransientState();
+if (!pollCleared || notice || state.detail || state.turnPending || state.reportPending || state.workflowPending || state.workflowGoalDraftPending || state.workflowGoalDraftRaw || state.pendingTurn || state.sourceCandidateBusy.size || state.selectedSourceCandidates.size || state.selectedProposals.size || state.selectedReportKey || state.reportPreview) process.exit(1);
+`
+	command := exec.Command("node", "-e", fixture)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("mission-switch state fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestResetMissionTransientStateHidesBulkBarsImmediately(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	source := jsFunctionSource(t, string(mustReadStatic(t, "static/app.js")), "resetMissionTransientState")
+	fixture := `
+const state={detail:{},turnPending:true,reportPending:true,workflowPending:true,workflowGoalDraftPending:false,workflowGoalDraftRaw:"",pendingTurn:null,sourceCandidateBusy:new Set(),selectedSourceCandidates:new Set(["a"]),selectedProposals:new Set(["p"]),selectedReportKey:"",reportPreview:null,confluenceSearchResults:[],confluenceSearchContext:null,confluenceSpaces:[],confluencePages:[],confluenceBrowseContext:null,confluencePreview:null,confluenceUpdatePreview:null,confluenceAccess:null,confluenceBusy:true,confluenceOAuthURL:""};
+const nodes={sourceCandidateBulk:{classList:{hidden:false,add(v){this.hidden=v}}},proposalBulk:{classList:{hidden:false,add(v){this.hidden=v}}},sourceCandidateBulkCount:{textContent:"7"},proposalBulkCount:{textContent:"8"}};
+const $=(id)=>nodes[id]||null; const clearPendingPoll=()=>{}; const setReportNotice=()=>{}; const renderActiveWork=()=>{}; const setFormsEnabled=()=>{}; const hideDetail=()=>{}; const empty=()=>""; const renderMissionLoading=()=>{}; const resetConfluenceMissionUI=()=>{};
+` + source + `
+resetMissionTransientState(); if(!nodes.sourceCandidateBulk.classList.hidden||!nodes.proposalBulk.classList.hidden||nodes.sourceCandidateBulkCount.textContent!=="0"||nodes.proposalBulkCount.textContent!=="0")process.exit(1);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("bulk reset fixture: %v: %s", err, out)
+	}
+}
+
+func TestCreateMissionHonorsSelectionOwnership(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	create := strings.Replace(jsFunctionSource(t, script, "createMission"), "function createMission", "async function createMission", 1)
+	refresh := strings.Replace(jsFunctionSource(t, script, "refreshMissionList"), "function refreshMissionList", "async function refreshMissionList", 1)
+	fixture := `
+const state={missionId:"mis_a",selectionGeneration:1,missions:[]};
+const nodes={missionTitle:{value:"New"},missionObjective:{value:"Goal"}}; const $=(id)=>nodes[id];
+let createResolve,listResolve; let selected=[]; let renders=0; let errors=0;
+const api=(path)=>path==="/api/missions"?(createResolve?new Promise(r=>{listResolve=r}):new Promise(r=>{createResolve=r})):Promise.reject(new Error("unexpected"));
+const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection=(o)=>o.missionId===state.missionId&&o.selectionGeneration===state.selectionGeneration;
+class StaleMissionOperationError extends Error{}; const renderMissions=()=>{renders++}; const pruneMissionActivitySeenWatermarks=()=>{}; const scheduleMissionActivityPoll=()=>{}; const selectMission=async(id)=>{selected.push(id)}; const showError=()=>{errors++};
+` + create + `
+` + refresh + `
+(async()=>{
+  const run=createMission({preventDefault(){}}); createResolve({projection:{mission_id:"mis_new"}}); await Promise.resolve(); listResolve({missions:[{MissionID:"mis_new"}]}); await run;
+  if(selected.join()!=="mis_new"||state.missions.length!==1||renders!==1||errors!==0)throw new Error("owned create did not select and refresh");
+  state.missionId="mis_a"; state.selectionGeneration=3; nodes.missionTitle.value="Late"; selected=[]; let lateResolve; createResolve=undefined; listResolve=undefined;
+  const late=createMission({preventDefault(){}}); lateResolve=createResolve; state.missionId="mis_c"; state.selectionGeneration=4; lateResolve({projection:{mission_id:"mis_late"}}); await late;
+  if(selected.length||nodes.missionTitle.value!=="Late"||errors)throw new Error("stale create mutated current selection");
+})().catch(e=>{console.error(e);process.exit(1)});
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("create mission ownership fixture: %v: %s", err, out)
+	}
+}
+
+func TestReportVersionResponsesCannotCrossMissionSelection(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	exportFn := jsSourceRange(t, script, "async function exportReport(", "\nasync function viewReportArtifact(")
+	astFn := jsSourceRange(t, script, "async function viewReportAST(", "\nfunction setSectionEmpty(")
+	fixture := `
+const state={missionId:"mis_a",selectionGeneration:1,reportPreview:null};
+const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration}); const ownsMissionSelection=(o)=>o.missionId===state.missionId&&o.selectionGeneration===state.selectionGeneration;
+let pending=[]; const api=()=>new Promise((resolve,reject)=>pending.push({resolve,reject})); let mutations=[];
+const setReportPreviewLoading=()=>{}; const assertReportExportMatches=()=>{}; const downloadText=()=>mutations.push("download"); const applyReportPreview=()=>mutations.push("preview"); const reloadMission=()=>mutations.push("reload"); const clearReportPreview=()=>mutations.push("clear"); const showError=()=>mutations.push("error");
+const reportExportPreviewHeader=()=>"";
+` + exportFn + `
+` + astFn + `
+(async()=>{
+  let run=exportReport("ver_1","markdown",{}); state.missionId="mis_b"; state.selectionGeneration=2; pending.shift().resolve({content:"A"}); await run;
+  state.missionId="mis_a"; state.selectionGeneration=3; run=exportReport("ver_1","markdown",{}); state.missionId="mis_b"; state.selectionGeneration=4; pending.shift().reject(new Error("A failed")); await run;
+  state.missionId="mis_a"; state.selectionGeneration=5; run=viewReportAST("ver_1"); state.missionId="mis_b"; state.selectionGeneration=6; pending.shift().resolve({old:true}); await run;
+  state.missionId="mis_a"; state.selectionGeneration=7; run=viewReportAST("ver_1"); state.missionId="mis_b"; state.selectionGeneration=8; pending.shift().reject(new Error("A failed")); await run;
+  if(mutations.length)throw new Error("stale report response mutated current mission: "+mutations.join(","));
+})().catch(e=>{console.error(e);process.exit(1)});
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("report response ownership fixture: %v: %s", err, out)
+	}
+}
+
+func TestPendingPollOwnershipSurvivesMissionSwitch(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	schedule := jsFunctionSource(t, script, "schedulePendingPoll")
+	fixture := `
+const state={missionId:"mis_a",selectionGeneration:1,detailGeneration:1,turnPending:true,reportPending:false,workflowPending:false,pollTimer:0,pollInFlight:false,pollOwner:null};
+const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration}); const ownsMissionSelection=(o)=>o.missionId===state.missionId&&o.selectionGeneration===state.selectionGeneration;
+const ownsDetailRequest=(o)=>ownsMissionSelection(o)&&o.detailGeneration===state.detailGeneration;
+let callbacks=[]; const window={setTimeout:(fn)=>{callbacks.push(fn);return callbacks.length}}; const clearPendingPoll=()=>{state.pollTimer=0}; const nodes={healthBadge:{textContent:""}}; const $=(id)=>nodes[id];
+let waits={}; const refreshSelectedMissionActivity=(owner)=>new Promise(r=>{waits[owner.missionId]=r}); const console={warn(){},error(){}};
+` + schedule + `
+(async()=>{
+  schedulePendingPoll(); const runA=callbacks.shift()(); await Promise.resolve();
+  state.missionId="mis_b"; state.selectionGeneration=2; state.detailGeneration=2; schedulePendingPoll(); const runB=callbacks.shift()(); await Promise.resolve();
+  if(state.pollOwner.missionId!=="mis_b")throw new Error("B did not own poll");
+  waits.mis_a(); await runA; if(!state.pollInFlight||state.pollOwner.missionId!=="mis_b")throw new Error("stale A cleared B poll");
+  waits.mis_b(); await runB; if(state.pollInFlight||state.pollOwner!==null||callbacks.length!==1)throw new Error("B poll did not reschedule cleanly");
+})().catch(e=>{console.error(e);process.exit(1)});
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("pending poll ownership fixture: %v: %s", err, out)
+	}
+}
+
+func TestPendingPollFallbackFailureClearsAndReschedulesCurrentSelection(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	schedule := jsFunctionSource(t, script, "schedulePendingPoll")
+	fixture := `
+const state={missionId:"mis_a",selectionGeneration:1,detailGeneration:1,turnPending:true,reportPending:false,workflowPending:false,pollTimer:0,pollInFlight:false,pollOwner:null};
+const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection=(owner)=>owner.missionId===state.missionId&&owner.selectionGeneration===state.selectionGeneration;
+const ownsDetailRequest=(owner)=>ownsMissionSelection(owner)&&owner.detailGeneration===state.detailGeneration;
+const callbacks=[]; const window={setTimeout:(fn)=>{callbacks.push(fn);return callbacks.length},clearTimeout(){}};
+const clearPendingPoll=()=>{state.pollTimer=0}; const nodes={healthBadge:{textContent:""}}; const $=(id)=>nodes[id]; const console={warn(){},error(){}};
+const refreshSelectedMissionActivity=async()=>{state.detailGeneration++; throw new Error("fallback detail failed");};
+` + schedule + `
+(async()=>{
+  schedulePendingPoll();
+  await callbacks.shift()();
+  if(state.pollInFlight||state.pollOwner!==null) throw new Error("failed fallback left poll ownership stuck");
+  if(nodes.healthBadge.textContent!=="재연결 중") throw new Error("failed current fallback did not show reconnecting");
+  if(callbacks.length!==1||state.pollTimer!==1) throw new Error("failed fallback did not schedule exactly one retry");
+})().catch((err)=>{console.error(err);process.exit(1);});`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("pending poll fallback failure fixture: %v: %s", err, out)
+	}
+}
+
+func TestPendingPollOlderSameMissionCannotOverwriteNewerHealth(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	schedule := jsFunctionSource(t, script, "schedulePendingPoll")
+	fixture := `
+const state={missionId:"mis_a",selectionGeneration:1,detailGeneration:1,turnPending:true,reportPending:false,workflowPending:false,pollTimer:0,pollInFlight:false,pollOwner:null};
+const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection=(owner)=>owner.missionId===state.missionId&&owner.selectionGeneration===state.selectionGeneration;
+const ownsDetailRequest=(owner)=>ownsMissionSelection(owner)&&owner.detailGeneration===state.detailGeneration;
+const callbacks=[]; const window={setTimeout:(fn)=>{callbacks.push(fn);return callbacks.length},clearTimeout(){}};
+const clearPendingPoll=()=>{state.pollTimer=0}; const nodes={healthBadge:{textContent:""}}; const $=(id)=>nodes[id]; const console={warn(){},error(){}};
+let resolveA; const refreshSelectedMissionActivity=(owner)=>owner.detailGeneration===1 ? new Promise(resolve=>{resolveA=resolve}) : Promise.reject(new Error("B failed"));
+` + schedule + `
+(async()=>{
+  schedulePendingPoll(); const runA=callbacks.shift()(); await Promise.resolve();
+  // An ordinary same-mission reload completed while poll A was in flight.
+  state.detailGeneration=2;
+  schedulePendingPoll(); const runB=callbacks.shift()(); await runB;
+  if(nodes.healthBadge.textContent!=="재연결 중"||state.pollInFlight||state.pollOwner!==null||callbacks.length!==1) throw new Error("B failure did not retain reconnecting state and one retry");
+  resolveA(); await runA;
+  if(nodes.healthBadge.textContent!=="재연결 중") throw new Error("stale A overwrote B health state");
+  if(state.pollInFlight||state.pollOwner!==null||callbacks.length!==1) throw new Error("stale A overwrote B poll ownership");
+})().catch((err)=>{console.error(err);process.exit(1);});`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("same-mission pending poll health fixture: %v: %s", err, out)
+	}
+}
+
+func TestMissionSelectionGenerationPreservesSameMissionReloadAndRejectsStaleResponses(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the selection generation fixture")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	source := jsFunctionSource(t, script, "beginMissionSelection") + "\n" + jsFunctionSource(t, script, "captureMissionSelection") + "\n" + jsFunctionSource(t, script, "ownsMissionSelection")
+	fixture := `
+const state = {missionId:"", selectionGeneration:0, detailGeneration:0};
+let resets = 0;
+let loadingRenders = 0;
+const resetMissionTransientState = () => { resets += 1; loadingRenders += 1; };
+` + source + `
+const a = beginMissionSelection("mis_a");
+const b = beginMissionSelection("mis_b");
+const refreshB = beginMissionSelection("mis_b");
+if (resets !== 2 || loadingRenders !== 2 || !ownsMissionSelection(b) || !ownsMissionSelection(refreshB) || b.detailGeneration === refreshB.detailGeneration) process.exit(1);
+const c = beginMissionSelection("mis_c");
+if (resets !== 3 || loadingRenders !== 3 || ownsMissionSelection(refreshB) || !ownsMissionSelection(c) || captureMissionSelection().missionId !== "mis_c") process.exit(1);
+`
+	command := exec.Command("node", "-e", fixture)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("late success/error selection fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestStaticConfluenceLoadsUseMissionSelectionGuards(t *testing.T) {
+	for _, name := range []string{"static/confluence.js", "static/confluence_access.js", "static/confluence_browse.js"} {
+		content := string(mustReadStatic(t, name))
+		if !strings.Contains(content, "ownsMissionSelection(owner)") || !strings.Contains(content, "captureMissionSelection()") {
+			t.Fatalf("%s must guard stale mission responses", name)
+		}
+	}
+}
+
+func TestBatchAMissionRoutesUseCapturedTransport(t *testing.T) {
+	script := string(mustReadStatic(t, "static/app.js"))
+	for _, name := range []string{"resetAgentSession", "addTextSource", "addUploadSource", "addMediaURLSource", "addPDFURLSource", "browseLocalPathTree", "attachLocalPathSource", "refreshSourcesOnly", "removeSource", "restoreSource", "readSource", "addURLSource", "viewReportArtifact", "downloadReportArtifact"} {
+		body := jsFunctionBody(t, script, name)
+		if strings.Contains(body, "/api/missions/${state.missionId}") || !strings.Contains(body, "missionApi") && !strings.Contains(body, "missionFetch") {
+			t.Fatalf("%s must not build a mutable mission URL", name)
+		}
+	}
+	metadata := string(mustReadStatic(t, "static/mission_metadata.js"))
+	if strings.Contains(metadata, "/api/missions/${encodeURIComponent(state.missionId)}") || !strings.Contains(metadata, "missionApi(owner") {
+		t.Fatal("mission metadata must use captured mission transport")
+	}
+}
+
+func TestStaticTreeHasNoMutableMissionRouteInterpolation(t *testing.T) {
+	entries, err := os.ReadDir("static")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".js") {
+			continue
+		}
+		content := string(mustReadStatic(t, "static/"+entry.Name()))
+		if strings.Contains(content, "/api/missions/${state.missionId}") || strings.Contains(content, "/api/missions/${encodeURIComponent(state.missionId)}") {
+			t.Fatalf("mutable mission route interpolation in %s", entry.Name())
+		}
+	}
+}
+
+func TestBulkSourceAcceptKeepsCapturedMissionOwner(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	addURL := strings.Replace(jsFunctionSource(t, script, "addURLSource"), "function addURLSource", "async function addURLSource", 1)
+	bulk := strings.Replace(jsFunctionSource(t, script, "bulkSourceCandidateAction"), "function bulkSourceCandidateAction", "async function bulkSourceCandidateAction", 1)
+	runSequential := strings.Replace(jsFunctionSource(t, script, "runBulkSequential"), "function runBulkSequential", "async function runBulkSequential", 1)
+	source := addURL + "\n" + runSequential + "\n" + bulk
+	fixture := `
+const state = {missionId:"mis_a",selectionGeneration:1,sourceCandidateBusy:new Set(),selectedSourceCandidates:new Set(["https://a.example","https://b.example"])};
+let requests = []; let resolveFirst;
+const requireMission=()=>true; const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection=(o)=>o.missionId===state.missionId&&o.selectionGeneration===state.selectionGeneration;
+class StaleMissionOperationError extends Error {}; const isStaleMissionOperation=(e)=>e instanceof StaleMissionOperationError;
+const missionApi=(owner,path)=>{ requests.push(owner.missionId+path); return new Promise((resolve,reject)=>{ resolveFirst=()=>ownsMissionSelection(owner)?resolve({}):reject(new StaleMissionOperationError()); }); };
+const normalizeSourceURL=(v)=>v; const refreshSourceCandidates=()=>{}; const sourceRouteForURL=()=>"url"; const looksLikePDFSourceError=()=>false; const sourceCandidateTitleForURL=()=>"";
+const reloadMission=async()=>{}; const showError=()=>{ throw new Error("stale error shown") }; const window={prompt:()=>""};
+` + source + `
+(async()=>{ const run=bulkSourceCandidateAction("approve"); await Promise.resolve(); state.missionId="mis_b"; state.selectionGeneration=2; resolveFirst(); await run; if(requests.length!==1||requests[0].indexOf("mis_a")<0||state.selectedSourceCandidates.size!==2) throw new Error("batch crossed mission boundary"); })().catch(e=>{console.error(e);process.exit(1)});
+`
+	cmd := exec.Command("node", "-e", fixture)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("bulk owner fixture failed: %v: %s", err, output)
+	}
+}
+
 func mustReadStatic(t *testing.T, name string) []byte {
 	t.Helper()
 	content, err := os.ReadFile(name)
@@ -44,7 +626,7 @@ func mustReadStatic(t *testing.T, name string) []byte {
 
 func TestStaticReportModelSelectionContract(t *testing.T) {
 	combined := string(mustReadStatic(t, "static/index.html")) + string(mustReadStatic(t, "static/app.js")) + string(mustReadStatic(t, "static/report_model_selection.js"))
-	for _, expected := range []string{`id="reportAgentModel"`, `id="reportAgentReasoningEffort"`, `/static/report_model_selection.js`, "agent_model", "agent_reasoning_effort", "미션 설정 상속", "refreshEfforts", ".disabled = busy"} {
+	for _, expected := range []string{`id="reportAgentModel"`, `id="reportAgentReasoningEffort"`, `/static/report_model_selection.js`, "agent_model", "agent_reasoning_effort", "미션 설정 상속", "refreshEfforts", ".disabled = busy", "segmented-select-label"} {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("missing report model selection contract %q", expected)
 		}
@@ -53,6 +635,166 @@ func TestStaticReportModelSelectionContract(t *testing.T) {
 		command := exec.Command("node", "-e", `require('./static/report_model_selection.js'); const p=globalThis.ReportModelSelection.payload; if(JSON.stringify(p('',''))!==JSON.stringify({agent_model:'',agent_reasoning_effort:''})||p('gpt-5.5','').agent_model!=='gpt-5.5'||p('gpt-5.5','high').agent_reasoning_effort!=='high') process.exit(1)`)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("node payload fixture failed: %v: %s", err, output)
+		}
+	}
+}
+
+func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	styles := string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		`class="inline-control segmented-select-control report-select-rigor"`,
+		`class="inline-control segmented-select-control report-select-model"`,
+		`class="inline-control segmented-select-control report-select-effort"`,
+		`<span class="segmented-select-label">엄격도</span>`,
+		`<span class="segmented-select-label">모델</span>`,
+		`<span class="segmented-select-label">추론</span>`,
+	} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("missing integrated report control label %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		".segmented-select-label",
+		"pointer-events: none",
+		"border-radius: 999px",
+		"background: var(--accent-from)",
+		"border-radius: 0",
+		"text-overflow: ellipsis",
+		".segmented-select-control:focus-within",
+		"grid-template-columns: repeat(auto-fit, minmax(220px, 1fr))",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing integrated report control style %q", expected)
+		}
+	}
+}
+
+func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	ids := []string{
+		"agentExecutor",
+		"agentModel",
+		"agentReasoningEffort",
+		"mcpMode",
+		"controllerStrategy",
+		"confluenceConnectionSelect",
+		"confluenceSiteSelect",
+		"confluenceRangeSelect",
+		"confluenceUpdateRangeSelect",
+		"reportRigor",
+		"reportAgentModel",
+		"reportAgentReasoningEffort",
+	}
+	for _, id := range ids {
+		selectIndex := strings.Index(index, `<select id="`+id+`"`)
+		if selectIndex < 0 {
+			t.Fatalf("missing select %q", id)
+		}
+		labelIndex := strings.LastIndex(index[:selectIndex], "<label")
+		if labelIndex < 0 {
+			t.Fatalf("select %q is not wrapped by a label", id)
+		}
+		labelOpenEnd := strings.Index(index[labelIndex:selectIndex], ">")
+		if labelOpenEnd < 0 {
+			t.Fatalf("select %q has a malformed label", id)
+		}
+		labelOpenTag := index[labelIndex : labelIndex+labelOpenEnd+1]
+		if !strings.Contains(labelOpenTag, "segmented-select-control") {
+			t.Fatalf("select %q does not use the segmented select design: %s", id, labelOpenTag)
+		}
+	}
+	if got := strings.Count(index, "segmented-select-control"); got != len(ids) {
+		t.Fatalf("segmented select coverage changed: got %d controls, want %d", got, len(ids))
+	}
+}
+
+func TestStaticButtonDesignSystemDefinesSharedRoles(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	styles := string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		"--control-height: 34px",
+		"--control-height-mini: 24px",
+		"--button-shadow-soft:",
+		"--button-shadow-hover:",
+		"min-height: var(--control-height)",
+		"button.button-secondary",
+		"button.button-quiet",
+		"button.button-danger",
+		`button[aria-pressed="true"]`,
+		`button[aria-busy="true"]`,
+		"button.button-sm",
+		"@media (max-width: 760px)",
+		"--control-height: 40px",
+		"agent-control-meta",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing shared button role %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		`id="focusToggle" class="quiet"`,
+		`id="themeToggle" class="icon-button quiet"`,
+		`id="refreshMissions" class="icon-button quiet"`,
+		`id="missionMetadataEdit" class="quiet mission-recall-button"`,
+		`id="closeDetail" class="icon-button quiet"`,
+	} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("utility button is not assigned to quiet role: %q", expected)
+		}
+	}
+}
+
+func TestStaticTabControlsKeepTheirFlatOriginalTreatment(t *testing.T) {
+	styles := string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		".tab {",
+		"min-height: 38px",
+		".source-tab {",
+		"min-height: 36px",
+		"box-shadow: none",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing original flat tab treatment %q", expected)
+		}
+	}
+}
+
+func TestStaticReportDirectionIsOptionalAndPrecedesGenerationAction(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	directionDetails := strings.Index(index, `class="report-direction-details"`)
+	directionInput := strings.Index(index, `id="reportDirectionHint"`)
+	settings := strings.Index(index, `class="report-generation-settings"`)
+	generate := strings.Index(index, `id="draftQuickReport"`)
+	if directionDetails < 0 || directionInput < 0 || settings < 0 || generate < 0 {
+		t.Fatal("missing optional direction or report generation controls")
+	}
+	if !(settings < directionDetails && directionDetails < directionInput && directionInput < generate) {
+		t.Fatalf("unexpected report control order: details=%d input=%d settings=%d generate=%d", directionDetails, directionInput, settings, generate)
+	}
+	for _, expected := range []string{"방향 추가", "선택", "이번 요청에만 적용할 약한 편집 방향"} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("missing optional direction wording %q", expected)
+		}
+	}
+}
+
+func TestStaticReportGenerationContextIsVisibleWhilePendingAndOnArtifacts(t *testing.T) {
+	script := string(mustReadStatic(t, "static/app.js"))
+	for _, expected := range []string{
+		"reportGenerationContext",
+		"reportGenerationSummaryHTML",
+		"report-generation-summary",
+		"pending_event_id",
+		"rigor_label",
+		"agent_model",
+		"agent_reasoning_effort",
+		"direction_hint",
+		"미션 설정 상속",
+		"지정 없음",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("missing report generation context contract %q", expected)
 		}
 	}
 }
@@ -84,26 +826,27 @@ func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
 		t.Skip("node is required for the report control state-transition fixture")
 	}
 	script := string(mustReadStatic(t, "static/app.js"))
-	source := jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
+	source := jsFunctionSource(t, script, "activeWorkBlocksControl") + "\n" + jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
 	fixture := `
 const elements = {};
 for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport","cancelReportButton"]) {
   elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
 }
 const $ = (id) => elements[id];
-const state = {detail:{},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const state = {detail:{active_work:{blocked_controls:[]}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
 ` + source + `
 const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport"];
 function assertDisabled(label) {
   if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
 }
-for (const guard of ["turnPending","workflowPending","workflowGoalDraftPending"]) {
-  state.turnPending = state.workflowPending = state.workflowGoalDraftPending = false;
-  state[guard] = true;
+for (const guard of ["agent_turn_running","workflow_running","report_generation_running"]) {
+  state.detail.active_work.blocked_controls = [{control:"report_start",reason_codes:[guard]}];
+  state.workflowGoalDraftPending = false;
   setReportBusy(false);
   assertDisabled(guard);
 }
-state.turnPending = state.workflowPending = state.workflowGoalDraftPending = false;
+state.detail.active_work.blocked_controls = [];
+state.workflowGoalDraftPending = false;
 setReportBusy(true);
 assertDisabled("reportPending");
 setReportBusy(false);
@@ -240,6 +983,30 @@ func TestStaticReportMarkdownPreviewWrapsAndMarksHeadings(t *testing.T) {
 	}
 }
 
+func TestStaticReportControlsShareMobileWidthWithoutLabelColumns(t *testing.T) {
+	style, err := os.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(style)
+	for _, expected := range []string{
+		`.report-request-actions`,
+		`.report-generation-settings`,
+		`.report-generation-settings > .inline-control`,
+		`display: flex`,
+		`.report-generation-settings .inline-control select`,
+		`.report-mode-actions`,
+		`justify-content: flex-end`,
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("expected mobile report control alignment CSS to include %q", expected)
+		}
+	}
+	if strings.Contains(content, `grid-template-columns: 52px minmax(0, 1fr)`) {
+		t.Fatal("mobile report controls should not reserve a separate label column")
+	}
+}
+
 func TestStaticDetailModalKeepsTitleBarVisibleWhileBodyScrolls(t *testing.T) {
 	style, err := os.ReadFile("static/app.css")
 	if err != nil {
@@ -294,8 +1061,12 @@ func TestStaticAppExposesWorkflowControlsWithoutTerminalUI(t *testing.T) {
 		"updateWorkflowStepInstructionMode();",
 		"user_instruction_raw",
 		"run_goal",
-		"max_steps: 10",
-		"max_duration_ms: 1500000",
+		"const WORKFLOW_DEFAULT_MAX_STEPS = 20",
+		"const WORKFLOW_DEFAULT_MAX_DURATION_MS = 0",
+		"max_steps: WORKFLOW_DEFAULT_MAX_STEPS",
+		"max_duration_ms: WORKFLOW_DEFAULT_MAX_DURATION_MS",
+		"max_steps: Number(run.max_steps ?? WORKFLOW_DEFAULT_MAX_STEPS)",
+		"max_duration_ms: Number(run.max_duration_ms ?? WORKFLOW_DEFAULT_MAX_DURATION_MS)",
 	} {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("expected static app to expose workflow control %q", expected)
@@ -303,8 +1074,6 @@ func TestStaticAppExposesWorkflowControlsWithoutTerminalUI(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"PTY",
-		"terminal",
-		"터미널",
 		`<option value="current"`,
 		`id="workflowStepInstructionMode">`,
 		`id="workflowLayeredFields" class="workflow-layered-fields hidden"`,
@@ -314,6 +1083,9 @@ func TestStaticAppExposesWorkflowControlsWithoutTerminalUI(t *testing.T) {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("workflow controls should not expose terminal UI term %q", forbidden)
 		}
+	}
+	if strings.Contains(string(html), "terminal") || strings.Contains(string(html), "터미널") {
+		t.Fatal("workflow controls should not expose a terminal UI term")
 	}
 }
 
@@ -350,7 +1122,7 @@ func TestStaticAppBulkSourceCandidateApprovalUsesURLRouter(t *testing.T) {
 	content := string(script)
 	for _, expected := range []string{
 		"function sourceCandidateTitleForURL(url)",
-		"await addURLSource(url, sourceCandidateTitleForURL(url))",
+		"await addURLSource(url, sourceCandidateTitleForURL(url), owner)",
 		"sourceRouteForURL(url)",
 		`if (looksLikeConfluenceURL(value)) return "confluence/url"`,
 		"looksLikePDFSourceError(err)",
@@ -1110,6 +1882,19 @@ func jsFunctionSource(t *testing.T, content string, name string) string {
 	t.Helper()
 	start, end := jsFunctionBounds(t, content, name)
 	return content[start:end]
+}
+
+func jsSourceRange(t *testing.T, content, startMarker, endMarker string) string {
+	t.Helper()
+	start := strings.Index(content, startMarker)
+	if start < 0 {
+		t.Fatalf("expected JavaScript marker %q", startMarker)
+	}
+	end := strings.Index(content[start:], endMarker)
+	if end < 0 {
+		t.Fatalf("expected JavaScript marker %q after %q", endMarker, startMarker)
+	}
+	return content[start : start+end]
 }
 
 func htmlSection(t *testing.T, content string, startMarker string, endMarker string) string {

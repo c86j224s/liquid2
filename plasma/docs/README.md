@@ -47,6 +47,8 @@ These documents describe how Plasma should behave now:
   a separate cleanup issue replaces it.
 - [Media And Document Source Implementation Design](media-source-implementation-design.md)
 - [Token Diet Instrumentation](token-diet-instrumentation.md)
+- [Mission Polling Measurement](mission-polling-measurement.md) /
+  [Mission Polling Measurement Korean](mission-polling-measurement.ko.md)
 
 ## Source And Connector Work
 

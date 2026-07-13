@@ -63,6 +63,27 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 	}
 }
 
+func TestWorkflowStartSchemaAllowsUnlimitedDurationAndCapsSteps(t *testing.T) {
+	tool := toolByName(t, NewServer(&fakeMCPService{}).ListTools(), ToolWorkflowStart)
+	var schema struct {
+		Properties map[string]struct {
+			Minimum *float64 `json:"minimum"`
+			Maximum *float64 `json:"maximum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	maxSteps := schema.Properties["max_steps"]
+	maxDuration := schema.Properties["max_duration_ms"]
+	if maxSteps.Maximum == nil || *maxSteps.Maximum != 20 {
+		t.Fatalf("expected max_steps maximum 20, got %#v", maxSteps.Maximum)
+	}
+	if maxDuration.Minimum == nil || *maxDuration.Minimum != 0 {
+		t.Fatalf("expected max_duration_ms minimum 0, got %#v", maxDuration.Minimum)
+	}
+}
+
 func TestMissionUpdateToolUsesSharedServiceAndIsIdempotent(t *testing.T) {
 	service := &fakeMCPService{}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -1094,6 +1115,33 @@ func TestWorkflowToolsUseSharedProjectionAndBinding(t *testing.T) {
 	})
 	if rejected.Error == nil || rejected.Error.ErrorKind != "validation" {
 		t.Fatalf("expected bound mission rejection, got %#v", rejected)
+	}
+}
+
+func TestWorkflowStartAcceptsOmittedAndZeroDuration(t *testing.T) {
+	service := &fakeMCPService{}
+	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1", CurrentUserEventID: "evt_user_1", AgentExecutor: "codex"}))
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "omitted", args: map[string]any{"mission_id": "mis_1", "workflow_run_id": "wfr_omitted", "instruction": "run", "agent_executor": "codex"}},
+		{name: "zero", args: map[string]any{"mission_id": "mis_1", "workflow_run_id": "wfr_zero", "instruction": "run", "agent_executor": "codex", "max_duration_ms": 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := server.Call(context.Background(), ToolCall{Name: ToolWorkflowStart, Arguments: mustArgs(t, tc.args)})
+			if result.Error != nil {
+				t.Fatalf("workflow start returned error: %#v", result.Error)
+			}
+		})
+	}
+	if len(service.workflowRuns) != 2 {
+		t.Fatalf("expected two workflow runs, got %#v", service.workflowRuns)
+	}
+	for _, run := range service.workflowRuns {
+		if run.MaxDurationMS != 0 {
+			t.Fatalf("expected unlimited duration, got %#v", run)
+		}
 	}
 }
 

@@ -123,26 +123,21 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		return 2
 	}
 
+	handler := web.NewServer(svc, web.Options{
+		Liquid2Connector:            connector,
+		AgentExecutor:               agents["codex"],
+		AgentExecutors:              agents,
+		WorkflowGoalModel:           strings.TrimSpace(cfg.WorkflowGoalModel),
+		WorkflowGoalReasoningEffort: strings.TrimSpace(cfg.WorkflowGoalReasoningEffort),
+		EnvironmentLabel:            strings.TrimSpace(cfg.EnvironmentLabel),
+		ConfluenceOAuth: confluenceconnector.OAuthConfig{
+			ClientID: strings.TrimSpace(cfg.ConfluenceOAuthClientID), ClientSecret: strings.TrimSpace(cfg.ConfluenceOAuthClientSecret), RedirectURI: strings.TrimSpace(cfg.ConfluenceOAuthRedirectURI), Scopes: cfg.ConfluenceOAuthScopes, AuthorizeURL: strings.TrimSpace(cfg.ConfluenceOAuthAuthorizeURL), TokenURL: strings.TrimSpace(cfg.ConfluenceOAuthTokenURL),
+		},
+		ConfluenceOAuthDiscoveryURL: strings.TrimSpace(cfg.ConfluenceOAuthDiscoveryURL), StaticDir: resolvedStaticDir,
+	})
 	server := &http.Server{
-		Addr: strings.TrimSpace(cfg.Addr),
-		Handler: web.NewServer(svc, web.Options{
-			Liquid2Connector:            connector,
-			AgentExecutor:               agents["codex"],
-			AgentExecutors:              agents,
-			WorkflowGoalModel:           strings.TrimSpace(cfg.WorkflowGoalModel),
-			WorkflowGoalReasoningEffort: strings.TrimSpace(cfg.WorkflowGoalReasoningEffort),
-			EnvironmentLabel:            strings.TrimSpace(cfg.EnvironmentLabel),
-			ConfluenceOAuth: confluenceconnector.OAuthConfig{
-				ClientID:     strings.TrimSpace(cfg.ConfluenceOAuthClientID),
-				ClientSecret: strings.TrimSpace(cfg.ConfluenceOAuthClientSecret),
-				RedirectURI:  strings.TrimSpace(cfg.ConfluenceOAuthRedirectURI),
-				Scopes:       cfg.ConfluenceOAuthScopes,
-				AuthorizeURL: strings.TrimSpace(cfg.ConfluenceOAuthAuthorizeURL),
-				TokenURL:     strings.TrimSpace(cfg.ConfluenceOAuthTokenURL),
-			},
-			ConfluenceOAuthDiscoveryURL: strings.TrimSpace(cfg.ConfluenceOAuthDiscoveryURL),
-			StaticDir:                   resolvedStaticDir,
-		}),
+		Addr:    strings.TrimSpace(cfg.Addr),
+		Handler: handler,
 	}
 	fmt.Fprintf(stdout, "plasma serving http://%s db=%s\n", server.Addr, cfg.DisplayDBPath())
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

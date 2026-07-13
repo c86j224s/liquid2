@@ -1,14 +1,16 @@
-async function loadConfluenceAccess() {
+async function loadConfluenceAccess(owner = captureMissionSelection()) {
   if (!state.missionId) {
     state.confluenceAccess = null;
     renderConfluenceAccessControls();
     return;
   }
   try {
-    const result = await api(`/api/missions/${state.missionId}/connector-access/confluence`);
+    const result = await missionApi(owner, "/connector-access/confluence");
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceAccess = result.access || result.Access || null;
     renderConfluenceAccessControls();
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     showConfluenceError(err);
     renderConfluenceAccessControls();
   }
@@ -76,9 +78,10 @@ async function enableConfluenceAccess() {
     showError(new Error("Confluence 에이전트 검색을 켜려면 설정의 연결과 사이트를 선택해야 합니다."));
     return;
   }
+  const owner = captureMissionSelection();
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/connector-access/confluence`, {
+    const result = await missionApi(owner, "/connector-access/confluence", {
       method: "PUT",
       body: {
         enabled: true,
@@ -87,28 +90,31 @@ async function enableConfluenceAccess() {
         space_key: $("confluenceAccessSpaceKey").value.trim()
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceAccess = result.access || result.Access || null;
     renderConfluenceAccessControls();
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
 async function disableConfluenceAccess() {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/connector-access/confluence`, {
+    const result = await missionApi(owner, "/connector-access/confluence", {
       method: "DELETE",
       body: {}
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceAccess = result.access || result.Access || null;
     renderConfluenceAccessControls();
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }

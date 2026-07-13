@@ -16,6 +16,7 @@ type sourceCandidate struct {
 
 type missionDetailResponse struct {
 	Projection          app.MissionProjection `json:"projection"`
+	ActivityCursor      missionActivityCursor `json:"activity_cursor"`
 	Events              []app.LedgerEvent     `json:"events"`
 	Sources             []app.SourceSnapshot  `json:"sources"`
 	Records             recordsResponse       `json:"records"`
@@ -25,6 +26,8 @@ type missionDetailResponse struct {
 	Recall              recallPreview         `json:"recall"`
 	AgentExecutors      []agentExecutorStatus `json:"agent_executors"`
 	LockedAgentExecutor string                `json:"locked_agent_executor,omitempty"`
+	ActiveWork          app.ActiveWorkState   `json:"active_work"`
+	ReportProgress      app.ReportProgress    `json:"report_progress"`
 }
 
 type recordsResponse struct {

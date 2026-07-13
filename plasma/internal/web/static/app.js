@@ -1,6 +1,8 @@
 const state = {
   missions: [],
   missionId: "",
+  selectionGeneration: 0,
+  detailGeneration: 0,
   detail: null,
   lastError: "",
   turnPending: false,
@@ -11,6 +13,10 @@ const state = {
   pendingTurn: null,
   pollTimer: 0,
   pollInFlight: false,
+  pollOwner: null,
+  missionActivityPollTimer: 0,
+  missionActivityPollInFlight: false,
+  missionActivityCursors: {},
   sourceCandidateBusy: new Set(),
   selectedSourceCandidates: new Set(),
   selectedProposals: new Set(),
@@ -71,6 +77,9 @@ const REPORT_MODE_LABELS = {
   long_form: "장문 보고서"
 };
 
+const WORKFLOW_DEFAULT_MAX_STEPS = 20;
+const WORKFLOW_DEFAULT_MAX_DURATION_MS = 0;
+
 const AGENT_MODEL_OPTIONS = {
   claude: [
     { value: "", label: "기본값" },
@@ -90,6 +99,7 @@ const DESIGNED_REPORT_RENDERER_VERSION = "dh26-inline-images-20260706";
 
 const $ = (id) => document.getElementById(id);
 const MISSION_STORAGE_KEY = "plasma.activeMissionId";
+const MISSION_ACTIVITY_SEEN_STORAGE_KEY = "plasma.missionActivitySeen.v1";
 
 const markdownRenderer = window.markdownit ? window.markdownit({
   html: false,
@@ -201,6 +211,11 @@ document.addEventListener("DOMContentLoaded", () => {
 		ReportModelSelection.refreshEfforts(status);
 	});
   $("cancelReportButton").addEventListener("click", cancelReport);
+  document.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-active-work-action]")?.dataset.activeWorkAction;
+    if (action) performActiveWorkAction(action);
+    if (event.target.closest("[data-retry-mission-load]")) reloadMission();
+  });
   $("copyError").addEventListener("click", copyError);
   $("closeError").addEventListener("click", hideError);
   $("copyDetail").addEventListener("click", copyDetail);
@@ -409,6 +424,7 @@ async function boot() {
   }
   await loadLocalPathRoots();
   await loadMissions();
+  scheduleMissionActivityPoll();
 }
 
 async function loadRuntimeInfo() {
@@ -472,12 +488,14 @@ async function loadMissions() {
   try {
     const data = await api("/api/missions");
     state.missions = data.missions || [];
+    pruneMissionActivitySeenWatermarks(state.missions);
     renderMissions();
     const missionIDs = new Set(state.missions.map((mission) => mission.MissionID).filter(Boolean));
-    const savedMissionID = localStorage.getItem(MISSION_STORAGE_KEY) || "";
+    const savedMissionID = storedMissionID();
     const nextMissionID = missionIDs.has(state.missionId) ? state.missionId :
       (missionIDs.has(savedMissionID) ? savedMissionID : state.missions[0]?.MissionID);
     if (nextMissionID) await selectMission(nextMissionID);
+    scheduleMissionActivityPoll();
   } catch (err) {
     showError(err);
   }
@@ -485,6 +503,7 @@ async function loadMissions() {
 
 async function createMission(event) {
   event.preventDefault();
+  const selectionGeneration = state.selectionGeneration;
   const body = {
     title: $("missionTitle").value,
     objective: $("missionObjective").value,
@@ -492,45 +511,170 @@ async function createMission(event) {
   };
   try {
     const detail = await api("/api/missions", { method: "POST", body });
+    if (state.selectionGeneration !== selectionGeneration) return;
     $("missionTitle").value = "";
     $("missionObjective").value = "";
-    state.missionId = detail.projection.mission_id;
-    localStorage.setItem(MISSION_STORAGE_KEY, state.missionId);
-    await loadMissions();
-    state.detail = detail;
-    renderDetail();
+    const owner = captureMissionSelection();
+    await refreshMissionList(owner);
+    if (!ownsMissionSelection(owner)) return;
+    await selectMission(detail.projection.mission_id);
   } catch (err) {
-    showError(err);
+    if (state.selectionGeneration === selectionGeneration) showError(err);
   }
+}
+
+async function refreshMissionList(owner = captureMissionSelection()) {
+  const data = await api("/api/missions");
+  if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+  state.missions = data.missions || [];
+  pruneMissionActivitySeenWatermarks(state.missions);
+  renderMissions();
+  scheduleMissionActivityPoll();
 }
 
 async function selectMission(missionId) {
   if (!missionId) return;
-  const previousMissionID = state.missionId;
-  if (previousMissionID !== missionId) {
-    state.confluenceSearchResults = [];
-    state.confluenceSearchContext = null;
-    state.confluenceOAuthURL = "";
-  }
-  state.missionId = missionId;
-  clearPendingPoll();
+  const owner = beginMissionSelection(missionId);
   try {
-    state.detail = await api(`/api/missions/${encodeURIComponent(missionId)}`);
-    localStorage.setItem(MISSION_STORAGE_KEY, missionId);
-    renderDetail();
-    renderMissions();
-    await loadConfluenceConnections();
-    await loadConfluenceAccess();
+    const detail = await api(`/api/missions/${encodeURIComponent(missionId)}`);
+    if (!ownsDetailRequest(owner)) return;
+    applyMissionDetail(owner, detail);
+    refreshMissionList(owner).catch((err) => console.warn("mission activity refresh failed", err));
+    await loadConfluenceConnections("", owner);
+    if (!ownsDetailRequest(owner)) return;
+    await loadConfluenceAccess(owner);
   } catch (err) {
-    state.missionId = previousMissionID;
-    renderMissions();
-    showError(err);
+    if (ownsDetailRequest(owner)) renderMissionLoadFailed();
   }
 }
 
-async function reloadMission() {
-  if (!state.missionId) return;
-  await selectMission(state.missionId);
+function applyMissionDetail(owner, detail) {
+  if (!ownsDetailRequest(owner)) return false;
+  state.detail = detail;
+  const cursor = detailMissionActivityCursor(detail);
+  if (cursor) state.missionActivityCursors[owner.missionId] = cursor;
+  rememberMissionID(owner.missionId);
+  markMissionActivitySeen(owner.missionId, cursor?.sequence ?? detail.projection?.last_sequence);
+  renderDetail();
+  renderMissions();
+  return true;
+}
+
+async function refreshSelectedMissionDetail(owner = captureMissionSelection()) {
+  if (!owner.missionId || !ownsMissionSelection(owner)) return false;
+  const detailOwner = { ...owner, detailGeneration: ++state.detailGeneration };
+  const detail = await api(`/api/missions/${encodeURIComponent(owner.missionId)}`);
+  return applyMissionDetail(detailOwner, detail);
+}
+
+function beginMissionSelection(missionId) {
+  const changed = state.missionId !== missionId;
+  if (changed) state.selectionGeneration += 1;
+  state.detailGeneration += 1;
+  state.missionId = missionId;
+  if (changed) resetMissionTransientState();
+  return { missionId, selectionGeneration: state.selectionGeneration, detailGeneration: state.detailGeneration };
+}
+
+function captureMissionSelection() {
+  return { missionId: state.missionId, selectionGeneration: state.selectionGeneration };
+}
+
+function ownsMissionSelection(owner) {
+  return Boolean(owner) && state.missionId === owner.missionId && state.selectionGeneration === owner.selectionGeneration;
+}
+
+function ownsDetailRequest(owner) {
+  return ownsMissionSelection(owner) && state.detailGeneration === owner.detailGeneration;
+}
+
+class StaleMissionOperationError extends Error {
+  constructor() {
+    super("mission selection changed");
+    this.name = "StaleMissionOperationError";
+  }
+}
+
+function isStaleMissionOperation(err) {
+  return err instanceof StaleMissionOperationError;
+}
+
+async function missionApi(owner, suffix, options = {}) {
+  const result = await api(`/api/missions/${encodeURIComponent(owner.missionId)}${suffix}`, options);
+  if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+  return result;
+}
+
+async function missionFetch(owner, suffix, options = {}) {
+  const response = await fetch(`/api/missions/${encodeURIComponent(owner.missionId)}${suffix}`, options);
+  if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+  return response;
+}
+
+function resetMissionTransientState() {
+  clearPendingPoll();
+  state.detail = null;
+  state.turnPending = false;
+  state.reportPending = false;
+  state.workflowPending = false;
+  state.workflowGoalDraftPending = false;
+  state.workflowGoalDraftRaw = "";
+  state.pendingTurn = null;
+  state.sourceCandidateBusy.clear();
+  state.selectedSourceCandidates.clear();
+  state.selectedProposals.clear();
+  state.selectedReportKey = "";
+  state.reportPreview = null;
+  state.confluenceSearchResults = [];
+  state.confluenceSearchContext = null;
+  state.confluenceSpaces = [];
+  state.confluencePages = [];
+  state.confluenceBrowseContext = null;
+  state.confluencePreview = null;
+  state.confluenceUpdatePreview = null;
+  state.confluenceAccess = null;
+  state.confluenceBusy = false;
+  state.confluenceOAuthURL = "";
+  for (const id of ["sourceCandidateBulk", "proposalBulk"]) {
+    const el = $(id);
+    if (el) el.classList.add("hidden");
+  }
+  for (const id of ["sourceCandidateBulkCount", "proposalBulkCount"]) {
+    const el = $(id);
+    if (el) el.textContent = "0";
+  }
+  setReportNotice("");
+  renderActiveWork({ items: [], blocks: [] });
+  setFormsEnabled(false);
+  hideDetail();
+  for (const id of ["workflowRunList", "sourceList", "sourceCandidateList", "rejectedSourceCandidateList", "proposalList", "savedList", "claimConfidenceList", "savedClaimList", "reportList", "ledgerList"]) {
+    const el = $(id);
+    if (el) el.innerHTML = empty("미션 불러오는 중");
+  }
+  for (const id of ["reportListCount", "sourceListCount", "proposalListCount", "savedClaimListCount", "ledgerCount", "workflowRunCount"]) {
+    const el = $(id);
+    if (el) el.textContent = "";
+  }
+  renderMissionLoading();
+  if (typeof resetConfluenceMissionUI === "function") resetConfluenceMissionUI();
+}
+
+function renderMissionLoading() {
+  $("missionName").textContent = "미션 불러오는 중";
+  $("missionObjectiveText").textContent = "선택한 미션의 현재 작업을 불러오고 있습니다.";
+  $("turnLog").innerHTML = empty("미션 불러오는 중");
+}
+
+function renderMissionLoadFailed() {
+  $("missionName").textContent = "미션을 불러오지 못했습니다.";
+  $("missionObjectiveText").textContent = "네트워크 또는 서버 상태를 확인한 뒤 다시 시도하세요.";
+  $("turnLog").innerHTML = `<div class="empty-state">미션 상세를 불러오지 못했습니다. <button type="button" class="secondary" data-retry-mission-load>다시 시도</button></div>`;
+  setFormsEnabled(false);
+}
+
+async function reloadMission(missionId = state.missionId) {
+  if (!missionId || missionId !== state.missionId) return;
+  await selectMission(missionId);
 }
 
 async function sendTurn(event) {
@@ -538,7 +682,8 @@ async function sendTurn(event) {
   if (!requireMission()) return;
   const text = $("turnText").value.trim();
   if (!text) return;
-  const missionId = state.missionId;
+  const owner = captureMissionSelection();
+  const missionId = owner.missionId;
   state.turnPending = true;
   state.pendingTurn = {
     missionId,
@@ -553,7 +698,7 @@ async function sendTurn(event) {
   $("turnText").value = "";
   if (state.detail) renderTurns(state.detail.events || []);
   try {
-    await api(`/api/missions/${missionId}/turns`, {
+    await missionApi(owner, "/turns", {
       method: "POST",
       body: {
         text,
@@ -562,11 +707,11 @@ async function sendTurn(event) {
         controller_strategy: $("controllerStrategy").value
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.pendingTurn = null;
-    if (state.missionId === missionId) {
-      await reloadMission();
-    }
+    await reloadMission(missionId);
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     showError(err);
     state.turnPending = false;
     state.pendingTurn = null;
@@ -581,21 +726,24 @@ async function sendTurn(event) {
 
 async function cancelTurn() {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/turns/cancel`, {
+    await missionApi(owner, "/turns/cancel", {
       method: "POST",
       body: {}
     });
+    if (!ownsMissionSelection(owner)) return;
     state.pendingTurn = null;
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function startWorkflow() {
   if (!requireMission()) return;
   if (state.workflowPending || state.workflowGoalDraftPending) return;
+  const owner = captureMissionSelection();
   const stepInstructionMode = workflowStepInstructionMode();
   const userInstructionRaw = workflowRawInputValue();
   const runGoal = $("workflowRunGoal").value.trim() || userInstructionRaw;
@@ -613,9 +761,9 @@ async function startWorkflow() {
     instruction,
     agent_executor: $("agentExecutor").value,
     mcp_mode: $("mcpMode").value,
-    max_steps: 10,
-    max_duration_ms: 1500000,
-    stop_condition: "사용자 정지, 최대 단계, 최대 시간, 에이전트 완료 선언 또는 오류"
+    max_steps: WORKFLOW_DEFAULT_MAX_STEPS,
+    max_duration_ms: WORKFLOW_DEFAULT_MAX_DURATION_MS,
+    stop_condition: "사용자 정지, 최대 단계, 에이전트 완료 선언 또는 오류"
   };
   body.user_instruction_raw = userInstructionRaw;
   body.run_goal = runGoal;
@@ -623,16 +771,18 @@ async function startWorkflow() {
   setWorkflowBusy(true);
 	syncReportControls();
   try {
-    await api(`/api/missions/${state.missionId}/workflows`, {
+    await missionApi(owner, "/workflows", {
       method: "POST",
       body
     });
+    if (!ownsMissionSelection(owner)) return;
     $("workflowInstruction").value = "";
     $("workflowRunGoal").value = "";
     $("workflowStepInstruction").value = "";
     state.workflowGoalDraftRaw = "";
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     state.workflowPending = false;
     setWorkflowBusy(false);
 		syncReportControls();
@@ -672,19 +822,22 @@ async function draftWorkflowGoal() {
     showError(new Error("자율진행 요청 원문을 입력해야 합니다."));
     return;
   }
+  const owner = captureMissionSelection();
+  const missionId = owner.missionId;
   state.workflowGoalDraftPending = true;
   setWorkflowBusy(false);
 	syncReportControls();
   const button = $("draftWorkflowGoalButton");
   button.textContent = "초안 생성 중";
   try {
-    const response = await api(`/api/missions/${state.missionId}/workflows/goal_draft`, {
+    const response = await missionApi(owner, "/workflows/goal_draft", {
       method: "POST",
       body: {
         user_instruction_raw: userInstructionRaw,
         agent_executor: $("agentExecutor").value
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     const draft = response.workflow_goal_draft || {};
     const currentRaw = workflowRawInputValue();
     if (currentRaw !== userInstructionRaw) return;
@@ -693,8 +846,9 @@ async function draftWorkflowGoal() {
     $("workflowStepInstruction").value = draft.step_instruction || draft.run_goal || "";
     state.workflowGoalDraftRaw = draft.user_instruction_raw || userInstructionRaw;
   } catch (err) {
-    showError(err);
+    if (ownsMissionSelection(owner)) showError(err);
   } finally {
+    if (!ownsMissionSelection(owner)) return;
     state.workflowGoalDraftPending = false;
     button.textContent = "목표 초안 생성";
     setFormsEnabled(true);
@@ -704,22 +858,25 @@ async function draftWorkflowGoal() {
 
 async function stopWorkflow() {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   const run = currentWorkflowRun(state.detail?.workflow_runs || []);
   if (!run?.workflow_run_id) return;
   try {
-    await api(`/api/missions/${state.missionId}/workflows/${encodeURIComponent(run.workflow_run_id)}/stop`, {
+    await missionApi(owner, `/workflows/${encodeURIComponent(run.workflow_run_id)}/stop`, {
       method: "POST",
       body: {}
     });
-    await reloadMission();
+    if (!ownsMissionSelection(owner)) return;
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function continueWorkflowRun(workflowRunID) {
   if (!requireMission()) return;
   if (state.workflowPending || state.reportPending || state.workflowGoalDraftPending) return;
+  const owner = captureMissionSelection();
   const run = findWorkflowRun(workflowRunID);
   if (!run) {
     showError(new Error("이어갈 자율진행 기록을 찾을 수 없습니다."));
@@ -740,9 +897,9 @@ async function continueWorkflowRun(workflowRunID) {
     instruction,
     agent_executor: run.agent_executor || $("agentExecutor").value,
     mcp_mode: run.mcp_mode || $("mcpMode").value,
-    max_steps: Number(run.max_steps || 10),
-    max_duration_ms: Number(run.max_duration_ms || 1500000),
-    stop_condition: run.stop_condition || "사용자 정지, 최대 단계, 최대 시간, 에이전트 완료 선언 또는 오류",
+    max_steps: Number(run.max_steps ?? WORKFLOW_DEFAULT_MAX_STEPS),
+    max_duration_ms: Number(run.max_duration_ms ?? WORKFLOW_DEFAULT_MAX_DURATION_MS),
+    stop_condition: run.stop_condition || "사용자 정지, 최대 단계, 에이전트 완료 선언 또는 오류",
     continue_from_workflow_run_id: run.workflow_run_id || ""
   };
   body.user_instruction_raw = run.user_instruction_raw || run.instruction || instruction;
@@ -751,12 +908,14 @@ async function continueWorkflowRun(workflowRunID) {
   setWorkflowBusy(true);
 	syncReportControls();
   try {
-    await api(`/api/missions/${state.missionId}/workflows`, {
+    await missionApi(owner, "/workflows", {
       method: "POST",
       body
     });
-    await reloadMission();
+    if (!ownsMissionSelection(owner)) return;
+    await reloadMission(owner.missionId);
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     state.workflowPending = false;
     setWorkflowBusy(false);
 		syncReportControls();
@@ -799,24 +958,27 @@ async function resetAgentSession() {
   const modelText = selectedModel ? ` 모델 ${selectedModel}로` : "";
   const effortText = selectedReasoningEffort ? `, 추론 강도 ${selectedReasoningEffort}` : "";
   if (!window.confirm(`${executor}${modelText}${effortText} 세션을 새로 시작할까요? Plasma 미션과 저장된 소스는 유지됩니다.`)) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/agent_sessions/reset`, {
+    await missionApi(owner, "/agent_sessions/reset", {
       method: "POST",
       body: { agent_executor: executor, agent_model: model, agent_reasoning_effort: reasoningEffort }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.agentModelTouched = false;
     state.agentReasoningEffortTouched = false;
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function addTextSource(event) {
   event.preventDefault();
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/text`, {
+    await missionApi(owner, "/sources/text", {
       method: "POST",
       body: {
         title: $("sourceTitle").value,
@@ -824,12 +986,13 @@ async function addTextSource(event) {
         content: $("sourceContent").value
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("sourceTitle").value = "";
     $("sourceURI").value = "";
     $("sourceContent").value = "";
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -845,17 +1008,19 @@ async function addUploadSource(event) {
   const form = new FormData();
   form.append("file", file);
   form.append("title", $("sourceUploadTitle").value.trim());
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/upload`, {
+    await missionApi(owner, "/sources/upload", {
       method: "POST",
       body: form
     });
+    if (!ownsMissionSelection(owner)) return;
     fileInput.value = "";
     $("sourceUploadTitle").value = "";
     setReportNotice("업로드한 파일을 원문 소스로 저장했습니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -876,8 +1041,9 @@ async function addURLSourceFromTextForm() {
 async function addMediaURLSource(event) {
   event.preventDefault();
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/media_url`, {
+    const result = await missionApi(owner, "/sources/media_url", {
       method: "POST",
       body: {
         url: $("mediaSourceURL").value,
@@ -886,6 +1052,7 @@ async function addMediaURLSource(event) {
         attribution: $("mediaSourceAttribution").value
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("mediaSourceURL").value = "";
     $("mediaSourceTitle").value = "";
     $("mediaSourceLicense").value = "";
@@ -897,29 +1064,31 @@ async function addMediaURLSource(event) {
     } else if (locator?.media_kind) {
       setReportNotice("미디어 소스를 라이브 참조로 저장했습니다. 오디오·영상 inspect는 현재 지원하지 않습니다.");
     }
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function addPDFURLSource(event) {
   event.preventDefault();
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/pdf_url`, {
+    await missionApi(owner, "/sources/pdf_url", {
       method: "POST",
       body: {
         url: $("pdfSourceURL").value,
         title: $("pdfSourceTitle").value
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("pdfSourceURL").value = "";
     $("pdfSourceTitle").value = "";
     setReportNotice("PDF 원본을 소스로 저장했습니다. 읽기 요청은 PDF 텍스트 추출 결과를 반환합니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -976,8 +1145,9 @@ function updateLocalPathAttachState() {
 
 async function browseLocalPathTree() {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/local_path/tree`, {
+    const result = await missionApi(owner, "/sources/local_path/tree", {
       method: "POST",
       body: {
         root_id: $("localPathRoot").value,
@@ -986,9 +1156,9 @@ async function browseLocalPathTree() {
         limit: 200
       }
     });
-    renderLocalPathTree(result.tree || result.Tree);
+    if (ownsMissionSelection(owner)) renderLocalPathTree(result.tree || result.Tree);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -1050,8 +1220,9 @@ function onLocalPathBreadcrumbClick(event) {
 async function attachLocalPathSource(event) {
   event.preventDefault();
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/local_path`, {
+    await missionApi(owner, "/sources/local_path", {
       method: "POST",
       body: {
         root_id: $("localPathRoot").value,
@@ -1060,13 +1231,14 @@ async function attachLocalPathSource(event) {
         restore: $("localPathRestore").checked
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("localPathTitle").value = "";
     $("localPathRestore").checked = false;
     state.localPathSelectedFile = "";
     updateLocalPathAttachState();
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -1077,84 +1249,97 @@ async function toggleRemovedSources(event) {
 
 async function refreshSourcesOnly() {
   if (!state.missionId || !state.detail) return;
+  const owner = captureMissionSelection();
   try {
     const query = state.showRemovedSources ? "?include_removed=true" : "";
-    const result = await api(`/api/missions/${state.missionId}/sources${query}`);
+    const result = await missionApi(owner, `/sources${query}`);
+    if (!ownsMissionSelection(owner)) return;
     state.detail.sources = result.sources || result.Sources || [];
     renderDetail();
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function removeSource(snapshotID) {
   if (!requireMission()) return;
   if (!window.confirm("이 소스를 active 사용과 리포트에서 제외할까요? 저장된 artifact나 로컬 파일은 삭제하지 않습니다.")) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/${encodeURIComponent(snapshotID)}/remove`, {
+    await missionApi(owner, `/sources/${encodeURIComponent(snapshotID)}/remove`, {
       method: "POST",
       body: { reason: "Removed from Plasma UI" }
     });
-    await reloadMission();
+    await reloadMission(owner.missionId);
     if (state.showRemovedSources) await refreshSourcesOnly();
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function restoreSource(snapshotID) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/${encodeURIComponent(snapshotID)}/restore`, {
+    await missionApi(owner, `/sources/${encodeURIComponent(snapshotID)}/restore`, {
       method: "POST",
       body: {}
     });
-    await reloadMission();
+    await reloadMission(owner.missionId);
     if (state.showRemovedSources) await refreshSourcesOnly();
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function readSource(snapshotID) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/${encodeURIComponent(snapshotID)}/read?max_bytes=20000`);
+    const result = await missionApi(owner, `/sources/${encodeURIComponent(snapshotID)}/read?max_bytes=20000`);
+    if (!ownsMissionSelection(owner)) return;
     showDetail("소스 읽기", result);
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
-async function addURLSource(url, title = "") {
+async function addURLSource(url, title = "", owner = captureMissionSelection()) {
   if (!requireMission()) return;
   const key = normalizeSourceURL(url) || url;
+  if (!ownsMissionSelection(owner)) return false;
   if (state.sourceCandidateBusy.has(key)) return false;
   state.sourceCandidateBusy.add(key);
   refreshSourceCandidates();
   try {
     const route = sourceRouteForURL(url);
     try {
-      await api(`/api/missions/${state.missionId}/sources/${route}`, {
+      if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+      await missionApi(owner, `/sources/${route}`, {
         method: "POST",
         body: { url, title }
       });
     } catch (err) {
+      if (isStaleMissionOperation(err)) throw err;
       if (route !== "url" || !looksLikePDFSourceError(err)) throw err;
-      await api(`/api/missions/${state.missionId}/sources/pdf_url`, {
+      if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+      await missionApi(owner, "/sources/pdf_url", {
         method: "POST",
         body: { url, title }
       });
     }
-    await reloadMission();
+    if (!ownsMissionSelection(owner)) return false;
+    await reloadMission(owner.missionId);
     return true;
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
     return false;
   } finally {
-    state.sourceCandidateBusy.delete(key);
-    refreshSourceCandidates();
+    if (ownsMissionSelection(owner)) {
+      state.sourceCandidateBusy.delete(key);
+      refreshSourceCandidates();
+    }
   }
 }
 
@@ -1204,6 +1389,7 @@ function looksLikeMediaURL(value) {
 async function rejectSourceCandidate(url, reason = null) {
   if (!requireMission()) return;
   const key = normalizeSourceURL(url) || url;
+  const owner = captureMissionSelection();
   if (state.sourceCandidateBusy.has(key)) return;
   const rejectionReason = reason === null
     ? window.prompt("기각 사유를 입력하세요. 비워두면 기본 사유로 기록됩니다.", "")
@@ -1212,67 +1398,69 @@ async function rejectSourceCandidate(url, reason = null) {
   state.sourceCandidateBusy.add(key);
   refreshSourceCandidates();
   try {
-    await api(`/api/missions/${state.missionId}/candidates/sources/reject`, {
+    await missionApi(owner, "/candidates/sources/reject", {
       method: "POST",
       body: { url, reason: rejectionReason.trim() }
     });
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   } finally {
-    state.sourceCandidateBusy.delete(key);
-    refreshSourceCandidates();
+    if (ownsMissionSelection(owner)) { state.sourceCandidateBusy.delete(key); refreshSourceCandidates(); }
   }
 }
 
 async function restoreSourceCandidate(url) {
   if (!requireMission()) return;
   const key = normalizeSourceURL(url) || url;
+  const owner = captureMissionSelection();
   if (state.sourceCandidateBusy.has(key)) return;
   state.sourceCandidateBusy.add(key);
   refreshSourceCandidates();
   try {
-    await api(`/api/missions/${state.missionId}/candidates/sources/restore`, {
+    await missionApi(owner, "/candidates/sources/restore", {
       method: "POST",
       body: { url }
     });
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   } finally {
-    state.sourceCandidateBusy.delete(key);
-    refreshSourceCandidates();
+    if (ownsMissionSelection(owner)) { state.sourceCandidateBusy.delete(key); refreshSourceCandidates(); }
   }
 }
 
 async function searchLiquid2(event) {
   event.preventDefault();
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/liquid2/search`, {
+    const result = await missionApi(owner, "/sources/liquid2/search", {
       method: "POST",
       body: { query: $("liquid2Query").value, limit: 8 }
     });
-    renderLiquid2Results(result.Candidates || result.candidates || []);
+    if (ownsMissionSelection(owner)) renderLiquid2Results(result.Candidates || result.candidates || []);
   } catch (err) {
-    renderLiquid2Error(err.message);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) renderLiquid2Error(err.message);
   }
 }
 
 async function attachLiquid2(externalSourceID) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/sources/liquid2/snapshot`, {
+    await missionApi(owner, "/sources/liquid2/snapshot", {
       method: "POST",
       body: {
         external_source_id: externalSourceID,
         reason: "Plasma 작업공간에서 선택함"
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("liquid2Results").innerHTML = "";
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
@@ -1287,8 +1475,9 @@ async function proposeEvidence(event) {
     return;
   }
   const [snapshotID, artifactID] = sourceValue.split("|");
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/candidates/evidence`, {
+    await missionApi(owner, "/candidates/evidence", {
       method: "POST",
       body: {
         summary,
@@ -1297,60 +1486,69 @@ async function proposeEvidence(event) {
         artifact_id: artifactID
       }
     });
+    if (!ownsMissionSelection(owner)) return;
     $("candidateSummary").value = "";
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function decideProposal(proposalID, action) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/proposals/${proposalID}/${action}`, {
+    await missionApi(owner, `/proposals/${proposalID}/${action}`, {
       method: "POST",
       body: {}
     });
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function draftReport(reportMode = "one_take") {
   if (!requireMission()) return;
 	if (state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending) return;
+  const owner = captureMissionSelection();
+  const missionId = owner.missionId;
   const title = `${state.detail?.projection?.title || "미션"} 리포트`;
+  const reportSelection = ReportModelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
+  const pendingPayload = {
+    title,
+    report_mode: reportMode,
+    rigor_level: $("reportRigor").value || "balanced",
+    agent_model: reportSelection.agent_model,
+    agent_reasoning_effort: reportSelection.agent_reasoning_effort,
+    direction_hint: typeof currentReportDirectionHint === "function" ? currentReportDirectionHint() : ""
+  };
   setReportBusy(true);
-  setReportNotice(reportPendingMessage({ Payload: { title, report_mode: reportMode, rigor_level: $("reportRigor").value || "balanced" } }));
+  setReportNotice(reportPendingMessage({ Payload: pendingPayload }));
   let result;
-	const reportSelection = ReportModelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
   try {
-    result = await api(`/api/missions/${state.missionId}/reports`, {
+    result = await missionApi(owner, "/reports", {
       method: "POST",
       body: {
-        title,
+        ...pendingPayload,
         agent_executor: $("agentExecutor").value,
-		agent_model: reportSelection.agent_model,
-		agent_reasoning_effort: reportSelection.agent_reasoning_effort,
-        mcp_mode: $("mcpMode").value,
-        rigor_level: $("reportRigor").value || "balanced",
-		report_mode: reportMode,
-		direction_hint: typeof currentReportDirectionHint === "function" ? currentReportDirectionHint() : ""
+        mcp_mode: $("mcpMode").value
       }
     });
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     setReportNotice(`리포트 초안 생성 실패\n\n${err.userMessage || err.message || String(err)}`, "error");
     setReportBusy(false);
     showError(err);
     return;
   }
+	if (!ownsMissionSelection(owner)) return;
 	if (typeof clearAcceptedReportDirectionHint === "function") clearAcceptedReportDirectionHint();
   setReportNotice(result.pending_event
     ? reportPendingMessage(result.pending_event)
-    : reportPendingMessage({ Payload: { title, report_mode: reportMode, rigor_level: $("reportRigor").value || "balanced" } }));
+    : reportPendingMessage({ Payload: pendingPayload }));
   try {
-    await reloadMission();
+    await reloadMission(missionId);
   } catch (err) {
     showError(err);
     schedulePendingPoll();
@@ -1364,6 +1562,7 @@ async function patchReportArtifact(artifactID, currentTitle = "") {
   if (!artifactID) return;
   const instruction = window.prompt("이 리포트를 어떻게 수정할까요? 보고서 세션에서 MCP 패치로 새 버전을 만듭니다.", "");
   if (!instruction || !instruction.trim()) return;
+  const owner = captureMissionSelection();
   const titleBase = (currentTitle || state.detail?.projection?.title || "리포트").trim();
   const title = `${titleBase} 수정본`;
   const selectedModel = selectedAgentModel();
@@ -1377,7 +1576,7 @@ async function patchReportArtifact(artifactID, currentTitle = "") {
   }));
   let result;
   try {
-    result = await api(`/api/missions/${state.missionId}/reports/patch`, {
+    result = await missionApi(owner, "/reports/patch", {
       method: "POST",
       body: {
         base_artifact_id: artifactID,
@@ -1390,38 +1589,42 @@ async function patchReportArtifact(artifactID, currentTitle = "") {
       }
     });
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     setReportNotice(`리포트 MCP 패치 시작 실패\n\n${err.userMessage || err.message || String(err)}`, "error");
     setReportBusy(false);
     showError(err);
     return;
   }
+  if (!ownsMissionSelection(owner)) return;
   setReportNotice(result.pending_event
     ? reportPendingMessage(result.pending_event)
     : reportPendingMessage({ EventType: "report.patch.pending", Payload: { title, base_artifact_id: artifactID } }));
   try {
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
-    schedulePendingPoll();
+    if (ownsMissionSelection(owner)) { showError(err); schedulePendingPoll(); }
   }
 }
 
 async function cancelReport() {
   if (!requireMission()) return;
   if (!state.reportPending) return;
+  const owner = captureMissionSelection();
   try {
-    await api(`/api/missions/${state.missionId}/reports/cancel`, {
+    await missionApi(owner, "/reports/cancel", {
       method: "POST",
       body: {}
     });
+    if (!ownsMissionSelection(owner)) return;
     setReportNotice("리포트 생성 취소를 요청했습니다. 장부에 취소 이벤트가 기록되면 다시 생성할 수 있습니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showError(err);
+    if (ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function exportReport(versionID, target, options = {}) {
+  const owner = captureMissionSelection();
   const key = `version:${versionID}`;
   if (!options.download) setReportPreviewLoading(key);
   try {
@@ -1429,6 +1632,7 @@ async function exportReport(versionID, target, options = {}) {
       method: "POST",
       body: { target }
     });
+    if (!ownsMissionSelection(owner)) return;
     assertReportExportMatches(versionID, target, result);
     const content = result.content || JSON.stringify(result, null, 2);
     if (options.download) {
@@ -1436,8 +1640,9 @@ async function exportReport(versionID, target, options = {}) {
     } else {
       applyReportPreview(key, target === "markdown" ? "markdown" : "text", reportExportPreviewHeader(versionID, target, result), content);
     }
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     if (!options.download && state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
   }
@@ -1445,13 +1650,15 @@ async function exportReport(versionID, target, options = {}) {
 
 async function viewReportArtifact(artifactID) {
   if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
   const key = `artifact:${artifactID}`;
   setReportPreviewLoading(key);
   try {
-    const result = await api(`/api/missions/${state.missionId}/artifacts/${artifactID}`);
+    const result = await missionApi(owner, `/artifacts/${artifactID}`);
     const content = result.content || "";
     applyReportPreview(key, "markdown", reportArtifactPreviewHeader(artifactID, result), content);
   } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
     if (state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
   }
@@ -1459,8 +1666,9 @@ async function viewReportArtifact(artifactID) {
 
 async function downloadReportArtifact(artifactID) {
   if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
   try {
-    const response = await fetch(`/api/missions/${state.missionId}/artifacts/${artifactID}/download`, {
+    const response = await missionFetch(owner, `/artifacts/${artifactID}/download`, {
       headers: { "Accept": "text/markdown, text/plain, */*" }
     });
     if (!response.ok) {
@@ -1470,16 +1678,17 @@ async function downloadReportArtifact(artifactID) {
     const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${artifactID}.md`;
     downloadBlob(blob, filename);
   } catch (err) {
-    showError(err);
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
   }
 }
 
 async function exportReportArtifactHTML(artifactID, options = {}) {
   if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
   const key = `artifact:${artifactID}`;
   if (!options.download) setReportPreviewLoading(key);
   try {
-    const result = await api(`/api/missions/${state.missionId}/artifacts/${artifactID}/html_export`, {
+    const result = await missionApi(owner, `/artifacts/${artifactID}/html_export`, {
       method: "POST",
       body: {}
     });
@@ -1494,6 +1703,7 @@ async function exportReportArtifactHTML(artifactID, options = {}) {
     }
     await reloadMission();
   } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
     if (!options.download && state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
   }
@@ -1501,10 +1711,11 @@ async function exportReportArtifactHTML(artifactID, options = {}) {
 
 async function exportReportArtifactDesignedHTML(artifactID, options = {}) {
   if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
   const key = `artifact:${artifactID}`;
   if (!options.download) setReportPreviewLoading(key);
   try {
-    const result = await api(`/api/missions/${state.missionId}/artifacts/${artifactID}/designed_html_export`, {
+    const result = await missionApi(owner, `/artifacts/${artifactID}/designed_html_export`, {
       method: "POST",
       body: { agent_executor: $("agentExecutor")?.value || "codex" }
     });
@@ -1525,6 +1736,7 @@ async function exportReportArtifactDesignedHTML(artifactID, options = {}) {
     }
     await reloadMission();
   } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
     if (!options.download && state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
   }
@@ -1533,20 +1745,23 @@ async function exportReportArtifactDesignedHTML(artifactID, options = {}) {
 async function exportReportArtifactHumanizedMarkdown(artifactID) {
   if (!state.missionId || !artifactID) return;
   if (state.reportPending) return;
+  const owner = captureMissionSelection();
   const key = `artifact:${artifactID}`;
   setReportBusy(true);
   setReportNotice("H5 말투 보정 Markdown artifact를 생성하는 중입니다. 원본 Markdown 리포트는 그대로 유지됩니다.");
   if (state.reportPreview && state.reportPreview.key === key) clearReportPreview();
   try {
-    const result = await api(`/api/missions/${state.missionId}/artifacts/${artifactID}/humanized_markdown_export`, {
+    const result = await missionApi(owner, `/artifacts/${artifactID}/humanized_markdown_export`, {
       method: "POST",
       body: { mcp_mode: $("mcpMode")?.value || "auto" }
     });
+    if (!ownsMissionSelection(owner)) return;
     setReportNotice(result.pending_event
       ? reportPendingMessage(result.pending_event)
       : "H5 말투 보정 Markdown artifact를 생성하는 중입니다.");
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     setReportNotice(`H5 말투 보정 시작 실패\n\n${err.userMessage || err.message || String(err)}`, "error");
     setReportBusy(false);
     showError(err);
@@ -1674,12 +1889,15 @@ function exportMediaType(target) {
 }
 
 async function viewReportAST(versionID) {
+  const owner = captureMissionSelection();
   const key = `version:${versionID}`;
   setReportPreviewLoading(key);
   try {
     const result = await api(`/api/report_versions/${versionID}/ast`);
+    if (!ownsMissionSelection(owner)) return;
     applyReportPreview(key, "text", "JSON AST", JSON.stringify(result, null, 2));
   } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
     if (state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
   }
@@ -1726,6 +1944,7 @@ function renderAgentControlsSummary() {
 function renderMissions() {
   const list = $("missionList");
   const n = state.missions.length;
+  const watermarks = missionActivitySeenWatermarks();
   updateCountChip("missionListCount", n);
   if (n === 0) {
     list.innerHTML = empty("미션 없음");
@@ -1734,10 +1953,88 @@ function renderMissions() {
   list.innerHTML = state.missions.map((mission) => `
     <button class="item secondary ${mission.MissionID === state.missionId ? "active" : ""}"
       type="button" data-mission-id="${escapeAttr(mission.MissionID)}" title="${escapeAttr(mission.Title || mission.MissionID)}">
-      <div class="item-title">${escapeHTML(mission.Title || mission.MissionID)}</div>
+      <div class="item-title-row">
+        <div class="item-title">${escapeHTML(mission.Title || mission.MissionID)}</div>
+        ${renderMissionActivity(mission, watermarks)}
+      </div>
       <div class="item-meta" title="${escapeAttr(mission.MissionID)}">${escapeHTML(mission.MissionID)}</div>
     </button>
   `).join("");
+}
+
+function renderMissionActivity(mission, watermarks = missionActivitySeenWatermarks()) {
+  const activity = mission.activity || {};
+  if ((activity.active_work?.items || []).length > 0) {
+    return missionActivityIndicator("running", "미션 작업 진행 중");
+  }
+  const latest = activity.latest_terminal_activity;
+  if (!latest || !Number.isSafeInteger(latest.sequence) || latest.sequence <= missionActivitySeenSequence(mission.MissionID, watermarks)) {
+    return "";
+  }
+  if (latest.outcome === "failed") return missionActivityIndicator("failed", "확인하지 않은 미션 작업 실패");
+  if (latest.outcome === "completed") return missionActivityIndicator("completed", "확인하지 않은 미션 작업 완료");
+  return "";
+}
+
+function missionActivityIndicator(kind, label) {
+  return `<span class="mission-activity mission-activity-${kind}" title="${label}"><span class="mission-activity-mark" aria-hidden="true"></span><span class="sr-only">${label}</span></span>`;
+}
+
+function missionActivitySeenSequence(missionID, watermarks = missionActivitySeenWatermarks()) {
+  const value = watermarks[missionID];
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function missionActivitySeenWatermarks() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(MISSION_ACTIVITY_SEEN_STORAGE_KEY) || "{}");
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return {};
+    return Object.fromEntries(Object.entries(parsed).filter(([missionID, sequence]) =>
+      typeof missionID === "string" && missionID.startsWith("mis_") && Number.isSafeInteger(sequence) && sequence >= 0
+    ));
+  } catch (_) {
+    return {};
+  }
+}
+
+function markMissionActivitySeen(missionID, sequence) {
+  if (typeof missionID !== "string" || !missionID.startsWith("mis_") || !Number.isSafeInteger(sequence) || sequence < 0) return;
+  try {
+    const watermarks = missionActivitySeenWatermarks();
+    watermarks[missionID] = Math.max(missionActivitySeenSequence(missionID, watermarks), sequence);
+    localStorage.setItem(MISSION_ACTIVITY_SEEN_STORAGE_KEY, JSON.stringify(watermarks));
+  } catch (_) {
+    // Browser storage is optional; activity remains server-derived without it.
+  }
+}
+
+function pruneMissionActivitySeenWatermarks(missions) {
+  const missionIDs = new Set((missions || []).map((mission) => mission.MissionID).filter((missionID) => typeof missionID === "string"));
+  try {
+    const watermarks = missionActivitySeenWatermarks();
+    const retained = Object.fromEntries(Object.entries(watermarks).filter(([missionID]) => missionIDs.has(missionID)));
+    if (Object.keys(retained).length !== Object.keys(watermarks).length) {
+      localStorage.setItem(MISSION_ACTIVITY_SEEN_STORAGE_KEY, JSON.stringify(retained));
+    }
+  } catch (_) {
+    // Browser storage is optional; stale local read state must not block the list.
+  }
+}
+
+function storedMissionID() {
+  try {
+    return localStorage.getItem(MISSION_STORAGE_KEY) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function rememberMissionID(missionID) {
+  try {
+    localStorage.setItem(MISSION_STORAGE_KEY, missionID);
+  } catch (_) {
+    // Restoring the last selection is optional and must not fail a loaded mission.
+  }
 }
 
 function renderDetail() {
@@ -1746,10 +2043,11 @@ function renderDetail() {
   const events = detail.events || [];
   const reportDraft = reportDraftState(events);
   const workflowRuns = detail.workflow_runs || [];
+  const activeItems = detail.active_work?.items || [];
   const wasReportPending = state.reportPending;
-  state.turnPending = hasOpenPendingTurn(events);
-  state.reportPending = reportDraft.state === "pending";
-  state.workflowPending = workflowRuns.some((run) => ["queued", "running", "stopping"].includes(run.status));
+  state.turnPending = activeItems.some((item) => item.kind === "agent_turn");
+  state.reportPending = activeItems.some((item) => item.kind === "report_generation");
+  state.workflowPending = activeItems.some((item) => item.kind === "workflow_run");
   setFormsEnabled(Boolean(detail));
   renderLocalPathControls();
   renderConfluenceControls();
@@ -1784,8 +2082,73 @@ function renderDetail() {
   renderSavedClaims(savedClaims, records.claim_confidence || []);
   renderReports(detail.report_versions || []);
   renderReportDraftStatus(reportDraft, wasReportPending);
+  renderActiveWork(detail.active_work || {});
   renderLedger(events);
   schedulePendingPoll();
+}
+
+function renderActiveWork(activeWork) {
+  const items = activeWork.items || [];
+  const message = items.map(activeWorkMessage).filter(Boolean);
+  for (const id of ["conversationActiveWork", "reportActiveWork"]) {
+    const el = $(id);
+    if (!el) continue;
+    el.classList.toggle("hidden", message.length === 0);
+    el.innerHTML = message.map((text, index) => `<div class="active-work-item">${escapeHTML(text)}${activeWorkActionHTML(items[index])}</div>`).join("");
+  }
+  applyActiveWorkDescriptions(activeWork);
+}
+
+function activeWorkMessage(work) {
+  switch (work?.reason_code) {
+    case "report_generation_running": return "리포트 생성 중이라 대화와 자율 진행, 새 리포트 요청을 시작할 수 없습니다.";
+    case "workflow_running": return "자율 진행 중이라 대화와 새 자율 진행, 리포트 요청을 시작할 수 없습니다.";
+    case "agent_turn_running": return "에이전트가 응답 중이라 새 대화와 리포트 요청을 시작할 수 없습니다.";
+    default: return "";
+  }
+}
+
+function activeWorkActionHTML(work) {
+  if (!work?.action) return "";
+  const labels = { cancel_turn: "응답 취소", cancel_report: "생성 취소", view_workflow: "자율 진행 보기" };
+  return `<button type="button" class="secondary" data-active-work-action="${escapeAttr(work.action)}">${escapeHTML(labels[work.action] || "진행 상태 보기")}</button>`;
+}
+
+async function performActiveWorkAction(action) {
+  if (action === "cancel_turn") return cancelTurn();
+  if (action === "cancel_report") return cancelReport();
+  if (action === "view_workflow") {
+    $("workflowControlDetails").open = true;
+    $("workflowControlDetails").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+function activeWorkBlocksControl(control) {
+  return (state.detail?.active_work?.blocked_controls || []).some((item) => item.control === control);
+}
+
+function applyActiveWorkDescriptions(activeWork) {
+  const descriptions = {
+    turn_submit: "conversationActiveWork",
+    workflow_start: "conversationActiveWork",
+    report_start: "reportActiveWork"
+  };
+  for (const [control, descriptionID] of Object.entries(descriptions)) {
+    const blocked = (activeWork.blocked_controls || []).some((item) => item.control === control);
+    for (const id of activeWorkControlElementIDs(control)) {
+      const el = $(id);
+      if (!el) continue;
+      if (blocked) el.setAttribute("aria-describedby", descriptionID);
+      else el.removeAttribute("aria-describedby");
+    }
+  }
+}
+
+function activeWorkControlElementIDs(control) {
+  if (control === "turn_submit") return ["turnText", "sendTurnButton"];
+  if (control === "workflow_start") return ["workflowInstruction", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"];
+  if (control === "report_start") return ["reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"];
+  return [];
 }
 
 function renderAgentOptions(statuses) {
@@ -3239,7 +3602,40 @@ function reportActionMenu(label, itemsHTML) {
   return `<details class="report-menu"><summary>${escapeHTML(label)}</summary><div class="report-menu-items">${itemsHTML}</div></details>`;
 }
 
+function reportGenerationContext(payload = {}) {
+  const pendingID = payload.pending_event_id || payload.generation?.pending_event_id || "";
+  const pendingPayload = pendingID ? (eventByID(pendingID)?.Payload || {}) : {};
+  return { ...pendingPayload, ...payload };
+}
+
+function reportGenerationSummary(payload = {}) {
+  const context = reportGenerationContext(payload);
+  const mode = context.report_mode || "planned";
+  const model = String(context.agent_model || "").trim();
+  const effort = String(context.agent_reasoning_effort || "").trim();
+  return {
+    mode: context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서",
+    rigor: context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정",
+    model: model || "미션 설정 상속",
+    effort: effort || (model ? "모델 기본값" : "미션 설정 상속"),
+    direction: String(context.direction_hint || "").trim() || "지정 없음"
+  };
+}
+
+function reportGenerationSummaryHTML(payload = {}) {
+  const summary = reportGenerationSummary(payload);
+  return `
+    <div class="report-generation-summary" aria-label="리포트 생성 설정">
+      <span class="report-generation-item"><strong>방식</strong><span>${escapeHTML(summary.mode)}</span></span>
+      <span class="report-generation-item"><strong>엄격도</strong><span>${escapeHTML(summary.rigor)}</span></span>
+      <span class="report-generation-item"><strong>모델</strong><span>${escapeHTML(summary.model)}</span></span>
+      <span class="report-generation-item"><strong>추론</strong><span>${escapeHTML(summary.effort)}</span></span>
+      <span class="report-generation-item report-direction-line"><strong>방향</strong><span>${escapeHTML(summary.direction)}</span></span>
+    </div>`;
+}
+
 function renderReports(versions) {
+	if (window.renderReportPipeline) window.renderReportPipeline(state.detail?.report_progress);
   const artifactReports = reportArtifactPayloads();
   const reports = versions.map((version, index) => reportViewModel(version, index));
   updateCountChip("reportListCount", artifactReports.length + reports.length);
@@ -3328,6 +3724,7 @@ function renderReports(versions) {
             <div class="report-card-body">
               <div class="item-meta clamp-line" title="${escapeAttr(payload.artifact_id || "")}">${escapeHTML(payload.artifact_id || "")}</div>
               <div class="item-meta">${escapeHTML(payload.text || "리포트 artifact가 생성되었습니다.")}</div>
+              ${reportGenerationSummaryHTML(payload)}
               <div class="report-plan-line">
                 <span class="badge muted">생성 계획</span>
                 <span>${escapeHTML(planLabel)}</span>
@@ -3923,6 +4320,12 @@ function reportPendingMessage(event) {
   const mode = payload.report_mode || "planned";
   const modeLabel = payload.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서";
   const modeLine = `\n방식: ${modeLabel}`;
+  const model = String(payload.agent_model || "").trim();
+  const effort = String(payload.agent_reasoning_effort || "").trim();
+  const modelLine = `\n모델: ${model || "미션 설정 상속"}`;
+  const effortLine = `\n추론: ${effort || (model ? "모델 기본값" : "미션 설정 상속")}`;
+  const direction = String(payload.direction_hint || "").trim();
+  const directionLine = `\n방향: ${direction || "지정 없음"}`;
   const workLine = mode === "long_form"
     ? "에이전트가 계획을 만든 뒤 섹션별로 작성하고, 섹션 본문을 보존한 채 파트와 최종 Markdown artifact를 조립하는 중입니다."
     : "에이전트가 생성 계획을 만든 뒤 MCP 읽기 도구로 필요한 소스를 확인하고 Markdown artifact를 작성하는 중입니다.";
@@ -3932,7 +4335,7 @@ function reportPendingMessage(event) {
     "리포트 초안 생성 요청을 보냈습니다.",
     workLine,
     "완료되면 아래 리포트 목록에 새 artifact 기록이 추가됩니다."
-  ].join("\n") + title + modeLine + rigorLine + timing + eventID;
+  ].join("\n") + title + modeLine + rigorLine + modelLine + effortLine + directionLine + timing + eventID;
 }
 
 function reportTimingDetails(event) {
@@ -4069,7 +4472,7 @@ function setFormsEnabled(enabled) {
 function setTurnBusy(busy) {
   $("turnStatus").classList.toggle("hidden", !busy);
   $("cancelTurnButton").classList.toggle("hidden", !busy);
-  const blocked = busy || state.workflowPending || state.workflowGoalDraftPending || state.reportPending || !state.detail;
+  const blocked = busy || activeWorkBlocksControl("turn_submit") || state.workflowGoalDraftPending || !state.detail;
   $("turnText").disabled = blocked;
   $("agentExecutor").disabled = agentExecutorSelectionDisabled(blocked);
   $("agentModel").disabled = blocked;
@@ -4092,7 +4495,7 @@ function setReportBusy(busy) {
 }
 
 function syncReportControls() {
-	const blocked = state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending || !state.detail;
+	const blocked = activeWorkBlocksControl("report_start") || state.workflowGoalDraftPending || state.reportPending || !state.detail;
 	$("reportRigor").disabled = blocked;
 	$("reportAgentModel").disabled = blocked;
 	$("reportAgentReasoningEffort").disabled = blocked;
@@ -4104,12 +4507,13 @@ function setWorkflowBusy(busy) {
   state.workflowPending = busy;
   const draftBusy = state.workflowGoalDraftPending;
   const layered = workflowStepInstructionMode() === "layered";
-  $("workflowInstruction").disabled = busy || draftBusy || state.reportPending || !state.detail;
-  $("workflowStepInstructionMode").disabled = busy || draftBusy || state.reportPending || !state.detail;
-  $("draftWorkflowGoalButton").disabled = !layered || busy || draftBusy || state.reportPending || !state.detail;
-  $("workflowRunGoal").disabled = !layered || busy || draftBusy || state.reportPending || !state.detail;
-  $("workflowStepInstruction").disabled = !layered || busy || draftBusy || state.reportPending || !state.detail;
-  $("startWorkflowButton").disabled = busy || draftBusy || state.reportPending || !state.detail;
+  const blocked = activeWorkBlocksControl("workflow_start");
+  $("workflowInstruction").disabled = busy || draftBusy || blocked || !state.detail;
+  $("workflowStepInstructionMode").disabled = busy || draftBusy || blocked || !state.detail;
+  $("draftWorkflowGoalButton").disabled = !layered || busy || draftBusy || blocked || !state.detail;
+  $("workflowRunGoal").disabled = !layered || busy || draftBusy || blocked || !state.detail;
+  $("workflowStepInstruction").disabled = !layered || busy || draftBusy || blocked || !state.detail;
+  $("startWorkflowButton").disabled = busy || draftBusy || blocked || !state.detail;
   $("stopWorkflowButton").disabled = !busy || !state.detail;
   $("startWorkflowButton").textContent = busy ? "진행 중" : "시작";
   $("draftWorkflowGoalButton").textContent = draftBusy ? "초안 생성 중" : "목표 초안 생성";
@@ -4118,18 +4522,21 @@ function setWorkflowBusy(busy) {
 function schedulePendingPoll() {
   clearPendingPoll();
   if ((!state.turnPending && !state.reportPending && !state.workflowPending) || !state.missionId) return;
+  const owner = { ...captureMissionSelection(), detailGeneration: state.detailGeneration };
   state.pollTimer = window.setTimeout(async () => {
-    if (state.pollInFlight || (!state.turnPending && !state.reportPending && !state.workflowPending) || !state.missionId) return;
+    if (!ownsDetailRequest(owner) || (state.pollInFlight && state.pollOwner && ownsDetailRequest(state.pollOwner)) || (!state.turnPending && !state.reportPending && !state.workflowPending)) return;
     state.pollInFlight = true;
+    state.pollOwner = owner;
     try {
-      await reloadMission();
-      $("healthBadge").textContent = "정상";
+      await refreshSelectedMissionActivity(owner);
+      if (state.pollOwner === owner && ownsMissionSelection(owner)) $("healthBadge").textContent = "정상";
     } catch (err) {
-      console.warn("pending poll failed", err);
-      $("healthBadge").textContent = "재연결 중";
+      if (state.pollOwner === owner && ownsMissionSelection(owner)) { console.warn("pending poll failed", err); $("healthBadge").textContent = "재연결 중"; }
     } finally {
+      if (state.pollOwner !== owner) return;
       state.pollInFlight = false;
-      if (state.turnPending || state.reportPending || state.workflowPending) schedulePendingPoll();
+      state.pollOwner = null;
+      if (ownsMissionSelection(owner) && (state.turnPending || state.reportPending || state.workflowPending)) schedulePendingPoll();
     }
   }, 2000);
 }
@@ -4138,6 +4545,95 @@ function clearPendingPoll() {
   if (!state.pollTimer) return;
   window.clearTimeout(state.pollTimer);
   state.pollTimer = 0;
+}
+
+function scheduleMissionActivityPoll() {
+  if (state.missionActivityPollTimer) {
+    window.clearTimeout(state.missionActivityPollTimer);
+    state.missionActivityPollTimer = 0;
+  }
+  const selectedPending = state.turnPending || state.reportPending || state.workflowPending;
+  if (!state.missions.some((mission) => (mission.activity?.active_work?.items || []).length > 0 && (mission.MissionID !== state.missionId || !selectedPending))) return;
+  state.missionActivityPollTimer = window.setTimeout(async () => {
+    state.missionActivityPollTimer = 0;
+    if (!document.hidden && !state.missionActivityPollInFlight) {
+      state.missionActivityPollInFlight = true;
+      try {
+        await refreshObservedMissionActivity();
+      } catch (err) {
+        console.warn("mission activity poll failed", err);
+      } finally {
+        state.missionActivityPollInFlight = false;
+      }
+    }
+    scheduleMissionActivityPoll();
+  }, 3000);
+}
+
+async function refreshObservedMissionActivity() {
+  const missionIDs = state.missions
+    .filter((mission) => (mission.activity?.active_work?.items || []).length > 0)
+    .map((mission) => mission.MissionID)
+    .filter(Boolean);
+  const selectedOwner = { ...captureMissionSelection(), detailGeneration: state.detailGeneration };
+  const selectedMissionID = selectedOwner.missionId;
+  const selectedPending = state.turnPending || state.reportPending || state.workflowPending;
+  if (!selectedPending && missionIDs.includes(selectedMissionID)) await refreshSelectedMissionActivity(selectedOwner);
+  const responses = await Promise.all(missionIDs.filter((missionID) => missionID !== selectedMissionID).map(async (missionID) => [
+    missionID,
+    await api(`/api/missions/${encodeURIComponent(missionID)}/activity`)
+  ]));
+  const activityByMissionID = new Map(responses.map(([missionID, response]) => [missionID, response.activity || {}]));
+  state.missions = state.missions.map((mission) => {
+    const activity = activityByMissionID.get(mission.MissionID);
+    if (!activity || (mission.activity?.last_sequence || 0) > (activity.last_sequence || 0)) return mission;
+    return { ...mission, activity };
+  });
+  renderMissions();
+}
+
+function missionActivityCursor(response) {
+  const cursor = response?.cursor;
+  if (!cursor || cursor.schema !== "mission-activity/v1" || !Number.isSafeInteger(cursor.sequence) || cursor.sequence < 0 || typeof cursor.server_id !== "string" || !cursor.server_id) return null;
+  return { schema: cursor.schema, sequence: cursor.sequence, serverID: cursor.server_id };
+}
+
+function detailMissionActivityCursor(detail) {
+  return missionActivityCursor({ cursor: detail?.activity_cursor });
+}
+
+function mergeMissionActivity(missionID, activity) {
+  state.missions = state.missions.map((mission) => {
+    if (mission.MissionID !== missionID || !activity || (mission.activity?.last_sequence || 0) > (activity.last_sequence || 0)) return mission;
+    return { ...mission, activity };
+  });
+  renderMissions();
+}
+
+// Polling trusts only a typed cursor from this server instance. A missing,
+// regressed, or skipped cursor performs one selected-detail recovery; it never
+// reloads connector settings or the global mission list.
+async function refreshSelectedMissionActivity(owner = captureMissionSelection()) {
+  if (owner && owner.detailGeneration === undefined) owner = { ...owner, detailGeneration: state.detailGeneration };
+  if (!owner.missionId || !ownsDetailRequest(owner)) return "stale";
+  const response = await api(`/api/missions/${encodeURIComponent(owner.missionId)}/activity`);
+  if (!ownsDetailRequest(owner)) return "stale";
+  const cursor = missionActivityCursor(response);
+  const previous = state.missionActivityCursors[owner.missionId];
+  const detailCursor = detailMissionActivityCursor(state.detail);
+  const detailSequence = detailCursor?.sequence;
+  mergeMissionActivity(owner.missionId, response.activity || {});
+  if (!cursor || !previous || !detailCursor || previous.serverID !== cursor.serverID || cursor.sequence < detailSequence || cursor.sequence > detailSequence + 1) {
+    if (cursor) state.missionActivityCursors[owner.missionId] = cursor;
+    await refreshSelectedMissionDetail(owner);
+    return "fallback";
+  }
+  state.missionActivityCursors[owner.missionId] = cursor;
+  if (cursor.sequence > detailSequence) {
+    await refreshSelectedMissionDetail(owner);
+    return "advanced";
+  }
+  return "unchanged";
 }
 
 function renderTabs() {
@@ -4671,6 +5167,7 @@ async function runBulkSequential(items, runOne) {
 
 async function bulkSourceCandidateAction(action) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   const urls = [...state.selectedSourceCandidates];
   if (urls.length === 0) return;
   const rejectionReason = action === "reject"
@@ -4679,17 +5176,20 @@ async function bulkSourceCandidateAction(action) {
   if (rejectionReason === null) return;
   const errors = action === "approve"
     ? await runBulkSequential(urls, async (url) => {
-        const added = await addURLSource(url, sourceCandidateTitleForURL(url));
+        if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+        const added = await addURLSource(url, sourceCandidateTitleForURL(url), owner);
         if (!added) throw new Error(`소스 추가 실패: ${url}`);
       })
-    : await runBulkSequential(urls, (url) =>
-        api(`/api/missions/${state.missionId}/candidates/sources/reject`, {
+    : await runBulkSequential(urls, (url) => {
+        if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+        return missionApi(owner, "/candidates/sources/reject", {
           method: "POST",
           body: { url, reason: rejectionReason.trim() }
-        })
-      );
+        });
+      });
+  if (!ownsMissionSelection(owner)) return;
   state.selectedSourceCandidates.clear();
-  await reloadMission();
+  await reloadMission(owner.missionId);
   if (errors.length > 0) {
     const sample = errors.slice(0, 3).map((e) => e?.message || String(e)).join("; ");
     showError(new Error(`소스 후보 ${urls.length}개 중 ${errors.length}개 처리 실패: ${sample}`));
@@ -4698,16 +5198,19 @@ async function bulkSourceCandidateAction(action) {
 
 async function bulkProposalAction(action) {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   const ids = [...state.selectedProposals];
   if (ids.length === 0) return;
-  const errors = await runBulkSequential(ids, (id) =>
-    api(`/api/missions/${state.missionId}/proposals/${id}/${action}`, {
+  const errors = await runBulkSequential(ids, (id) => {
+    if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
+    return missionApi(owner, `/proposals/${id}/${action}`, {
       method: "POST",
       body: {}
-    })
-  );
+    });
+  });
+  if (!ownsMissionSelection(owner)) return;
   state.selectedProposals.clear();
-  await reloadMission();
+  await reloadMission(owner.missionId);
   if (errors.length > 0) {
     const sample = errors.slice(0, 3).map((e) => e?.message || String(e)).join("; ");
     showError(new Error(`검토 후보 ${ids.length}개 중 ${errors.length}개 처리 실패: ${sample}`));

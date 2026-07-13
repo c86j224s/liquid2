@@ -1,9 +1,11 @@
 package reporting
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,20 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
+
+func TestLogTerminalWriteFailureUsesSafeStructuredFields(t *testing.T) {
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	logTerminalWriteFailure("mis_1", "evt_pending", "draft", "report.draft.failed", errors.New("sqlite busy"))
+	line := output.String()
+	for _, want := range []string{"report_terminal_write_failed", `mission_id="mis_1"`, `pending_event_id="evt_pending"`, `report_type="draft"`, `intended_event_type="report.draft.failed"`, `err="sqlite busy"`} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("missing safe structured log field %q: %s", want, line)
+		}
+	}
+}
 
 func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 	ctx := context.Background()
@@ -46,12 +62,73 @@ func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if countRunnerEvents(svc.events, "report.draft.failed") == 1 {
+		if countRunnerEvents(svc.snapshot(), "report.draft.failed") == 1 {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("expected shared runner failure event, got %#v", svc.events)
+	t.Fatalf("expected shared runner failure event, got %#v", svc.snapshot())
+}
+
+func TestRunnerGenerationCallbacksDoNotInheritWorkflowStepDeadline(t *testing.T) {
+	tests := []struct {
+		name  string
+		start func(context.Context, Runner) (app.LedgerEvent, error)
+	}{
+		{name: "draft", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
+			return r.StartDraft(ctx, "mis_draft", DraftRequest{}, app.Producer{Type: "user", ID: "test"})
+		}},
+		{name: "design", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
+			return r.StartDesign(ctx, "mis_design", DesignRequest{}, app.Producer{Type: "user", ID: "test"})
+		}},
+		{name: "humanize", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
+			return r.StartHumanize(ctx, "mis_humanize", HumanizeRequest{}, app.Producer{Type: "user", ID: "test"})
+		}},
+		{name: "patch", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
+			return r.StartPatch(ctx, "mis_patch", PatchRequest{}, app.Producer{Type: "user", ID: "test"})
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			called := make(chan bool, 1)
+			observe := func(ctx context.Context) error {
+				_, hasDeadline := ctx.Deadline()
+				called <- hasDeadline
+				return nil
+			}
+			runner := Runner{
+				Service:  &fakeRunnerService{},
+				InFlight: &InFlight{},
+				NewID:    testRunnerID,
+				GenerateDraft: func(ctx context.Context, _ string, _ DraftRequest, _ string) error {
+					return observe(ctx)
+				},
+				GenerateDesign: func(ctx context.Context, _ string, _ DesignRequest, _ string) error {
+					return observe(ctx)
+				},
+				GenerateHumanize: func(ctx context.Context, _ string, _ HumanizeRequest, _ string) error {
+					return observe(ctx)
+				},
+				GeneratePatch: func(ctx context.Context, _ string, _ PatchRequest, _ string) error {
+					return observe(ctx)
+				},
+			}
+			runner.InFlight.SetNewID(testRunnerID)
+			workflowStepCtx, cancel := context.WithTimeout(context.Background(), time.Hour)
+			defer cancel()
+			if _, err := tc.start(workflowStepCtx, runner); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case hasDeadline := <-called:
+				if hasDeadline {
+					t.Fatal("report generation callback unexpectedly received a deadline")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("report generation callback was not called")
+			}
+		})
+	}
 }
 
 func TestDraftDirectionPendingIsOptionalAndRecoverable(t *testing.T) {
@@ -1582,6 +1659,12 @@ type fakeRunnerService struct {
 	events []app.LedgerEvent
 }
 
+func (svc *fakeRunnerService) snapshot() []app.LedgerEvent {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	return append([]app.LedgerEvent(nil), svc.events...)
+}
+
 func (svc *fakeRunnerService) AppendEvent(_ context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
@@ -1595,6 +1678,38 @@ func (svc *fakeRunnerService) AppendEvent(_ context.Context, req app.AppendEvent
 	}
 	svc.events = append(svc.events, event)
 	return event, nil
+}
+
+func (svc *fakeRunnerService) AppendEvents(_ context.Context, _ string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, error) {
+	appended := make([]app.LedgerEvent, 0, len(reqs))
+	for _, req := range reqs {
+		event, err := svc.AppendEvent(context.Background(), req)
+		if err != nil {
+			return nil, err
+		}
+		appended = append(appended, event)
+	}
+	return appended, nil
+}
+
+func (svc *fakeRunnerService) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingID string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, bool, error) {
+	svc.mu.Lock()
+	for _, event := range svc.events {
+		if event.MissionID != missionID {
+			continue
+		}
+		var payload struct {
+			PendingID string `json:"pending_event_id"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload.PendingID == pendingID && strings.Contains(event.EventType, "failed") {
+			svc.mu.Unlock()
+			return nil, false, nil
+		}
+	}
+	svc.mu.Unlock()
+	appended, err := svc.AppendEvents(ctx, missionID, reqs)
+	return appended, err == nil, err
 }
 
 func (svc *fakeRunnerService) AppendEventsIfNoActiveAgentWork(_ context.Context, _ string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, error) {

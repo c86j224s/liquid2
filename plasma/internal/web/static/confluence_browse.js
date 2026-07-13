@@ -1,5 +1,6 @@
 async function loadConfluenceSpaces(cursor = "") {
   if (!requireMission()) return;
+  const owner = captureMissionSelection();
   const connectionID = confluenceSelectedConnectionID();
   const site = selectedConfluenceSite();
   const cloudID = confluenceSiteCloudID(site);
@@ -9,10 +10,11 @@ async function loadConfluenceSpaces(cursor = "") {
   }
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/spaces`, {
+    const result = await missionApi(owner, "/sources/confluence/spaces", {
       method: "POST",
       body: { connection_id: connectionID, cloud_id: cloudID, limit: 20, cursor }
     });
+    if (!ownsMissionSelection(owner)) return;
     const spaces = result.Spaces || result.spaces || [];
     state.confluenceSpaces = cursor ? state.confluenceSpaces.concat(spaces) : spaces;
     state.confluenceBrowseContext = {
@@ -23,9 +25,9 @@ async function loadConfluenceSpaces(cursor = "") {
     renderConfluenceSpaces(state.confluenceSpaces);
     renderConfluencePages([]);
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
@@ -53,16 +55,18 @@ function renderConfluenceSpaces(spaces) {
 }
 
 async function loadConfluenceSpacePages(spaceID, spaceName = "", cursor = "") {
+  const owner = captureMissionSelection();
   const context = state.confluenceBrowseContext || {};
   const connectionID = context.connection_id || confluenceSelectedConnectionID();
   const cloudID = context.cloud_id || confluenceSiteCloudID(selectedConfluenceSite());
   if (!connectionID || !cloudID || !spaceID) return;
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/space-pages`, {
+    const result = await missionApi(owner, "/sources/confluence/space-pages", {
       method: "POST",
       body: { connection_id: connectionID, cloud_id: cloudID, space_id: spaceID, limit: 20, cursor }
     });
+    if (!ownsMissionSelection(owner)) return;
     const pages = result.Pages || result.pages || [];
     state.confluencePages = cursor ? state.confluencePages.concat(pages) : pages;
     state.confluenceBrowseContext = {
@@ -75,31 +79,33 @@ async function loadConfluenceSpacePages(spaceID, spaceName = "", cursor = "") {
     };
     renderConfluencePages(state.confluencePages);
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
 async function loadConfluencePageChildren(pageID, title = "", cursor = "") {
+  const owner = captureMissionSelection();
   const context = state.confluenceBrowseContext || {};
   const connectionID = context.connection_id || confluenceSelectedConnectionID();
   const cloudID = context.cloud_id || confluenceSiteCloudID(selectedConfluenceSite());
   if (!connectionID || !cloudID || !pageID) return;
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/children`, {
+    const result = await missionApi(owner, "/sources/confluence/children", {
       method: "POST",
       body: { connection_id: connectionID, cloud_id: cloudID, page_id: pageID, limit: 20, cursor }
     });
+    if (!ownsMissionSelection(owner)) return;
     const pages = result.Pages || result.pages || [];
     state.confluencePages = cursor ? state.confluencePages.concat(pages) : pages;
     state.confluenceBrowseContext = { ...context, parent_page_id: pageID, parent_title: title, pages_cursor: result.NextCursor || result.next_cursor || "" };
     renderConfluencePages(state.confluencePages);
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 

@@ -423,7 +423,7 @@ func workflowStartProperties() map[string]any {
 		"agent_executor":               stringSchema(),
 		"mcp_mode":                     enumSchema("auto", "explicit"),
 		"max_steps":                    map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
-		"max_duration_ms":              map[string]any{"type": "integer", "minimum": 1000, "maximum": 86400000},
+		"max_duration_ms":              map[string]any{"type": "integer", "minimum": 0, "maximum": 86400000},
 		"stop_condition":               stringSchema(),
 		"start_after_event_id":         prefixedStringSchema("evt_"),
 		"requested_by_tool_session_id": prefixedStringSchema("ses_"),

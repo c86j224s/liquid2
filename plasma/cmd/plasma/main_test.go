@@ -1368,7 +1368,7 @@ func TestRunWorkflowWaitResumesSameSessionAfterTurn(t *testing.T) {
 	}
 	out.Reset()
 	errOut.Reset()
-	code = run(context.Background(), []string{"workflow", "start", missionID, "-db", dbPath, "-instruction", "continue", "-max-steps", "1", "-wait", "-json"}, &out, &errOut)
+	code = run(context.Background(), []string{"workflow", "start", missionID, "-db", dbPath, "-instruction", "continue", "-wait", "-json"}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("workflow start --wait returned %d stderr=%q", code, errOut.String())
 	}
@@ -1376,8 +1376,35 @@ func TestRunWorkflowWaitResumesSameSessionAfterTurn(t *testing.T) {
 	if status := nestedCLIString(t, result, "workflow_run", "status"); status != "completed" {
 		t.Fatalf("expected completed workflow, got %q", status)
 	}
+	workflowRunID := nestedCLIString(t, result, "workflow_run", "workflow_run_id")
+	store, err := sqlite.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	view, err := app.NewService(store).GetWorkflowRun(context.Background(), missionID, workflowRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.MaxSteps != 20 || view.MaxDurationMS != 0 {
+		t.Fatalf("unexpected persisted default workflow budget: %#v", view)
+	}
 	if len(fake.requests) != 2 || fake.requests[1].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected workflow request to resume same provider session, got %#v", fake.requests)
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"workflow", "start", missionID, "-db", dbPath, "-instruction", "legacy budget", "-max-duration-ms", "60000", "-wait", "-json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("workflow start with positive duration returned %d stderr=%q", code, errOut.String())
+	}
+	positiveRunID := nestedCLIString(t, decodeCLIJSON(t, out.String()), "workflow_run", "workflow_run_id")
+	positiveView, err := app.NewService(store).GetWorkflowRun(context.Background(), missionID, positiveRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if positiveView.MaxDurationMS != 60000 {
+		t.Fatalf("expected positive legacy duration to persist, got %#v", positiveView)
 	}
 }
 
@@ -1839,7 +1866,6 @@ func TestCodexEnabledToolsExposeResearchSurface(t *testing.T) {
 		mcp.ToolSourcesSearch,
 		mcp.ToolSourceCandidatesPropose,
 		mcp.ToolSourceCandidatesRead,
-		mcp.ToolWorkflowStart,
 		mcp.ToolWorkflowStatus,
 		mcp.ToolWorkflowStop,
 	} {
@@ -1856,6 +1882,9 @@ func TestCodexEnabledToolsExposeResearchSurface(t *testing.T) {
 		if containsString(tools, mutation) {
 			t.Fatalf("Codex enabled tools should not include source mutation tool %q: %#v", mutation, tools)
 		}
+	}
+	if containsString(tools, mcp.ToolWorkflowStart) {
+		t.Fatalf("Codex enabled tools should not include workflow start: %#v", tools)
 	}
 	for _, rootBrowse := range []string{mcp.ToolLocalPathRoots, mcp.ToolLocalPathTree} {
 		if containsString(tools, rootBrowse) {

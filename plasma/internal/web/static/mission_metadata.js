@@ -27,18 +27,20 @@ document.addEventListener('DOMContentLoaded', () => {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!state.missionId) return;
+    const owner = captureMissionSelection();
     $('missionMetadataError').textContent = '';
     try {
-      await api(`/api/missions/${encodeURIComponent(state.missionId)}`, {method: 'PATCH', body: {
+      await missionApi(owner, '', {method: 'PATCH', body: {
         title: $('missionMetadataTitle').value,
         objective: $('missionMetadataObjective').value,
         scope: {included: missionMetadataLines($('missionMetadataIncluded').value), excluded: missionMetadataLines($('missionMetadataExcluded').value)}
       }});
+      if (!ownsMissionSelection(owner)) return;
       form.classList.add('hidden');
       await loadMissions();
       await reloadMission();
     } catch (err) {
-      $('missionMetadataError').textContent = err.userMessage || err.message;
+      if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) $('missionMetadataError').textContent = err.userMessage || err.message;
     }
   });
 });

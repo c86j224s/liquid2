@@ -6,6 +6,24 @@ import (
 	"time"
 )
 
+// OpenAgentPendingEvent returns the newest agent turn that has no terminal response.
+func OpenAgentPendingEvent(events []Event) (Event, bool) {
+	completed := CompletedUserEventIDs(events)
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.EventType != "turn.agent.pending" {
+			continue
+		}
+		userEventID := userEventIDFromPayload(event.Payload)
+		if userEventID != "" {
+			if _, done := completed[userEventID]; !done {
+				return event, true
+			}
+		}
+	}
+	return Event{}, false
+}
+
 type Event struct {
 	EventID   string
 	Sequence  int64
@@ -15,23 +33,8 @@ type Event struct {
 }
 
 func HasOpenAgentPending(events []Event) bool {
-	pending := map[string]struct{}{}
-	completed := CompletedUserEventIDs(events)
-	for _, event := range events {
-		if event.EventType != "turn.agent.pending" {
-			continue
-		}
-		userEventID := userEventIDFromPayload(event.Payload)
-		if userEventID != "" {
-			pending[userEventID] = struct{}{}
-		}
-	}
-	for userEventID := range pending {
-		if _, ok := completed[userEventID]; !ok {
-			return true
-		}
-	}
-	return false
+	_, ok := OpenAgentPendingEvent(events)
+	return ok
 }
 
 func HasAgentTerminalEventForUser(events []Event, userEventID string) bool {
@@ -94,6 +97,12 @@ func CompletedUserEventIDs(events []Event) map[string]struct{} {
 }
 
 func HasOpenReportPending(events []Event) bool {
+	_, ok := OpenReportPendingEvent(events)
+	return ok
+}
+
+// OpenReportPendingEvent returns the newest report operation that has no terminal event.
+func OpenReportPendingEvent(events []Event) (Event, bool) {
 	completed := CompletedReportPendingEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -101,10 +110,10 @@ func HasOpenReportPending(events []Event) bool {
 			continue
 		}
 		if _, ok := completed[event.EventID]; !ok {
-			return true
+			return event, true
 		}
 	}
-	return false
+	return Event{}, false
 }
 
 func CompletedReportPendingEventIDs(events []Event) map[string]struct{} {

@@ -14,6 +14,7 @@ import (
 )
 
 const (
+	DefaultWorkflowMaxSteps  = workflowruns.DefaultMaxSteps
 	WorkflowInstructionLimit = workflowruns.InstructionLimit
 	workflowStaleAfter       = workflowruns.StaleAfter
 )

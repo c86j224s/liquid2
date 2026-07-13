@@ -1,5 +1,6 @@
 async function checkConfluenceSourceUpdate(snapshotID) {
   if (!requireMission() || state.confluenceBusy) return;
+  const owner = captureMissionSelection();
   const connectionID = confluenceSelectedConnectionID();
   if (!connectionID) {
     showError(new Error("업데이트 확인에 사용할 Confluence 연결을 먼저 선택하세요."));
@@ -7,10 +8,11 @@ async function checkConfluenceSourceUpdate(snapshotID) {
   }
   setConfluenceBusy(true);
   try {
-    const result = await api(`/api/missions/${state.missionId}/sources/confluence/check-update`, {
+    const result = await missionApi(owner, "/sources/confluence/check-update", {
       method: "POST",
       body: { connection_id: connectionID, snapshot_id: snapshotID }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceUpdatePreview = { check: result, connection_id: connectionID, snapshot_id: snapshotID };
     openConfluenceSourceDetails();
     renderConfluenceUpdatePanel(state.confluenceUpdatePreview);
@@ -18,9 +20,9 @@ async function checkConfluenceSourceUpdate(snapshotID) {
     $("confluenceUpdatePanel")?.scrollIntoView({ block: "nearest" });
     await reloadMission();
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
@@ -64,19 +66,21 @@ async function previewConfluenceUpdate() {
   if (state.confluenceBusy) return;
   const update = state.confluenceUpdatePreview;
   if (!update) return;
+  const owner = captureMissionSelection();
   const latest = update.check?.LatestVersion || update.check?.latest_version || 0;
   setConfluenceBusy(true);
   try {
-    const preview = await api(`/api/missions/${state.missionId}/sources/confluence/update-preview`, {
+    const preview = await missionApi(owner, "/sources/confluence/update-preview", {
       method: "POST",
       body: { connection_id: update.connection_id, snapshot_id: update.snapshot_id, expected_version: latest }
     });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceUpdatePreview = { ...update, preview };
     renderConfluenceUpdatePanel(state.confluenceUpdatePreview);
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
 
@@ -84,6 +88,7 @@ async function approveConfluenceUpdate() {
   if (state.confluenceBusy) return;
   const update = state.confluenceUpdatePreview;
   if (!update?.preview) return;
+  const owner = captureMissionSelection();
   const preview = update.preview;
   const newPage = preview.new_page || preview.NewPage || {};
   const body = {
@@ -104,13 +109,14 @@ async function approveConfluenceUpdate() {
   }
   setConfluenceBusy(true);
   try {
-    await api(`/api/missions/${state.missionId}/sources/confluence/update`, { method: "POST", body });
+    await missionApi(owner, "/sources/confluence/update", { method: "POST", body });
+    if (!ownsMissionSelection(owner)) return;
     state.confluenceUpdatePreview = null;
     renderConfluenceUpdatePanel(null);
-    await reloadMission();
+    await reloadMission(owner.missionId);
   } catch (err) {
-    showConfluenceError(err);
+    if (ownsMissionSelection(owner)) showConfluenceError(err);
   } finally {
-    setConfluenceBusy(false);
+    if (ownsMissionSelection(owner)) setConfluenceBusy(false);
   }
 }
