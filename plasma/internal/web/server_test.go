@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -194,7 +195,7 @@ func TestWorkspaceFlow(t *testing.T) {
 		}), SessionID: "agent-session-1"},
 		{Text: "# DNS report\n\nHTTPS DNS records should be explained through the pinned source.", SessionID: "agent-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
@@ -1835,7 +1836,7 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "odyssey-report.md",
 		Producer:   app.Producer{Type: "agent", ID: "codex"},
-		Content:    []byte("# 오디세이 리포트\n\n본문입니다.\n"),
+		Content:    []byte("# 오디세이 리포트\n\n본문 \\(E=mc^2\\) 입니다.\n\n\\[x^2+y^2=z^2\\]\n\n잘못된 \\(\\notacommand{\\) 수식입니다.\n\n`\\(code\\)`와 $dollar$는 그대로입니다.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1899,6 +1900,23 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	legacyArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_legacy_html_export",
+		MissionID:  missionID,
+		MediaType:  "text/html; charset=utf-8",
+		Filename:   "legacy.html",
+		Producer:   app.Producer{Type: "plasma", ID: "html-export"},
+		Content:    []byte("<!doctype html><html><body>legacy</body></html>"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.exported", map[string]any{
+		"kind": reporting.ExportKindSelfContainedHTML, "source_artifact_id": reportArtifact.ArtifactID,
+		"artifact_id": legacyArtifact.ArtifactID, "target": reporting.ExportTargetSelfContainedHTML,
+	}, app.Producer{Type: "plasma", ID: "html-export"}); err != nil {
+		t.Fatal(err)
+	}
 	uploadLocators, err := json.Marshal([]app.UploadedFileLocator{{
 		LocatorType:       app.SourceLocatorTypeMedia,
 		MediaKind:         app.MediaKindImage,
@@ -1948,6 +1966,9 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 
 	export := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/html_export", map[string]any{})
 	exportArtifactID := nestedString(t, export, "artifact", "artifact_id")
+	if exportArtifactID == legacyArtifact.ArtifactID {
+		t.Fatal("versionless legacy HTML export was reused")
+	}
 	content, _ := export["content"].(string)
 	for _, expected := range []string{
 		"<!doctype html>",
@@ -1957,10 +1978,37 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		"data:image/png;base64,dXBsb2FkZWQtcG5nLWJ5dGVz",
 		"Uploaded still",
 		"이 HTML은 보고서 내용을 다시 생성하지 않고 저장된 Markdown artifact를 렌더링했습니다.",
+		`<pre class="report-markdown-raw">`,
+		`id="report-markdown" type="application/json"`,
+		"data:font/woff2;base64,",
+		`version:"0.17.0"`,
+		"renderPlasmaMarkdown(target,JSON.parse(source.textContent))",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("expected HTML export to contain %q:\n%s", expected, content)
 		}
+	}
+	if !strings.Contains(content, `<pre class="report-markdown-raw"># 오디세이 리포트`) || !strings.Contains(content, "$dollar$") {
+		t.Fatalf("basic export parsed math on the backend: %s", content)
+	}
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var currentVersionFound bool
+	for _, event := range events {
+		var payload map[string]any
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload["artifact_id"] == exportArtifactID && payload["renderer_version"] == selfContainedReportRendererVersion {
+			currentVersionFound = true
+		}
+	}
+	if !currentVersionFound {
+		t.Fatal("current basic renderer version was not recorded")
+	}
+	sourceAfter, err := svc.GetRawArtifact(ctx, reportArtifact.ArtifactID)
+	if err != nil || !bytes.Equal(sourceAfter.Content, reportArtifact.Content) {
+		t.Fatalf("source Markdown changed during export: %v", err)
 	}
 
 	second := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/html_export", map[string]any{})
@@ -2007,7 +2055,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 	  ],
 	  "tabs": [
 	    {"label": "개요", "question": "무엇을 봐야 하는가", "summary": "오디세이 리포트의 주요 관점을 요약합니다.", "takeaway": "사실과 해석을 분리해 읽어야 합니다.", "sections": [
-	      {"heading": "보고서의 중심", "body": ["첫 문단은 작품을 둘러싼 핵심 맥락을 설명합니다.", "둘째 문단은 조사에서 확인한 한계와 해석 가능성을 함께 보여줍니다."], "bullets": ["원전과 영화의 차이를 구분합니다.", "음악 선택은 별도 쟁점으로 봅니다."], "component": "analysis", "images": [{"image_ref": "image_1", "caption": "오디세이 시각 자료를 제작 맥락 옆에 둡니다.", "placement": "after_body"}, {"image_ref": "image_1", "caption": "중복 배치는 한 번만 렌더링되어야 합니다.", "placement": "after_body"}], "source_note": "원본 Markdown 리포트 기반"}
+	      {"heading": "보고서의 중심", "body": ["첫 문단은 작품을 둘러싼 핵심 맥락과 \\(E=mc^2\\)를 설명합니다.", "둘째 문단은 조사에서 확인한 한계와 해석 가능성을 함께 보여줍니다."], "bullets": ["원전과 영화의 차이를 구분합니다.", "음악 선택은 별도 쟁점으로 봅니다."], "component": "analysis", "table": {"columns": ["관계", "식"], "rows": [["피타고라스", "\\[x^2+y^2=z^2\\]"]]}, "images": [{"image_ref": "image_1", "caption": "오디세이 시각 자료를 제작 맥락 옆에 둡니다.", "placement": "after_body"}, {"image_ref": "image_1", "caption": "중복 배치는 한 번만 렌더링되어야 합니다.", "placement": "after_body"}], "source_note": "원본 Markdown 리포트 기반"}
 	    ]}
 	  ],
 	  "sources": [{"label": "원본 Markdown", "note": "저장된 리포트 artifact"}],
@@ -2040,6 +2088,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		Filename:   "odyssey-report.md",
 		Producer:   app.Producer{Type: "agent", ID: "codex"},
 		Content: []byte("# 오디세이 리포트\n\n소스 기반 장문 리포트입니다.\n\n" +
+			"상대성 식은 \\(E=mc^2\\)이고 표의 관계는 \\[x^2+y^2=z^2\\]입니다.\n\n" +
 			"![inline payload](" + unsafeImageDataURI + ")\n\n" +
 			"![wrapped payload](" + unsafeWrappedImageDataURI + ")\n\n" +
 			"![parameterized payload](" + unsafeParameterizedImageDataURI + ")\n\n" +
@@ -2049,6 +2098,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sourceContent := bytes.Clone(reportArtifact.Content)
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.created", map[string]any{
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
@@ -2067,8 +2117,8 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		t.Fatalf("designed HTML pending event must preserve raw defaults, got %#v", pendingPayload)
 	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.exported")
-	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-terra" || agent.requests[0].ReasoningEffort != "medium" {
-		t.Fatalf("designed HTML execution must resolve Terra/medium, got %#v", agent.requests)
+	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.5" || agent.requests[0].ReasoningEffort != "medium" {
+		t.Fatalf("designed HTML execution must resolve GPT-5.5/medium, got %#v", agent.requests)
 	}
 	for _, expected := range []string{
 		"Put the strongest visual unit first",
@@ -2078,6 +2128,9 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		"Available report_images",
 		`"image_ref": "image_1"`,
 		"Odyssey still",
+		"Use only \\(...\\) for inline math and \\[...\\] for display math.",
+		`\(E=mc^2\)`,
+		`\[x^2+y^2=z^2\]`,
 	} {
 		if !strings.Contains(agent.requests[0].Prompt, expected) {
 			t.Fatalf("expected designed HTML content model prompt to contain %q:\n%s", expected, agent.requests[0].Prompt)
@@ -2138,6 +2191,9 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		"data:image/png;base64,",
 		"오디세이 시각 자료를 제작 맥락 옆에 둡니다.",
 		"모든 이미지는 관련 본문 섹션 안에 배치되었습니다.",
+		`\(E=mc^2\)`,
+		`\[x^2+y^2=z^2\]`,
+		"renderDesignedTextMath(document.body)",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("expected designed HTML to contain %q:\n%s", expected, content)
@@ -2157,10 +2213,17 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		t.Fatalf("expected content model artifact media type, got %q", got)
 	}
 	modelContent := string(modelArtifact.Content)
-	for _, expected := range []string{`"visual_identity"`, `"composition_shape"`, `"style_key": "atlas"`, `"image_ref": "image_1"`} {
+	for _, expected := range []string{`"visual_identity"`, `"composition_shape"`, `"style_key": "atlas"`, `"image_ref": "image_1"`, `\\(E=mc^2\\)`, `\\[x^2+y^2=z^2\\]`} {
 		if !strings.Contains(modelContent, expected) {
 			t.Fatalf("expected normalized content model to contain %q:\n%s", expected, modelContent)
 		}
+	}
+	storedSource, err := svc.GetRawArtifact(ctx, reportArtifact.ArtifactID)
+	if err != nil {
+		t.Fatalf("source report artifact was not readable after designed export: %v", err)
+	}
+	if !bytes.Equal(storedSource.Content, sourceContent) {
+		t.Fatal("designed export mutated the source Markdown artifact")
 	}
 
 	second := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/designed_html_export", map[string]any{"agent_executor": "codex"})
@@ -2382,7 +2445,7 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 		"source_artifact_id": reportArtifact.ArtifactID,
 		"artifact_id":        staleArtifact.ArtifactID,
 		"target":             reporting.ExportTargetDesignedHTML,
-		"renderer_version":   "old-renderer",
+		"renderer_version":   "dh27-katex-math-20260713",
 	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
@@ -2398,6 +2461,13 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 	}
 	if exportPayload["renderer_version"] != designedReportRendererVersion {
 		t.Fatalf("expected current renderer version, got %#v", exportPayload)
+	}
+	storedStaleArtifact, err := svc.GetRawArtifact(ctx, staleArtifact.ArtifactID)
+	if err != nil {
+		t.Fatalf("stale designed artifact was removed: %v", err)
+	}
+	if !bytes.Equal(storedStaleArtifact.Content, staleArtifact.Content) {
+		t.Fatal("stale designed artifact was mutated during version cache miss")
 	}
 	if len(agent.requests) != 1 {
 		t.Fatalf("expected agent to run for stale cache miss, got %d requests", len(agent.requests))
@@ -2598,7 +2668,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		}), SessionID: "agent-session-1"},
 		{Text: "# Planned report\n\nA planned report can use the existing mission session.", SessionID: "agent-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
@@ -2637,6 +2707,13 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if sha := nestedString(t, response, "pending_event", "Payload", "generation_guidance_sha256"); sha == "" {
 		t.Fatalf("expected default report draft pending event to record generation guidance sha")
 	}
+	sourceContext, ok := nestedValue(t, response, "pending_event", "Payload", "source_context").(map[string]any)
+	if !ok || sourceContext["schema_version"] != "plasma.report_source_context.v1" {
+		t.Fatalf("Web report did not use shared source context contract: %#v", response)
+	}
+	if sources, ok := sourceContext["confluence_sources"].([]any); !ok || len(sources) != 0 {
+		t.Fatalf("source-free Web report context changed: %#v", sourceContext)
+	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, "report.plan.created") != 1 {
 		t.Fatalf("planned report must create one plan event, got %#v", detail["events"])
@@ -2669,10 +2746,14 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		"mission_id " + missionID,
 		"Report writing guidance:",
 		"never improve fluency by dropping concrete source details",
+		"use only \\(...\\) for inline math and \\[...\\] for display math",
 	} {
 		if !strings.Contains(reportReq.Prompt, expected) {
 			t.Fatalf("expected one-take report prompt to contain %q:\n%s", expected, reportReq.Prompt)
 		}
+	}
+	if strings.Contains(reportReq.Prompt, "Long-form human-writer guidance:") {
+		t.Fatalf("planned report prompt must not include long-form writing guidance:\n%s", reportReq.Prompt)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModePlanned || payload["report_mode_label"] != reportModeLabelPlan {
@@ -2727,7 +2808,7 @@ func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
 		}},
 		forkSessionID: "report-fork-1",
 	}
-	handler := NewServer(svc, Options{AgentExecutor: agent})
+	handler := NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)})
 	webServer := handler.(*Server)
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -2811,7 +2892,7 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 		}},
 		forkSessionID: "report-fork-1",
 	}
-	handler := NewServer(svc, Options{AgentExecutor: agent})
+	handler := NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)})
 	webServer := handler.(*Server)
 	server := httptest.NewServer(handler)
 	defer server.Close()
@@ -3117,6 +3198,9 @@ func TestReportDraftOneTakeKeepsSameSessionEvenWhenForkIsAvailable(t *testing.T)
 	}
 	if len(agent.requests) != 2 || agent.requests[1].PreviousSessionID != "research-session-1" {
 		t.Fatalf("expected one-take report to resume research session, got %#v", agent.requests)
+	}
+	if !strings.Contains(agent.requests[1].Prompt, "use only \\(...\\) for inline math and \\[...\\] for display math") {
+		t.Fatalf("one-take report prompt missing canonical math syntax:\n%s", agent.requests[1].Prompt)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModeOneTake ||
@@ -3767,9 +3851,9 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 		{Text: sectionOne, SessionID: "report-session-1"},
 		{Text: sectionTwo, SessionID: "report-session-1"},
 		{Text: `{"intro":"파트 도입부입니다.","transitions":[{"after_section_index":1,"markdown":"두 섹션을 이어주는 전환문입니다."}],"closing":"파트 마무리입니다."}`, SessionID: "report-session-1"},
-		{Text: `{"front_matter":"# 보존형 장문 보고서\n\n읽기 안내입니다.","closing":"## 결론\n\n최종 결론입니다."}`, SessionID: "report-session-1"},
+		{Text: `{"front_matter":"# 보존형 장문 보고서\n\n읽기 안내입니다.","closing":"## 결론\n\n최종 결론입니다."}`, SessionID: "report-session-1", Usage: agentusage.New("openai", "codex", "gpt-5.5", "high", "finalize").WithProviderUsage(agentusage.ProviderUsage{InputTokens: 11, OutputTokens: 7}, "fixture")},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
@@ -3814,8 +3898,14 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	if strings.Contains(agent.requests[0].Prompt, "Report writing guidance:") {
 		t.Fatalf("report planning prompt must not include generation writing guidance:\n%s", agent.requests[0].Prompt)
 	}
+	if strings.Contains(agent.requests[0].Prompt, "Long-form human-writer guidance:") {
+		t.Fatalf("report planning prompt must not include long-form writing guidance:\n%s", agent.requests[0].Prompt)
+	}
 	for index := 1; index < len(agent.requests); index++ {
-		if !strings.Contains(agent.requests[index].Prompt, "Report writing guidance:") {
+		if !strings.Contains(agent.requests[index].Prompt, "Report writing guidance:") ||
+			!strings.Contains(agent.requests[index].Prompt, "use only \\(...\\) for inline math and \\[...\\] for display math") ||
+			!strings.Contains(agent.requests[index].Prompt, "Long-form human-writer guidance:") ||
+			!strings.Contains(agent.requests[index].Prompt, "not as a system reporting that it inspected a session") {
 			t.Fatalf("expected writing request %d to include generation guidance:\n%s", index, agent.requests[index].Prompt)
 		}
 	}
@@ -3833,6 +3923,12 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 		payload["session_chain_kind"] != "same_session_report" {
 		t.Fatalf("expected same-session long-form report metadata, got %#v", payload)
 	}
+	if payload["returned_agent_session_id"] != "" || payload["agent_usage"] != nil {
+		t.Fatalf("canonical must contain only bound session provenance: %#v", payload)
+	}
+	if countEvents(detail, "turn.agent.response") != 0 {
+		t.Fatalf("long-form finalization must not add conversation telemetry: %#v", detail["events"])
+	}
 	artifact, err := svc.GetRawArtifact(ctx, payload["artifact_id"].(string))
 	if err != nil {
 		t.Fatal(err)
@@ -3848,6 +3944,67 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	}
 }
 
+func TestReportDraftLongFormCanonicalSurvivesAcknowledgementAnomaly(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	delegate := &fakeAgentExecutor{responses: []AgentResult{
+		{Text: agentReportAnyJSON(agentSectionalReportPlan{Summary: "Plan", Parts: []agentReportPart{{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}}}}), SessionID: "report-session-1"},
+		{Text: "Section body.", SessionID: "report-session-1"},
+		{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: "report-session-1"},
+		{Text: `{"front_matter":"# Report","closing":"## Close"}`, SessionID: "report-session-1"},
+		{Text: `{"front_matter":"# Report","closing":"## Close"}`, SessionID: "report-session-1"},
+	}}
+	executor := &ackAnomalyExecutor{delegate: withReportPlanSubmissionFixture(svc, delegate)}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: executor}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Ack anomaly"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled"})
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	time.Sleep(50 * time.Millisecond)
+	detail = getJSON(t, server.URL+"/api/missions/"+missionID)
+	if countEvents(detail, "report.artifact.created") != 1 || countEvents(detail, "report.draft.failed") != 0 || executor.finalCalls != 2 {
+		t.Fatalf("canonical acknowledgement anomaly must remain successful: calls=%d events=%#v", executor.finalCalls, detail["events"])
+	}
+	canonical := lastEventPayload(t, detail, "report.artifact.created")
+	if canonical["agent_session_id"] != "report-session-1" || canonical["returned_agent_session_id"] != "" || countEvents(detail, "turn.agent.response") != 0 {
+		t.Fatalf("bound canonical provenance must remain separate without conversation telemetry: canonical=%#v events=%#v", canonical, detail["events"])
+	}
+}
+
+func TestLongFormFinalObservationLogIsRedacted(t *testing.T) {
+	var output bytes.Buffer
+	previousWriter, previousFlags, previousPrefix := log.Writer(), log.Flags(), log.Prefix()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+		log.SetFlags(previousFlags)
+		log.SetPrefix(previousPrefix)
+	})
+	usage := agentusage.New("openai", "codex", "model", "high", "sensitive prompt").WithProviderUsage(agentusage.ProviderUsage{InputTokens: 11, OutputTokens: 7}, "fixture")
+	logLongFormFinalObservation("mis_redacted", "evt_pending", "evt_plan", 2, "sensitive-bound-session", AgentResult{
+		Text: "sensitive report body", SessionID: "sensitive-returned-session", Log: "sensitive provider response", Usage: usage,
+	}, 25)
+	logged := output.String()
+	for _, forbidden := range []string{"sensitive-bound-session", "sensitive-returned-session", "sensitive report body", "sensitive provider response", "sensitive prompt"} {
+		if strings.Contains(logged, forbidden) {
+			t.Fatalf("redacted final observation leaked %q: %s", forbidden, logged)
+		}
+	}
+	for _, expected := range []string{"returned_session_present=true", "returned_session_matches_bound=false", "usage_available=true", "input_tokens=11", "output_tokens=7", "total_tokens=18", "duration_ms=25"} {
+		if !strings.Contains(logged, expected) {
+			t.Fatalf("redacted final observation missing %q: %s", expected, logged)
+		}
+	}
+}
+
 func TestWebWorkflowStartStatusStop(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -3857,6 +4014,7 @@ func TestWebWorkflowStartStatusStop(t *testing.T) {
 	defer store.Close()
 
 	release := make(chan struct{})
+	svc := app.NewService(store)
 	agent := &sequenceBlockingAgentExecutor{
 		release: release,
 		responses: []AgentResult{{
@@ -3864,7 +4022,7 @@ func TestWebWorkflowStartStatusStop(t *testing.T) {
 			SessionID: "agent-session-1",
 		}},
 	}
-	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Workflow stop"})
@@ -4201,6 +4359,88 @@ func TestWebWorkflowGoalDraftUsesConfiguredDraftModel(t *testing.T) {
 	}
 }
 
+func TestWebSettingsModelDefaultsRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{WorkflowGoalReasoningEffort: "low"}))
+	defer server.Close()
+
+	initial := getJSON(t, server.URL+"/api/settings/model-defaults")
+	if got := nestedString(t, initial, "effective", "workflow_goal_reasoning_effort"); got != "low" {
+		t.Fatalf("expected server config fallback, got %q", got)
+	}
+	saved := patchJSON(t, server.URL+"/api/settings/model-defaults", map[string]any{
+		"workflow_goal_model":            "gpt-5.5",
+		"workflow_goal_reasoning_effort": "high",
+	})
+	if got := nestedString(t, saved, "model_defaults", "workflow_goal_model"); got != "gpt-5.5" {
+		t.Fatalf("expected saved workflow goal model, got %q", got)
+	}
+	if got := nestedString(t, saved, "model_defaults", "workflow_goal_reasoning_effort"); got != "high" {
+		t.Fatalf("expected saved workflow goal effort, got %q", got)
+	}
+	if got := nestedString(t, saved, "display", "workflow_goal_source"); got != "settings" {
+		t.Fatalf("expected settings source, got %q", got)
+	}
+	status, failure := patchJSONFailure(t, server.URL+"/api/settings/model-defaults", map[string]any{
+		"workflow_goal_model":            "gpt-5.6-luna",
+		"workflow_goal_reasoning_effort": "ultra",
+	})
+	if status != http.StatusBadRequest || !strings.Contains(nestedString(t, failure, "error", "message"), "unsupported reasoning effort") {
+		t.Fatalf("expected invalid model effort response, got %d %#v", status, failure)
+	}
+}
+
+func TestWebWorkflowGoalDraftUsesSavedModelDefaults(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := app.NewService(store).SaveModelDefaults(ctx, app.ModelDefaults{
+		WorkflowGoalModel:           "gpt-5.5",
+		WorkflowGoalReasoningEffort: "high",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	agent := &fakeAgentExecutor{responses: []AgentResult{{
+		Text:      `{"run_goal":"저장 설정 기반 목표","step_instruction":"저장 설정을 쓴다"}`,
+		SessionID: "draft-session-settings",
+	}}}
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{
+		AgentExecutor:               agent,
+		WorkflowGoalReasoningEffort: "low",
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Workflow goal settings"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/workflows/goal_draft", map[string]any{
+		"user_instruction_raw": "설정 모델로 초안",
+		"agent_executor":       "codex",
+	})
+	if got := nestedString(t, response, "workflow_goal_draft", "model"); got != "gpt-5.5" {
+		t.Fatalf("expected stored model in response, got %q", got)
+	}
+	if got := nestedString(t, response, "workflow_goal_draft", "reasoning_effort"); got != "high" {
+		t.Fatalf("expected stored effort in response, got %q", got)
+	}
+	if len(agent.requests) != 1 {
+		t.Fatalf("expected one draft request, got %d", len(agent.requests))
+	}
+	if got := agent.requests[0].Model; got != "gpt-5.5" {
+		t.Fatalf("expected stored model in request, got %q", got)
+	}
+	if got := agent.requests[0].ReasoningEffort; got != "high" {
+		t.Fatalf("expected stored effort in request, got %q", got)
+	}
+}
+
 func TestNormalConversationHasNoDeadlineWhenAgentTimeoutIsUnset(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -4488,7 +4728,7 @@ func TestReportDraftCreatesMarkdownArtifactWithoutASTRepair(t *testing.T) {
 
 	svc := app.NewService(store)
 	agent := &fakeAgentExecutor{}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
@@ -4621,6 +4861,7 @@ func TestReportDraftReturnsPendingBeforeBackgroundCompletes(t *testing.T) {
 	defer store.Close()
 
 	release := make(chan struct{})
+	svc := app.NewService(store)
 	agent := &sequenceBlockingAgentExecutor{
 		release: release,
 		responses: []AgentResult{
@@ -4634,7 +4875,7 @@ func TestReportDraftReturnsPendingBeforeBackgroundCompletes(t *testing.T) {
 			{Text: "# Delayed report\n\nThis report was generated in the background.", SessionID: "agent-session-1"},
 		},
 	}
-	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Report pending test"})
@@ -5101,14 +5342,15 @@ func TestDetailGETReconciliationResumesStaleReportDraft(t *testing.T) {
 		}), SessionID: "report-session-1"},
 		{Text: "# Fresh report\n\nFresh Markdown report.", SessionID: "report-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	fixtureAgent := withReportPlanSubmissionFixture(svc, agent)
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: fixtureAgent}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Stale report detail test"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	appendStaleReportPending(t, ctx, svc, missionID, "evt_stale_report_pending_detail")
 	server.Close()
-	server = httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server = httptest.NewServer(NewServer(svc, Options{AgentExecutor: fixtureAgent}))
 	defer server.Close()
 
 	events, err := svc.ListEvents(ctx, missionID)
@@ -5166,7 +5408,7 @@ func TestReportDraftStalePendingKeepsFrozenSelection(t *testing.T) {
 	defer store.Close()
 	svc := app.NewService(store)
 	agent := &fakeAgentExecutor{responses: []AgentResult{{Text: agentReportPlanJSON(agentReportPlan{Summary: "Plan", Sections: []agentReportSection{{Title: "Section", Purpose: "Purpose"}}}), SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Frozen recovery"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
@@ -5386,7 +5628,7 @@ func TestReportDraftStartResumesStalePendingBeforeConflict(t *testing.T) {
 		}), SessionID: "report-session-1"},
 		{Text: "# Recovered report\n\nRecovered Markdown report.", SessionID: "report-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Stale report start test"})
@@ -5448,7 +5690,7 @@ func TestReportDraftResumesPartialLongFormSections(t *testing.T) {
 		{Text: `{"intro":"Part intro.","transitions":[],"closing":"Part closing."}`, SessionID: "report-session-1"},
 		{Text: `{"front_matter":"# Recovered long report\n\nRecovered opening.","closing":"Recovered closing."}`, SessionID: "report-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Partial long form resume test"})
@@ -5582,7 +5824,7 @@ func TestReportDraftResumesPartialLongFormParts(t *testing.T) {
 	agent := &fakeAgentExecutor{responses: []AgentResult{
 		{Text: `{"front_matter":"# Recovered from part\n\nRecovered opening.","closing":"Recovered part closing."}`, SessionID: "report-session-1"},
 	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Partial part resume test"})
@@ -6961,11 +7203,11 @@ func TestAgentSessionResetDefaultKeepsRawSelectionAndUsesCurrentDefaultForNewTur
 
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "start"})
 	detail := waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-terra" || agent.requests[0].ReasoningEffort != "medium" {
-		t.Fatalf("expected new turn to resolve Terra/medium, got %#v", agent.requests)
+	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.5" || agent.requests[0].ReasoningEffort != "medium" {
+		t.Fatalf("expected new turn to resolve GPT-5.5/medium, got %#v", agent.requests)
 	}
 	payload := lastEventPayload(t, detail, "turn.agent.response")
-	if payload["agent_model"] != "gpt-5.6-terra" || payload["agent_reasoning_effort"] != "medium" {
+	if payload["agent_model"] != "gpt-5.5" || payload["agent_reasoning_effort"] != "medium" {
 		t.Fatalf("expected response metadata to record effective default, got %#v", payload)
 	}
 }
@@ -7077,8 +7319,8 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 		wantModel  string
 		wantEffort string
 	}{
-		{name: "legacy resume", legacy: true, wantModel: "gpt-5.6-terra", wantEffort: "medium"},
-		{name: "new mission", wantModel: "gpt-5.6-terra", wantEffort: "medium"},
+		{name: "legacy resume", legacy: true, wantModel: "gpt-5.5", wantEffort: "medium"},
+		{name: "new mission", wantModel: "gpt-5.5", wantEffort: "medium"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -7093,7 +7335,7 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 				{Text: agentReportPlanJSON(agentReportPlan{Summary: "Plan", Sections: []agentReportSection{{Title: "Section", Purpose: "Purpose"}}}), SessionID: sessionID, Resumed: test.legacy},
 				{Text: "# Report", SessionID: sessionID, Resumed: test.legacy},
 			}}
-			server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+			server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 			defer server.Close()
 			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": test.name})
 			missionID := nestedString(t, mission, "projection", "mission_id")
@@ -7105,7 +7347,7 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 			if !ok {
 				t.Fatalf("expected report pending payload, got %#v", start)
 			}
-			if pendingPayload["agent_model"] != "gpt-5.6-terra" || pendingPayload["agent_reasoning_effort"] != "medium" || pendingPayload["agent_selection_source"] == "" {
+			if pendingPayload["agent_model"] != "gpt-5.5" || pendingPayload["agent_reasoning_effort"] != "medium" || pendingPayload["agent_selection_source"] == "" {
 				t.Fatalf("fresh report pending state must freeze effective defaults, got %#v", pendingPayload)
 			}
 			waitForEventType(t, server.URL, missionID, "report.artifact.created")
@@ -7129,6 +7371,7 @@ func TestReportDraftUsesResetAgentModelAndReasoningEffort(t *testing.T) {
 	}
 	defer store.Close()
 
+	svc := app.NewService(store)
 	agent := &fakeAgentExecutor{
 		responses: []AgentResult{
 			{Text: "first answer", SessionID: "codex-session-1"},
@@ -7142,7 +7385,7 @@ func TestReportDraftUsesResetAgentModelAndReasoningEffort(t *testing.T) {
 			{Text: "# Reset report\n\nThe report used selected agent settings.", SessionID: "report-session-1"},
 		},
 	}
-	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Report model reset test"})
@@ -7201,7 +7444,7 @@ func TestMissionDetailIncludesAgentDefaultModelMetadata(t *testing.T) {
 		t.Fatalf("expected agent_executors in detail, got %#v", detail["agent_executors"])
 	}
 	codex := agentStatusByName(t, statuses, "codex")
-	if codex["default_model"] != "gpt-5.6-terra" || codex["default_model_label"] != "GPT-5.6 Terra" || codex["default_model_version"] != "gpt-5.6-terra" {
+	if codex["default_model"] != "gpt-5.5" || codex["default_model_label"] != "GPT-5.5" || codex["default_model_version"] != "gpt-5.5" {
 		t.Fatalf("unexpected codex model metadata: %#v", codex)
 	}
 	if codex["reasoning_effort_supported"] != true || codex["default_reasoning_effort"] != "medium" {
@@ -7246,8 +7489,9 @@ func TestReportDraftRequestSelectionIntegration(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer store.Close()
+			svc := app.NewService(store)
 			agent := &fakeAgentExecutor{responses: []AgentResult{{Text: agentReportPlanJSON(agentReportPlan{Summary: "Plan", Sections: []agentReportSection{{Title: "Section", Purpose: "Purpose"}}}), SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
-			server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+			server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 			defer server.Close()
 			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": test.name})
 			missionID := nestedString(t, mission, "projection", "mission_id")
@@ -9894,6 +10138,124 @@ type fakeAgentExecutor struct {
 	errors         []error
 	onRun          func(context.Context, AgentRequest)
 	rejectDeadline bool
+}
+
+type reportPlanFixtureExecutor struct {
+	delegate AgentExecutor
+	service  *app.Service
+	sequence atomic.Int64
+}
+
+type reportPlanFixtureForkExecutor struct {
+	*reportPlanFixtureExecutor
+	forker    AgentSessionForker
+	readiness AgentSessionForkReadiness
+}
+
+type ackAnomalyExecutor struct {
+	delegate   AgentExecutor
+	finalCalls int
+}
+
+func (executor *ackAnomalyExecutor) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
+	result, err := executor.delegate.Run(ctx, req)
+	if req.LongFormFinalize != nil && err == nil {
+		executor.finalCalls++
+		result.Text = "ACK_NOT_EXACT"
+		result.SessionID = "returned-session-other"
+	}
+	return result, err
+}
+
+func withReportPlanSubmissionFixture(service *app.Service, delegate AgentExecutor) AgentExecutor {
+	base := &reportPlanFixtureExecutor{delegate: delegate, service: service}
+	forker, canFork := delegate.(AgentSessionForker)
+	readiness, canCheck := delegate.(AgentSessionForkReadiness)
+	if canFork && canCheck {
+		return &reportPlanFixtureForkExecutor{reportPlanFixtureExecutor: base, forker: forker, readiness: readiness}
+	}
+	return base
+}
+
+func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
+	result, err := executor.delegate.Run(ctx, req)
+	if err != nil {
+		return result, err
+	}
+	if req.LongFormFinalize != nil {
+		frame, parseErr := parseFixtureSectionalFrame(result.Text)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		_, finalizeErr := reporting.FinalizeLongForm(ctx, executor.service, reporting.LongFormFinalizeRequest{
+			Binding: *req.LongFormFinalize, EventID: fmt.Sprintf("evt_final_fixture_%d", executor.sequence.Add(1)), OpeningMarkdown: frame.FrontMatter, ClosingMarkdown: frame.Closing,
+		})
+		if finalizeErr != nil {
+			return result, finalizeErr
+		}
+		result.Text = "REPORT_FINALIZED"
+		return result, nil
+	}
+	if req.ReportPlan == nil {
+		return result, nil
+	}
+	var plan any
+	if req.ReportPlan.ReportMode == reportModePlanned {
+		var value reporting.ReportPlan
+		if json.Unmarshal([]byte(result.Text), &value) != nil {
+			return result, err
+		}
+		normalized, normalizeErr := reporting.NormalizeReportPlan(value)
+		if normalizeErr != nil {
+			return result, err
+		}
+		plan = normalized
+	} else {
+		var value reporting.SectionalReportPlan
+		if json.Unmarshal([]byte(result.Text), &value) != nil {
+			return result, err
+		}
+		normalized, normalizeErr := reporting.NormalizeSectionalReportPlan(value)
+		if normalizeErr != nil {
+			return result, err
+		}
+		plan = normalized
+	}
+	hash, encoded, hashErr := reporting.ReportPlanHash(plan)
+	if hashErr != nil {
+		return result, hashErr
+	}
+	_, submitErr := executor.service.SubmitReportPlan(ctx, app.ReportPlanSubmissionRequest{
+		EventID: fmt.Sprintf("evt_plan_fixture_%d", executor.sequence.Add(1)), MissionID: req.MissionID, PendingEventID: req.ReportPlan.PendingEventID,
+		ReportMode: req.ReportPlan.ReportMode, ToolSessionID: req.ToolSessionID, PreviousProviderSessionID: req.ReportPlan.PreviousProviderSessionID, AgentExecutor: req.AgentExecutor,
+		AgentModel: req.ReportPlan.AgentModel, AgentReasoningEffort: req.ReportPlan.AgentReasoningEffort,
+		IdempotencyKey: req.ReportPlan.IdempotencyKey, ArgumentsHash: "fixture-arguments", PlanHash: hash, Plan: encoded, Attempt: 1,
+		ToolProducer: app.Producer{Type: "agent_session", ID: req.ToolSessionID},
+	})
+	if submitErr != nil {
+		return result, submitErr
+	}
+	result.Text = reporting.ReportPlanSubmittedSentinel
+	return result, nil
+}
+
+type fixtureSectionalFrame struct {
+	FrontMatter string `json:"front_matter"`
+	Closing     string `json:"closing"`
+}
+
+func parseFixtureSectionalFrame(text string) (fixtureSectionalFrame, error) {
+	var frame fixtureSectionalFrame
+	err := json.Unmarshal([]byte(text), &frame)
+	return frame, err
+}
+
+func (executor *reportPlanFixtureForkExecutor) ForkSession(ctx context.Context, sessionID string) (AgentSessionForkResult, error) {
+	return executor.forker.ForkSession(ctx, sessionID)
+}
+
+func (executor *reportPlanFixtureForkExecutor) CheckForkSession(ctx context.Context, sessionID string) error {
+	return executor.readiness.CheckForkSession(ctx, sessionID)
 }
 
 func (executor *fakeAgentExecutor) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {

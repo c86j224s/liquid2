@@ -36,7 +36,7 @@ func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
 func TestReportPipelineStaticGraphAndRetryContracts(t *testing.T) {
 	script := string(mustReadStatic(t, "static/report_pipeline.js"))
 	styles := string(mustReadStatic(t, "static/report_pipeline.css"))
-	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-lane", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
+	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-phase", "섹션 작성", "파트 조립", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("missing report pipeline contract %q", expected)
 		}
@@ -66,14 +66,14 @@ const fs=require("fs"), vm=require("vm");
     missionFetch(_owner,_path,options){requests.push(JSON.parse(options.body));return Promise.resolve({ok:true});},
     ownsMissionSelection(){return current;},reloadMission(){reloads++;},isStaleMissionOperation(){return false}};
   vm.createContext(context);vm.runInContext(fs.readFileSync("static/report_pipeline.js","utf8"),context);
-  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"running",started_at:"2026-07-13T01:02:03Z"},{id:"part-1",kind:"part",part_index:1,state:"failed",error:"safe",started_at:"2026-07-13T01:02:03Z",duration_ms:360000000}],retry:{resume_failed:true,restart:true}});
+  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"running",started_at:"2026-07-13T01:02:15Z"},{id:"part-1",kind:"part",part_index:1,state:"pending"},{id:"part-2",kind:"part",part_index:2,state:"failed",error:"safe",started_at:"2026-07-13T01:02:03Z",duration_ms:360000000},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}],retry:{resume_failed:true,restart:true}});
   const html=host.innerHTML;
-  if(!html.includes("<h3 id=\"reportPipelineTitle\">최신 리포트 생성 파이프라인</h3>")||!html.includes("&lt;안전한 제목&gt;")||!html.includes("전체 생성 시작")||!html.includes("<time datetime=\"2026-07-13T01:02:03Z\">")||!html.includes("시도 1")||!html.includes("시작")||!html.includes("소요 12초")||!html.includes("경과")||!html.includes("<details class=\"pipeline-details\">")||html.includes("<details class=\"pipeline-details\" open")||!html.includes("<svg class=\"pipeline-graph\"")||!html.includes("--pipeline-width:")||!html.includes("<ol class=\"pipeline-flow sr-only\"")||!html.includes("<li class=\"pipeline-lane\""))process.exit(1);
+  if(!html.includes("<h3 id=\"reportPipelineTitle\">최신 리포트 생성 파이프라인</h3>")||!html.includes("&lt;안전한 제목&gt;")||!html.includes("전체 생성 시작")||!html.includes("<time datetime=\"2026-07-13T01:02:03Z\">")||!html.includes("시도 1")||!html.includes("시작")||!html.includes("소요 12초")||!html.includes("경과")||!html.includes("<details class=\"pipeline-details\">")||html.includes("<details class=\"pipeline-details\" open")||!html.includes("<svg class=\"pipeline-graph\"")||!html.includes("--pipeline-width:")||!html.includes("<ol class=\"pipeline-flow sr-only\"")||!html.includes("<li class=\"pipeline-phase\"")||!html.includes("섹션 작성")||!html.includes("파트 조립"))process.exit(1);
   if(pipelineVisual.scrollLeft!==73)process.exit(10);
   const graphNodes=[...html.matchAll(/data-pipeline-node-width="(\d+)" transform="translate\((\d+) 62\)"/g)].map(([,width,x])=>({width:Number(width),x:Number(x)}));
-  if(graphNodes.length!==5||graphNodes.some((node,index)=>index>0&&node.x-graphNodes[index-1].x<(node.width+graphNodes[index-1].width)/2+32))process.exit(11);
-  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("aria-label=\"part 1 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
-  if(!(html.indexOf("pipeline-plan") < html.indexOf("pipeline-section-1-1") && html.indexOf("pipeline-section-1-1") < html.indexOf("pipeline-final") && html.indexOf("pipeline-final") < html.indexOf("pipeline-artifact")))process.exit(7);
+  if(graphNodes.length!==7||graphNodes.some((node,index)=>index>0&&node.x-graphNodes[index-1].x<(node.width+graphNodes[index-1].width)/2+32))process.exit(11);
+  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("aria-label=\"part 2 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
+  if(!(html.indexOf("pipeline-plan") < html.indexOf("pipeline-section-1-1") && html.indexOf("pipeline-section-1-1") < html.indexOf("pipeline-section-2-1") && html.indexOf("pipeline-section-2-1") < html.indexOf("pipeline-part-1") && html.indexOf("pipeline-part-1") < html.indexOf("pipeline-part-2") && html.indexOf("pipeline-part-2") < html.indexOf("pipeline-final") && html.indexOf("pipeline-final") < html.indexOf("pipeline-artifact")))process.exit(7);
   if(typeof resume.listener!=="function"||typeof restart.listener!=="function")process.exit(3);
   await resume.listener();
   current=false;
@@ -82,7 +82,7 @@ const fs=require("fs"), vm=require("vm");
   if(reloads!==1)process.exit(5);
   context.state.detail.events=[{EventID:"evt_missing",Payload:{}}];
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
-  if(!host.innerHTML.includes("제목 없는 리포트")||!host.innerHTML.includes("생성 시작 시각 알 수 없음")||!host.innerHTML.includes("시도 번호 알 수 없음")||!host.innerHTML.includes("계획 수립")||!host.innerHTML.includes("진행 중")||!host.innerHTML.includes("pipeline-plan")||host.innerHTML.includes("pipeline-final")||host.innerHTML.includes("pipeline-artifact")||host.innerHTML.includes("pipeline-lane"))process.exit(8);
+  if(!host.innerHTML.includes("제목 없는 리포트")||!host.innerHTML.includes("생성 시작 시각 알 수 없음")||!host.innerHTML.includes("시도 번호 알 수 없음")||!host.innerHTML.includes("계획 수립")||!host.innerHTML.includes("진행 중")||!host.innerHTML.includes("pipeline-plan")||host.innerHTML.includes("pipeline-final")||host.innerHTML.includes("pipeline-artifact")||host.innerHTML.includes("pipeline-phase"))process.exit(8);
   host.dataset={};
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"running"}]});
@@ -685,6 +685,8 @@ func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.
 		"reportRigor",
 		"reportAgentModel",
 		"reportAgentReasoningEffort",
+		"workflowGoalDefaultModel",
+		"workflowGoalDefaultReasoningEffort",
 	}
 	for _, id := range ids {
 		selectIndex := strings.Index(index, `<select id="`+id+`"`)
@@ -818,6 +820,72 @@ func TestStaticReportModelSelectionFollowsExecutorAndActiveGuards(t *testing.T) 
 		if !strings.Contains(module, expected) {
 			t.Fatalf("selection semantics missing %q", expected)
 		}
+	}
+}
+
+func TestStaticSettingsExposeModelDefaultsCard(t *testing.T) {
+	html := string(mustReadStatic(t, "static/index.html"))
+	appScript := string(mustReadStatic(t, "static/app.js"))
+	modelSettingsScript := string(mustReadStatic(t, "static/model_settings.js"))
+	combined := html + "\n" + appScript + "\n" + modelSettingsScript
+	for _, expected := range []string{
+		`id="modelDefaultsDetails"`,
+		`id="modelDefaultsForm"`,
+		`id="workflowGoalDefaultModel"`,
+		`id="workflowGoalDefaultReasoningEffort"`,
+		`/static/model_settings.js`,
+		`/api/settings/model-defaults`,
+		`saveModelDefaults`,
+		`loadModelDefaults`,
+		`renderModelDefaultEfforts`,
+		`자율진행 조향 모델`,
+		`workflow directing model`,
+		`현재는 시작 시점의 3층 지시 초안 생성에만 사용`,
+		`새 에이전트 세션`,
+		`보고서 생성`,
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("expected model defaults settings surface %q", expected)
+		}
+	}
+	settingsPanel := htmlSection(t, html, `data-tab-panel="settings"`, `id="errorToast"`)
+	if strings.Index(settingsPanel, `id="modelDefaultsDetails"`) < 0 || strings.Index(settingsPanel, `id="confluenceSettingsDetails"`) < 0 ||
+		strings.Index(settingsPanel, `id="modelDefaultsDetails"`) > strings.Index(settingsPanel, `id="confluenceSettingsDetails"`) {
+		t.Fatalf("model defaults card must be the first Settings fold card")
+	}
+	setFormsBody := jsFunctionBody(t, appScript, "setFormsEnabled")
+	for _, forbidden := range []string{"modelDefaultsForm", "workflowGoalDefaultModel", "workflowGoalDefaultReasoningEffort"} {
+		if strings.Contains(setFormsBody, forbidden) {
+			t.Fatalf("global model default setting %q must not be disabled by mission-bound form state", forbidden)
+		}
+	}
+}
+
+func TestModelSettingsScriptUsesCodexCatalogAndReasoningEfforts(t *testing.T) {
+	script := string(mustReadStatic(t, "static/model_settings.js"))
+	for _, expected := range []string{
+		`status.models`,
+		`reasoning_efforts`,
+		`default_reasoning_effort`,
+		`workflow_goal_model`,
+		`workflow_goal_reasoning_effort`,
+		`method: "PATCH"`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("model settings script missing %q", expected)
+		}
+	}
+	saveBody := jsFunctionBody(t, script, "saveModelDefaults")
+	if strings.Contains(saveBody, "JSON.stringify") {
+		t.Fatalf("model settings save must pass a JSON object to api(); api() owns JSON encoding: %s", saveBody)
+	}
+	payloadIndex := strings.Index(saveBody, "const payload = {")
+	busyIndex := strings.Index(saveBody, "state.modelDefaultsBusy = true")
+	if payloadIndex < 0 || busyIndex < 0 || payloadIndex > busyIndex {
+		t.Fatalf("model settings save must capture form values before busy render resets controls: %s", saveBody)
+	}
+	if !strings.Contains(saveBody, "body: payload") {
+		t.Fatalf("model settings save must submit the captured payload: %s", saveBody)
 	}
 }
 
@@ -1528,6 +1596,92 @@ func TestConfluenceSourceDetailPayloadIsSanitized(t *testing.T) {
 	}
 }
 
+func TestConfluenceUpdateStateTextDoesNotClaimDeletion(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for Confluence update state fixture test")
+	}
+	script, err := os.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeScript := jsFunctionSource(t, string(script), "timeShort") + "\n" +
+		jsFunctionSource(t, string(script), "confluenceUpdateFailureText") + "\n" +
+		jsFunctionSource(t, string(script), "confluenceUpdateText") + `
+const values = [
+  confluenceUpdateText({ status: "current", checked_at: "", current_version: 7, latest_version: 7 }),
+  confluenceUpdateText({ status: "update_available", checked_at: "", current_version: 7, latest_version: 8 }),
+  confluenceUpdateText({ status: "check_failed", checked_at: "", error_category: "confluence_not_found" })
+];
+process.stdout.write(JSON.stringify(values));
+`
+	output, err := exec.Command("node", "-e", nodeScript).CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute Confluence update state fixture: %v\n%s", err, string(output))
+	}
+	var values []string
+	if err := json.Unmarshal(output, &values); err != nil {
+		t.Fatalf("decode Confluence update state fixture: %v\n%s", err, string(output))
+	}
+	joined := strings.Join(values, "\n")
+	for _, expected := range []string{"v7 최신", "v8 사용 가능", "원본을 찾거나 접근할 수 없음"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("expected update state text %q in %q", expected, joined)
+		}
+	}
+	if strings.Contains(joined, "삭제") {
+		t.Fatalf("not-found observation must not claim source deletion: %q", joined)
+	}
+}
+
+func TestReportSourceContextRendersOutsideBodyWithoutUsageClaim(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for report source context fixture test")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	nodeScript := jsFunctionSource(t, script, "escapeHTML") + "\n" +
+		jsFunctionSource(t, script, "timeShort") + "\n" +
+		jsFunctionSource(t, script, "confluenceUpdateFailureText") + "\n" +
+		jsSourceRange(t, script, "function reportGenerationContext", "function renderReports") + `
+const context = {
+  captured_at: "2026-07-14T01:02:03Z",
+  confluence_sources: [
+    { title: "Roadmap", snapshot_version: "7", snapshot_captured_at: "2026-07-13T01:00:00Z", external_updated_at: "2026-07-12T01:00:00Z", last_check: { status: "update_available", checked_at: "2026-07-14T00:00:00Z", latest_version: 8 } },
+    { title: "Restricted", snapshot_version: "2", last_check: { status: "check_failed", error_category: "confluence_not_found" } }
+  ]
+};
+process.stdout.write(JSON.stringify({
+  rendered: reportSourceContextHTML({ source_context: context }),
+  empty: reportSourceContextHTML({ source_context: { captured_at: context.captured_at, confluence_sources: [] } }),
+  legacy: reportSourceContextHTML({})
+}));
+`
+	output, err := exec.Command("node", "-e", nodeScript).CombinedOutput()
+	if err != nil {
+		t.Fatalf("execute report source context fixture: %v\n%s", err, string(output))
+	}
+	var result struct {
+		Rendered string `json:"rendered"`
+		Empty    string `json:"empty"`
+		Legacy   string `json:"legacy"`
+	}
+	if err := json.Unmarshal(output, &result); err != nil {
+		t.Fatalf("decode report source context fixture: %v\n%s", err, string(output))
+	}
+	for _, expected := range []string{"생성 시점의 소스 정보", "Roadmap", "저장 v7", "v8 사용 가능", "원본을 찾거나 접근할 수 없음"} {
+		if !strings.Contains(result.Rendered, expected) {
+			t.Fatalf("missing report source context text %q: %s", expected, result.Rendered)
+		}
+	}
+	for _, forbidden := range []string{"사용한 소스", "인용 근거", "삭제"} {
+		if strings.Contains(result.Rendered, forbidden) {
+			t.Fatalf("report source context made forbidden claim %q: %s", forbidden, result.Rendered)
+		}
+	}
+	if !strings.Contains(result.Empty, "사용 가능한 Confluence 소스가 없었습니다") || result.Legacy != "" {
+		t.Fatalf("empty or legacy context behavior changed: empty=%q legacy=%q", result.Empty, result.Legacy)
+	}
+}
+
 func TestConfluenceSourceDetailPayloadFixtureIsSanitized(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required for semantic static app JS fixture test")
@@ -1875,6 +2029,59 @@ func TestConfluenceDeleteConnectionSendsJSONBody(t *testing.T) {
 		if !strings.Contains(deleteCall, expected) {
 			t.Fatalf("expected delete connection call to include %q, got:\n%s", expected, deleteCall)
 		}
+	}
+}
+
+func TestStaticAppDistinguishesAgentTerminalTurns(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+const state={pendingTurn:null,turnPending:false,missionId:"mis_1",turnScrollMission:"mis_1"};
+const log={scrollHeight:0,scrollTop:0,clientHeight:0,innerHTML:""};
+const window={renderPlasmaMath(){}};
+const $=()=>log;
+const completedUserEventIDs=()=>new Set();
+const escapeHTML=(value)=>String(value);
+const escapeAttr=(value)=>String(value);
+const timeShort=()=>"12:00";
+const shortID=(value)=>String(value);
+const renderMarkdown=(value)=>String(value);
+const empty=(value)=>String(value);
+const updateTurnNavVisibility=()=>{};
+` + jsFunctionSource(t, script, "renderTurns") + `
+renderTurns([
+  {EventType:"turn.agent.response",CreatedAt:"now",Payload:{kind:"agent_error",text:"실패했습니다",agent_executor:"codex"}},
+  {EventType:"turn.agent.response",CreatedAt:"now",Payload:{kind:"agent_canceled",text:"취소했습니다",agent_executor:"codex"}},
+  {EventType:"turn.agent.response",CreatedAt:"now",Payload:{kind:"agent_response",text:"완료했습니다",agent_executor:"codex"}},
+]);
+if((log.innerHTML.match(/응답 실패/g)||[]).length!==1)throw new Error("failure badge is missing or duplicated");
+if((log.innerHTML.match(/응답 취소/g)||[]).length!==1)throw new Error("canceled badge is missing or duplicated");
+if((log.innerHTML.match(/badge danger/g)||[]).length!==1)throw new Error("failure badge style is missing");
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("agent terminal turn fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticAppReportsPreservedMarkdownAfterPatchFailure(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+let notice={};
+const setReportBusy=()=>{};
+const setReportNotice=(text,kind)=>{notice={text,kind};};
+const reportTimingDetails=()=>"";
+` + jsFunctionSource(t, script, "renderReportDraftStatus") + `
+renderReportDraftStatus({state:"failed",event:{EventType:"report.patch.failed",Payload:{error:"패치 실패"}}},true);
+if(!notice.text.includes("패치 실패")||!notice.text.includes("원본 Markdown 리포트는 유지되었습니다."))throw new Error("patch preservation notice is missing");
+if(notice.kind!=="error")throw new Error("patch failure lost its error state");
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("report patch failure fixture: %v: %s", err, out)
 	}
 }
 

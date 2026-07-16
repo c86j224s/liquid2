@@ -1,0 +1,18 @@
+[
+  {"name":"inline","markdown":"Energy is \\(E=mc^2\\).","inline":1,"display":0,"tex":["E=mc^2"],"raw":[]},
+  {"name":"display","markdown":"Before.\n\n\\[x^2+y^2=z^2\\]\n\nAfter.","inline":0,"display":1,"tex":["x^2+y^2=z^2"],"raw":[]},
+  {"name":"multiline_display","markdown":"\\[\na+b=c\n\\]","inline":0,"display":1,"tex":["\na+b=c\n"],"raw":[]},
+  {"name":"table_link","markdown":"| value | reference |\n| --- | --- |\n| \\(x+1\\) | [example](https://example.com) |","inline":1,"display":0,"tex":["x+1"],"raw":[]},
+  {"name":"ordinary_backslash","markdown":"Windows path C:\\reports and line \\alpha without delimiters.","inline":0,"display":0,"raw":["C:\\reports","\\alpha"]},
+  {"name":"escaped_delimiter","markdown":"Literal \\\\(not math\\).","inline":0,"display":0,"raw":["\\(not math\\)"]},
+  {"name":"unmatched","markdown":"Keep \\(x + 1 and continue.","inline":0,"display":0,"raw":["\\(x + 1"]},
+  {"name":"invalid_tex","markdown":"Bad \\(\\notacommand{\\).","inline":1,"display":0,"raw":[]},
+  {"name":"inline_code","markdown":"Code `\\(x\\)` stays code; \\(y\\) renders.","inline":1,"display":0,"raw":["\\(x\\)"]},
+  {"name":"fenced_code","markdown":"```tex\n\\[x\\]\n```\n\n\\[y\\]","inline":0,"display":1,"raw":["\\[x\\]"]},
+  {"name":"indented_code","markdown":"    \\(x\\)\n\nText \\(y\\).","inline":1,"display":0,"raw":["\\(x\\)"]},
+  {"name":"html_like","markdown":"Unsafe \\(<img src=x onerror=alert(1)>\\).","inline":1,"display":0,"raw":[]},
+  {"name":"dollar_literal","markdown":"Keep $x+1$ and $$y+1$$ literal.","inline":0,"display":0,"raw":["$x+1$","$$y+1$$"]},
+  {"name":"mixed_delimiters","markdown":"\\(a\\) and $b$.\n\n\\[c\\]","inline":1,"display":1,"tex":["a","c"],"raw":["$b$"]},
+  {"name":"href_untrusted","markdown":"Blocked \\(\\href{https://example.com}{x}\\).","inline":1,"display":0,"raw":[]},
+  {"name":"expansion_limit","markdown":"Limited \\(\\def\\x{\\x}\\x\\).","inline":1,"display":0,"raw":[]}
+]

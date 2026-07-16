@@ -17,6 +17,7 @@ const (
 	ConfluenceAuthTypeAPIToken     = "api_token"
 	ConfluenceUpdateCurrentEvent   = "source.update.current"
 	ConfluenceUpdateAvailableEvent = "source.update.available"
+	ConfluenceUpdateFailedEvent    = "source.update.check_failed"
 	ConfluenceUpdatedEvent         = "source.updated"
 	defaultConfluenceSearchLimit   = 10
 	maxConfluenceSearchLimit       = 100

@@ -225,6 +225,10 @@ trade-off matrix, loop, relationship-map renderer로 보냅니다. 결과는 sel
 
 이 경로가 아직 reference-grade parity에 도달했다는 뜻은 아닙니다. Renderer는 여전히 compact content model에
 의존하며, decorative variety보다 source note, caveat, URL, 긴 텍스트 가독성을 우선해야 합니다.
+Content-model 생성 prompt는 agent에게 source의 `\(...\)`, `\[...]` 수식을 delimiter까지 정확히 보존하여
+가장 관련 있는 visible body 또는 table field에 넣도록 지시합니다. 수식을 고쳐 쓰거나 번역하거나 새로 만들거나
+SVG text에만 보존하지 않도록 지시하지만, 현재 coverage는 이를 결정론적으로 검증하지 않습니다. 실제 QA에서는
+41개 수식 중 23개가 보존되어 렌더링되었습니다.
 
 ## 현재 Browser Workspace Slice
 
@@ -330,6 +334,13 @@ guidance는 F4 experiment를 이어받습니다. 이전 대화, 조사 답변, c
 아닙니다. Writer는 fact, interpretation, weak signal, conflict, reader-facing structure를 내부적으로 정리한 뒤
 풍부한 Markdown 보고서를 써야 합니다.
 
+Web planned와 long-form 계획은
+[`report-plan-submission.ko.md`](report-plan-submission.ko.md)의 내구성 MCP 제출 수명주기를
+사용합니다. 에이전트 최종 응답은 정확한 완료 sentinel일 뿐이며, 실행기가 sentinel과 반환된 실제 공급자 세션 계보를
+검증한 뒤 현재 도구 세션의 제출을 원자 승격합니다. 제출의 `session_id`와 producer는 MCP 도구 세션을 뜻하며
+공급자 세션이 아닙니다. 반환되어 검증된 공급자 세션은 정식 계획 provenance에만 기록합니다. CLI planned Markdown 계획과 CLI long-form 거부는
+분리된 기존 계약으로 그대로 유지합니다.
+
 Workflow run도 같은 session rule을 따릅니다. Run은 `workflow.run.requested`에서 시작하고, 최신 provider session을
 한 bounded step씩 resume합니다. User-visible agent response를 result로 기록하고, 작은 workflow control marker는
 저장 전에 제거한 뒤 terminal status를 mission ledger에 씁니다. Active agent/MCP turn 안에서 workflow start가
@@ -381,6 +392,23 @@ ownership 보조 수단으로만 남으며 product state가 아닙니다.
 
 Browser는 agent reply를 vendored `markdown-it`과 DOMPurify로 sanitized Markdown으로 렌더링합니다. 이것은 display
 concern일 뿐입니다. Link나 agent text가 source가 되는 것은 아닙니다.
+
+보고서 수식도 같은 표시 경계를 따릅니다. 저장된 Markdown과 디자인 보고서 content model text가 source of
+truth로 남고, frontend-owned runtime은 vendored `markdown-it-texmath` 1.0.1을 `brackets` delimiter로 사용합니다. 수식 문법은 `\(...\)`와 `\[...]`뿐이며
+Browser는 Markdown을 먼저 sanitize하고 local vendor인
+KaTeX 0.17.0을 실행하며, 생성된 HTML과 MathML을 다시 sanitize합니다. KaTeX에는 항상
+`throwOnError: true`, `trust: false`, `output: htmlAndMathml`, `maxSize: 20`, `maxExpand: 1000`을 적용합니다.
+두 번째 sanitizer는 KaTeX에 필요한 HTML, MathML, SVG profile을 보존하면서 `trust: false`로 위험한 명령을
+계속 거부합니다. `maxSize`는 사용자가 지정한 크기를 20em으로 clamp하고 수식은 계속 렌더링합니다. 닫히지 않은
+delimiter, KaTeX를 사용할 수 없는 경우, parse 오류, `maxExpand` 위반은 문서 전체를 중단하지 않고 delimiter를
+포함한 escaped text로 남습니다.
+
+기본 self-contained HTML export는 inert raw Markdown을 포함하고 JavaScript가 실패해도 원문을 보이게 유지합니다.
+설계된 self-contained HTML은 같은 runtime으로 visible text node만 처리하며 code, pre, link/URL, script/style,
+SVG, attribute는 제외합니다. 수식별 오류는 raw source를 남깁니다. 두 export는 local JavaScript, CSS, WOFF2 font를
+문서 안에 포함하므로 CDN, package manager, file URL, network access가 필요하지 않습니다. 달러 delimiter는 일반 텍스트입니다.
+이 표시는 source Markdown, content-model JSON, 기존 artifact/event, DB state를 수정하지 않으며 새로운
+source, evidence, result, saved knowledge를 만들지 않습니다.
 
 ## 보류된 결정
 

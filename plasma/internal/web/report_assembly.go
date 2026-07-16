@@ -70,27 +70,6 @@ func assembleSectionalPartMarkdown(part agentReportPart, drafts []sectionalRepor
 	return strings.TrimSpace(out.String()) + "\n"
 }
 
-func assembleSectionalFinalMarkdown(title string, frame agentSectionalFrame, parts []sectionalReportPartDraft) string {
-	var out strings.Builder
-	if frontMatter := normalizeSectionalFrameFrontMatterMarkdown(frame.FrontMatter); frontMatter != "" {
-		out.WriteString(frontMatter)
-	} else {
-		out.WriteString("# ")
-		out.WriteString(firstNonEmpty(title, "Mission report"))
-	}
-	out.WriteString("\n\n---\n\n")
-	for _, part := range parts {
-		out.WriteString(strings.TrimSpace(part.Markdown))
-		out.WriteString("\n\n")
-	}
-	if closing := normalizeSectionalFrameClosingMarkdown(frame.Closing); closing != "" {
-		out.WriteString("---\n\n")
-		out.WriteString(closing)
-		out.WriteString("\n")
-	}
-	return strings.TrimSpace(out.String()) + "\n"
-}
-
 var (
 	markdownHeadingLineRE      = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
 	markdownLeadingNumberingRE = regexp.MustCompile(`^\d+(?:\.\d+)*\.?\s+`)
@@ -111,21 +90,6 @@ func normalizeSectionalConnectiveMarkdown(markdown string) string {
 	return normalizeSectionalMarkdown(markdown, sectionalMarkdownNormalization{
 		ConvertHeadingsBold: true,
 		StripBoundaryRules:  true,
-	})
-}
-
-func normalizeSectionalFrameFrontMatterMarkdown(markdown string) string {
-	return normalizeSectionalMarkdown(markdown, sectionalMarkdownNormalization{
-		MaxHeadingLevel:    2,
-		StripBoundaryRules: true,
-	})
-}
-
-func normalizeSectionalFrameClosingMarkdown(markdown string) string {
-	return normalizeSectionalMarkdown(markdown, sectionalMarkdownNormalization{
-		ForceHeadingLevel:  2,
-		MaxHeadingLevel:    2,
-		StripBoundaryRules: true,
 	})
 }
 

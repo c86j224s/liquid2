@@ -120,6 +120,8 @@ func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[str
 			previous.SupersededBy = payload.NewSnapshotID
 			previous.SupersededEventID = event.EventID
 			states[payload.OldSnapshotID] = previous
+		case ConfluenceUpdateCurrentEvent, ConfluenceUpdateAvailableEvent, ConfluenceUpdateFailedEvent:
+			applyConfluenceUpdateState(states, event)
 		}
 	}
 	return states, nil
@@ -130,6 +132,7 @@ func preserveSourceSupersededState(next SourceState, previous SourceState) Sourc
 	next.SupersededAt = previous.SupersededAt
 	next.SupersededBy = previous.SupersededBy
 	next.SupersededEventID = previous.SupersededEventID
+	next.ConfluenceUpdate = previous.ConfluenceUpdate
 	return next
 }
 
@@ -175,6 +178,8 @@ func validateSourceStateEventPayload(eventType string, payload json.RawMessage) 
 			return err
 		}
 		return nil
+	case ConfluenceUpdateFailedEvent:
+		return validateConfluenceUpdateStateEventPayload(payload)
 	default:
 		return nil
 	}

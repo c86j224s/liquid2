@@ -60,6 +60,11 @@ plasma/scripts/grounding-validation.py
 plasma/scripts/experiments/
 !plasma/scripts/experiments/
 !plasma/scripts/experiments/product_path_g2_report_experiment.py
+!plasma/scripts/experiments/report_plan_mcp_experiment.py
+!plasma/scripts/experiments/report_plan_mcp/
+!plasma/scripts/experiments/report_plan_mcp/*.py
+!plasma/scripts/experiments/tests/
+!plasma/scripts/experiments/tests/test_report_plan_mcp_experiment.py
 plasma/docs/experiments/**/runs/
 plasma/docs/experiments/**/audits/
 plasma/docs/experiments/**/judge_packets/

@@ -1362,6 +1362,12 @@ func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 				MissionID:   "mis_1",
 				Title:       "Pinned source",
 				ArtifactIDs: []string{"art_1"},
+				State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+					Status:         app.ConfluenceUpdateStatusAvailable,
+					CheckedAt:      time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC),
+					CurrentVersion: 7,
+					LatestVersion:  8,
+				}},
 			},
 			{
 				SnapshotID:  "src_removed",
@@ -1394,6 +1400,9 @@ func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 	}
 	if output.Sources[0].RetrievalPolicy != app.SourceRetrievalPolicySnapshotOnly || output.Sources[0].State.State != app.SourceStateActive {
 		t.Fatalf("expected explicit policy and active state, got %#v", output.Sources[0])
+	}
+	if update := output.Sources[0].State.ConfluenceUpdate; update == nil || update.Status != app.ConfluenceUpdateStatusAvailable || update.LatestVersion != 8 {
+		t.Fatalf("expected Confluence update state in MCP source list, got %#v", output.Sources[0])
 	}
 
 	withRemoved := server.Call(context.Background(), ToolCall{
@@ -3295,6 +3304,37 @@ func (f *fakeMCPService) CreateRawArtifactWithEvent(
 		return app.RawArtifact{}, app.LedgerEvent{}, err
 	}
 	return artifact, event, nil
+}
+
+func (f *fakeMCPService) CreateRawArtifactWithEventConditionally(
+	ctx context.Context,
+	req app.CreateRawArtifactRequest,
+	build func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error),
+) (app.RawArtifact, app.LedgerEvent, bool, error) {
+	previous, hadPrevious := f.artifacts[req.ArtifactID]
+	artifact, err := f.CreateRawArtifact(ctx, req)
+	if err != nil {
+		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+	}
+	eventReq, existing, create, err := build(f.ledgerEvents, artifact)
+	if err != nil {
+		delete(f.artifacts, artifact.ArtifactID)
+		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+	}
+	if !create {
+		if !hadPrevious {
+			delete(f.artifacts, artifact.ArtifactID)
+			return app.RawArtifact{}, app.LedgerEvent{}, false, errors.New("missing artifact")
+		}
+		f.artifacts[artifact.ArtifactID] = previous
+		return previous, existing, false, nil
+	}
+	event, err := f.AppendEvent(ctx, eventReq)
+	if err != nil {
+		delete(f.artifacts, artifact.ArtifactID)
+		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+	}
+	return artifact, event, true, nil
 }
 
 func (f *fakeMCPService) ListLocalPathRoots(_ context.Context) ([]localpath.RootView, error) {

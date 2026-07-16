@@ -24,7 +24,7 @@ func TestOpenCreatesSeparatePlasmaDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MigrationVersions returned error: %v", err)
 	}
-	if len(versions) != 8 ||
+	if len(versions) != 9 ||
 		versions[0] != "0001_bootstrap.sql" ||
 		versions[1] != "0002_mission_ledger.sql" ||
 		versions[2] != "0003_mission_projection.sql" ||
@@ -32,7 +32,8 @@ func TestOpenCreatesSeparatePlasmaDB(t *testing.T) {
 		versions[4] != "0005_research_records.sql" ||
 		versions[5] != "0006_report_canvas.sql" ||
 		versions[6] != "0007_confluence_connections.sql" ||
-		versions[7] != "0008_mission_activity_list.sql" {
+		versions[7] != "0008_mission_activity_list.sql" ||
+		versions[8] != "0009_app_settings.sql" {
 		t.Fatalf("unexpected migration versions: %#v", versions)
 	}
 }
@@ -57,8 +58,27 @@ func TestOpenIsIdempotent(t *testing.T) {
 	if err := db.QueryRow(`SELECT COUNT(*) FROM plasma_schema_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if count != 8 {
-		t.Fatalf("expected eight migration rows, got %d", count)
+	if count != 9 {
+		t.Fatalf("expected nine migration rows, got %d", count)
+	}
+}
+
+func TestStorePersistsModelDefaults(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	defaults := app.ModelDefaults{
+		WorkflowGoalModel:           "gpt-5.5",
+		WorkflowGoalReasoningEffort: "high",
+	}
+	if err := store.SaveModelDefaults(ctx, defaults); err != nil {
+		t.Fatalf("SaveModelDefaults returned error: %v", err)
+	}
+	got, err := store.GetModelDefaults(ctx)
+	if err != nil {
+		t.Fatalf("GetModelDefaults returned error: %v", err)
+	}
+	if got != defaults {
+		t.Fatalf("unexpected defaults: %#v", got)
 	}
 }
 

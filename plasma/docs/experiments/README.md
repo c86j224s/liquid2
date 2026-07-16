@@ -37,6 +37,29 @@ large artifacts live outside the repository under `research-artifacts/`.
     - Long-form report session strategy experiment comparing same-session
       report chaining with independent section drafting and C4 heading
       normalization.
+13. Experiment 13 is reserved by concurrent work and is not present here yet.
+14. [`14-markdown-report-magic-words-2026-07-10/`](14-markdown-report-magic-words-2026-07-10/README.md)
+    - Korean report instruction and limitations-placement experiments.
+15. [`15-report-plan-mcp-2026-07-13/`](15-report-plan-mcp-2026-07-13/README.md)
+    - Stopped product-path smoke: planned passed, while a shared harness option
+      invalidated both long-form runs.
+16. [`16-report-plan-mcp-focused-2026-07-13/`](16-report-plan-mcp-focused-2026-07-13/README.md)
+    - Closed authentication smoke: planned completed, while both long-form
+      runs failed before MCP plan submission because Claude authentication failed.
+17. [`17-report-plan-mcp-focused-2026-07-14/`](17-report-plan-mcp-focused-2026-07-14/README.md)
+    - Completed Codex-only focused comparison: quality non-degradation was
+      supported, but one candidate long-form ITT failure and one source-read
+      trace audit failure left operational reliability and productization blocked.
+18. [`18-report-long-form-finalize-mcp-2026-07-14/`](18-report-long-form-finalize-mcp-2026-07-14/README.md)
+    - Stopped Codex-only successor: the corrected smoke passed, but one of 24
+      quality runs failed after the ITT boundary and the controller stopped
+      before confirmatory statistics, so adoption was rejected.
+19. [`19-report-long-form-finalize-itt-analysis-2026-07-14/`](19-report-long-form-finalize-itt-analysis-2026-07-14/README.md)
+    - Passed analysis-only successor: the 11 scored pairs plus one preserved ITT
+      failure passed final-report noninferiority and completeness guardrails.
+20. [`20-report-long-form-finalize-operational-reliability-2026-07-14/`](20-report-long-form-finalize-operational-reliability-2026-07-14/README.md)
+    - Passed corrected two-arm smoke and current-candidate-only operational gate
+      with 12 of 12 long-form runs satisfying every locked invariant.
 
 ## Controller Experiment Sequence
 

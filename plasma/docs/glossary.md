@@ -32,7 +32,7 @@ avoid reusing old shorthand in a way that makes current behavior ambiguous.
 | C0 | Neutral controller baseline from controller experiments. It is closest to continuing the same session without strong controller intervention. | Used as evidence for conservative controller defaults. |
 | PAL2 | A rhythm-aware question controller variant tested against C0 and NAV. | Inconclusive; not a default. |
 | NAV | An investigation navigator variant that stated status, next-turn intent, and direction more strongly. | Rejected as a default after experiments. |
-| G2 | Generation-time report tone guidance that improved Korean report style when applied during report writing. | Productized as default report guidance direction. |
+| G2 | Generation-time report tone guidance that improved Korean report style when applied during report writing. | Productized as default report guidance direction. Long-form report writing also applies the later human-writer guidance from follow-up validation. |
 | H5 | Post-report Korean humanization pass that patches an existing Markdown report through bounded MCP patch tools. | Optional/secondary post-processing; not part of planning or source selection. |
 | DH23 | Designed HTML experiment path using an agent-authored JSON content model and deterministic renderer with a strong first-viewport visual unit. | Current designed HTML product candidate, with known limitations. |
 | C4 | Long-form report assembly strategy that preserves section bodies and performs limited heading normalization instead of rewriting the whole report. | Productized for long-form report assembly. |

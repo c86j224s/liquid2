@@ -401,6 +401,109 @@ func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 			t.Fatalf("event payload leaked %q: %s", leaked, payload)
 		}
 	}
+	sources, err := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{MissionID: "mis_1"})
+	if err != nil {
+		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", err)
+	}
+	if len(sources) != 1 || sources[0].State.ConfluenceUpdate == nil {
+		t.Fatalf("expected projected Confluence update state, got %#v", sources)
+	}
+	state := sources[0].State.ConfluenceUpdate
+	if state.Status != ConfluenceUpdateStatusAvailable || state.CurrentVersion != 7 || state.LatestVersion != 8 {
+		t.Fatalf("unexpected projected Confluence update state: %#v", state)
+	}
+}
+
+func TestCheckConfluenceSourceUpdateRecordsNotFoundWithoutMarkingSnapshotDeleted(t *testing.T) {
+	store := &confluenceSnapshotFakeStore{
+		snapshots: map[string]SourceSnapshot{
+			"src_1": confluenceTestSnapshot("src_1", "mis_1", "cloud_1", "123", "7"),
+		},
+	}
+	connector := &fakeConfluenceConnector{
+		versionErr: NewConfluenceHTTPError(404, "", "get_page_version"),
+	}
+	svc := NewService(store)
+	_, err := svc.CheckConfluenceSourceUpdateWithEvent(context.Background(), connector, CheckConfluenceSourceUpdateRequest{
+		MissionID:  "mis_1",
+		SnapshotID: "src_1",
+		EventID:    "evt_update_check_failed",
+		Producer:   Producer{Type: "user", ID: "plasma-cli"},
+	})
+	if err == nil {
+		t.Fatal("expected Confluence not-found error")
+	}
+	if len(store.events) != 1 || store.events[0].EventType != ConfluenceUpdateFailedEvent {
+		t.Fatalf("unexpected failure events: %#v", store.events)
+	}
+	payload := string(store.events[0].Payload)
+	for _, forbidden := range []string{"page body", "provider response", "source.deleted"} {
+		if strings.Contains(payload, forbidden) {
+			t.Fatalf("failure event leaked or invented %q: %s", forbidden, payload)
+		}
+	}
+	sources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{MissionID: "mis_1"})
+	if listErr != nil {
+		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", listErr)
+	}
+	if len(sources) != 1 || sources[0].State.ConfluenceUpdate == nil {
+		t.Fatalf("expected failed Confluence update state, got %#v", sources)
+	}
+	state := sources[0].State
+	if state.Removed || state.State != SourceStateActive {
+		t.Fatalf("not-found observation must not remove the snapshot: %#v", state)
+	}
+	if state.ConfluenceUpdate.Status != ConfluenceUpdateStatusFailed ||
+		state.ConfluenceUpdate.ErrorCategory != ConfluenceErrorCategoryNotFound ||
+		state.ConfluenceUpdate.ErrorCode != ConfluenceErrorCodeNotFound {
+		t.Fatalf("unexpected failed Confluence update state: %#v", state.ConfluenceUpdate)
+	}
+	store.events = append(store.events, LedgerEvent{
+		EventID:   "evt_removed_after_check",
+		MissionID: "mis_1",
+		EventType: SourceRemovedEvent,
+		Payload:   json.RawMessage(`{"snapshot_id":"src_1","reason":"user cleanup"}`),
+		CreatedAt: time.Now().UTC(),
+	})
+	removedSources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{
+		MissionID:      "mis_1",
+		IncludeRemoved: true,
+	})
+	if listErr != nil {
+		t.Fatalf("ListSourceSnapshotsWithState including removed returned error: %v", listErr)
+	}
+	if len(removedSources) != 1 || !removedSources[0].State.Removed || removedSources[0].State.ConfluenceUpdate == nil {
+		t.Fatalf("removing a source must preserve its last Confluence check state: %#v", removedSources)
+	}
+}
+
+func TestCheckConfluenceSourceUpdateDoesNotRecordLocalValidationFailure(t *testing.T) {
+	store := &confluenceSnapshotFakeStore{}
+	svc := NewService(store)
+	_, err := svc.CheckConfluenceSourceUpdateWithEvent(context.Background(), &fakeConfluenceConnector{}, CheckConfluenceSourceUpdateRequest{
+		MissionID:  "mis_1",
+		SnapshotID: "src_missing",
+		EventID:    "evt_update_check_failed",
+		Producer:   Producer{Type: "user", ID: "plasma-cli"},
+	})
+	if err == nil {
+		t.Fatal("expected missing snapshot error")
+	}
+	if len(store.events) != 0 {
+		t.Fatalf("local validation failure must not create an observation event: %#v", store.events)
+	}
+}
+
+func TestConfluenceUpdateFailureRejectsUnknownPublicErrorCode(t *testing.T) {
+	err := validateConfluenceUpdateStateEventPayload(json.RawMessage(`{
+		"old_snapshot_id":"src_1",
+		"checked_at":"2026-07-14T01:02:03Z",
+		"error_category":"confluence_auth",
+		"error_code":"raw_provider_detail"
+	}`))
+	if err == nil {
+		t.Fatal("expected unknown Confluence error code to be rejected")
+	}
 }
 
 func TestConfluenceUpdatePathsRejectRemovedSnapshot(t *testing.T) {

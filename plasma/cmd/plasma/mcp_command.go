@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -44,6 +46,14 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	reportPatchReportSessionPolicy := fs.String("report-patch-report-session-policy", "", "report patch report session policy")
 	reportPatchReportSessionPolicySelection := fs.String("report-patch-report-session-policy-selection", "", "report patch report session policy selection")
 	reportPatchSessionChainKind := fs.String("report-patch-session-chain-kind", "", "report patch session chain kind")
+	reportPlanPendingEventID := fs.String("report-plan-pending-event-id", "", "report plan pending event id")
+	reportPlanMode := fs.String("report-plan-mode", "", "expected report plan mode")
+	reportPlanIdempotencyKey := fs.String("report-plan-idempotency-key", "", "expected report plan idempotency key")
+	reportPlanToolSessionID := fs.String("report-plan-tool-session-id", "", "report plan MCP tool session id")
+	reportPlanPreviousProviderSessionID := fs.String("report-plan-previous-provider-session-id", "", "optional provider session resumed by planning")
+	reportPlanAgentModel := fs.String("report-plan-agent-model", "", "server-bound report planning model")
+	reportPlanAgentReasoningEffort := fs.String("report-plan-agent-reasoning-effort", "", "server-bound report planning reasoning effort")
+	longFormFinalizeBindingJSON := fs.String("report-long-form-finalize-binding-json", "", "server-bound long-form finalization metadata")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -125,6 +135,33 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			ReportSessionPolicySelection: strings.TrimSpace(*reportPatchReportSessionPolicySelection),
 			SessionChainKind:             strings.TrimSpace(*reportPatchSessionChainKind),
 		}))
+	}
+	if strings.TrimSpace(*reportPlanPendingEventID) != "" || strings.TrimSpace(*reportPlanMode) != "" || strings.TrimSpace(*reportPlanIdempotencyKey) != "" || strings.TrimSpace(*reportPlanToolSessionID) != "" || strings.TrimSpace(*reportPlanPreviousProviderSessionID) != "" || strings.TrimSpace(*reportPlanAgentModel) != "" || strings.TrimSpace(*reportPlanAgentReasoningEffort) != "" {
+		planBinding := mcp.ReportPlanBinding{PendingEventID: *reportPlanPendingEventID, ReportMode: *reportPlanMode, IdempotencyKey: *reportPlanIdempotencyKey, ToolSessionID: *reportPlanToolSessionID, PreviousProviderSessionID: *reportPlanPreviousProviderSessionID, AgentExecutor: binding.AgentExecutor, AgentModel: *reportPlanAgentModel, AgentReasoningEffort: *reportPlanAgentReasoningEffort}
+		if err := mcp.ValidateReportPlanBinding(binding, planBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp report plan binding: %v\n", err)
+			return 2
+		}
+		options = append(options, mcp.WithReportPlanBinding(planBinding))
+	}
+	if strings.TrimSpace(*longFormFinalizeBindingJSON) != "" {
+		var finalBinding reporting.LongFormFinalizeBinding
+		decoder := json.NewDecoder(strings.NewReader(*longFormFinalizeBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&finalBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp long-form finalization binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp long-form finalization binding: multiple JSON values")
+			return 2
+		}
+		if err := mcp.ValidateLongFormFinalizeBinding(binding, finalBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp long-form finalization binding: %v\n", err)
+			return 2
+		}
+		options = append(options, mcp.WithLongFormFinalizeBinding(finalBinding))
 	}
 	if len(enabledTools) > 0 {
 		options = append(options, mcp.WithEnabledTools([]string(enabledTools)))

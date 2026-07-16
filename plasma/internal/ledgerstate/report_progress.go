@@ -197,6 +197,8 @@ func ProjectReportProgress(events []Event) ReportProgress {
 				for j := range part.Sections {
 					nodes = append(nodes, ReportProgressNode{ID: stageID("section", i+1, j+1), Kind: "section", Part: i + 1, Section: j + 1, State: "pending"})
 				}
+			}
+			for i := range q.Plan.Parts {
 				nodes = append(nodes, ReportProgressNode{ID: stageID("part", i+1, 0), Kind: "part", Part: i + 1, State: "pending"})
 			}
 		}

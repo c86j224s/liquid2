@@ -1,98 +1,103 @@
 # Liquid Workspace
 
-[![CI](https://github.com/c86j224s/liquid2/actions/workflows/ci.yml/badge.svg)](https://github.com/c86j224s/liquid2/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Status](https://img.shields.io/badge/status-pre--1.0-orange)
+This repository is a product workspace. Product code is intentionally split at
+the repository root so each product can keep its own domain model, storage, and
+release surface.
 
-Liquid Workspace is a local-first workspace for saving personal source material,
-reading it again, and turning selected evidence into research reports.
+## Products
 
-The repository contains two companion products:
+- `liquid2/` - personal document/source vault with the existing Go API,
+  Flutter client, SQLite storage, OpenAPI contract, scripts, and product docs.
+- `plasma/` - steerable research workspace with its own Go runtime, SQLite
+  storage, Mission Ledger, source snapshots, research records, and connector
+  boundary work.
 
-- **Liquid2** is a personal document and source vault. It stores saved pages,
-  files, feeds, notes, tags, folders, translations, exports, and backups.
-- **Plasma** is a steerable research workspace. It organizes missions, accepted
-  sources, agent-assisted investigation, source snapshots, and report artifacts.
+## Boundaries
 
-Both products are built for local use first. Product state lives in local SQLite
-databases, runtime configuration stays outside the repository, and committed
-docs summarize experiments without committing raw run artifacts.
+Liquid2 and Plasma are separate products. Plasma may consume Liquid2 through a
+connector or API contract, but it must not import Liquid2 internals, read
+Liquid2's SQLite database directly, or store Plasma research state in Liquid2
+tables.
 
-This repository is under active development. Interfaces, workflows,
-configuration, and local data shapes may change without a migration path until a
-stable release line exists.
+Future shared areas such as `infra/`, `shared/`, or root-level docs should be
+added only when ownership is explicit and they are not product implementation
+dumping grounds.
 
-## What Is Here
+## Repository Operations
 
-| Area | Purpose |
-| --- | --- |
-| `liquid2/` | Go API, Flutter client, SQLite storage, OpenAPI contract, and Liquid2 product docs. |
-| `plasma/` | Go browser/API server, research mission state, source connectors, report generation, and Plasma product docs. |
-| `docs/` | Workspace-level configuration and GitHub operating rules. |
-| `.github/` | Manual GitHub workflows, issue template, and PR template. |
-| `dev-browser.sh` | Starts and manages the local development stack. |
-| `release-browser.sh` | Starts and manages the local release-style stack. |
+GitHub milestone, issue, PR, and branch workflow guidance lives in
+[`docs/github-workflow.md`](docs/github-workflow.md).
+Runtime configuration guidance lives in
+[`docs/configuration.md`](docs/configuration.md).
+Third-party generated and vendored code notices live in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-## Quick Start
+Public-facing project governance:
 
-Read [SETUP.md](SETUP.md) for the full agent/operator setup path. The short
-version for a prepared macOS environment is:
+- [`SECURITY.md`](SECURITY.md) explains vulnerability reporting and local data
+  boundaries.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) explains the current contribution intake
+  status.
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) sets the conduct baseline.
+- [`LICENSE`](LICENSE) applies the MIT License to this repository.
+- Do not make the existing private repository public until Git history, tags,
+  remote branches, and GitHub issue/PR/comment metadata have a settled
+  publication or sanitization plan.
+- Do not make a public copy available until a private security/contact route is
+  configured for reports that should not be filed as public issues.
+
+## Liquid2 Development
+
+Run Liquid2 checks from the workspace root with:
 
 ```sh
-git clone https://github.com/c86j224s/liquid2.git
-cd liquid2
-./dev-browser.sh start
-./dev-browser.sh status
+make -C liquid2 check
 ```
 
-Development ports use the `6000` range:
+Or work inside the product directory:
 
-- Liquid2 web: `http://127.0.0.1:6001`
-- Liquid2 API: `http://127.0.0.1:6011`
-- Plasma: `http://127.0.0.1:6002`
+```sh
+cd liquid2
+make check
+```
 
-Local release-style servers use the `3000` range:
+Liquid2 release automation remains root-owned for now through
+`.github/workflows/release.yml` and `.releaserc.json`.
+
+## Development Servers
+
+Use the root development server controller when testing Liquid2 and Plasma
+together:
+
+```sh
+./dev-browser.sh start
+./dev-browser.sh status
+./dev-browser.sh stop
+```
+
+The root script starts Liquid2 before Plasma and stops Plasma before Liquid2.
+By default, Liquid2 uses Flutter web port `6001` plus API port `6011`, and
+Plasma uses browser port `6002`. Product-specific control is also available:
+
+```sh
+./dev-browser.sh liquid2 restart
+./dev-browser.sh plasma logs
+```
+
+Use the release controller for the local release stack:
 
 ```sh
 ./release-browser.sh start
 ./release-browser.sh status
+./release-browser.sh stop
 ```
 
-## Common Checks
+By default, Liquid2 release uses Flutter web port `3001` plus API port `3011`,
+and Plasma release uses browser/API port `3002`.
 
-```sh
-make -C liquid2 check
-make -C plasma check
-```
+## Plasma Status
 
-The GitHub workflows in this repository are intentionally manual for now. Local
-build and verification remain the primary path while the project is pre-1.0.
-
-## Product Docs
-
-- [Liquid2 README](liquid2/README.md)
-- [Liquid2 Architecture](liquid2/docs/architecture.md)
-- [Liquid2 Design](liquid2/docs/design.md)
-- [Plasma README](plasma/README.md)
-- [Plasma Product Flow](plasma/docs/product-flow.md)
-- [Plasma Architecture](plasma/docs/product-architecture.md)
-- [Configuration](docs/configuration.md)
-
-## Project Status
-
-This is an early public snapshot. The code is useful for local development and
-inspection, but the project is still pre-1.0 and not yet stable:
-
-- external contributions are not being accepted yet;
-- macOS/local development is the primary supported environment;
-- APIs, UI flows, configuration, and storage details may change frequently;
-- release automation is manual;
-- public issue and security triage are still intentionally lightweight.
-
-## Governance
-
-- [LICENSE](LICENSE): MIT License.
-- [SECURITY.md](SECURITY.md): vulnerability reporting and local data boundary.
-- [CONTRIBUTING.md](CONTRIBUTING.md): current contribution intake policy.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): conduct expectations.
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): generated and vendored code notices.
+Plasma runtime work is under active development on the Plasma product branch.
+It remains a separate product: Plasma may read Liquid2 through a connector/API
+contract, but it must not import Liquid2 internals or read Liquid2 SQLite
+tables directly.

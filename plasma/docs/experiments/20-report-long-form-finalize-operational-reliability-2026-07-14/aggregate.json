@@ -1,0 +1,13 @@
+{
+  "all_invariants_count": 12,
+  "candidate_commit": "8a054e6d7d1e50a9ebeb72b6bf6b933303264dc1",
+  "combined_adoption": true,
+  "experiment": "20-report-long-form-finalize-operational-reliability-2026-07-14",
+  "experiment_19_quality_passed": true,
+  "passed": true,
+  "product_tests_passed": true,
+  "reliability_completed_count": 12,
+  "reliability_denominator": 12,
+  "smoke_completed_count": 2,
+  "smoke_run_count": 2
+}

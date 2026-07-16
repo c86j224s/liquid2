@@ -1,0 +1,18 @@
+{
+  "bootstrap_draws": 10000,
+  "completeness_baseline_low_rate": 0.08333333333333333,
+  "completeness_candidate_low_rate": 0.08333333333333333,
+  "completeness_mean_difference": 0.0,
+  "completeness_passed": true,
+  "current_candidate_commit": "8a054e6d7d1e50a9ebeb72b6bf6b933303264dc1",
+  "experiment": "19-report-long-form-finalize-itt-analysis-2026-07-14",
+  "final_dimension_count": 9,
+  "itt_failure_pair_count": 1,
+  "margin": -0.25,
+  "mean_difference": 0.04166666666666644,
+  "noninferiority_passed": true,
+  "one_sided_95_lower": -0.10648148148148169,
+  "passed": true,
+  "scored_pair_count": 11,
+  "topic_pair_count": 12
+}

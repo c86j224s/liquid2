@@ -32,6 +32,9 @@ const state = {
   confluenceOAuthConfigured: false,
   confluenceBusy: false,
   confluenceAccess: null,
+  modelDefaults: null,
+  modelDefaultAgentExecutors: [],
+  modelDefaultsBusy: false,
   localPathRoots: [],
   localPathSelectedFile: "",
   localPathCurrentDir: ".",
@@ -95,7 +98,7 @@ const AGENT_REASONING_EFFORT_OPTIONS = {
   ]
 };
 
-const DESIGNED_REPORT_RENDERER_VERSION = "dh26-inline-images-20260706";
+const DESIGNED_REPORT_RENDERER_VERSION = "dh30-source-tex-brackets-20260713";
 
 const $ = (id) => document.getElementById(id);
 const MISSION_STORAGE_KEY = "plasma.activeMissionId";
@@ -107,6 +110,8 @@ const markdownRenderer = window.markdownit ? window.markdownit({
   breaks: true,
   typographer: false
 }) : null;
+
+window.installMarkdownItMath?.(markdownRenderer);
 
 if (markdownRenderer) {
   const defaultLinkOpen = markdownRenderer.renderer.rules.link_open ||
@@ -152,6 +157,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("confluenceAccessSiteSelect").addEventListener("change", renderConfluenceAccessControls);
   $("confluenceAccessEnable").addEventListener("click", enableConfluenceAccess);
   $("confluenceAccessDisable").addEventListener("click", disableConfluenceAccess);
+  $("modelDefaultsForm").addEventListener("submit", saveModelDefaults);
+  $("modelDefaultsRefresh").addEventListener("click", () => loadModelDefaults());
+  $("workflowGoalDefaultModel").addEventListener("change", renderModelDefaultEfforts);
   $("sourceForm").addEventListener("submit", addTextSource);
   $("sourceUploadForm").addEventListener("submit", addUploadSource);
   $("sourceFetchURLButton").addEventListener("click", addURLSourceFromTextForm);
@@ -177,6 +185,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("confluenceSettingsDetails").addEventListener("toggle", (event) => {
     if (event.target.open) loadConfluenceConnections();
+  });
+  $("modelDefaultsDetails").addEventListener("toggle", (event) => {
+    if (event.target.open) loadModelDefaults();
   });
   $("confluenceRefreshConnections").addEventListener("click", () => loadConfluenceConnections());
   $("confluenceConnectionSelect").addEventListener("change", () => {
@@ -2415,6 +2426,11 @@ function renderTurns(events) {
     const text = payload.text || JSON.stringify(payload);
     const executor = payload.agent_executor || (isUser ? "" : "agent");
     const isWorkflowTurn = payload.workflow_run_id || payload.kind === "workflow_steering";
+    const terminalBadge = payload.kind === "agent_error"
+      ? `<span class="badge danger">응답 실패</span>`
+      : payload.kind === "agent_canceled"
+        ? `<span class="badge muted">응답 취소</span>`
+        : "";
     const sessionID = payload.agent_session_id || "";
     const isNewSession = !isUser && !isPending && payload.kind === "agent_response" && payload.resumed === false && sessionID;
     const sessionBadge = sessionID ? `
@@ -2431,7 +2447,7 @@ function renderTurns(events) {
       : `<button type="button" class="mini-copy turn-copy" data-copy-text="${escapeAttr(text)}" title="이 메시지 복사">복사</button>`;
     return `
       <div class="turn ${isUser ? "user" : "agent"} ${isPending ? "pending" : ""}">
-        <div class="turn-label">${isWorkflowTurn ? "워크플로우" : (isUser ? "사용자" : "에이전트")} / ${escapeHTML(timeShort(event.CreatedAt))} ${sessionBadge}${copyButton}</div>
+        <div class="turn-label">${isWorkflowTurn ? "워크플로우" : (isUser ? "사용자" : "에이전트")} / ${escapeHTML(timeShort(event.CreatedAt))} ${terminalBadge}${sessionBadge}${copyButton}</div>
         ${body}
       </div>
     `;
@@ -2458,6 +2474,7 @@ function renderTurns(events) {
   const missionChanged = state.turnScrollMission !== state.missionId;
   const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   log.innerHTML = html.length ? html.join("") : empty("아직 대화가 없습니다.");
+  window.renderPlasmaMath?.(log);
   if (missionChanged || nearBottom) log.scrollTop = log.scrollHeight;
   state.turnScrollMission = state.missionId;
   updateTurnNavVisibility();
@@ -2851,6 +2868,8 @@ function renderSources(sources) {
     const pdf = pdfLocator(source);
     const document = documentLocator(source);
     const confluence = confluenceSourceInfo(source);
+    const confluenceUpdate = confluence ? confluenceUpdateState(source) : null;
+    const confluenceUpdateLabel = confluenceUpdateText(confluenceUpdate);
     const mediaLabel = media ? mediaSourceLabel(media) : "";
     const pdfLabel = pdf ? "PDF" : "";
     const documentLabel = document && !pdf && !media ? "문서" : "";
@@ -2876,6 +2895,7 @@ function renderSources(sources) {
         </div>
         <div class="item-meta">${escapeHTML(snapshotID)} / ${escapeHTML(connector.ConnectorID || connector.connector_id || "source")}</div>
         <div class="item-meta">${escapeHTML(locatorText)}</div>
+        ${confluenceUpdateLabel ? `<div class="item-meta">${escapeHTML(confluenceUpdateLabel)}</div>` : ""}
         <div class="item-actions">
           <button type="button" class="secondary" data-detail-title="소스 상세" data-detail-json="${escapeAttr(JSON.stringify(detailPayload))}">자세히</button>
           ${removed ? `
@@ -3057,6 +3077,40 @@ function confluenceSourceInfo(source) {
     external_uri: externalURI,
     version: connector.ExternalVersion || connector.external_version || ""
   };
+}
+
+function confluenceUpdateState(source) {
+  const sourceState = source.State || source.state || {};
+  return sourceState.ConfluenceUpdate || sourceState.confluence_update || null;
+}
+
+function confluenceUpdateText(update) {
+  if (!update) return "";
+  const status = update.status || update.Status || "";
+  const checkedAt = timeShort(update.checked_at || update.CheckedAt || "");
+  const currentVersion = update.current_version || update.CurrentVersion || 0;
+  const latestVersion = update.latest_version || update.LatestVersion || 0;
+  const category = update.error_category || update.ErrorCategory || "";
+  let result = "";
+  if (status === "current") {
+    result = `확인 당시 v${latestVersion || currentVersion || "?"} 최신`;
+  } else if (status === "update_available") {
+    result = `확인 당시 v${latestVersion || "?"} 사용 가능`;
+  } else if (status === "check_failed") {
+    result = confluenceUpdateFailureText(category);
+  }
+  if (!result) return "";
+  return `${checkedAt ? checkedAt + " · " : ""}${result}`;
+}
+
+function confluenceUpdateFailureText(category) {
+  switch (category) {
+    case "confluence_auth": return "마지막 확인 실패 · 인증 필요";
+    case "confluence_permission": return "마지막 확인 실패 · 접근 권한 확인 필요";
+    case "confluence_not_found": return "마지막 확인 실패 · 원본을 찾거나 접근할 수 없음";
+    case "confluence_rate_limited": return "마지막 확인 실패 · 요청 제한";
+    default: return "마지막 확인 실패 · Confluence에 연결할 수 없음";
+  }
 }
 
 function mediaSourceLabel(locator) {
@@ -3634,6 +3688,54 @@ function reportGenerationSummaryHTML(payload = {}) {
     </div>`;
 }
 
+function reportSourceContext(payload = {}) {
+  return reportGenerationContext(payload).source_context || null;
+}
+
+function reportSourceContextHTML(payload = {}) {
+  const context = reportSourceContext(payload);
+  if (!context || !Array.isArray(context.confluence_sources)) return "";
+  const capturedAt = timeShort(context.captured_at || "");
+  const sources = context.confluence_sources;
+  const rows = sources.length
+    ? sources.map((source) => {
+        const title = String(source.title || "Confluence source").trim();
+        const version = String(source.snapshot_version || "").trim();
+        const snapshotAt = timeShort(source.snapshot_captured_at || "");
+        const updatedAt = timeShort(source.external_updated_at || "");
+        const metadata = [
+          version ? `저장 v${version}` : "저장 버전 미상",
+          snapshotAt ? `snapshot ${snapshotAt}` : "",
+          updatedAt ? `원본 수정 ${updatedAt}` : ""
+        ].filter(Boolean).join(" · ");
+        return `<div class="report-plan-line"><span>${escapeHTML(title)}</span><span>${escapeHTML(metadata)} · ${escapeHTML(reportSourceCheckText(source.last_check || {}))}</span></div>`;
+      }).join("")
+    : `<div class="report-plan-line"><span>생성 시점에 사용 가능한 Confluence 소스가 없었습니다.</span></div>`;
+  return `
+    <div class="report-trace report-source-context" aria-label="생성 시점의 Confluence 소스 정보">
+      <div class="report-trace-head">
+        <span class="badge muted">생성 시점의 소스 정보</span>
+        <span>${escapeHTML(capturedAt ? `${capturedAt} 기준` : "캡처 시각 기록됨")}</span>
+      </div>
+      ${rows}
+    </div>`;
+}
+
+function reportSourceCheckText(check = {}) {
+  const status = String(check.status || "not_checked").trim();
+  const checkedAt = timeShort(check.checked_at || "");
+  const latestVersion = check.latest_version || 0;
+  let result = "원본 확인 기록 없음";
+  if (status === "current") {
+    result = `마지막 확인 당시 v${latestVersion || "?"} 최신`;
+  } else if (status === "update_available") {
+    result = `마지막 확인 당시 v${latestVersion || "?"} 사용 가능`;
+  } else if (status === "check_failed") {
+    result = confluenceUpdateFailureText(check.error_category || "");
+  }
+  return checkedAt ? `${checkedAt} · ${result}` : result;
+}
+
 function renderReports(versions) {
 	if (window.renderReportPipeline) window.renderReportPipeline(state.detail?.report_progress);
   const artifactReports = reportArtifactPayloads();
@@ -3745,6 +3847,7 @@ function renderReports(versions) {
                 </div>
                 ${renderTraceBars(trace)}
               </div>
+              ${reportSourceContextHTML(payload)}
               <div class="item-actions">
                 <button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-artifact">Markdown 보기</button>
                 <button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-html-artifact">기본 HTML 보기</button>
@@ -3829,6 +3932,7 @@ function openReportModal(header, kind, content) {
     body = `<pre class="report-modal-pre">${escapeHTML(content)}</pre>`;
   }
   $("detailBody").innerHTML = body;
+  window.renderPlasmaMath?.($("detailBody"));
   openDetailModal(true);
 }
 
@@ -4273,7 +4377,7 @@ function renderReportDraftStatus(status, wasPending) {
       const prefix = payload.canceled === true
         ? "리포트 MCP 패치가 취소되었습니다."
         : "리포트 MCP 패치가 완료되지 않았습니다.";
-      setReportNotice(`${prefix}${reportTimingDetails(status.event)}\n\n${payload.error || payload.text || "패치 실패 사유 없음"}`, payload.canceled === true ? undefined : "error");
+      setReportNotice(`${prefix}${reportTimingDetails(status.event)}\n\n${payload.error || payload.text || "패치 실패 사유 없음"}\n\n원본 Markdown 리포트는 유지되었습니다.`, payload.canceled === true ? undefined : "error");
     } else if (payload.canceled === true) {
       setReportNotice(`리포트 생성이 취소되었습니다.${reportTimingDetails(status.event)}\n\n${payload.text || "사용자가 리포트 생성을 취소했습니다."}`);
     } else {
@@ -4650,7 +4754,10 @@ function onTabBarClick(event) {
   if (!tab) return;
   state.activeTab = tab.dataset.tab;
   renderTabs();
-  if (state.activeTab === "settings") loadConfluenceConnections();
+  if (state.activeTab === "settings") {
+    loadModelDefaults();
+    loadConfluenceConnections();
+  }
 }
 
 function onMissionListClick(event) {
@@ -5003,7 +5110,7 @@ function renderMarkdown(value) {
   const rendered = markdownRenderer.render(text);
   return window.DOMPurify.sanitize(rendered, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ["target", "rel"]
+    ADD_ATTR: ["target", "rel", "data-tex", "data-display"]
   });
 }
 

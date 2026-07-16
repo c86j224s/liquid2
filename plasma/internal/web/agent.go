@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 type AgentExecutor interface {
@@ -38,6 +40,17 @@ type AgentRequest struct {
 	ExtraMCPTools     []string
 	ReplaceMCPTools   bool
 	ReportPatch       *AgentReportPatchContext
+	ReportPlan        *AgentReportPlanContext
+	LongFormFinalize  *reporting.LongFormFinalizeBinding
+}
+
+type AgentReportPlanContext struct {
+	PendingEventID            string
+	ReportMode                string
+	IdempotencyKey            string
+	PreviousProviderSessionID string
+	AgentModel                string
+	AgentReasoningEffort      string
 }
 
 type AgentReportPatchContext struct {
@@ -516,6 +529,14 @@ func codexMCPArgsForRequest(base []string, req AgentRequest) []string {
 	if hasReportPatchTool(req.ExtraMCPTools) || req.ReportPatch != nil {
 		args = append(args, "-report-patch")
 	}
+	if req.ReportPlan != nil {
+		args = appendReportPlanMCPArgs(args, req.ToolSessionID, *req.ReportPlan)
+	}
+	if req.LongFormFinalize != nil {
+		if encoded, err := json.Marshal(req.LongFormFinalize); err == nil {
+			args = append(args, "-report-long-form-finalize-binding-json", string(encoded))
+		}
+	}
 	if req.ReportPatch != nil {
 		args = appendReportPatchMCPArgs(args, *req.ReportPatch)
 	}
@@ -570,6 +591,21 @@ func appendReportPatchMCPArgs(args []string, patch AgentReportPatchContext) []st
 		{"-report-patch-report-session-policy", patch.ReportSessionPolicy},
 		{"-report-patch-report-session-policy-selection", patch.ReportSessionPolicySelection},
 		{"-report-patch-session-chain-kind", patch.SessionChainKind},
+	}
+	for _, item := range values {
+		if value := strings.TrimSpace(item.value); value != "" {
+			args = append(args, item.flag, value)
+		}
+	}
+	return args
+}
+
+func appendReportPlanMCPArgs(args []string, toolSessionID string, plan AgentReportPlanContext) []string {
+	values := []struct{ flag, value string }{
+		{"-report-plan-pending-event-id", plan.PendingEventID}, {"-report-plan-mode", plan.ReportMode},
+		{"-report-plan-idempotency-key", plan.IdempotencyKey}, {"-report-plan-tool-session-id", toolSessionID},
+		{"-report-plan-previous-provider-session-id", plan.PreviousProviderSessionID},
+		{"-report-plan-agent-model", plan.AgentModel}, {"-report-plan-agent-reasoning-effort", plan.AgentReasoningEffort},
 	}
 	for _, item := range values {
 		if value := strings.TrimSpace(item.value); value != "" {

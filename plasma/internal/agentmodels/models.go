@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	DefaultModel           = "gpt-5.6-terra"
+	DefaultModel           = "gpt-5.5"
 	DefaultReasoningEffort = "medium"
 )
 

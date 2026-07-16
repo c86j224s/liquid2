@@ -17,7 +17,7 @@ func TestReportDirectionPromptAllowlist(t *testing.T) {
 	for name, prompt := range map[string]string{
 		"patch": AgentReportPatchPrompt("t", "mis_1", "ses_1", "evt_1", "art_1", "edit", reporting.PatchRequest{}),
 		"part":  agentPartAssemblyPrompt("t", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, agentReportPart{}, nil, 0, ""),
-		"frame": agentSectionalFramePrompt("t", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, nil, ""),
+		"final": agentLongFormFinalizePrompt("t", "mis_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, nil, "", reporting.LongFormFinalizeBinding{ToolSessionID: "ses_1", PendingEventID: "evt_1", PlanEventID: "evt_2", IdempotencyKey: "key"}, 1, false, reporting.LongFormFinalizationHint{}),
 	} {
 		if strings.Contains(prompt, hint) || strings.Contains(prompt, reporting.DirectionAdvisory) {
 			t.Fatalf("%s leaked direction", name)

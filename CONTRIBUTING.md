@@ -1,11 +1,8 @@
 # Contributing
 
-This repository is currently operated as an owner-led pre-1.0 project under
-active development. External contributions are not being accepted yet.
-
-Issues and pull requests may be left unanswered or closed without review until
-the project has a public contribution process. Security-sensitive reports should
-still follow `SECURITY.md`.
+This repository is currently operated as a private development workspace. Public
+contribution intake is not open until the repository owner explicitly publishes
+a public contribution process.
 
 ## Before Sending Changes
 
@@ -18,8 +15,7 @@ still follow `SECURITY.md`.
 
 ## Pull Requests
 
-Pull requests are not currently accepted. When the project opens contribution
-intake later, each PR should include:
+When public pull requests are enabled, each PR should include:
 
 - the linked issue or reason for the change
 - a short user-visible summary

@@ -67,6 +67,12 @@ func ServeStdio(ctx context.Context, input io.Reader, output io.Writer, server *
 		if !message.hasID() {
 			continue
 		}
+		if id, ok := message.validRequestEnvelope(); !ok {
+			if err := encoder.Encode(rpcFailure(id, -32600, "invalid request")); err != nil {
+				return err
+			}
+			continue
+		}
 		response := handleRPC(ctx, server, message)
 		if err := encoder.Encode(response); err != nil {
 			return err
@@ -77,6 +83,35 @@ func ServeStdio(ctx context.Context, input io.Reader, output io.Writer, server *
 func (message rpcMessage) hasID() bool {
 	trimmed := strings.TrimSpace(string(message.ID))
 	return trimmed != "" && trimmed != "null"
+}
+
+func (message rpcMessage) validRequestEnvelope() (json.RawMessage, bool) {
+	if !validRPCID(message.ID) {
+		return json.RawMessage(`null`), false
+	}
+	if message.JSONRPC != "2.0" {
+		return message.ID, false
+	}
+	return message.ID, true
+}
+
+func validRPCID(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return false
+	}
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(trimmed))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
+		return false
+	}
+	switch value.(type) {
+	case string, json.Number:
+		return true
+	default:
+		return false
+	}
 }
 
 func handleRPC(ctx context.Context, server *Server, message rpcMessage) rpcResponse {
@@ -187,13 +222,16 @@ func mcpTools(tools []ToolDefinition) []mcpToolDefinition {
 
 func callMCPTool(ctx context.Context, server *Server, params json.RawMessage) map[string]any {
 	var input toolCallParams
-	if len(params) > 0 {
-		_ = json.Unmarshal(params, &input)
+	if len(params) > 0 && json.Unmarshal(params, &input) != nil {
+		return mcpToolResult(errorResult("", "", "protocol", "tools/call params are invalid", false, nil))
 	}
 	if len(input.Arguments) == 0 {
 		input.Arguments = json.RawMessage(`{}`)
 	}
-	result := server.Call(ctx, ToolCall{Name: input.Name, Arguments: input.Arguments})
+	return mcpToolResult(server.Call(ctx, ToolCall{Name: input.Name, Arguments: input.Arguments}))
+}
+
+func mcpToolResult(result ToolResult) map[string]any {
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		encoded = []byte(`{"error":{"error_kind":"internal","message":"failed to encode tool result","retryable":false}}`)

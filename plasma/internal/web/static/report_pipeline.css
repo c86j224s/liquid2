@@ -37,8 +37,8 @@
 .pipeline-graph { display: block; width: max(100%, var(--pipeline-width)); height: 136px; }
 .pipeline-connector { fill: none; stroke: var(--line2); stroke-width: 2; }
 .pipeline-graph marker path { fill: var(--line2); }
-.pipeline-visual-lane rect { fill: color-mix(in srgb, var(--surface) 86%, var(--line2)); stroke: var(--line2); }
-.pipeline-lane-label { fill: var(--ink2); font-size: 12px; font-weight: 600; }
+.pipeline-visual-phase rect { fill: color-mix(in srgb, var(--surface) 86%, var(--line2)); stroke: var(--line2); }
+.pipeline-phase-label { fill: var(--ink2); font-size: 12px; font-weight: 600; }
 .pipeline-visual-dot { fill: var(--muted); }
 .pipeline-visual-label { fill: var(--ink2); font-size: 12px; font-weight: 600; }
 .pipeline-visual-time { fill: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
@@ -50,13 +50,13 @@
 }
 .pipeline-visual-node.state-failed .pipeline-visual-dot { fill: var(--red); }
 .pipeline-visual-node.state-skipped .pipeline-visual-dot { fill: var(--line2); }
-.pipeline-graph .pipeline-visual-lane,
+.pipeline-graph .pipeline-visual-phase,
 .pipeline-graph .pipeline-visual-node:not(.pipeline-visual-node-plan),
 .pipeline-graph .pipeline-connector {
   opacity: 1;
   transition: opacity 240ms ease-out;
 }
-.pipeline-graph-revealing .pipeline-visual-lane,
+.pipeline-graph-revealing .pipeline-visual-phase,
 .pipeline-graph-revealing .pipeline-visual-node:not(.pipeline-visual-node-plan),
 .pipeline-graph-revealing .pipeline-connector {
   opacity: 0;
@@ -80,7 +80,7 @@
 }
 
 .pipeline-flow { margin: 0; padding: 0; }
-.pipeline-lane ul { margin: 0; padding: 0; }
+.pipeline-phase ul { margin: 0; padding: 0; }
 .pipeline-node { list-style: none; }
 .pipeline-icon { color: var(--muted); }
 .state-completed .pipeline-icon { color: var(--green); }
@@ -99,7 +99,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pipeline-visual-node.state-running .pipeline-visual-dot { animation: none; filter: none; }
-  .pipeline-graph .pipeline-visual-lane,
+  .pipeline-graph .pipeline-visual-phase,
   .pipeline-graph .pipeline-visual-node:not(.pipeline-visual-node-plan),
   .pipeline-graph .pipeline-connector { transition: none; }
 }

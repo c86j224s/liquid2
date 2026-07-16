@@ -2,16 +2,16 @@ package agentmodels
 
 import "testing"
 
-func TestResolveUsesTerraMediumDefault(t *testing.T) {
+func TestResolveUsesGPT55MediumDefault(t *testing.T) {
 	metadata := Default()
-	if metadata.Name != "gpt-5.6-terra" || metadata.Label != "GPT-5.6 Terra" {
+	if metadata.Name != "gpt-5.5" || metadata.Label != "GPT-5.5" {
 		t.Fatalf("unexpected default metadata: %#v", metadata)
 	}
 	model, effort, err := Resolve("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model != "gpt-5.6-terra" || effort != "medium" {
+	if model != "gpt-5.5" || effort != "medium" {
 		t.Fatalf("got %q / %q", model, effort)
 	}
 }

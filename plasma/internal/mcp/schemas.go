@@ -2,6 +2,50 @@ package mcp
 
 import "encoding/json"
 
+var schemaReportPlanSubmit = json.RawMessage(`{
+  "type":"object",
+  "additionalProperties":false,
+  "required":["mission_id","session_id","pending_event_id","report_mode","idempotency_key","producer","plan"],
+  "properties":{
+    "mission_id":{"type":"string"},
+    "session_id":{"type":"string"},
+    "pending_event_id":{"type":"string"},
+    "report_mode":{"enum":["planned","long_form"]},
+    "idempotency_key":{"type":"string"},
+    "producer":{"$ref":"#/$defs/producer"},
+    "plan":{}
+  },
+  "oneOf":[
+    {"properties":{"report_mode":{"const":"planned"},"plan":{"$ref":"#/$defs/planned_plan"}}},
+    {"properties":{"report_mode":{"const":"long_form"},"plan":{"$ref":"#/$defs/long_form_plan"}}}
+  ],
+  "$defs":{
+    "producer":{"type":"object","additionalProperties":false,"required":["type","id"],"properties":{"type":{"const":"agent_session"},"id":{"type":"string"}}},
+    "target_refs":{"type":"object","additionalProperties":false,"properties":{"claim_ids":{"type":"array","items":{"type":"string"}},"evidence_ids":{"type":"array","items":{"type":"string"}},"snapshot_ids":{"type":"array","items":{"type":"string"}},"question_ids":{"type":"array","items":{"type":"string"}},"option_ids":{"type":"array","items":{"type":"string"}}}},
+    "planned_section":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"target_refs":{"$ref":"#/$defs/target_refs"}}},
+    "long_form_section":{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"target_refs":{"$ref":"#/$defs/target_refs"}}},
+    "part":{"type":"object","additionalProperties":false,"required":["title","sections"],"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"sections":{"type":"array","items":{"$ref":"#/$defs/long_form_section"}}}},
+    "planned_plan":{"type":"object","additionalProperties":false,"anyOf":[{"required":["summary"]},{"required":["sections"]}],"properties":{"summary":{"type":"string"},"sections":{"type":"array","items":{"$ref":"#/$defs/planned_section"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}}}},
+    "long_form_plan":{"type":"object","additionalProperties":false,"required":["parts"],"properties":{"summary":{"type":"string"},"parts":{"type":"array","items":{"$ref":"#/$defs/part"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}}}}
+  }
+}`)
+
+var schemaReportLongFormFinalize = json.RawMessage(`{
+  "type":"object",
+  "additionalProperties":false,
+  "required":["mission_id","session_id","pending_event_id","plan_event_id","idempotency_key","producer","opening_markdown","closing_markdown"],
+  "properties":{
+    "mission_id":{"type":"string"},
+    "session_id":{"type":"string"},
+    "pending_event_id":{"type":"string"},
+    "plan_event_id":{"type":"string"},
+    "idempotency_key":{"type":"string"},
+    "producer":{"type":"object","additionalProperties":false,"required":["type","id"],"properties":{"type":{"const":"agent_session"},"id":{"type":"string"}}},
+    "opening_markdown":{"type":"string"},
+    "closing_markdown":{"type":"string"}
+  }
+}`)
+
 var (
 	schemaMissionGet              = objectSchema([]string{"mission_id"}, baseProperties())
 	schemaMissionUpdate           = missionUpdateSchema()

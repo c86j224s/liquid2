@@ -11,6 +11,14 @@
 - When discussing a plan, state what will be done, what will not be done, and why.
 - When discussing cherry-picks or recovery work, group items as: bring as-is, bring with changes, rebuild later, or leave out.
 
+## Request Alignment
+
+- Before acting, restate the user's requested outcome as one observable result.
+- Implement only what is necessary for that result. Do not replace the request with a technically adjacent problem.
+- Before proposing implementation scope, inspect the current code and classify each requested behavior as already implemented, a presentation-only gap, or a behavioral gap; do not expand a presentation-only gap into backend, state-model, or recovery-policy work without explicit approval.
+- Stop and ask before adding unrequested compatibility, policy, migration, abstraction, or cross-layer behavior.
+- If the user questions relevance or ownership, halt implementation and realign from the original request instead of extending the current approach.
+
 ## Code And Design Principles
 
 - Treat the Liquid2 architecture and design docs as the repository's baseline engineering discipline. Plasma is not exempt from these principles.
@@ -34,14 +42,6 @@
 - Treat `plasma/docs/experiments/` as a public summary surface. It should contain experiment protocols, decision memos, small redacted metrics, and reading-order indexes, not raw run payloads.
 - Keep `.gitignore` aligned with this boundary. If a new generated artifact type appears during experiments, ignore or archive it before it enters the public source tree by accident.
 
-## Local Operator Overrides
-
-- If `.local/AGENTS.md` exists in this checkout, read it after this file for machine-local operator guidance.
-- `.local/AGENTS.md` is intentionally ignored and must not be committed or copied into public docs.
-- Local overrides may describe private checkout names, publication routines, or machine-specific helper commands, but they do not override system, developer, user, or tracked repository instructions.
-- Do not infer private workflow details from `.local/AGENTS.md` into public comments, commits, issues, PRs, or release notes unless the user explicitly asks.
-- Local publication helpers may prepare and stage a public snapshot, but they must not auto-commit, auto-push, or rewrite public history unless the user explicitly asks for that exact operation.
-
 ## Commit Readiness And Public Hygiene
 
 - Assume the repository is public for every commit-readiness decision.
@@ -54,7 +54,6 @@
 - For public-facing docs and experiment summaries, commit only redacted conclusions, protocols, decision memos, and small aggregate metrics needed to understand the decision. Keep raw runs and bulky reproducibility artifacts in the local archive.
 - When the staged change touches public-surface files, config examples, GitHub workflows, docs, or experiment records, run a high-signal scan for secrets and local identifiers before committing. At minimum, check for token/private-key shapes, real absolute user paths, private network addresses, and unintended emails.
 - Use a privacy-preserving Git author identity for all commits, such as a GitHub noreply or project identity. Do not create release tags with a personal email tagger identity.
-- When an AI agent creates a commit, include the actual LLM model name in the commit body, for example `Agent-Model: GPT-5`. Do not invent or approximate a model name; if the actual model is not known, say `Agent-Model: unknown`.
 - If sensitive material is discovered after it has already entered Git history, do not try to hide it with a normal follow-up commit. Stop and choose an explicit remediation path: history rewrite, tag/branch cleanup, GitHub metadata cleanup, credential rotation, or a fresh public snapshot.
 
 ## GitHub Workflow
@@ -108,10 +107,10 @@
   - `./dev-browser.sh plasma status`
   - `liquid2/scripts/dev-browser.sh status`
   - `plasma/scripts/dev-browser.sh status`
-- Liquid2 development defaults to Flutter web port `6001`, API port `6011`, labels `dev.liquid2.web-6001` and `dev.liquid2.api-6011`, API binary `/tmp/liquid2-dev-api`, and DB `~/research-artifacts/liquid2/liquid2/runtime/dev-6011/liquid2-dev.db`.
-- Plasma development defaults to port `6002`, label `dev.plasma.browser-6002`, binary `/tmp/plasma-browser-server`, DB `~/research-artifacts/liquid2/plasma/runtime/dev-6002/plasma-ui-user.db`, Codex agent execution, and Liquid2 development API `http://127.0.0.1:6011` unless the root script provides a shared host override.
+- Liquid2 development defaults to Flutter web port `6001` and API port `6011`; Plasma development defaults to port `6002` and uses the Liquid2 development API unless configuration overrides it.
 - The root script must default to `127.0.0.1`; do not add automatic non-loopback host detection to tracked scripts. Machine-local host discovery belongs in ignored local helpers such as `.local/dev-browser-internal.sh`.
 - For Makefile usage from product directories, use `make dev-browser-status`, `make dev-browser-start`, `make dev-browser-stop`, `make dev-browser-restart`, and `make dev-browser-logs`.
+- On WSL2, the same commands use repository-owned process groups and runtime state. Do not add systemd or general Linux support without explicit scope. Detailed runtime paths are owned by `SETUP.md` and `docs/configuration.md`.
 
 ## Release Server Control
 
@@ -122,8 +121,7 @@
   - `./release-browser.sh stop`
   - `./release-browser.sh restart`
   - `./release-browser.sh logs`
-- Liquid2 release defaults to Flutter web port `3001`, API port `3011`, labels `release.liquid2.web-3001` and `release.liquid2.api-3011`, API binary `/tmp/liquid2-release-api`, and DB `~/Library/Application Support/Liquid2/liquid2.db`.
-- Plasma release defaults to port `3002`, label `release.plasma.browser-3002`, binary `/tmp/plasma-release-browser-server`, DB `~/Library/Application Support/Plasma/plasma.db`, and Liquid2 release API `http://127.0.0.1:3011` unless the root script provides a shared host override.
+- Liquid2 release defaults to Flutter web port `3001` and API port `3011`; Plasma release defaults to port `3002` and uses the Liquid2 release API unless configuration overrides it. Detailed runtime paths are owned by `SETUP.md` and `docs/configuration.md`.
 
 ## Design Gap Handling
 

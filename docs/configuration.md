@@ -5,9 +5,15 @@ intended for local paths, provider credentials, and runtime integration values
 that should not be committed.
 
 The Go binaries parse TOML directly. Browser scripts do not parse app runtime
-config; they only select development or release mode and control launchd or
-Flutter. File selection, default values, and status output are owned by each
-app.
+config; they only select development or release mode and control launchd on
+macOS or process groups on WSL2. File selection, default values, and status
+output are owned by each app.
+
+Configured paths keep their existing precedence. When no release database path
+is configured, macOS uses `~/Library/Application Support/<Product>` and WSL2
+uses `${XDG_DATA_HOME:-$HOME/.local/share}/<product>`. Development database
+defaults remain under `~/research-artifacts/liquid2/`. This fallback applies
+only to WSL2; unsupported platforms keep their prior release default.
 
 ## Liquid2 Files
 
@@ -155,9 +161,10 @@ timeout = "10m"
 
 [plasma-agents.codex]
 command = "codex"
-# Interactive Codex sessions use Plasma's gpt-5.6-terra / medium default.
+# Interactive Codex sessions use Plasma's GPT-5.5 / medium default.
 # Model and reasoning effort are selected per mission in Plasma.
-# These remain specialized workflow-goal drafting settings.
+# These remain specialized workflow-goal drafting fallback settings.
+# The Settings screen can override them for workflow goal drafts.
 workflow_goal_model = ""
 workflow_goal_reasoning_effort = "low"
 

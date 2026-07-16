@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	htmlpkg "html"
+	"log"
 	"mime"
 	"net/http"
 	"path/filepath"
@@ -19,8 +20,6 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
-	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
 )
 
 func (server *Server) handleMissionReports(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -516,6 +515,7 @@ func (server *Server) exportMarkdownArtifactAsHTML(ctx context.Context, missionI
 		MissionID:        missionID,
 		SourceArtifactID: sourceArtifact.ArtifactID,
 		Artifact:         artifact,
+		RendererVersion:  selfContainedReportRendererVersion,
 		Producer:         app.Producer{Type: "plasma", ID: "html-export"},
 	}))
 	if err != nil {
@@ -539,13 +539,15 @@ func (server *Server) existingMarkdownArtifactHTMLExport(ctx context.Context, mi
 			SourceArtifactID string `json:"source_artifact_id"`
 			ArtifactID       string `json:"artifact_id"`
 			Target           string `json:"target"`
+			RendererVersion  string `json:"renderer_version"`
 		}
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			continue
 		}
 		if strings.TrimSpace(payload.Kind) != reporting.ExportKindSelfContainedHTML ||
 			strings.TrimSpace(payload.SourceArtifactID) != sourceArtifactID ||
-			strings.TrimSpace(payload.Target) != reporting.ExportTargetSelfContainedHTML {
+			strings.TrimSpace(payload.Target) != reporting.ExportTargetSelfContainedHTML ||
+			strings.TrimSpace(payload.RendererVersion) != selfContainedReportRendererVersion {
 			continue
 		}
 		artifactID := strings.TrimSpace(payload.ArtifactID)
@@ -805,29 +807,38 @@ func (server *Server) existingDesignedReportHTMLExport(ctx context.Context, miss
 }
 
 func (server *Server) renderSelfContainedReportHTML(ctx context.Context, missionID string, sourceArtifact app.RawArtifact) ([]byte, error) {
-	var rendered bytes.Buffer
-	md := goldmark.New(goldmark.WithExtensions(extension.GFM))
-	if err := md.Convert(sourceArtifact.Content, &rendered); err != nil {
-		return nil, err
-	}
 	images, notes, err := server.inlineReportImages(ctx, missionID)
 	if err != nil {
 		return nil, err
 	}
 	title := reportArtifactTitle(sourceArtifact)
+	mathHead, err := selfContainedMathHead()
+	if err != nil {
+		return nil, err
+	}
+	mathScripts, err := selfContainedMarkdownScripts()
+	if err != nil {
+		return nil, err
+	}
 	wordCount := len(strings.Fields(string(sourceArtifact.Content)))
+	markdownJSON, err := json.Marshal(string(sourceArtifact.Content))
+	if err != nil {
+		return nil, err
+	}
 	var out bytes.Buffer
 	out.WriteString("<!doctype html>\n<html lang=\"ko\">\n<head>\n<meta charset=\"utf-8\">\n")
 	out.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
 	out.WriteString("<title>" + htmlpkg.EscapeString(title) + "</title>\n")
 	out.WriteString(selfContainedReportCSS())
+	out.WriteString(mathHead)
 	out.WriteString("</head>\n<body>\n")
 	out.WriteString("<header class=\"hero\"><div><p class=\"eyebrow\">Plasma Report</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"sub\">Markdown report artifact에서 파생한 self-contained interactive HTML입니다. 이미지는 가능한 경우 원본 source artifact를 data URI로 포함했습니다.</p></div><button id=\"themeToggle\" type=\"button\">테마 전환</button></header>\n")
 	out.WriteString("<main class=\"layout\">\n")
 	out.WriteString("<aside class=\"rail\"><div class=\"metric\"><span>본문 단어</span><strong>" + strconv.Itoa(wordCount) + "</strong></div><div class=\"metric\"><span>포함 이미지</span><strong>" + strconv.Itoa(len(images)) + "</strong></div><div class=\"metric\"><span>원본 artifact</span><code>" + htmlpkg.EscapeString(sourceArtifact.ArtifactID) + "</code></div><nav><a href=\"#report-body\">본문</a><a href=\"#media-gallery\">미디어</a><a href=\"#export-notes\">생성 노트</a></nav></aside>\n")
 	out.WriteString("<article id=\"report-body\" class=\"report-body\">\n")
-	out.Write(rendered.Bytes())
+	out.WriteString("<pre class=\"report-markdown-raw\">" + htmlpkg.EscapeString(string(sourceArtifact.Content)) + "</pre>")
 	out.WriteString("</article>\n")
+	out.WriteString("<script id=\"report-markdown\" type=\"application/json\">" + string(markdownJSON) + "</script>\n")
 	out.WriteString("<section id=\"media-gallery\" class=\"media-panel\"><div class=\"section-head\"><h2>미디어</h2><span>" + strconv.Itoa(len(images)) + "개 이미지 포함</span></div>")
 	if len(images) == 0 {
 		out.WriteString("<p class=\"muted\">이 미션의 active image source 중 self-contained HTML에 포함할 수 있는 이미지가 없습니다.</p>")
@@ -847,7 +858,8 @@ func (server *Server) renderSelfContainedReportHTML(ctx context.Context, mission
 	}
 	out.WriteString("</ul></section>\n")
 	out.WriteString("</main>\n")
-	out.WriteString("<script>const b=document.body,t=document.getElementById('themeToggle');t?.addEventListener('click',()=>b.classList.toggle('light'));document.querySelectorAll('.report-body h2,.report-body h3').forEach(h=>{h.tabIndex=0;h.addEventListener('click',()=>h.classList.toggle('marked'))});</script>\n")
+	out.WriteString("<script>const b=document.body,t=document.getElementById('themeToggle');t?.addEventListener('click',()=>b.classList.toggle('light'));</script>\n")
+	out.WriteString(mathScripts)
 	out.WriteString("</body>\n</html>\n")
 	return out.Bytes(), nil
 }
@@ -1007,7 +1019,7 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	req.MCPMode = mcpMode
 	req.RigorLevel = rigor.level
 	req.ReportMode = reportMode
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidance(req.GenerationGuidanceProfile)
+	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -1398,7 +1410,7 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 		return nil, err
 	}
 	postReportHumanize := normalizePostReportHumanize(req.PostReportHumanize)
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidance(req.GenerationGuidanceProfile)
+	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -1766,7 +1778,6 @@ func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID st
 
 func (server *Server) createPlannedReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
 	artifactID := newID("art")
-	planToolSessionID := newID("ses")
 	if strings.TrimSpace(reportSessionPolicy) == "" {
 		reportSessionPolicy = reportSessionPolicySameSession
 	}
@@ -1795,79 +1806,89 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 		sessionChainKind = "isolated_fork_report"
 	}
 	started := time.Now()
-	planStarted := time.Now()
-	planResult, err := executor.Run(ctx, AgentRequest{
-		UserText:          "plan markdown report artifact",
-		Prompt:            withReportDirection(agentReportPlanPrompt(title, missionID, planToolSessionID, rigor), directionHint),
-		Model:             agentModel,
-		ReasoningEffort:   agentReasoningEffort,
-		MissionID:         missionID,
-		ToolSessionID:     planToolSessionID,
-		PreviousSessionID: reportStartSessionID,
-		AgentExecutor:     executorName,
-		MCPMode:           mcpMode,
-	})
-	planDurationMS := time.Since(planStarted).Milliseconds()
-	if err != nil {
-		return nil, fmt.Errorf("report planning agent failed: %w", reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
-	}
-	returnedPlanSessionID := strings.TrimSpace(planResult.SessionID)
-	planResult, err = validatedSameSessionResult(planResult, reportStartSessionID)
-	if err != nil {
-		return nil, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID)
-	}
-	plan, err := parseAgentReportPlan(planResult.Text)
-	if err != nil {
-		return nil, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID)
-	}
-	planEvent, err := server.service.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
-		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
-			EventID:                      newID("evt"),
-			MissionID:                    missionID,
-			PendingEventID:               pendingEventID,
-			Title:                        title,
-			AgentExecutor:                executorName,
-			AgentModel:                   agentModel,
-			AgentReasoningEffort:         agentReasoningEffort,
-			AgentSelectionSource:         agentSelectionSource,
-			AgentSessionID:               planResult.SessionID,
-			PreviousAgentSessionID:       reportStartSessionID,
-			ReturnedAgentSessionID:       returnedPlanSessionID,
-			ToolSessionID:                planToolSessionID,
-			MCPMode:                      mcpMode,
-			RigorLevel:                   rigor.level,
-			RigorLabel:                   rigor.label,
-			ReportMode:                   reportModePlanned,
-			ReportModeLabel:              reportModeLabel(reportModePlanned),
-			ReportSessionPolicy:          reportSessionPolicy,
-			ReportSessionPolicySelection: reportSessionPolicySelection,
-			PostReportHumanize:           postReportHumanize,
-			HumanizeEnabled:              postReportHumanize != "disabled",
-			GenerationGuidanceProfile:    generationGuidanceProfile,
-			GenerationGuidanceSHA256:     generationGuidanceSHA256,
-			SessionChainKind:             sessionChainKind,
-			PreReportResearchSessionID:   previousSessionID,
-			ReportPlanSessionID:          planResult.SessionID,
-			ReportSessionID:              "",
-			ForkSourceAgentSessionID:     forkSourceSessionID,
-			PostReportResearchSessionID:  "",
-			CompositionStrategy:          "planned_markdown",
-			DurationMS:                   planDurationMS,
-			Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
-			AgentUsage:                   planResult.Usage,
-			AgentUsageSurface:            "report_plan",
-			AgentUsageDurationMS:         planDurationMS,
-			AgentResumed:                 planResult.Resumed,
-			Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(planResult.SessionID, planToolSessionID)},
+	var planResult AgentResult
+	var returnedPlanSessionID string
+	var planDurationMS int64
+	lifecycle, err := server.reportRunner().RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+		MissionID: missionID, PendingEventID: pendingEventID, ReportMode: reportModePlanned, AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, PreviousProviderSessionID: reportStartSessionID,
+		Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
+			planStarted := time.Now()
+			result, runErr := executor.Run(ctx, AgentRequest{
+				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor), directionHint),
+				Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
+				ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+			})
+			planDurationMS = time.Since(planStarted).Milliseconds()
+			planResult = result
+			if runErr != nil {
+				return reporting.ReportPlanLifecycleAgentResult{}, fmt.Errorf("report planning agent failed: %w", reportAgentFailure(runErr, result, "report_plan", planDurationMS, reportStartSessionID))
+			}
+			returnedPlanSessionID = strings.TrimSpace(result.SessionID)
+			validated, validateErr := validatedSameSessionResult(result, reportStartSessionID)
+			if validateErr != nil {
+				return reporting.ReportPlanLifecycleAgentResult{}, reportAgentFailure(validateErr, result, "report_plan", planDurationMS, reportStartSessionID)
+			}
+			planResult = validated
+			return reporting.ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
 		},
-		ArtifactID:         artifactID,
-		Plan:               plan,
-		PlanReviewRequired: false,
-		PlanReviewState:    "auto_accepted",
-	}))
+		BuildCanonical: func(value any, _ app.ReportPlanSubmissionSelection, binding reporting.ReportPlanLifecycleBinding) (app.AppendEventRequest, error) {
+			plan, ok := value.(reporting.ReportPlan)
+			if !ok {
+				return app.AppendEventRequest{}, fmt.Errorf("%w: invalid planned report plan", app.ErrInvalidInput)
+			}
+			return reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
+				MarkdownReportEventBase: reporting.MarkdownReportEventBase{
+					EventID:                      newID("evt"),
+					MissionID:                    missionID,
+					PendingEventID:               pendingEventID,
+					Title:                        title,
+					AgentExecutor:                executorName,
+					AgentModel:                   agentModel,
+					AgentReasoningEffort:         agentReasoningEffort,
+					AgentSelectionSource:         agentSelectionSource,
+					AgentSessionID:               planResult.SessionID,
+					PreviousAgentSessionID:       reportStartSessionID,
+					ReturnedAgentSessionID:       returnedPlanSessionID,
+					ToolSessionID:                binding.ToolSessionID,
+					MCPMode:                      mcpMode,
+					RigorLevel:                   rigor.level,
+					RigorLabel:                   rigor.label,
+					ReportMode:                   reportModePlanned,
+					ReportModeLabel:              reportModeLabel(reportModePlanned),
+					ReportSessionPolicy:          reportSessionPolicy,
+					ReportSessionPolicySelection: reportSessionPolicySelection,
+					PostReportHumanize:           postReportHumanize,
+					HumanizeEnabled:              postReportHumanize != "disabled",
+					GenerationGuidanceProfile:    generationGuidanceProfile,
+					GenerationGuidanceSHA256:     generationGuidanceSHA256,
+					SessionChainKind:             sessionChainKind,
+					PreReportResearchSessionID:   previousSessionID,
+					ReportPlanSessionID:          planResult.SessionID,
+					ReportSessionID:              "",
+					ForkSourceAgentSessionID:     forkSourceSessionID,
+					PostReportResearchSessionID:  "",
+					CompositionStrategy:          "planned_markdown",
+					DurationMS:                   planDurationMS,
+					Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
+					AgentUsage:                   planResult.Usage,
+					AgentUsageSurface:            "report_plan",
+					AgentUsageDurationMS:         planDurationMS,
+					AgentResumed:                 planResult.Resumed,
+					Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(planResult.SessionID, binding.ToolSessionID)},
+				},
+				ArtifactID:         artifactID,
+				Plan:               plan,
+				PlanReviewRequired: false,
+				PlanReviewState:    "auto_accepted",
+			}), nil
+		},
+	})
 	if err != nil {
 		return nil, err
 	}
+	plan := lifecycle.Plan.(reporting.ReportPlan)
+	planEvent := lifecycle.Event
+	planToolSessionID := lifecycle.Binding.ToolSessionID
 
 	toolSessionID := newID("ses")
 	reportStarted := time.Now()
@@ -2001,7 +2022,6 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 	forkSourceSessionID := strings.TrimSpace(progress.forkSourceSessionID)
 	reportPlanSessionID := strings.TrimSpace(progress.reportPlanSessionID)
 	if !progress.hasPlan {
-		planToolSessionID := newID("ses")
 		previousSessionID := server.latestAgentSessionID(ctx, missionID, executorName)
 		preReportResearchSessionID = previousSessionID
 		reportStartSessionID := previousSessionID
@@ -2024,81 +2044,90 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			}
 			sessionChainKind = "isolated_fork_report"
 		}
-		planStarted := time.Now()
-		planResult, err := executor.Run(ctx, AgentRequest{
-			UserText:          "plan sectional long-form markdown report",
-			Prompt:            withReportDirection(agentSectionalReportPlanPrompt(title, missionID, planToolSessionID, rigor), directionHint),
-			Model:             agentModel,
-			ReasoningEffort:   agentReasoningEffort,
-			MissionID:         missionID,
-			ToolSessionID:     planToolSessionID,
-			PreviousSessionID: reportStartSessionID,
-			AgentExecutor:     executorName,
-			MCPMode:           mcpMode,
-		})
-		planDurationMS := time.Since(planStarted).Milliseconds()
-		if err != nil {
-			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
-		}
-		returnedPlanSessionID := strings.TrimSpace(planResult.SessionID)
-		planResult, err = validatedSameSessionResult(planResult, reportStartSessionID)
-		if err != nil {
-			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
-		}
-		plan, err = parseAgentSectionalReportPlan(planResult.Text)
-		if err != nil {
-			return nil, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(err, planResult, "report_plan", planDurationMS, reportStartSessionID))
-		}
-		reportPlanSessionID = planResult.SessionID
-		planEvent, err = server.service.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
-			MarkdownReportEventBase: reporting.MarkdownReportEventBase{
-				EventID:                      newID("evt"),
-				MissionID:                    missionID,
-				PendingEventID:               pendingEventID,
-				Title:                        title,
-				AgentExecutor:                executorName,
-				AgentModel:                   agentModel,
-				AgentReasoningEffort:         agentReasoningEffort,
-				AgentSelectionSource:         agentSelectionSource,
-				AgentSessionID:               planResult.SessionID,
-				PreviousAgentSessionID:       reportStartSessionID,
-				ReturnedAgentSessionID:       returnedPlanSessionID,
-				ToolSessionID:                planToolSessionID,
-				MCPMode:                      mcpMode,
-				RigorLevel:                   rigor.level,
-				RigorLabel:                   rigor.label,
-				ReportMode:                   reportModeLongForm,
-				ReportModeLabel:              reportModeLabel(reportModeLongForm),
-				ReportSessionPolicy:          reportSessionPolicy,
-				ReportSessionPolicySelection: reportSessionPolicySelection,
-				PostReportHumanize:           postReportHumanize,
-				HumanizeEnabled:              postReportHumanize != "disabled",
-				GenerationGuidanceProfile:    generationGuidanceProfile,
-				GenerationGuidanceSHA256:     generationGuidanceSHA256,
-				SessionChainKind:             sessionChainKind,
-				PreReportResearchSessionID:   preReportResearchSessionID,
-				ReportPlanSessionID:          planResult.SessionID,
-				ReportSessionID:              "",
-				ForkSourceAgentSessionID:     forkSourceSessionID,
-				PostReportResearchSessionID:  "",
-				CompositionStrategy:          "sectional_preserve_markdown",
-				DurationMS:                   planDurationMS,
-				Text:                         "섹션별 장문 Markdown 리포트 생성 계획을 만들었습니다.",
-				AgentUsage:                   planResult.Usage,
-				AgentUsageSurface:            "report_plan",
-				AgentUsageDurationMS:         planDurationMS,
-				AgentResumed:                 planResult.Resumed,
-				Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(planResult.SessionID, planToolSessionID)},
+		var planResult AgentResult
+		var returnedPlanSessionID string
+		var planDurationMS int64
+		lifecycle, lifecycleErr := server.reportRunner().RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+			MissionID: missionID, PendingEventID: pendingEventID, ReportMode: reportModeLongForm, AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, PreviousProviderSessionID: reportStartSessionID,
+			Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
+				planStarted := time.Now()
+				result, runErr := executor.Run(ctx, AgentRequest{
+					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor), directionHint),
+					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
+					ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+				})
+				planDurationMS = time.Since(planStarted).Milliseconds()
+				planResult = result
+				if runErr != nil {
+					return reporting.ReportPlanLifecycleAgentResult{}, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(runErr, result, "report_plan", planDurationMS, reportStartSessionID))
+				}
+				returnedPlanSessionID = strings.TrimSpace(result.SessionID)
+				validated, validateErr := validatedSameSessionResult(result, reportStartSessionID)
+				if validateErr != nil {
+					return reporting.ReportPlanLifecycleAgentResult{}, longFormStageFailure("plan", "", 0, 0, reportAgentFailure(validateErr, result, "report_plan", planDurationMS, reportStartSessionID))
+				}
+				planResult = validated
+				return reporting.ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
 			},
-			ArtifactID:         artifactID,
-			Plan:               plan,
-			AssemblyStrategy:   "c4_normalized_section_headings",
-			PlanReviewRequired: false,
-			PlanReviewState:    "auto_accepted",
-		}))
-		if err != nil {
-			return nil, longFormStageFailure("plan", "", 0, 0, err)
+			BuildCanonical: func(value any, _ app.ReportPlanSubmissionSelection, binding reporting.ReportPlanLifecycleBinding) (app.AppendEventRequest, error) {
+				valuePlan, ok := value.(reporting.SectionalReportPlan)
+				if !ok {
+					return app.AppendEventRequest{}, fmt.Errorf("%w: invalid long-form report plan", app.ErrInvalidInput)
+				}
+				return reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
+					MarkdownReportEventBase: reporting.MarkdownReportEventBase{
+						EventID:                      newID("evt"),
+						MissionID:                    missionID,
+						PendingEventID:               pendingEventID,
+						Title:                        title,
+						AgentExecutor:                executorName,
+						AgentModel:                   agentModel,
+						AgentReasoningEffort:         agentReasoningEffort,
+						AgentSelectionSource:         agentSelectionSource,
+						AgentSessionID:               planResult.SessionID,
+						PreviousAgentSessionID:       reportStartSessionID,
+						ReturnedAgentSessionID:       returnedPlanSessionID,
+						ToolSessionID:                binding.ToolSessionID,
+						MCPMode:                      mcpMode,
+						RigorLevel:                   rigor.level,
+						RigorLabel:                   rigor.label,
+						ReportMode:                   reportModeLongForm,
+						ReportModeLabel:              reportModeLabel(reportModeLongForm),
+						ReportSessionPolicy:          reportSessionPolicy,
+						ReportSessionPolicySelection: reportSessionPolicySelection,
+						PostReportHumanize:           postReportHumanize,
+						HumanizeEnabled:              postReportHumanize != "disabled",
+						GenerationGuidanceProfile:    generationGuidanceProfile,
+						GenerationGuidanceSHA256:     generationGuidanceSHA256,
+						SessionChainKind:             sessionChainKind,
+						PreReportResearchSessionID:   preReportResearchSessionID,
+						ReportPlanSessionID:          planResult.SessionID,
+						ReportSessionID:              "",
+						ForkSourceAgentSessionID:     forkSourceSessionID,
+						PostReportResearchSessionID:  "",
+						CompositionStrategy:          "sectional_preserve_markdown",
+						DurationMS:                   planDurationMS,
+						Text:                         "섹션별 장문 Markdown 리포트 생성 계획을 만들었습니다.",
+						AgentUsage:                   planResult.Usage,
+						AgentUsageSurface:            "report_plan",
+						AgentUsageDurationMS:         planDurationMS,
+						AgentResumed:                 planResult.Resumed,
+						Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(planResult.SessionID, binding.ToolSessionID)},
+					},
+					ArtifactID:         artifactID,
+					Plan:               valuePlan,
+					AssemblyStrategy:   "c4_normalized_section_headings",
+					PlanReviewRequired: false,
+					PlanReviewState:    "auto_accepted",
+				}), nil
+			},
+		})
+		if lifecycleErr != nil {
+			return nil, lifecycleErr
 		}
+		plan = lifecycle.Plan.(reporting.SectionalReportPlan)
+		planEvent = lifecycle.Event
+		reportPlanSessionID = planResult.SessionID
 		currentSessionID = strings.TrimSpace(planResult.SessionID)
 	}
 	if currentSessionID == "" {
@@ -2109,9 +2138,24 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 	sectionArtifactIDs := []string{}
 	sectionWordTotal := 0
 	for partIndex, part := range plan.Parts {
-		if draft, ok := progress.parts[partIndex]; ok {
+		if recoveredPart, ok := progress.parts[partIndex]; ok {
+			recoveredSections := make([]sectionalReportDraft, 0, len(part.Sections))
+			for sectionIndex := range part.Sections {
+				if draft, exists := progress.sections[sectionalReportIndex{part: partIndex, section: sectionIndex}]; exists {
+					recoveredSections = append(recoveredSections, draft)
+				}
+			}
+			if len(recoveredSections) != 0 && len(recoveredSections) != len(part.Sections) {
+				return nil, fmt.Errorf("%w: recovered long-form part has partial section provenance", app.ErrConflict)
+			}
+			for _, draft := range recoveredSections {
+				sectionArtifactIDs = append(sectionArtifactIDs, draft.ArtifactID)
+				sectionWordTotal += draft.WordCount
+			}
+			if len(recoveredSections) == 0 {
+				sectionWordTotal += recoveredPart.WordCount
+			}
 			sectionDraftsByPart = append(sectionDraftsByPart, nil)
-			sectionWordTotal += draft.WordCount
 			continue
 		}
 		partDrafts := make([]sectionalReportDraft, 0, len(part.Sections))
@@ -2318,106 +2362,73 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 
 	toolSessionID := newID("ses")
 	previousStageSessionID := currentSessionID
-	frameStarted := time.Now()
-	frameResult, err := executor.Run(ctx, AgentRequest{
-		UserText:          "write front matter and closing for sectional long-form markdown report",
-		Prompt:            agentSectionalFramePrompt(title, missionID, toolSessionID, rigor, plan, partDrafts, generationGuidanceProfile),
-		Model:             agentModel,
-		ReasoningEffort:   agentReasoningEffort,
-		MissionID:         missionID,
-		ToolSessionID:     toolSessionID,
-		PreviousSessionID: previousStageSessionID,
-		AgentExecutor:     executorName,
-		MCPMode:           mcpMode,
-	})
-	frameDurationMS := time.Since(frameStarted).Milliseconds()
-	if err != nil {
-		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: missionID, PendingEventID: pendingEventID, PlanEventID: planEvent.EventID, ArtifactID: artifactID,
+		Filename: safeFilename(title, ".md"), Title: title, ToolSessionID: toolSessionID,
+		IdempotencyKey:    "report-long-form-finalize:" + pendingEventID + ":" + planEvent.EventID,
+		ProviderSessionID: previousStageSessionID, PreviousProviderSessionID: previousStageSessionID,
+		PartArtifactIDs: partArtifactIDs, SectionArtifactIDs: sectionArtifactIDs, SectionWordCount: sectionWordTotal,
+		AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, AgentSelectionSource: agentSelectionSource,
+		MCPMode: mcpMode, RigorLevel: rigor.level, RigorLabel: rigor.label,
+		ReportSessionPolicy: reportSessionPolicy, ReportSessionPolicySelection: reportSessionPolicySelection,
+		PostReportHumanize: postReportHumanize, GenerationGuidanceProfile: generationGuidanceProfile, GenerationGuidanceSHA256: generationGuidanceSHA256,
+		SessionChainKind: sessionChainKind, PreReportResearchSessionID: preReportResearchSessionID, ReportPlanSessionID: reportPlanSessionID,
+		ForkSourceAgentSessionID: forkSourceSessionID, PlanToolSessionID: reportEventString(planEvent, "tool_session_id"), StartedAt: started,
+		Producer: app.Producer{Type: "agent_session", ID: previousStageSessionID},
 	}
-	returnedSessionID := strings.TrimSpace(frameResult.SessionID)
-	frameResult, err = validatedSameSessionResult(frameResult, previousStageSessionID)
-	if err != nil {
-		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
+	var finalResult AgentResult
+	var finalization reporting.LongFormFinalizeResult
+	var hint reporting.LongFormFinalizationHint
+	canonical := false
+	for attempt := 1; attempt <= 2; attempt++ {
+		attemptStarted := time.Now()
+		attemptPreviousSessionID := previousStageSessionID
+		result, runErr := executor.Run(ctx, AgentRequest{
+			UserText: "finalize sectional long-form markdown report",
+			Prompt:   agentLongFormFinalizePrompt(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, attempt, canonical, hint),
+			Model:    agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: toolSessionID,
+			PreviousSessionID: previousStageSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
+			ExtraMCPTools: []string{plasmamcp.ToolReportLongFormFinalize}, LongFormFinalize: &binding,
+		})
+		durationMS := time.Since(attemptStarted).Milliseconds()
+		returnedResult := result
+		logLongFormFinalObservation(missionID, pendingEventID, planEvent.EventID, attempt, attemptPreviousSessionID, returnedResult, durationMS)
+		if runErr == nil {
+			result, runErr = validatedSameSessionResult(result, attemptPreviousSessionID)
+		}
+		if runErr == nil {
+			finalResult = result
+			previousStageSessionID = result.SessionID
+		}
+		loaded, exists, loadErr := reporting.LoadLongFormFinalization(context.WithoutCancel(ctx), server.service, binding)
+		if loadErr != nil {
+			return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, loadErr)
+		}
+		canonical = exists
+		if exists {
+			finalization = loaded
+		}
+		if runErr == nil && canonical && result.Text == "REPORT_FINALIZED" {
+			log.Printf("report_long_form_final_completed mission_id=%q pending_event_id=%q plan_event_id=%q artifact_id=%q event_id=%q attempt_count=%d canonical=true sentinel_ok=true", missionID, pendingEventID, planEvent.EventID, loaded.Artifact.ArtifactID, loaded.Event.EventID, attempt)
+			break
+		}
+		if attempt == 1 {
+			hint = reporting.RecoverLongFormFinalizationHint(result.Text)
+			log.Printf("report_long_form_final_retry mission_id=%q pending_event_id=%q plan_event_id=%q attempt_count=1 hint_available=%t canonical_before_retry=%t sentinel_ok=%t", missionID, pendingEventID, planEvent.EventID, hint.Available, canonical, result.Text == "REPORT_FINALIZED")
+			continue
+		}
+		cause := runErr
+		if cause == nil {
+			cause = fmt.Errorf("%w: finalization acknowledgement was not exact", app.ErrConflict)
+		}
+		log.Printf("report_long_form_final_ack_anomaly mission_id=%q pending_event_id=%q plan_event_id=%q attempt_count=2 hint_used=%t canonical=%t sentinel_ok=%t", missionID, pendingEventID, planEvent.EventID, hint.Available, canonical, result.Text == "REPORT_FINALIZED")
+		if canonical {
+			break
+		}
+		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(cause, result, "report_frame", durationMS, attemptPreviousSessionID))
 	}
-	frame, err := parseAgentSectionalFrame(frameResult.Text)
-	if err != nil {
-		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, reportAgentFailure(err, frameResult, "report_frame", frameDurationMS, previousStageSessionID))
-	}
-	markdown := assembleSectionalFinalMarkdown(title, frame, partDrafts)
-	if strings.TrimSpace(markdown) == "" {
-		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, fmt.Errorf("%w: sectional report assembled empty Markdown", app.ErrInvalidInput))
-	}
-	finalWordCount := reportWordCount(markdown)
-	preservationRatio := float64(finalWordCount) / float64(maxInt(1, sectionWordTotal))
-	artifact, err := server.service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
-		ArtifactID: artifactID,
-		MissionID:  missionID,
-		MediaType:  "text/markdown; charset=utf-8",
-		Filename:   safeFilename(title, ".md"),
-		Producer:   app.Producer{Type: "agent_session", ID: fallbackSessionID(frameResult.SessionID, toolSessionID)},
-		Content:    []byte(markdown),
-	})
-	if err != nil {
-		return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, err)
-	}
-	event, err := server.service.AppendEvent(ctx, reporting.BuildMarkdownReportArtifactCreatedAppendRequest(reporting.MarkdownReportArtifactCreatedEventRequest{
-		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
-			EventID:                      newID("evt"),
-			MissionID:                    missionID,
-			PendingEventID:               pendingEventID,
-			Title:                        title,
-			AgentExecutor:                executorName,
-			AgentModel:                   agentModel,
-			AgentReasoningEffort:         agentReasoningEffort,
-			AgentSelectionSource:         agentSelectionSource,
-			AgentSessionID:               frameResult.SessionID,
-			PreviousAgentSessionID:       previousStageSessionID,
-			ReturnedAgentSessionID:       returnedSessionID,
-			ToolSessionID:                toolSessionID,
-			MCPMode:                      mcpMode,
-			RigorLevel:                   rigor.level,
-			RigorLabel:                   rigor.label,
-			ReportMode:                   reportModeLongForm,
-			ReportModeLabel:              reportModeLabel(reportModeLongForm),
-			ReportSessionPolicy:          reportSessionPolicy,
-			ReportSessionPolicySelection: reportSessionPolicySelection,
-			PostReportHumanize:           postReportHumanize,
-			HumanizeEnabled:              postReportHumanize != "disabled",
-			GenerationGuidanceProfile:    generationGuidanceProfile,
-			GenerationGuidanceSHA256:     generationGuidanceSHA256,
-			SessionChainKind:             sessionChainKind,
-			PreReportResearchSessionID:   preReportResearchSessionID,
-			ReportPlanSessionID:          reportPlanSessionID,
-			ReportSessionID:              frameResult.SessionID,
-			ForkSourceAgentSessionID:     forkSourceSessionID,
-			PostReportResearchSessionID:  "",
-			CompositionStrategy:          "sectional_preserve_markdown",
-			DurationMS:                   time.Since(started).Milliseconds(),
-			Text:                         "섹션별 보존 조립 방식으로 장문 Markdown 리포트 artifact를 생성했습니다.",
-			AgentUsage:                   frameResult.Usage,
-			AgentUsageSurface:            "report_frame",
-			AgentUsageDurationMS:         frameDurationMS,
-			AgentResumed:                 frameResult.Resumed,
-			Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(frameResult.SessionID, toolSessionID)},
-		},
-		Artifact:              artifact,
-		PlanEventID:           planEvent.EventID,
-		IncludePlanReview:     true,
-		PlanReviewRequired:    false,
-		PlanReviewState:       "auto_accepted",
-		AssemblyStrategy:      "c4_normalized_section_headings",
-		SectionCount:          len(sectionArtifactIDs),
-		PartCount:             len(partArtifactIDs),
-		SectionArtifactIDs:    sectionArtifactIDs,
-		PartArtifactIDs:       partArtifactIDs,
-		SectionWordCount:      sectionWordTotal,
-		FinalWordCount:        finalWordCount,
-		PreservationRatio:     preservationRatio,
-		IncludeLongFormFields: true,
-	}))
-	if err != nil {
-		return nil, longFormStageFailure("artifact", planEvent.EventID, 0, 0, err)
-	}
+	artifact, event := finalization.Artifact, finalization.Event
+	markdown := string(artifact.Content)
 	if postReportHumanize == "disabled" {
 		return map[string]any{"artifact": artifact, "event": event, "markdown": markdown}, nil
 	}
@@ -2429,7 +2440,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		AgentModel:        agentModel,
 		ReasoningEffort:   agentReasoningEffort,
 		MCPMode:           mcpMode,
-		PreviousSessionID: frameResult.SessionID,
+		PreviousSessionID: fallbackSessionID(finalResult.SessionID, binding.ProviderSessionID),
 		ReportMode:        reportModeLongForm,
 		PendingEventID:    pendingEventID,
 	}, executor)
@@ -2437,6 +2448,21 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		return nil, err
 	}
 	return map[string]any{"artifact": artifact, "event": event, "markdown": markdown, "humanized": humanized}, nil
+}
+
+func logLongFormFinalObservation(missionID, pendingEventID, planEventID string, attempt int, boundSessionID string, result AgentResult, durationMS int64) {
+	returnedSessionID := strings.TrimSpace(result.SessionID)
+	inputTokens, outputTokens, totalTokens := 0, 0, 0
+	usageAvailable := result.Usage.ProviderUsage != nil
+	if usageAvailable {
+		inputTokens = result.Usage.ProviderUsage.InputTokens
+		outputTokens = result.Usage.ProviderUsage.OutputTokens
+		totalTokens = result.Usage.ProviderUsage.TotalTokens
+		if totalTokens == 0 {
+			totalTokens = inputTokens + outputTokens
+		}
+	}
+	log.Printf("report_long_form_final_observed mission_id=%q pending_event_id=%q plan_event_id=%q attempt_count=%d returned_session_present=%t returned_session_matches_bound=%t usage_available=%t input_tokens=%d output_tokens=%d total_tokens=%d resumed=%t duration_ms=%d", missionID, pendingEventID, planEventID, attempt, returnedSessionID != "", returnedSessionID != "" && returnedSessionID == strings.TrimSpace(boundSessionID), usageAvailable, inputTokens, outputTokens, totalTokens, result.Resumed, durationMS)
 }
 
 func agentOneTakeMarkdownReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, generationGuidanceProfile string) string {
@@ -2573,15 +2599,15 @@ Rules:
 		req.SessionChainKind)
 }
 
-func agentSectionalReportPlanPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile) string {
+func agentSectionalReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile) string {
 	return fmt.Sprintf(`You are planning a section-first Korean long-form Plasma report.
 
-Do not write the report yet. Return JSON only.
+Do not write the report yet. Submit the plan through plasma.report.plan.submit.
 Use Plasma MCP research tools to inspect the mission before planning. Source bodies, evidence arrays, and mission recall JSON are not pasted into this prompt.
 
 Mission ID: %s
 Report title: %s
-Plasma tool binding: use mission_id %s. If a tool requires session_id or producer, use session_id %s and producer {"type":"agent_session","id":"%s"}.
+Plasma tool binding: use mission_id %s, session_id %s, pending_event_id %s, report_mode long_form, idempotency_key %s, and producer {"type":"agent_session","id":"%s"}.
 
 Report rigor:
 - Level: %s (%s)
@@ -2597,7 +2623,7 @@ Planning rules:
 - Sources are original materials. Prior answers, controller questions, plans, generated notes, section drafts, and reports are working memory or results, not sources.
 - target_refs should name the source snapshots, evidence records, or saved claims the Section should inspect when available.
 
-Return exactly this JSON shape:
+Submit one accepted plan with this plan shape. If the tool returns a retryable validation error, correct the plan and resubmit; make at most three parsed submission calls total. Every parsed call consumes this budget, including a success or replay; protocol/envelope parse failures do not:
 {
   "summary": "what this long-form report will produce",
   "parts": [
@@ -2615,11 +2641,13 @@ Return exactly this JSON shape:
   ],
   "coverage_notes": ["source clusters and mission turns inspected"],
   "planned_omissions": ["known gaps or intentionally omitted areas"]
-}`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions)
+}
+
+After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final response. Do not return plan JSON, fences, or commentary.`, missionID, title, missionID, toolSessionID, pendingEventID, idempotencyKey, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions)
 }
 
 func agentSectionDraftPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, section agentReportSection, partIndex int, sectionIndex int, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(ReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2655,7 +2683,7 @@ Rules:
 }
 
 func agentPartAssemblyPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, drafts []sectionalReportDraft, partIndex int, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(ReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2696,15 +2724,32 @@ Rules:
 - Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, partIndex+1, part.Title, sectionalDraftInventoryJSON(drafts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance)
 }
 
-func agentSectionalFramePrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(ReportGenerationGuidance(generationGuidanceProfile))
+func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
+	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
-	return fmt.Sprintf(`Write front matter and closing for a Korean long-form Plasma report.
+	retry := ""
+	if attempt > 1 {
+		retry = "\nThis is the one allowed final-stage retry."
+		if canonical {
+			retry += " The canonical report already exists: replay the same tool call with identical opening_markdown and closing_markdown, then return the sentinel."
+		}
+		if hint.Available {
+			retry += fmt.Sprintf("\nUse these recovered values only as writing hints when making the tool call:\nopening_markdown hint: %s\nclosing_markdown hint: %s", agentReportAnyJSON(hint.OpeningMarkdown), agentReportAnyJSON(hint.ClosingMarkdown))
+		}
+	}
+	return fmt.Sprintf(`Finalize a Korean long-form Plasma report through the dedicated MCP command.
 
 Report title: %s
 Mission ID: %s
+
+Bound tool inputs:
+- session_id: %s
+- pending_event_id: %s
+- plan_event_id: %s
+- idempotency_key: %s
+- producer: {"type":"agent_session","id":%s}
 
 The Part manuscripts are already written and will be mechanically preserved by Plasma. Do not rewrite them.
 
@@ -2718,22 +2763,29 @@ Report rigor:
 - Level: %s (%s)
 - Meaning: %s
 %s
-%s
-
-Return JSON only:
-{
-  "front_matter": "Markdown title, introduction, reading guide, and compact table of contents",
-  "closing": "Markdown conclusion that synthesizes tensions, supported conclusions, remaining uncertainty, and useful next checks"
-}
+%s%s
 
 Rules:
 - Use Korean.
-- Do not include or rewrite the Part manuscripts.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance)
+- Call plasma.report.long_form.finalize with exactly the bound identities and producer above plus opening_markdown and closing_markdown that you write.
+- opening_markdown contains the Markdown title, introduction, reading guide, and compact table of contents.
+- closing_markdown contains the conclusion that synthesizes tensions, supported conclusions, remaining uncertainty, and useful next checks.
+- The server owns ordered Part assembly. Do not submit Part bodies, artifact IDs, title, full Markdown, or metadata.
+- After the tool succeeds or durably replays, return exactly REPORT_FINALIZED as the entire response. Do not add text or fences.
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, agentReportAnyJSON(binding.ToolSessionID), sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry)
 }
 
 func normalizeReportMode(mode string) (string, error) {
 	return reporting.NormalizeMode(mode)
+}
+
+func reportEventString(event app.LedgerEvent, key string) string {
+	var payload map[string]any
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return ""
+	}
+	value, _ := payload[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func normalizeReportSessionPolicy(policy string) (string, error) {
@@ -2804,11 +2856,11 @@ func normalizeReportRigorProfile(level string) (reportRigorProfile, error) {
 	return profile, nil
 }
 
-func agentReportPlanPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile) string {
+func agentReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile) string {
 	return fmt.Sprintf(`You are planning a Plasma report before writing it.
 
 Create a user-visible Korean report generation plan for the current mission.
-Do not write the article yet. Return JSON only.
+Do not write the article yet. Submit the plan through plasma.report.plan.submit.
 Use Plasma MCP research tools to inspect the mission before planning. Source bodies, evidence arrays, and mission recall JSON are not pasted into this prompt. PDF reads return extracted text and metadata, not raw PDF bytes.
 Live local_path sources are mutable origins. Use read tools to create source.observed events before relying on them, and plan to cite observation metadata rather than only source IDs.
 
@@ -2832,9 +2884,9 @@ Planning workflow:
 Report title requested by the user interface:
 %s
 
-Plasma tool binding: use mission_id %s. If a tool requires session_id or producer, use session_id %s and producer {"type":"agent_session","id":"%s"}.
+Plasma tool binding: use mission_id %s, session_id %s, pending_event_id %s, report_mode planned, idempotency_key %s, and producer {"type":"agent_session","id":"%s"}.
 
-Return exactly this JSON shape:
+Submit one accepted plan with this plan shape. If the tool returns a retryable validation error, correct the plan and resubmit; make at most three parsed submission calls total. Every parsed call consumes this budget, including a success or replay; protocol/envelope parse failures do not:
 {
   "summary": "what this report will try to produce",
   "sections": [
@@ -2847,7 +2899,9 @@ Return exactly this JSON shape:
   "coverage_notes": ["what source or evidence clusters were inspected and will be used"],
   "planned_omissions": ["known gaps, weak areas, or items intentionally left out"]
 }
-`, rigor.level, rigor.label, rigor.description, rigor.instructions, strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, toolSessionID)
+
+After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final response. Do not return plan JSON, fences, or commentary.
+`, rigor.level, rigor.label, rigor.description, rigor.instructions, strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, pendingEventID, idempotencyKey, toolSessionID)
 }
 
 func agentReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan) string {
@@ -2908,79 +2962,6 @@ Write a complete, readable article that covers the planned evidence clusters. Sy
 `, rigor.level, rigor.label, rigor.description, rigor.instructions, planJSON, strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, toolSessionID)
 }
 
-func parseAgentReportPlan(text string) (agentReportPlan, error) {
-	raw, err := extractAgentJSONObject(text)
-	if err != nil {
-		return agentReportPlan{}, fmt.Errorf("%w: report planning agent did not return JSON", app.ErrInvalidInput)
-	}
-	var plan agentReportPlan
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	if err := decoder.Decode(&plan); err != nil {
-		return agentReportPlan{}, fmt.Errorf("%w: invalid report plan JSON: %v", app.ErrInvalidInput, err)
-	}
-	if strings.TrimSpace(plan.Summary) == "" && len(plan.Sections) == 0 {
-		return agentReportPlan{}, fmt.Errorf("%w: report plan is empty", app.ErrInvalidInput)
-	}
-	return plan, nil
-}
-
-func parseAgentSectionalReportPlan(text string) (agentSectionalReportPlan, error) {
-	raw, err := extractAgentJSONObject(text)
-	if err != nil {
-		return agentSectionalReportPlan{}, fmt.Errorf("%w: sectional report planning agent did not return JSON", app.ErrInvalidInput)
-	}
-	var plan agentSectionalReportPlan
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	if err := decoder.Decode(&plan); err != nil {
-		return agentSectionalReportPlan{}, fmt.Errorf("%w: invalid sectional report plan JSON: %v", app.ErrInvalidInput, err)
-	}
-	plan.Summary = strings.TrimSpace(plan.Summary)
-	plan.CoverageNotes = limitNonEmptyStrings(plan.CoverageNotes, 24)
-	plan.PlannedOmissions = limitNonEmptyStrings(plan.PlannedOmissions, 24)
-	cleanParts := make([]agentReportPart, 0, len(plan.Parts))
-	for _, part := range plan.Parts {
-		part.Title = strings.TrimSpace(part.Title)
-		part.Purpose = strings.TrimSpace(part.Purpose)
-		cleanSections := make([]agentReportSection, 0, len(part.Sections))
-		for _, section := range part.Sections {
-			section.Title = strings.TrimSpace(section.Title)
-			section.Purpose = strings.TrimSpace(section.Purpose)
-			if section.Title == "" && section.Purpose == "" {
-				continue
-			}
-			if section.Title == "" {
-				section.Title = section.Purpose
-			}
-			cleanSections = append(cleanSections, section)
-		}
-		if part.Title == "" && len(cleanSections) == 0 {
-			continue
-		}
-		if part.Title == "" {
-			part.Title = fmt.Sprintf("Part %d", len(cleanParts)+1)
-		}
-		part.Sections = cleanSections
-		if len(part.Sections) == 0 {
-			part.Sections = []agentReportSection{{Title: part.Title, Purpose: firstNonEmpty(part.Purpose, part.Title)}}
-		}
-		cleanParts = append(cleanParts, part)
-	}
-	plan.Parts = cleanParts
-	if strings.TrimSpace(plan.Summary) == "" && len(plan.Parts) == 0 {
-		return agentSectionalReportPlan{}, fmt.Errorf("%w: sectional report plan is empty", app.ErrInvalidInput)
-	}
-	if len(plan.Parts) == 0 {
-		plan.Parts = []agentReportPart{{
-			Title: firstNonEmpty(plan.Summary, "장문 리포트"),
-			Sections: []agentReportSection{{
-				Title:   firstNonEmpty(plan.Summary, "핵심 내용"),
-				Purpose: firstNonEmpty(plan.Summary, "미션 내용을 장문으로 정리한다."),
-			}},
-		}}
-	}
-	return plan, nil
-}
-
 func parseAgentPartAssembly(text string) (agentPartAssembly, error) {
 	raw, err := extractAgentJSONObject(text)
 	if err != nil {
@@ -3003,21 +2984,6 @@ func parseAgentPartAssembly(text string) (agentPartAssembly, error) {
 	}
 	assembly.Transitions = transitions
 	return assembly, nil
-}
-
-func parseAgentSectionalFrame(text string) (agentSectionalFrame, error) {
-	raw, err := extractAgentJSONObject(text)
-	if err != nil {
-		return agentSectionalFrame{}, fmt.Errorf("%w: report frame agent did not return JSON", app.ErrInvalidInput)
-	}
-	var frame agentSectionalFrame
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	if err := decoder.Decode(&frame); err != nil {
-		return agentSectionalFrame{}, fmt.Errorf("%w: invalid report frame JSON: %v", app.ErrInvalidInput, err)
-	}
-	frame.FrontMatter = strings.TrimSpace(frame.FrontMatter)
-	frame.Closing = strings.TrimSpace(frame.Closing)
-	return frame, nil
 }
 
 func parseAgentReportAST(text string) (agentReportAST, error) {

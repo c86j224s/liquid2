@@ -135,31 +135,10 @@ type reportExportRequest struct {
 	Target string `json:"target"`
 }
 
-type agentReportPlan struct {
-	Summary          string               `json:"summary"`
-	Sections         []agentReportSection `json:"sections"`
-	CoverageNotes    []string             `json:"coverage_notes,omitempty"`
-	PlannedOmissions []string             `json:"planned_omissions,omitempty"`
-}
-
-type agentSectionalReportPlan struct {
-	Summary          string            `json:"summary"`
-	Parts            []agentReportPart `json:"parts"`
-	CoverageNotes    []string          `json:"coverage_notes,omitempty"`
-	PlannedOmissions []string          `json:"planned_omissions,omitempty"`
-}
-
-type agentReportPart struct {
-	Title    string               `json:"title"`
-	Purpose  string               `json:"purpose"`
-	Sections []agentReportSection `json:"sections"`
-}
-
-type agentReportSection struct {
-	Title      string                    `json:"title"`
-	Purpose    string                    `json:"purpose"`
-	TargetRefs app.ReportBlockSourceRefs `json:"target_refs,omitempty"`
-}
+type agentReportPlan = reporting.ReportPlan
+type agentSectionalReportPlan = reporting.SectionalReportPlan
+type agentReportPart = reporting.ReportPlanPart
+type agentReportSection = reporting.ReportPlanSection
 
 type sectionalReportDraft struct {
 	Title      string
@@ -184,11 +163,6 @@ type agentPartAssembly struct {
 type agentPartTransition struct {
 	AfterSectionIndex int    `json:"after_section_index"`
 	Markdown          string `json:"markdown"`
-}
-
-type agentSectionalFrame struct {
-	FrontMatter string `json:"front_matter"`
-	Closing     string `json:"closing"`
 }
 
 type agentReportAST struct {

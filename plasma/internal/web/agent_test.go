@@ -177,7 +177,7 @@ func TestAgentProposalPromptAsksForMissingEvidenceSlate(t *testing.T) {
 }
 
 func TestAgentReportPromptUsesResearchToolsWithoutRecallPayload(t *testing.T) {
-	planPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["strict"])
+	planPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["strict"])
 	plan := agentReportPlan{
 		Summary: "Use source-backed material.",
 		Sections: []agentReportSection{{
@@ -208,6 +208,9 @@ func TestAgentReportPromptUsesResearchToolsWithoutRecallPayload(t *testing.T) {
 			t.Fatalf("expected report prompt to contain %q:\n%s", expected, prompt)
 		}
 	}
+	if strings.Contains(planPrompt, "supplied by the tool context") || strings.Contains(planPrompt, "exactly once") {
+		t.Fatalf("planned prompt retained false binding or retry wording:\n%s", planPrompt)
+	}
 	for _, expected := range []string{
 		"Create a user-visible Korean report generation plan",
 		"Do not write the article yet",
@@ -217,6 +220,12 @@ func TestAgentReportPromptUsesResearchToolsWithoutRecallPayload(t *testing.T) {
 		"source.observed",
 		"observation_event_id",
 		"target_refs should name only approved records",
+		"pending_event_id evt_pending",
+		"report_mode planned",
+		"idempotency_key key_1",
+		`producer {"type":"agent_session","id":"ses_1"}`,
+		"at most three parsed submission calls total",
+		"including a success or replay",
 	} {
 		if !strings.Contains(planPrompt, expected) {
 			t.Fatalf("expected report plan prompt to contain %q:\n%s", expected, planPrompt)
@@ -488,6 +497,36 @@ func TestCodexExecutorCanReplaceMCPToolsForPatchOnlyRequest(t *testing.T) {
 	}
 }
 
+func TestCodexExecutorAddsBoundReportPlanToolWithoutReplacingResearchTools(t *testing.T) {
+	args := codexMCPConfigArgs(CodexMCPServer{
+		Name: "plasma", Command: "/tmp/plasma", Args: []string{"mcp", "-db", "/tmp/plasma.db", "-enabled-tool", "plasma.sources.read"}, EnabledTools: []string{"plasma.sources.read"},
+	}, AgentRequest{
+		MissionID: "mis_1", ToolSessionID: "ses_tool", AgentExecutor: "codex", ExtraMCPTools: []string{"plasma.report.plan.submit"},
+		ReportPlan: &AgentReportPlanContext{PendingEventID: "evt_pending", ReportMode: "planned", IdempotencyKey: "key_1", PreviousProviderSessionID: "ses_previous", AgentModel: "gpt-test", AgentReasoningEffort: "high"},
+	})
+	joined := strings.Join(args, "\n")
+	for _, expected := range []string{"plasma.sources.read", "plasma.report.plan.submit", "-report-plan-pending-event-id", "evt_pending", "-report-plan-mode", "planned", "-report-plan-idempotency-key", "key_1", "-report-plan-tool-session-id", "ses_tool", "-report-plan-previous-provider-session-id", "ses_previous", "-report-plan-agent-model", "gpt-test", "-report-plan-agent-reasoning-effort", "high"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("missing %q in %#v", expected, args)
+		}
+	}
+	if strings.Contains(joined, "-report-patch") {
+		t.Fatalf("report plan binding enabled patch mode: %#v", args)
+	}
+}
+
+func TestAgentSectionalReportPlanPromptContainsConcreteBinding(t *testing.T) {
+	prompt := agentSectionalReportPlanPrompt("Long", "mis_long", "ses_tool", "evt_pending_long", "key_long", reportRigorProfiles["strict"])
+	for _, expected := range []string{"mission_id mis_long", "session_id ses_tool", "pending_event_id evt_pending_long", "report_mode long_form", "idempotency_key key_long", `producer {"type":"agent_session","id":"ses_tool"}`, "at most three parsed submission calls total"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("sectional prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, "supplied by the tool context") || strings.Contains(prompt, "exactly once") {
+		t.Fatalf("sectional prompt retained false binding or retry wording:\n%s", prompt)
+	}
+}
+
 func TestCodexExecutorPassesModelOverride(t *testing.T) {
 	dir := t.TempDir()
 	argsPath := filepath.Join(dir, "args.txt")
@@ -560,8 +599,8 @@ printf 'done' > "$out"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(captured), "--model\ngpt-5.6-terra\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"medium\"") {
-		t.Fatalf("expected Terra/medium defaults, got %q", captured)
+	if !strings.Contains(string(captured), "--model\ngpt-5.5\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"medium\"") {
+		t.Fatalf("expected GPT-5.5/medium defaults, got %q", captured)
 	}
 	if err := os.WriteFile(argsPath, nil, 0o600); err != nil {
 		t.Fatal(err)

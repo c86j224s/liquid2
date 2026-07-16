@@ -33,6 +33,8 @@ const (
 	ToolReportPatchRead          = "plasma.report.patch.read"
 	ToolReportPatchApply         = "plasma.report.patch.apply"
 	ToolReportPatchFinalize      = "plasma.report.patch.finalize"
+	ToolReportPlanSubmit         = "plasma.report.plan.submit"
+	ToolReportLongFormFinalize   = "plasma.report.long_form.finalize"
 	ToolExperimentReportCreate   = "plasma.experiment.report.create"
 	ToolExperimentReportAppend   = "plasma.experiment.report.append"
 	ToolExperimentReportRead     = "plasma.experiment.report.read"
@@ -122,6 +124,12 @@ func (server *Server) ListTools() []ToolDefinition {
 			ToolDefinition{Name: ToolReportPatchApply, Description: "Report-session only: apply a small replace, insert_after, or append operation to the in-process report patch draft.", InputSchema: schemaReportPatchApply},
 			ToolDefinition{Name: ToolReportPatchFinalize, Description: "Report-session only: finalize the patched Markdown report draft into a new report artifact version linked to the base artifact.", InputSchema: schemaReportPatchFinalize},
 		)
+	}
+	if server.reportPlanBinding.complete() && server.toolEnabled(ToolReportPlanSubmit) {
+		tools = append(tools, ToolDefinition{Name: ToolReportPlanSubmit, Description: "Report-planning session only: validate and durably submit one planned or long-form report plan for runner promotion.", InputSchema: schemaReportPlanSubmit})
+	}
+	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil && server.toolEnabled(ToolReportLongFormFinalize) {
+		tools = append(tools, ToolDefinition{Name: ToolReportLongFormFinalize, Description: "Long-form final session only: atomically assemble and finalize the bound durable report parts.", InputSchema: schemaReportLongFormFinalize})
 	}
 	if server.experimentalReportComposition {
 		tools = append(tools,

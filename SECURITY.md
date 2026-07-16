@@ -11,13 +11,13 @@ release note says otherwise.
 
 ## Reporting A Vulnerability
 
-Please open a private security advisory on GitHub when available. If private
-vulnerability reporting is not enabled for this repository, use a private
-contact route from the repository owner instead of filing sensitive details in a
-public issue.
+Please open a private security advisory on GitHub when available. Before any
+public repository launch, the repository owner must enable GitHub private
+vulnerability reporting or publish another private security contact route.
 
 If neither private advisories nor a private contact route are available, do not
-publish vulnerability details in a public issue.
+publish vulnerability details in a public issue. The repository is not ready for
+public vulnerability intake until that route exists.
 
 Do not include live credentials, tokens, private documents, database files, or
 full sensitive URLs in a public issue.

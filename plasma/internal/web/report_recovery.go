@@ -331,11 +331,7 @@ func (server *Server) recoveredMarkdownArtifact(ctx context.Context, artifactID 
 }
 
 func normalizeRecoveredSectionalPlan(plan agentSectionalReportPlan) (agentSectionalReportPlan, error) {
-	encoded, err := json.Marshal(plan)
-	if err != nil {
-		return agentSectionalReportPlan{}, err
-	}
-	return parseAgentSectionalReportPlan(string(encoded))
+	return reporting.NormalizeSectionalReportPlan(plan)
 }
 
 func fallbackWordCount(count int, markdown string) int {

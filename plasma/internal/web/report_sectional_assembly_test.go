@@ -3,6 +3,8 @@ package web
 import (
 	"strings"
 	"testing"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func TestAssembleSectionalPartMarkdownNormalizesSectionHeadings(t *testing.T) {
@@ -70,16 +72,7 @@ func TestAssembleSectionalPartMarkdownNormalizesSectionHeadings(t *testing.T) {
 }
 
 func TestAssembleSectionalFinalMarkdownNormalizesFrameBoundaries(t *testing.T) {
-	frame := agentSectionalFrame{
-		FrontMatter: "# 보고서\n\n읽기 안내입니다.\n\n---",
-		Closing:     "---\n\n# 결론\n\n## 결론\n\n### 다음 점검\n\n닫는 문장입니다.\n\n---",
-	}
-	parts := []sectionalReportPartDraft{{
-		Title:    "Part",
-		Markdown: "# Part 1. Part\n\n본문입니다.",
-	}}
-
-	got := assembleSectionalFinalMarkdown("보고서", frame, parts)
+	got := reporting.AssembleLongFormFinalMarkdown("보고서", "# 보고서\n\n읽기 안내입니다.\n\n---", "---\n\n# 결론\n\n## 결론\n\n### 다음 점검\n\n닫는 문장입니다.\n\n---", []string{"# Part 1. Part\n\n본문입니다."})
 
 	for _, expected := range []string{
 		"# 보고서",

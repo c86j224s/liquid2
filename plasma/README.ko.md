@@ -93,8 +93,9 @@ Release surface를 실행합니다.
 ./release-browser.sh plasma stop
 ```
 
-Plasma release 기본값은 browser/API port `3002`와
-`~/Library/Application Support/Plasma/plasma.db`입니다.
+Plasma release 기본값은 browser/API port `3002`입니다. 기본 database는 macOS에서
+`~/Library/Application Support/Plasma/plasma.db`, WSL2에서
+`${XDG_DATA_HOME:-$HOME/.local/share}/plasma/plasma.db`입니다.
 
 ## 자주 쓰는 명령
 

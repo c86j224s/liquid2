@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -308,6 +309,9 @@ func (s *Service) CheckConfluenceSourceUpdateWithEvent(
 ) (ConfluenceUpdateCheckResult, error) {
 	result, err := s.CheckConfluenceSourceUpdate(ctx, connector, req)
 	if err != nil {
+		if recordErr := s.recordConfluenceUpdateCheckFailure(ctx, req, err); recordErr != nil {
+			return ConfluenceUpdateCheckResult{}, errors.Join(err, recordErr)
+		}
 		return ConfluenceUpdateCheckResult{}, err
 	}
 	eventType := ConfluenceUpdateCurrentEvent

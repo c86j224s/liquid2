@@ -1,6 +1,8 @@
 function openSettingsTab() {
   state.activeTab = "settings";
   renderTabs();
+  loadModelDefaults();
+  loadConfluenceConnections();
 }
 
 function setConfluenceSettingsStatus(message, tone = "") {

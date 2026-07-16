@@ -5,9 +5,9 @@ DEMO_API_BIN ?= /tmp/liquid2-api
 DEMO_API_BASE_URL ?= http://localhost:8080
 DEMO_API_DB_PATH ?= /tmp/liquid2-demo.db
 
-.PHONY: check backend-test frontend-analyze frontend-test size-audit generate openapi openapi-check openapi-client persistence-smoke demo demo-api demo-internal demo-client demo-stop fmt dev-browser-start dev-browser-stop dev-browser-restart dev-browser-status dev-browser-logs release-browser-start release-browser-stop release-browser-restart release-browser-status release-browser-logs
+.PHONY: check backend-test frontend-analyze frontend-test shell-test size-audit generate openapi openapi-check openapi-client persistence-smoke demo demo-api demo-internal demo-client demo-stop fmt dev-browser-start dev-browser-stop dev-browser-restart dev-browser-status dev-browser-logs release-browser-start release-browser-stop release-browser-restart release-browser-status release-browser-logs
 
-check: size-audit backend-test openapi-check frontend-analyze frontend-test
+check: shell-test size-audit backend-test openapi-check frontend-analyze frontend-test
 
 backend-test:
 	go test ./...
@@ -17,6 +17,9 @@ frontend-analyze:
 
 frontend-test:
 	cd client && flutter test
+
+shell-test:
+	../scripts/tests/wsl-process-test.sh
 
 size-audit:
 	./scripts/check-file-sizes.sh

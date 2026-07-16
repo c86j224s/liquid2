@@ -100,8 +100,9 @@ Run the local release surface:
 ./release-browser.sh plasma stop
 ```
 
-Plasma release defaults to browser/API port `3002` and
-`~/Library/Application Support/Plasma/plasma.db`.
+Plasma release defaults to browser/API port `3002`. The default database is
+`~/Library/Application Support/Plasma/plasma.db` on macOS and
+`${XDG_DATA_HOME:-$HOME/.local/share}/plasma/plasma.db` on WSL2.
 
 ## Common Commands
 

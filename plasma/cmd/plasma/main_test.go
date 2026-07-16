@@ -252,6 +252,7 @@ func TestRunServeConfigArgsOnlyIncludeExplicitFlags(t *testing.T) {
 }
 
 func TestApplyServeDefaultsUsesRuntimeMode(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv(config.RuntimeModeEnv, "dev")
 	cfg := config.Config{}
 	applyServeDefaults(&cfg)
@@ -267,13 +268,43 @@ func TestApplyServeDefaultsUsesRuntimeMode(t *testing.T) {
 	t.Setenv(config.RuntimeModeEnv, "release")
 	cfg = config.Config{}
 	applyServeDefaults(&cfg)
+	wantReleaseDBPath := filepath.Join(defaultReleaseDBDataDir(os.Getenv("HOME"), os.Getenv("XDG_DATA_HOME")), "plasma.db")
 	if cfg.Addr != "127.0.0.1:3002" ||
-		cfg.DBPath != filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "Plasma", "plasma.db") ||
+		cfg.DBPath != wantReleaseDBPath ||
 		cfg.Liquid2URL != "http://127.0.0.1:3011" ||
 		cfg.Agent != "codex" ||
 		cfg.AgentWorkDir != filepath.Join(os.TempDir(), "plasma-release-agent-workdir") ||
 		cfg.WorkflowGoalReasoningEffort != "low" {
 		t.Fatalf("unexpected release serve defaults: %#v", cfg)
+	}
+}
+
+func TestDefaultReleaseDBDataDirUsesWSL2FallbackOnly(t *testing.T) {
+	home := t.TempDir()
+	if got := releaseDBDataDirForPlatform("darwin", "", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Plasma") {
+		t.Fatalf("unexpected macOS release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, ""); got != filepath.Join(home, ".local", "share", "plasma") {
+		t.Fatalf("unexpected WSL release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, "/xdg/data"); got != filepath.Join("/xdg/data", "plasma") {
+		t.Fatalf("unexpected XDG release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "4.4.0-19041-Microsoft", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Plasma") {
+		t.Fatalf("unexpected non-WSL2 release data dir %q", got)
+	}
+}
+
+func TestServeDefaultsDoNotOverrideConfiguredReleaseDBPath(t *testing.T) {
+	t.Setenv(config.RuntimeModeEnv, config.RuntimeModeRelease)
+	t.Setenv(config.DBPathEnv, "/configured/plasma.db")
+	cfg, err := config.Load(config.Args{})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	applyServeDefaults(&cfg)
+	if cfg.DBPath != "/configured/plasma.db" {
+		t.Fatalf("configured database path was replaced: %q", cfg.DBPath)
 	}
 }
 
@@ -1517,6 +1548,13 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 	if pendingPayload["report_session_policy"] != reporting.SessionPolicySameSession ||
 		pendingPayload["report_session_policy_selection"] != reporting.SessionPolicySelectionAutoSameSessionNoForker {
 		t.Fatalf("expected non-forking CLI report to record same-session fallback, got %#v", pendingPayload)
+	}
+	sourceContext, ok := pendingPayload["source_context"].(map[string]any)
+	if !ok || sourceContext["schema_version"] != "plasma.report_source_context.v1" {
+		t.Fatalf("CLI report did not use shared source context contract: %#v", pendingPayload)
+	}
+	if sources, ok := sourceContext["confluence_sources"].([]any); !ok || len(sources) != 0 {
+		t.Fatalf("source-free CLI report context changed: %#v", sourceContext)
 	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
 	if artifactPayload["report_session_policy"] != reporting.SessionPolicySameSession ||

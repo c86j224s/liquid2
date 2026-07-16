@@ -98,6 +98,10 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 			return reportPatchDisabledResult(call)
 		}
 		return server.withIdempotency(ctx, call, server.callReportPatchFinalize)
+	case ToolReportPlanSubmit:
+		return server.callReportPlanSubmit(ctx, call)
+	case ToolReportLongFormFinalize:
+		return server.callReportLongFormFinalize(ctx, call)
 	case ToolExperimentReportCreate:
 		if !server.experimentalReportComposition {
 			return experimentReportDisabledResult(call)

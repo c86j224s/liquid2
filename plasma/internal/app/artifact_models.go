@@ -98,17 +98,18 @@ type CreateSourceSnapshotRequest struct {
 }
 
 type SourceState struct {
-	State             string    `json:"state,omitempty"`
-	Removed           bool      `json:"removed,omitempty"`
-	RemovedAt         time.Time `json:"removed_at,omitempty"`
-	RemovedEventID    string    `json:"removed_event_id,omitempty"`
-	RemovedReason     string    `json:"removed_reason,omitempty"`
-	RestoredAt        time.Time `json:"restored_at,omitempty"`
-	RestoredEventID   string    `json:"restored_event_id,omitempty"`
-	Superseded        bool      `json:"superseded,omitempty"`
-	SupersededAt      time.Time `json:"superseded_at,omitempty"`
-	SupersededBy      string    `json:"superseded_by,omitempty"`
-	SupersededEventID string    `json:"superseded_event_id,omitempty"`
+	State             string                 `json:"state,omitempty"`
+	Removed           bool                   `json:"removed,omitempty"`
+	RemovedAt         time.Time              `json:"removed_at,omitempty"`
+	RemovedEventID    string                 `json:"removed_event_id,omitempty"`
+	RemovedReason     string                 `json:"removed_reason,omitempty"`
+	RestoredAt        time.Time              `json:"restored_at,omitempty"`
+	RestoredEventID   string                 `json:"restored_event_id,omitempty"`
+	Superseded        bool                   `json:"superseded,omitempty"`
+	SupersededAt      time.Time              `json:"superseded_at,omitempty"`
+	SupersededBy      string                 `json:"superseded_by,omitempty"`
+	SupersededEventID string                 `json:"superseded_event_id,omitempty"`
+	ConfluenceUpdate  *ConfluenceUpdateState `json:"confluence_update,omitempty"`
 }
 
 type LocalPathLocator struct {

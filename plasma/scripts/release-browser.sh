@@ -1,6 +1,23 @@
 #!/bin/sh
 set -eu
 
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+case "$(uname -s)" in
+  Darwin) ;;
+  Linux)
+    . "${script_dir}/../../scripts/lib/wsl-process.sh"
+    if wsl_is_wsl2; then
+      exec "${script_dir}/browser-wsl.sh" release "$@"
+    fi
+    printf 'unsupported platform: general Linux support is not available yet\n' >&2
+    exit 1
+    ;;
+  *)
+    printf 'unsupported platform: %s\n' "$(uname -s)" >&2
+    exit 1
+    ;;
+esac
+
 plasma_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 
 runtime_mode="release"

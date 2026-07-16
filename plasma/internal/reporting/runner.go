@@ -55,6 +55,7 @@ type Service interface {
 	AppendReportTerminalIfOpen(context.Context, string, string, []app.AppendEventRequest) ([]app.LedgerEvent, bool, error)
 	AppendEventsIfNoActiveAgentWork(context.Context, string, []app.AppendEventRequest) ([]app.LedgerEvent, error)
 	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
+	ListSourceSnapshotsWithState(context.Context, app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error)
 }
 
 type DraftRequest struct {
@@ -159,6 +160,7 @@ type SelfContainedHTMLExportEventRequest struct {
 	MissionID        string
 	SourceArtifactID string
 	Artifact         app.RawArtifact
+	RendererVersion  string
 	Producer         app.Producer
 }
 
@@ -213,6 +215,7 @@ func BuildSelfContainedHTMLExportAppendRequest(req SelfContainedHTMLExportEventR
 			"artifact_id":        artifact.ArtifactID,
 			"media_type":         artifact.MediaType,
 			"target":             ExportTargetSelfContainedHTML,
+			"renderer_version":   req.RendererVersion,
 			"text":               "Self-contained HTML 리포트 artifact를 생성했습니다.",
 		}),
 	}
@@ -492,6 +495,11 @@ func ModeLabel(mode string) string {
 
 func (runner Runner) StartDraft(ctx context.Context, missionID string, req DraftRequest, producer app.Producer) (app.LedgerEvent, error) {
 	req = normalizeDraftRequest(req)
+	sources, err := runner.Service.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	if err != nil {
+		return app.LedgerEvent{}, err
+	}
+	startedAt := time.Now().UTC()
 	pendingEventID := runner.id("evt")
 	payload := map[string]any{
 		"kind":                            "markdown_report_artifact_pending",
@@ -512,7 +520,8 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 		"generation_guidance_profile":     req.GenerationGuidanceProfile,
 		"generation_guidance_sha256":      req.GenerationGuidanceSHA256,
 		"text":                            "리포트 초안 생성 중입니다.",
-		"started_at":                      time.Now().UTC().Format(time.RFC3339Nano),
+		"started_at":                      startedAt.Format(time.RFC3339Nano),
+		"source_context":                  buildReportSourceContext(sources, startedAt),
 		"origin_pending_event_id":         pendingEventID,
 		"attempt_number":                  1,
 		"retry_strategy":                  "initial",

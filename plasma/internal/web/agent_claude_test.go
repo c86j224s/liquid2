@@ -215,6 +215,25 @@ func TestClaudeExecutorCanRestrictRequestToMCPOnly(t *testing.T) {
 	}
 }
 
+func TestClaudeExecutorWritesSameBoundReportPlanMCPContext(t *testing.T) {
+	executor := ClaudeExecutor{MCPServer: ClaudeMCPServer{Name: "plasma", Command: "/tmp/plasma", Args: []string{"mcp", "-db", "/tmp/plasma.db", "-enabled-tool", "plasma.sources.read"}}}
+	path, cleanup, err := executor.writeMCPConfig(AgentRequest{MissionID: "mis_1", ToolSessionID: "ses_tool", AgentExecutor: "claude", ExtraMCPTools: []string{"plasma.report.plan.submit"}, ReportPlan: &AgentReportPlanContext{PendingEventID: "evt_pending", ReportMode: "long_form", IdempotencyKey: "key_1", PreviousProviderSessionID: "ses_previous", AgentModel: "claude-test", AgentReasoningEffort: "high"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(raw)
+	for _, expected := range []string{"plasma.sources.read", "plasma.report.plan.submit", "-report-plan-pending-event-id", "evt_pending", "-report-plan-mode", "long_form", "-report-plan-idempotency-key", "key_1", "-report-plan-tool-session-id", "ses_tool", "-report-plan-previous-provider-session-id", "ses_previous", "-report-plan-agent-model", "claude-test"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("missing %q in %s", expected, text)
+		}
+	}
+}
+
 func TestClaudeExecutorCanDisableTools(t *testing.T) {
 	executor := ClaudeExecutor{
 		MCPServer: ClaudeMCPServer{

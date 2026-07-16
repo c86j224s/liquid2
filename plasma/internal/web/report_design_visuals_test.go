@@ -58,6 +58,29 @@ func TestDesignedReportVisualUnitsDispatchGrammar(t *testing.T) {
 	}
 }
 
+func TestDesignedReportSourceTeXPromptAndVersionContract(t *testing.T) {
+	prompt := agentDesignedHTMLContentModelPrompt("수식 리포트", `본문 \(E=mc^2\), \[x^2+y^2=z^2\]를 보존합니다.`, nil)
+	for _, expected := range []string{
+		"Use only \\(...\\) for inline math and \\[...\\] for display math.",
+		"Do not rewrite, translate, invent, or place formulas only in SVG text.",
+		`\(E=mc^2\)`,
+		`\[x^2+y^2=z^2\]`,
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected designed report source TeX contract %q:\n%s", expected, prompt)
+		}
+	}
+
+	const expectedVersion = "dh30-source-tex-brackets-20260713"
+	if designedReportRendererVersion != expectedVersion {
+		t.Fatalf("designed renderer version = %q, want %q", designedReportRendererVersion, expectedVersion)
+	}
+	appJS := string(mustReadStatic(t, "static/app.js"))
+	if !strings.Contains(appJS, `const DESIGNED_REPORT_RENDERER_VERSION = "`+expectedVersion+`";`) {
+		t.Fatalf("browser designed renderer version is not synchronized with %q", expectedVersion)
+	}
+}
+
 func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -72,7 +95,7 @@ func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 		Kicker:   "Designed Report",
 		Title:    "렌더러 검증 리포트",
 		Subtitle: "여러 시각 문법을 한 HTML 안에서 검증합니다.",
-		Thesis:   "시각 문법은 보고서의 정보 구조를 따라 선택되어야 합니다.",
+		Thesis:   `시각 문법은 \(E=mc^2\) 관계를 따라 선택됩니다.`,
 		VisualUnits: []designedReportVisual{
 			testDesignedVisual("핵심 관계", "map"),
 			testDesignedVisual("일정", "timeline"),
@@ -85,17 +108,20 @@ func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 			Question: "무엇이 렌더링되는가",
 			Sections: []designedReportSection{{
 				Heading:    "출처 보존",
-				Body:       []string{"이 HTML은 Markdown report artifact를 파생 렌더링한 결과입니다."},
-				SourceNote: "원본 Markdown 리포트 기반",
+				Body:       []string{`이 HTML은 \[x^2+y^2=z^2\] 관계를 표시합니다.`},
+				Table:      designedReportTable{Columns: []string{"항목", `값 \(x\)`}, Rows: [][]string{{"결과", `\(y\)`}}},
+				Caveat:     `잘못된 \(\notacommand{\) 수식은 원문으로 남습니다.`,
+				SourceNote: `원본 \(M\) Markdown 리포트 기반`,
 			}},
 		}},
 		Sources: []designedReportSource{{
 			Label: "원본",
 			Href:  "https://example.com/report",
-			Note:  "테스트용 안전 URL",
+			Note:  `테스트용 \(S\) 안전 URL`,
 		}},
-		Caveats: []string{"테스트 fixture는 실제 판단 자료가 아닙니다."},
+		Caveats: []string{`테스트 \(C\) fixture는 실제 판단 자료가 아닙니다.`},
 	})
+	model.VisualUnits[0].Nodes[0].Label = `SVG \(x\)`
 	content, err := server.renderDesignedReportHTML(app.RawArtifact{
 		ArtifactID: "art_dom_smoke_md",
 		MissionID:  "mis_dom_smoke",
@@ -117,6 +143,15 @@ func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 	}
 	if domHasExternalResource(doc) {
 		t.Fatalf("designed HTML should not auto-load external resources:\n%s", content)
+	}
+	htmlContent := string(content)
+	for _, expected := range []string{"renderDesignedTextMath(document.body)", "data:font/woff2;base64,", `version:"0.17.0"`, `<text class="hero-map-label" x="-98" y="2">SVG \(x\)</text>`} {
+		if !strings.Contains(htmlContent, expected) {
+			t.Fatalf("expected designed math contract %q", expected)
+		}
+	}
+	if strings.Contains(htmlContent, `<text class="hero-map-label" x="-98" y="2"><span class="plasma-math`) {
+		t.Fatal("SVG text label received HTML math markup")
 	}
 }
 

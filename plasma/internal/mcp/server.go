@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 )
 
@@ -41,6 +42,7 @@ type Service interface {
 	RequestWorkflowStop(context.Context, app.RequestWorkflowStopRequest) (app.WorkflowRunView, error)
 	CreateRawArtifact(context.Context, app.CreateRawArtifactRequest) (app.RawArtifact, error)
 	CreateRawArtifactWithEvent(context.Context, app.CreateRawArtifactRequest, func(app.RawArtifact) app.AppendEventRequest) (app.RawArtifact, app.LedgerEvent, error)
+	CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error)
 	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
 	CreateEvidenceProposal(context.Context, app.CreateEvidenceProposalRequest) (app.EvidenceProposalResult, error)
 	CreateQuestionProposal(context.Context, app.CreateQuestionProposalRequest) (app.QuestionProposalResult, error)
@@ -66,13 +68,16 @@ type Server struct {
 	operatorSourceMutation        bool
 	reportPatch                   bool
 	reportPatchBinding            ReportPatchBinding
+	reportPlanBinding             ReportPlanBinding
+	longFormFinalizeBinding       reporting.LongFormFinalizeBinding
 	enabledTools                  map[string]struct{}
 	sourceCandidateFetcher        SourceCandidateFetcher
 
-	mu            sync.Mutex
-	idempotency   map[string]idempotencyEntry
-	reportDrafts  map[string]*experimentReportDraft
-	reportPatches map[string]*reportPatchDraft
+	mu                    sync.Mutex
+	idempotency           map[string]idempotencyEntry
+	reportDrafts          map[string]*experimentReportDraft
+	reportPatches         map[string]*reportPatchDraft
+	reportPlanParsedCalls int
 }
 
 func NewServer(service Service, options ...Option) *Server {

@@ -1,0 +1,4 @@
+.plasma-math-inline{display:inline;white-space:nowrap}
+.plasma-math-display{display:block;max-width:100%;overflow-x:auto;overflow-y:hidden;padding:.45rem 0}
+.plasma-math-display>.katex-display{margin:.5rem 0;min-width:max-content}
+.plasma-math-error{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Consolas,monospace}

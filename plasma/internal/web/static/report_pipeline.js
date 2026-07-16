@@ -89,19 +89,19 @@
     </li>`;
   }
 
-  function groupedNodes(nodes) {
-    return nodes.reduce((lanes, node) => {
-      const part = node.part_index || 0;
-      (lanes.get(part) || lanes.set(part, []).get(part)).push(node);
-      return lanes;
-    }, new Map());
+  function reportPhases(nodes) {
+    return [
+      { label: "섹션 작성", nodes: nodes.filter((node) => node.kind === "section") },
+      { label: "파트 조립", nodes: nodes.filter((node) => node.kind === "part") }
+    ].filter((phase) => phase.nodes.length > 0);
   }
 
-  function renderAccessibleLane(part, nodes) {
+  function renderAccessiblePhase(phase) {
+    const nodes = phase.nodes;
     const complete = nodes.filter((node) => node.state === "completed").length;
     const visible = nodes.some((node) => node.state === "running" || node.state === "failed");
-    return `<li class="pipeline-lane"><details ${visible ? "open" : ""}>
-      <summary aria-label="파트 ${part} 섹션 펼치기" aria-expanded="${visible}">파트 ${part} <span>${complete}/${nodes.length}</span></summary>
+    return `<li class="pipeline-phase"><details ${visible ? "open" : ""}>
+      <summary aria-label="${escapeHTML(phase.label)} 단계 펼치기" aria-expanded="${visible}">${escapeHTML(phase.label)} <span>${complete}/${nodes.length}</span></summary>
       <ul>${nodes.map(renderAccessibleNode).join("")}</ul>
     </details></li>`;
   }
@@ -130,7 +130,7 @@
     return Math.max(144, labelWidth, timingWidth);
   }
 
-  function progressGraph(plan, lanes, closing, revealing) {
+  function progressGraph(plan, phases, closing, revealing) {
     const output = [];
     const nodeGap = 32;
     const graphPadding = 32;
@@ -146,20 +146,20 @@
       return previous;
     };
     if (plan) addNode(plan);
-    lanes.forEach(([part, nodes]) => {
+    phases.forEach((phase) => {
       let first;
-      nodes.forEach((node) => {
+      phase.nodes.forEach((node) => {
         const layout = addNode(node);
         if (!first) first = layout;
       });
-      const laneStart = first.x - first.width / 2 - 14;
-      const laneWidth = previous.x + previous.width / 2 + 14 - laneStart;
-      output.unshift(`<g class="pipeline-visual-lane"><rect x="${laneStart}" y="16" width="${laneWidth}" height="82" rx="4"></rect><text class="pipeline-lane-label" x="${laneStart + 10}" y="34">파트 ${part}</text></g>`);
+      const phaseStart = first.x - first.width / 2 - 14;
+      const phaseWidth = previous.x + previous.width / 2 + 14 - phaseStart;
+      output.unshift(`<g class="pipeline-visual-phase"><rect x="${phaseStart}" y="16" width="${phaseWidth}" height="82" rx="4"></rect><text class="pipeline-phase-label" x="${phaseStart + 10}" y="34">${escapeHTML(phase.label)}</text></g>`);
     });
     closing.forEach(addNode);
     const width = Math.max(760, nextX);
     const transition = revealing ? " pipeline-graph-revealing" : "";
-    return `<svg class="pipeline-graph${transition}" style="--pipeline-width: ${width}px" viewBox="0 0 ${width} 136" role="img" aria-label="계획, 파트와 섹션, 최종화, 산출물 순서의 리포트 생성 진행 상황"><defs><marker id="pipeline-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z"></path></marker></defs>${output.join("")}</svg>`;
+    return `<svg class="pipeline-graph${transition}" style="--pipeline-width: ${width}px" viewBox="0 0 ${width} 136" role="img" aria-label="계획, 섹션 작성, 파트 조립, 최종화, 산출물 순서의 리포트 생성 진행 상황"><defs><marker id="pipeline-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z"></path></marker></defs>${output.join("")}</svg>`;
   }
 
   function renderActions(progress) {
@@ -210,9 +210,9 @@
     const nodes = Array.isArray(progress.nodes) ? progress.nodes : [];
     const detailed = hasPlannedContent(nodes);
     const plan = planNode(nodes, progress);
-    const lanes = detailed ? [...groupedNodes(nodes.filter((node) => Number(node.part_index) > 0)).entries()].sort(([left], [right]) => left - right) : [];
+    const phases = detailed ? reportPhases(nodes) : [];
     const closing = detailed ? nodes.filter((node) => node.id === "final" || node.id === "artifact" || node.kind === "final" || node.kind === "artifact") : [];
-    const graphNodes = [plan, ...lanes.flatMap(([, laneNodes]) => laneNodes), ...closing];
+    const graphNodes = [plan, ...phases.flatMap((phase) => phase.nodes), ...closing];
     const stage = currentStage(graphNodes);
     const details = typeof host.querySelector === "function" ? host.querySelector(".pipeline-details") : null;
     const visual = typeof host.querySelector === "function" ? host.querySelector(".pipeline-visual") : null;
@@ -220,7 +220,7 @@
     const visualScrollLeft = visual && Number.isFinite(visual.scrollLeft) ? visual.scrollLeft : 0;
     const revealing = detailed && host.dataset && host.dataset.pipelinePhase === "planning";
     if (host.dataset) host.dataset.pipelinePhase = detailed ? "detailed" : "planning";
-    const accessibleGraph = [plan].map(renderAccessibleNode).join("") + lanes.map(([part, laneNodes]) => renderAccessibleLane(part, laneNodes)).join("") + closing.map(renderAccessibleNode).join("");
+    const accessibleGraph = [plan].map(renderAccessibleNode).join("") + phases.map(renderAccessiblePhase).join("") + closing.map(renderAccessibleNode).join("");
     const retry = progress.retry || {};
     const reason = retry.reason ? `<p id="pipelineRetryReason" class="pipeline-reason">${escapeHTML(retry.reason)}</p>` : "";
     const attempt = reportAttemptDetails(progress);
@@ -228,12 +228,12 @@
       <header class="pipeline-header"><div><h3 id="reportPipelineTitle">최신 리포트 생성 파이프라인</h3><p class="pipeline-report-title">${escapeHTML(attempt.title)}</p></div><p class="pipeline-current" aria-live="polite"><strong>${escapeHTML(attempt.attempt)}</strong><span class="pipeline-current-step">${escapeHTML(stage.name)}</span><span class="pipeline-current-status">${escapeHTML(stage.state)}</span></p></header>
       <dl class="pipeline-attempt-meta"><div><dt>전체 생성 시작</dt><dd><time datetime="${escapeHTML(attempt.startedAt === "생성 시작 시각 알 수 없음" ? "" : attempt.startedAt)}">${escapeHTML(attempt.startedAt)}</time></dd></div></dl>
       <details class="pipeline-details"${detailsOpen ? " open" : ""}><summary>생성 파이프라인 펼치기</summary>
-        <div class="pipeline-visual">${progressGraph(plan, lanes, closing, revealing)}</div>
+        <div class="pipeline-visual">${progressGraph(plan, phases, closing, revealing)}</div>
         <ol class="pipeline-flow sr-only" aria-label="리포트 생성 단계의 상태">${accessibleGraph}</ol>${reason}${renderActions(progress)}
       </details>
     </section>`;
     host.querySelectorAll("[data-report-retry]").forEach((button) => button.addEventListener("click", () => requestRetry(button, progress)));
-    host.querySelectorAll(".pipeline-lane details").forEach((details) => details.addEventListener("toggle", () => {
+    host.querySelectorAll(".pipeline-phase details").forEach((details) => details.addEventListener("toggle", () => {
       const summary = details.querySelector("summary");
       if (summary) summary.setAttribute("aria-expanded", String(details.open));
     }));

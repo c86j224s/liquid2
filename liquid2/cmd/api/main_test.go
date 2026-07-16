@@ -42,3 +42,34 @@ func TestRunStatusFieldReportsResolvedWebPort(t *testing.T) {
 		t.Fatalf("unexpected web port %q", stdout.String())
 	}
 }
+
+func TestDefaultReleaseDBDataDirUsesWSL2FallbackOnly(t *testing.T) {
+	home := t.TempDir()
+	if got := releaseDBDataDirForPlatform("darwin", "", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Liquid2") {
+		t.Fatalf("unexpected macOS release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, ""); got != filepath.Join(home, ".local", "share", "liquid2") {
+		t.Fatalf("unexpected WSL release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, "/xdg/data"); got != filepath.Join("/xdg/data", "liquid2") {
+		t.Fatalf("unexpected XDG release data dir %q", got)
+	}
+	if got := releaseDBDataDirForPlatform("linux", "4.4.0-19041-Microsoft", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Liquid2") {
+		t.Fatalf("unexpected non-WSL2 release data dir %q", got)
+	}
+}
+
+func TestRuntimeDefaultsDoNotOverrideConfiguredReleaseDBPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(liquidconfig.RuntimeModeEnv, liquidconfig.RuntimeModeRelease)
+	t.Setenv("LIQUID2_DB_PATH", "/configured/liquid2.db")
+	t.Chdir(t.TempDir())
+
+	cfg, err := loadRuntimeConfig(nil)
+	if err != nil {
+		t.Fatalf("load runtime config: %v", err)
+	}
+	if got := cfg.Value(liquidconfig.KeyDBPath, ""); got != "/configured/liquid2.db" {
+		t.Fatalf("configured database path was replaced: %q", got)
+	}
+}

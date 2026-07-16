@@ -7,6 +7,10 @@ import (
 
 func (server *Server) handleSettingsRoute(w http.ResponseWriter, r *http.Request) {
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/settings/"), "/")
+	if rest == "model-defaults" {
+		server.handleSettingsModelDefaults(w, r)
+		return
+	}
 	parts := strings.Split(rest, "/")
 	if len(parts) < 2 || parts[0] != "connectors" || parts[1] != "confluence" {
 		http.NotFound(w, r)

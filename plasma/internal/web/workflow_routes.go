@@ -124,12 +124,16 @@ func (server *Server) draftWorkflowGoal(ctx context.Context, missionID string, r
 	if err != nil {
 		return workflowGoalDraftResponse{}, err
 	}
+	defaults, err := server.workflowGoalDefaults(ctx)
+	if err != nil {
+		return workflowGoalDraftResponse{}, err
+	}
 	prompt := workflowGoalDraftPrompt(projection, userInstructionRaw)
 	result, err := executor.Run(ctx, AgentRequest{
 		UserText:        userInstructionRaw,
 		Prompt:          prompt,
-		Model:           server.workflowGoalModel,
-		ReasoningEffort: server.workflowGoalReasoningEffort,
+		Model:           defaults.WorkflowGoalModel,
+		ReasoningEffort: defaults.WorkflowGoalReasoningEffort,
 		MissionID:       missionID,
 		ToolSessionID:   newID("ses"),
 		AgentExecutor:   executorName,
@@ -149,8 +153,8 @@ func (server *Server) draftWorkflowGoal(ctx context.Context, missionID string, r
 	draft.UserInstructionRaw = userInstructionRaw
 	draft.RunGoal = strings.TrimSpace(draft.RunGoal)
 	draft.StepInstruction = strings.TrimSpace(draft.StepInstruction)
-	draft.Model = strings.TrimSpace(server.workflowGoalModel)
-	draft.ReasoningEffort = strings.TrimSpace(server.workflowGoalReasoningEffort)
+	draft.Model = strings.TrimSpace(defaults.WorkflowGoalModel)
+	draft.ReasoningEffort = strings.TrimSpace(defaults.WorkflowGoalReasoningEffort)
 	if draft.RunGoal == "" || draft.StepInstruction == "" {
 		return workflowGoalDraftResponse{}, fmt.Errorf("%w: workflow goal draft must include run_goal and step_instruction", app.ErrInvalidInput)
 	}

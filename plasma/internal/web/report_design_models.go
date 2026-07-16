@@ -12,7 +12,7 @@ var (
 )
 
 const (
-	designedReportRendererVersion = "dh26-inline-images-20260706"
+	designedReportRendererVersion = "dh30-source-tex-brackets-20260713"
 )
 
 type reportDesignRequest struct {

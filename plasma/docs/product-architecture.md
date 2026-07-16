@@ -284,7 +284,12 @@ The implementation slices should share the same ledger and MCP contract:
   renderers. The output remains a self-contained HTML report artifact.
   This is not final reference-grade parity: the renderer still depends on a
   compact content model and must preserve source notes, caveats, URLs, and
-  long-text readability over decorative variety.
+  long-text readability over decorative variety. The content-model generation
+  prompt instructs the agent to preserve every source `\(...\)` and `\[...\]`
+  expression exactly, including delimiters, in a relevant visible body or table
+  field, rather than rewriting, translating, inventing, or preserving formulas
+  only inside SVG text. This instruction is not deterministically validated by
+  the current coverage: QA preserved and rendered 23 of 41 expressions.
 
 ## Implemented Browser Workspace Slice
 
@@ -406,6 +411,15 @@ memory, not sources; the writer should privately organize facts,
 interpretations, weak signals, conflicts, and reader-facing structure before
 writing a rich Markdown report.
 
+Web planned and long-form planning use the durable MCP submission lifecycle
+defined in [`report-plan-submission.md`](report-plan-submission.md). The agent's
+final response is only an exact completion sentinel; the runner validates it and
+the actual returned provider-session lineage before atomically promoting the current tool
+session's submission. Submission `session_id` and producer name that MCP tool
+session, not a provider session; only canonical provenance records the returned,
+validated provider session. CLI planned Markdown planning and CLI long-form rejection
+remain separate, unchanged contracts.
+
 Workflow runs follow the same session rule. A run starts from
 `workflow.run.requested`, resumes the latest provider session one bounded step
 at a time, records the user-visible agent response as a result, strips the small
@@ -480,6 +494,30 @@ the server ledger and product state do not change.
 The browser renders agent replies as sanitized Markdown using vendored
 `markdown-it` and DOMPurify. That rendering is a display concern only; it does
 not make links or agent text into sources.
+
+Report math follows the same presentation boundary. Stored Markdown and
+designed-report content-model text remain the source of truth. The frontend-owned
+runtime uses vendored `markdown-it-texmath` 1.0.1 with bracket delimiters; only `\(...\)` and `\[...\]` are math syntax.
+The browser sanitizes Markdown first, runs the
+locally vendored KaTeX 0.17.0, and
+sanitizes the resulting HTML plus MathML a second time. KaTeX always uses
+`throwOnError: true`, `trust: false`, `output: htmlAndMathml`, `maxSize: 20`, and
+`maxExpand: 1000`. The second sanitizer keeps the HTML, MathML, and SVG profiles
+needed by KaTeX while `trust: false` continues to reject unsafe commands.
+`maxSize` clamps user-specified dimensions to 20em and still renders the formula.
+Unmatched delimiters, unavailable KaTeX, parse errors, and `maxExpand` violations
+remain visible as escaped delimiter-inclusive text without aborting the document.
+
+Basic self-contained HTML embeds inert raw Markdown and visibly retains it when
+JavaScript fails; its frontend runtime renders Markdown only after load. Designed
+self-contained HTML uses the same runtime only for visible text nodes, excluding
+code, preformatted text, links and URLs, script/style, SVG, and attributes.
+Per-formula errors retain raw source. Both exports embed local JavaScript, CSS,
+and WOFF2 fonts, so they need no CDN, package manager, file URL, or network
+access. Dollar delimiters are ordinary text. This rendering does
+not mutate source Markdown, content-model JSON, existing artifacts or events, or
+database state, and it does not create sources, evidence, results, or saved
+knowledge.
 
 ## Deferred Decisions
 

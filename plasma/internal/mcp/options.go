@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/urlsource"
 )
 
@@ -30,6 +32,17 @@ type ReportPatchBinding struct {
 	ReportSessionPolicy          string
 	ReportSessionPolicySelection string
 	SessionChainKind             string
+}
+
+type ReportPlanBinding struct {
+	PendingEventID            string
+	ReportMode                string
+	IdempotencyKey            string
+	ToolSessionID             string
+	PreviousProviderSessionID string
+	AgentExecutor             string
+	AgentModel                string
+	AgentReasoningEffort      string
 }
 
 type idempotencyEntry struct {
@@ -102,6 +115,50 @@ func WithReportPatchBinding(binding ReportPatchBinding) Option {
 	return func(server *Server) {
 		server.reportPatchBinding = normalizeReportPatchBinding(binding)
 	}
+}
+
+func WithReportPlanBinding(binding ReportPlanBinding) Option {
+	return func(server *Server) {
+		server.reportPlanBinding = normalizeReportPlanBinding(binding)
+	}
+}
+
+func WithLongFormFinalizeBinding(binding reporting.LongFormFinalizeBinding) Option {
+	return func(server *Server) { server.longFormFinalizeBinding = binding }
+}
+
+func ValidateLongFormFinalizeBinding(binding Binding, final reporting.LongFormFinalizeBinding) error {
+	if err := reporting.ValidateLongFormFinalizeBinding(final); err != nil {
+		return fmt.Errorf("long-form finalization binding is incomplete: %w", err)
+	}
+	if strings.TrimSpace(final.MissionID) != strings.TrimSpace(binding.MissionID) || strings.TrimSpace(final.ToolSessionID) != strings.TrimSpace(binding.AgentSessionID) || strings.TrimSpace(strings.ToLower(final.AgentExecutor)) != strings.TrimSpace(strings.ToLower(binding.AgentExecutor)) {
+		return fmt.Errorf("long-form finalization binding conflicts with MCP binding")
+	}
+	return nil
+}
+
+func normalizeReportPlanBinding(binding ReportPlanBinding) ReportPlanBinding {
+	return ReportPlanBinding{
+		PendingEventID: strings.TrimSpace(binding.PendingEventID), ReportMode: strings.TrimSpace(binding.ReportMode),
+		IdempotencyKey: strings.TrimSpace(binding.IdempotencyKey), ToolSessionID: strings.TrimSpace(binding.ToolSessionID),
+		PreviousProviderSessionID: strings.TrimSpace(binding.PreviousProviderSessionID), AgentExecutor: strings.TrimSpace(strings.ToLower(binding.AgentExecutor)),
+		AgentModel: strings.TrimSpace(binding.AgentModel), AgentReasoningEffort: strings.TrimSpace(binding.AgentReasoningEffort),
+	}
+}
+
+func (binding ReportPlanBinding) complete() bool {
+	return binding.PendingEventID != "" && (binding.ReportMode == "planned" || binding.ReportMode == "long_form") && binding.IdempotencyKey != "" && binding.ToolSessionID != "" && binding.AgentExecutor != ""
+}
+
+func ValidateReportPlanBinding(binding Binding, plan ReportPlanBinding) error {
+	plan = normalizeReportPlanBinding(plan)
+	if !plan.complete() {
+		return fmt.Errorf("report plan binding is incomplete")
+	}
+	if plan.ToolSessionID != strings.TrimSpace(binding.AgentSessionID) || plan.AgentExecutor != strings.TrimSpace(strings.ToLower(binding.AgentExecutor)) {
+		return fmt.Errorf("report plan binding conflicts with MCP binding")
+	}
+	return nil
 }
 
 func WithEnabledTools(tools []string) Option {

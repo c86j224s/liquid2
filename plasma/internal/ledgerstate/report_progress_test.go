@@ -73,6 +73,68 @@ func TestProjectReportProgressProjectsNodeTimingFromLedgerBoundaries(t *testing.
 	}
 }
 
+func TestProjectReportProgressRunsEverySectionBeforePartAssembly(t *testing.T) {
+	events := []Event{
+		reportEvent("evt_pending", "report.draft.pending", map[string]any{"report_mode": "long_form"}),
+		reportEvent("evt_plan", "report.plan.created", map[string]any{"pending_event_id": "evt_pending", "plan": map[string]any{"parts": []any{
+			map[string]any{"sections": []any{"part one"}},
+			map[string]any{"sections": []any{"part two"}},
+		}}}),
+		reportEvent("evt_section_1", "report.section.created", map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}),
+	}
+
+	progress := ProjectReportProgress(events)
+	if got := reportNodeState(progress.Nodes, "section-2-1"); got != "running" {
+		t.Fatalf("next part section must run before part assembly, got %q: %#v", got, progress.Nodes)
+	}
+	if got := reportNodeState(progress.Nodes, "part-1"); got != "pending" {
+		t.Fatalf("part assembly must remain pending until every section completes, got %q: %#v", got, progress.Nodes)
+	}
+	wantOrder := []string{"plan", "section-1-1", "section-2-1", "part-1", "part-2", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("unexpected node count: %#v", progress.Nodes)
+	}
+	for i, want := range wantOrder {
+		if progress.Nodes[i].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", i, progress.Nodes[i].ID, want, progress.Nodes)
+		}
+	}
+}
+
+func TestProjectReportProgressTimesPartAssemblyAfterEverySection(t *testing.T) {
+	base := time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "plan": map[string]any{"parts": []any{
+			map[string]any{"sections": []any{"part one"}},
+			map[string]any{"sections": []any{"part two"}},
+		}}}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section_1", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_section_2", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 2, "section_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_part_1", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(40 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	assertNodeTiming(t, nodes["section-2-1"], base.Add(20*time.Second), 10_000)
+	assertNodeTiming(t, nodes["part-1"], base.Add(30*time.Second), 10_000)
+	if nodes["part-2"].State != "running" || nodes["part-2"].StartedAt == nil || !nodes["part-2"].StartedAt.Equal(base.Add(40*time.Second)) {
+		t.Fatalf("second part must start after first part completion: %#v", nodes["part-2"])
+	}
+}
+
+func reportNodeState(nodes []ReportProgressNode, id string) string {
+	for _, node := range nodes {
+		if node.ID == id {
+			return node.State
+		}
+	}
+	return ""
+}
+
 func mustReportPayload(t *testing.T, payload map[string]any) json.RawMessage {
 	t.Helper()
 	encoded, err := json.Marshal(payload)

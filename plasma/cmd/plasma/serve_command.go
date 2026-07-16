@@ -241,7 +241,7 @@ func defaultServeDBPath(mode string) string {
 		return ""
 	}
 	if mode == config.RuntimeModeRelease {
-		return filepath.Join(home, "Library", "Application Support", "Plasma", "plasma.db")
+		return filepath.Join(defaultReleaseDBDataDir(home, os.Getenv("XDG_DATA_HOME")), "plasma.db")
 	}
 	return filepath.Join(home, "research-artifacts", "liquid2", "plasma", "runtime", "dev-6002", "plasma-ui-user.db")
 }

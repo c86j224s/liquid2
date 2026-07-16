@@ -546,11 +546,24 @@ accepted source 경로는 결정론적으로 설계한다.
 ### 완료: Update State
 
 - update check event와 projection state를 추가한다.
+- metadata update check의 성공과 안전하게 분류된 원격 실패를 source state에 마지막
+  확인 시각과 함께 투영한다. 404는 삭제로 단정하지 않고 원본을 찾거나 접근할 수
+  없었던 확인 결과로 표시하며, 저장된 snapshot은 그대로 유지한다.
 - update를 새 snapshot으로 생성한다.
 - superseded/source lineage 표시를 추가한다.
 - 자동 source replacement 없이 이전 snapshot을 주소 지정 가능하게 유지한다.
 - stale badge와 rendered diff는 아직 정적 UI에 없다. 현재 UI는 update check 결과를
   보여주고, 사용자가 확인하면 새 snapshot을 생성한다.
+
+### 완료: Report Source Context
+
+- 새 `report.draft.pending`은 당시 active Confluence snapshot과 마지막으로 알려진
+  update check 상태를 allowlist metadata로 한 번 캡처한다.
+- retry와 restart recovery는 최초 pending의 context를 유지하고, 새 보고서만 현재
+  상태를 다시 캡처한다.
+- 이 정보는 보고서 본문 밖에서 "생성 시점에 사용 가능했던 소스 정보"로 표시한다.
+  report prompt, provider request, Markdown, citation에는 삽입하지 않으며 보고서 생성
+  시 Confluence update check나 snapshot refresh를 자동 실행하지 않는다.
 
 ## 결정된 사항과 남은 범위
 

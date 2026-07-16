@@ -67,8 +67,9 @@ Run the local release surface:
 ./release-browser.sh liquid2 stop
 ```
 
-Liquid2 release defaults to Flutter web port `3001`, API port `3011`, and
-`~/Library/Application Support/Liquid2/liquid2.db`.
+Liquid2 release defaults to Flutter web port `3001` and API port `3011`. The
+default database is `~/Library/Application Support/Liquid2/liquid2.db` on
+macOS and `${XDG_DATA_HOME:-$HOME/.local/share}/liquid2/liquid2.db` on WSL2.
 
 ## Common Commands
 

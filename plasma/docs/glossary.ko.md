@@ -32,7 +32,7 @@
 | C0 | controller 실험의 neutral baseline입니다. 강한 controller 개입 없이 같은 session을 이어가는 흐름에 가깝습니다. | 보수적인 controller 기본값의 근거로 사용합니다. |
 | PAL2 | C0, NAV와 비교한 rhythm-aware question controller 변형입니다. | 결론이 충분하지 않아 기본값으로 쓰지 않습니다. |
 | NAV | 상태, 다음 턴 의도, 방향을 더 강하게 제시한 investigation navigator 변형입니다. | 실험 뒤 기본값에서 제외했습니다. |
-| G2 | 보고서 작성 시점에 적용한 한국어 말투 guidance입니다. | 기본 보고서 guidance 방향으로 제품화했습니다. |
+| G2 | 보고서 작성 시점에 적용한 한국어 말투 guidance입니다. | 기본 보고서 guidance 방향으로 제품화했습니다. 장문 보고서 작성에는 후속 검증에서 얻은 human-writer guidance도 함께 적용합니다. |
 | H5 | 기존 Markdown 보고서를 bounded MCP patch 도구로 수정하는 한국어 humanization 후처리입니다. | 선택적/보조 후처리입니다. planning이나 source selection에는 참여하지 않습니다. |
 | DH23 | agent-authored JSON content model과 deterministic renderer를 사용하고, 첫 화면의 강한 visual unit을 강조한 designed HTML 실험 경로입니다. | 현재 designed HTML 후보입니다. 한계는 남아 있습니다. |
 | C4 | 장문 보고서 조립 전략입니다. section body를 보존하고 전체 재작성 대신 제한적인 heading normalization만 수행합니다. | 장문 보고서 조립 방식으로 제품화했습니다. |

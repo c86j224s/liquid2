@@ -1,9 +1,12 @@
-.PHONY: check test fmt dev-browser-start dev-browser-stop dev-browser-restart dev-browser-status dev-browser-logs release-browser-start release-browser-stop release-browser-restart release-browser-status release-browser-logs
+.PHONY: check test shell-test fmt dev-browser-start dev-browser-stop dev-browser-restart dev-browser-status dev-browser-logs release-browser-start release-browser-stop release-browser-restart release-browser-status release-browser-logs
 
-check: test
+check: test shell-test
 
 test:
 	go test ./...
+
+shell-test:
+	../scripts/tests/wsl-process-test.sh
 
 fmt:
 	gofmt -w $$(find cmd internal -name '*.go')

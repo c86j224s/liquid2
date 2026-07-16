@@ -70,6 +70,79 @@ func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 	t.Fatalf("expected shared runner failure event, got %#v", svc.snapshot())
 }
 
+func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *testing.T) {
+	checkedAt := time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC)
+	svc := &fakeRunnerService{sources: []app.SourceSnapshot{
+		{
+			SnapshotID: "src_2", MissionID: "mis_1", Title: "Unchecked page",
+			Connector:  app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType, ExternalVersion: "4", ExternalURI: "https://private.example/wiki/2"},
+			CapturedAt: checkedAt.Add(-2 * time.Hour), ExternalUpdatedAt: checkedAt.Add(-3 * time.Hour),
+		},
+		{
+			SnapshotID: "src_1", MissionID: "mis_1", Title: "Current page",
+			Connector:  app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType, ExternalVersion: "7"},
+			CapturedAt: checkedAt.Add(-time.Hour), ExternalUpdatedAt: checkedAt.Add(-90 * time.Minute),
+			State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+				Status: app.ConfluenceUpdateStatusAvailable, CheckedAt: checkedAt, CurrentVersion: 7, LatestVersion: 8,
+			}},
+		},
+		{SnapshotID: "src_local", MissionID: "mis_1", Connector: app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath}},
+		{SnapshotID: "src_removed", MissionID: "mis_1", Connector: app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType}, State: app.SourceState{Removed: true}},
+	}}
+	generated := make(chan DraftRequest, 1)
+	runner := Runner{
+		Service: svc, InFlight: &InFlight{}, NewID: testRunnerID,
+		GenerateDraft: func(_ context.Context, _ string, req DraftRequest, _ string) error {
+			generated <- req
+			return nil
+		},
+	}
+	runner.InFlight.SetNewID(testRunnerID)
+	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report"}, app.Producer{Type: "user", ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		SourceContext reportSourceContext `json:"source_context"`
+	}
+	if err := json.Unmarshal(pending.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	context := payload.SourceContext
+	if context.SchemaVersion != reportSourceContextSchemaVersion || context.CapturedAt == "" || len(context.ConfluenceSources) != 2 {
+		t.Fatalf("unexpected report source context: %#v", context)
+	}
+	if context.ConfluenceSources[0].SnapshotID != "src_1" || context.ConfluenceSources[0].LastCheck.Status != app.ConfluenceUpdateStatusAvailable || context.ConfluenceSources[0].LastCheck.LatestVersion != 8 {
+		t.Fatalf("checked source context changed: %#v", context.ConfluenceSources[0])
+	}
+	if context.ConfluenceSources[1].SnapshotID != "src_2" || context.ConfluenceSources[1].LastCheck.Status != "not_checked" {
+		t.Fatalf("unchecked source context changed: %#v", context.ConfluenceSources[1])
+	}
+	for _, forbidden := range []string{"private.example", "external_uri", "artifact_ids", "locators", "content_hash"} {
+		if strings.Contains(strings.ToLower(string(pending.Payload)), forbidden) {
+			t.Fatalf("report source context leaked %q: %s", forbidden, pending.Payload)
+		}
+	}
+	select {
+	case req := <-generated:
+		if req.Title != "Report" {
+			t.Fatalf("source capture changed draft request: %#v", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("draft generator was not called")
+	}
+}
+
+func TestReportSourceContextDropsUnknownConfluenceErrorDetails(t *testing.T) {
+	check := buildReportConfluenceCheckContext(&app.ConfluenceUpdateState{
+		Status: app.ConfluenceUpdateStatusFailed, CheckedAt: time.Now().UTC(),
+		ErrorCategory: app.ConfluenceErrorCategoryAuth, ErrorCode: "raw_provider_detail",
+	})
+	if check.Status != app.ConfluenceUpdateStatusFailed || check.ErrorCategory != "" || check.ErrorCode != "" {
+		t.Fatalf("unsafe error detail entered report context: %#v", check)
+	}
+}
+
 func TestRunnerGenerationCallbacksDoNotInheritWorkflowStepDeadline(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -1050,6 +1123,7 @@ func TestBuildSelfContainedHTMLExportAppendRequestPreservesPayloadContract(t *te
 		MissionID:        "mis_1",
 		SourceArtifactID: "art_md",
 		Artifact:         app.RawArtifact{ArtifactID: "art_html", MediaType: "text/html; charset=utf-8"},
+		RendererVersion:  "html-test",
 		Producer:         app.Producer{Type: "plasma", ID: "html-export"},
 	})
 	if req.EventID != "evt_export" || req.MissionID != "mis_1" || req.EventType != "report.artifact.exported" ||
@@ -1063,6 +1137,7 @@ func TestBuildSelfContainedHTMLExportAppendRequestPreservesPayloadContract(t *te
 		"artifact_id":        "art_html",
 		"media_type":         "text/html; charset=utf-8",
 		"target":             ExportTargetSelfContainedHTML,
+		"renderer_version":   "html-test",
 		"text":               "Self-contained HTML 리포트 artifact를 생성했습니다.",
 	}
 	for key, want := range expected {
@@ -1655,8 +1730,9 @@ func (err failurePayloadErr) FailurePayload() map[string]any {
 }
 
 type fakeRunnerService struct {
-	mu     sync.Mutex
-	events []app.LedgerEvent
+	mu      sync.Mutex
+	events  []app.LedgerEvent
+	sources []app.SourceSnapshot
 }
 
 func (svc *fakeRunnerService) snapshot() []app.LedgerEvent {
@@ -1734,6 +1810,18 @@ func (svc *fakeRunnerService) ListEvents(_ context.Context, missionID string) ([
 		}
 	}
 	return events, nil
+}
+
+func (svc *fakeRunnerService) ListSourceSnapshotsWithState(_ context.Context, req app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error) {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	sources := make([]app.SourceSnapshot, 0, len(svc.sources))
+	for _, source := range svc.sources {
+		if source.MissionID == strings.TrimSpace(req.MissionID) {
+			sources = append(sources, source)
+		}
+	}
+	return sources, nil
 }
 
 func runnerPayloadString(t *testing.T, event app.LedgerEvent, key string) string {

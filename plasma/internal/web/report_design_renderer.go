@@ -17,6 +17,14 @@ import (
 )
 
 func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, model designedReportContentModel, images []reportInlineImage, notes []string) ([]byte, error) {
+	mathHead, err := selfContainedMathHead()
+	if err != nil {
+		return nil, err
+	}
+	mathScripts, err := selfContainedMathScripts()
+	if err != nil {
+		return nil, err
+	}
 	title := firstNonEmpty(model.Title, reportArtifactTitle(sourceArtifact))
 	kicker := firstNonEmpty(model.Kicker, model.VisualIdentity.StyleKey, "Designed Report")
 	subtitle := firstNonEmpty(model.Subtitle, model.Thesis, "저장된 Markdown 리포트 artifact를 바탕으로 재구성한 self-contained interactive HTML입니다.")
@@ -28,6 +36,7 @@ func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, m
 	out.WriteString("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
 	out.WriteString("<title>" + htmlpkg.EscapeString(title) + "</title>\n")
 	out.WriteString(designedReportCSS())
+	out.WriteString(mathHead)
 	out.WriteString("</head>\n<body>\n")
 	out.WriteString("<header class=\"designed-hero visual-map-hero theme-" + htmlpkg.EscapeString(designedStyleClass(model.VisualIdentity.StyleKey)) + "\" id=\"top\"><div class=\"hero-copy\"><p class=\"eyebrow\">" + htmlpkg.EscapeString(kicker) + "</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"subtitle\">" + htmlpkg.EscapeString(subtitle) + "</p>")
 	if model.Thesis != "" {
@@ -67,6 +76,7 @@ func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, m
 	renderDesignedSources(&out, model, sourceArtifact, notes)
 	out.WriteString("</section>\n</main>\n")
 	out.WriteString("<script>const b=document.body,t=document.getElementById('themeToggle');t?.addEventListener('click',()=>b.classList.toggle('light'));document.querySelectorAll('[data-tab-target]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelector(btn.dataset.tabTarget)?.scrollIntoView({behavior:'smooth',block:'start'});}));</script>\n")
+	out.WriteString(mathScripts)
 	out.WriteString("</body>\n</html>\n")
 	return out.Bytes(), nil
 }
@@ -647,6 +657,7 @@ Rules:
 - Include visual_identity. Pick one style_key from archive, blueprint, newsroom, cinematic, product, atlas. The motif and palette_note must come from the report's actual subject.
 - Include composition_shape. Pick one shape_key from tabbed_report_app, scroll_narrative, decision_dashboard, field_guide based on the report's information structure.
 - Preserve density. Do not drop tables, caveats, source notes, URLs, or section-level specifics to make the artifact prettier.
+- Use only \(...\) for inline math and \[...\] for display math. Preserve each such expression exactly, including its delimiters, in the most relevant visible body or table field. Do not rewrite, translate, invent, or place formulas only in SVG text.
 - If report_images are available, place useful images inside the most relevant sections with sections[].images. Use only exact image_ref values from report_images. Do not invent image refs. Do not place decorative images. Omit images when none materially support the adjacent section.
 - If the Markdown report contains a section named "Reference URLs preserved from the source artifact", copy every listed URL exactly into sources.href. Do not summarize, omit, rewrite, translate, or attach Korean particles to those URLs.
 - At least half of the sections should include a source_note, caveat, or both when the Markdown contains source or uncertainty material.
