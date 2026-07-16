@@ -25,9 +25,9 @@ case "$runtime_mode" in
 esac
 
 bin_path="${TMPDIR:-/tmp}/${bin_name}"
-state_dir="$(wsl_state_root plasma)/${runtime_mode}"
-stdout_path="${state_dir}/stdout.log"
-stderr_path="${state_dir}/stderr.log"
+plasma_state_dir="$(wsl_state_root plasma)/${runtime_mode}"
+stdout_path="${plasma_state_dir}/stdout.log"
+stderr_path="${plasma_state_dir}/stderr.log"
 fallback_url="http://127.0.0.1:${port}"
 operation_state_dir="$(wsl_state_root plasma)/${runtime_mode}-operation"
 operation_locked=0
@@ -93,7 +93,7 @@ wait_ready() {
     if curl -fsS "$(server_url)/api/missions" >/dev/null 2>&1; then
       return 0
     fi
-    if ! wsl_process_matches "$state_dir"; then
+    if ! wsl_process_matches "$plasma_state_dir"; then
       return 1
     fi
     sleep 0.5
@@ -105,7 +105,7 @@ wait_ready() {
 print_status() {
   base_url="$(server_url)"
   runtime_status
-  printf '  Service %s\n' "$(wsl_process_state "$state_dir")"
+  printf '  Service %s\n' "$(wsl_process_state "$plasma_state_dir")"
   if curl -fsS "${base_url}/api/missions" >/dev/null 2>&1; then
     printf '  HTTP    ok\n'
   else
@@ -117,19 +117,19 @@ print_status() {
 start_service() {
   service_started=0
   cancel_start() {
-    [ "$service_started" -eq 0 ] || wsl_process_stop "$state_dir"
+    [ "$service_started" -eq 0 ] || wsl_process_stop "$plasma_state_dir"
     finish_operation
     exit 130
   }
   begin_operation
   build_binary
   trap cancel_start HUP INT TERM
-  wsl_process_start "$state_dir" "$bin_path serve" "$plasma_dir" "$stdout_path" "$stderr_path" \
+  wsl_process_start "$plasma_state_dir" "$bin_path serve" "$plasma_dir" "$stdout_path" "$stderr_path" \
     env PLASMA_RUNTIME_MODE="$runtime_mode" "$bin_path" serve
   service_started=1
   if ! wait_ready; then
     print_status >&2
-    wsl_process_stop "$state_dir"
+    wsl_process_stop "$plasma_state_dir"
     exit 1
   fi
   trap abort_operation HUP INT TERM
@@ -146,7 +146,7 @@ case "$cmd" in
   install|start|restart) start_service ;;
   stop)
     begin_operation
-    wsl_process_stop "$state_dir"
+    wsl_process_stop "$plasma_state_dir"
     build_binary
     print_status
     finish_operation

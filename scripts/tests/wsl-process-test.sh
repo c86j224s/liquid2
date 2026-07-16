@@ -25,6 +25,106 @@ assert_success_trap_precedes_unlock() {
 
 assert_success_trap_precedes_unlock "${root_dir}/liquid2/scripts/browser-wsl.sh"
 assert_success_trap_precedes_unlock "${root_dir}/plasma/scripts/browser-wsl.sh"
+
+assert_var() {
+  var_name="$1"
+  expected="$2"
+  eval "actual=\${$var_name}"
+  [ "$actual" = "$expected" ] || {
+    printf 'expected caller variable %s to stay %s, got %s\n' "$var_name" "$expected" "$actual" >&2
+    exit 1
+  }
+}
+
+assert_helper_preserves_caller_variables() {
+  preserve_tmp_dir="$(mktemp -d)"
+  product="caller-product"
+  pid="caller-pid"
+  field="caller-field"
+  stat="caller-stat"
+  state_dir="caller-state-dir"
+  state_file="caller-state-file"
+  key="caller-key"
+  value="caller-value"
+  found="caller-found"
+  process_dir="caller-process-dir"
+  token="caller-token"
+  group_id="caller-group-id"
+  groups_file="caller-groups-file"
+  unsafe="caller-unsafe"
+  group_status="caller-group-status"
+  lock_dir="caller-lock-dir"
+  owner_file="caller-owner-file"
+  owner_pid="caller-owner-pid"
+  owner_start_time="caller-owner-start-time"
+  attempts="caller-attempts"
+  missing_owner_attempts="caller-missing-owner-attempts"
+  leader_pid="caller-leader-pid"
+  leader_start_time="caller-leader-start-time"
+  temp_file="caller-temp-file"
+  signal="caller-signal"
+  ownership_status="caller-ownership-status"
+  stop_failed="caller-stop-failed"
+  passes="caller-passes"
+  command_marker="caller-command-marker"
+  work_dir="caller-work-dir"
+  stdout_path="caller-stdout-path"
+  stderr_path="caller-stderr-path"
+  token_file="caller-token-file"
+  session_id="caller-session-id"
+  lines="caller-lines"
+  log_path="caller-log-path"
+
+  mkdir -p "${preserve_tmp_dir}/state"
+  wsl_state_root sample >/dev/null
+  wsl_process_write_state_locked "${preserve_tmp_dir}/state" 111 222 333 token-1
+  wsl_process_read_state "${preserve_tmp_dir}/state"
+  wsl_process_state "${preserve_tmp_dir}/missing" >/dev/null
+  wsl_process_lock "${preserve_tmp_dir}/lock-target" >/dev/null 2>&1 || true
+  wsl_process_unlock "${preserve_tmp_dir}/lock-target" >/dev/null 2>&1 || true
+  wsl_process_started_leader_matches 999999 1 >/dev/null 2>&1 || true
+  wsl_process_logs 1 "${preserve_tmp_dir}/missing.log" >/dev/null 2>&1 || true
+  rm -rf "$preserve_tmp_dir"
+
+  assert_var product "caller-product"
+  assert_var pid "caller-pid"
+  assert_var field "caller-field"
+  assert_var stat "caller-stat"
+  assert_var state_dir "caller-state-dir"
+  assert_var state_file "caller-state-file"
+  assert_var key "caller-key"
+  assert_var value "caller-value"
+  assert_var found "caller-found"
+  assert_var process_dir "caller-process-dir"
+  assert_var token "caller-token"
+  assert_var group_id "caller-group-id"
+  assert_var groups_file "caller-groups-file"
+  assert_var unsafe "caller-unsafe"
+  assert_var group_status "caller-group-status"
+  assert_var lock_dir "caller-lock-dir"
+  assert_var owner_file "caller-owner-file"
+  assert_var owner_pid "caller-owner-pid"
+  assert_var owner_start_time "caller-owner-start-time"
+  assert_var attempts "caller-attempts"
+  assert_var missing_owner_attempts "caller-missing-owner-attempts"
+  assert_var leader_pid "caller-leader-pid"
+  assert_var leader_start_time "caller-leader-start-time"
+  assert_var temp_file "caller-temp-file"
+  assert_var signal "caller-signal"
+  assert_var ownership_status "caller-ownership-status"
+  assert_var stop_failed "caller-stop-failed"
+  assert_var passes "caller-passes"
+  assert_var command_marker "caller-command-marker"
+  assert_var work_dir "caller-work-dir"
+  assert_var stdout_path "caller-stdout-path"
+  assert_var stderr_path "caller-stderr-path"
+  assert_var token_file "caller-token-file"
+  assert_var session_id "caller-session-id"
+  assert_var lines "caller-lines"
+  assert_var log_path "caller-log-path"
+}
+
+assert_helper_preserves_caller_variables
 wsl_is_wsl2_release '6.6.87.2-microsoft-standard-WSL2'
 ! wsl_is_wsl2_release '4.4.0-19041-Microsoft'
 ! wsl_is_wsl2_release '6.8.0-generic'

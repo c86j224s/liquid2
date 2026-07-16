@@ -1,8 +1,8 @@
 #!/bin/sh
 
 wsl_state_root() {
-  product="$1"
-  printf '%s/%s/services\n' "${XDG_STATE_HOME:-${HOME}/.local/state}" "$product"
+  wsl_process_product="$1"
+  printf '%s/%s/services\n' "${XDG_STATE_HOME:-${HOME}/.local/state}" "$wsl_process_product"
 }
 
 wsl_is_wsl2_release() {
@@ -19,13 +19,13 @@ wsl_is_wsl2() {
 }
 
 wsl_process_stat_field() {
-  pid="$1"
-  field="$2"
-  [ -r "/proc/${pid}/stat" ] || return 1
-  IFS= read -r stat <"/proc/${pid}/stat" || return 1
-  stat="${stat##*) }"
-  set -- $stat
-  case "$field" in
+  wsl_process_pid="$1"
+  wsl_process_field="$2"
+  [ -r "/proc/${wsl_process_pid}/stat" ] || return 1
+  IFS= read -r wsl_process_stat <"/proc/${wsl_process_pid}/stat" || return 1
+  wsl_process_stat="${wsl_process_stat##*) }"
+  set -- $wsl_process_stat
+  case "$wsl_process_field" in
     1) printf '%s\n' "$1" ;;
     3) printf '%s\n' "$3" ;;
     4) printf '%s\n' "$4" ;;
@@ -40,10 +40,10 @@ wsl_process_start_time() {
 
 wsl_current_process_identity() {
   [ -r /proc/self/stat ] || return 1
-  IFS= read -r stat </proc/self/stat || return 1
-  WSL_CURRENT_PROCESS_PID="${stat%% *}"
-  stat="${stat##*) }"
-  set -- $stat
+  IFS= read -r wsl_process_stat </proc/self/stat || return 1
+  WSL_CURRENT_PROCESS_PID="${wsl_process_stat%% *}"
+  wsl_process_stat="${wsl_process_stat##*) }"
+  set -- $wsl_process_stat
   WSL_CURRENT_PROCESS_START_TIME="${20}"
   case "$WSL_CURRENT_PROCESS_PID" in ''|*[!0-9]*) return 1 ;; esac
   case "$WSL_CURRENT_PROCESS_START_TIME" in ''|*[!0-9]*) return 1 ;; esac
@@ -62,10 +62,10 @@ wsl_process_session_id() {
 }
 
 wsl_process_has_token() {
-  pid="$1"
-  token="$2"
-  [ -r "/proc/${pid}/environ" ] || return 1
-  tr '\000' '\n' <"/proc/${pid}/environ" | grep -Fx -- "WSL_PROCESS_TOKEN=${token}" >/dev/null 2>&1
+  wsl_process_pid="$1"
+  wsl_process_token_value="$2"
+  [ -r "/proc/${wsl_process_pid}/environ" ] || return 1
+  tr '\000' '\n' <"/proc/${wsl_process_pid}/environ" | grep -Fx -- "WSL_PROCESS_TOKEN=${wsl_process_token_value}" >/dev/null 2>&1
 }
 
 wsl_process_state_file() {
@@ -73,22 +73,22 @@ wsl_process_state_file() {
 }
 
 wsl_process_read_state() {
-  state_dir="$1"
-  state_file="$(wsl_process_state_file "$state_dir")"
-  [ -r "$state_file" ] || return 1
+  wsl_process_state_dir="$1"
+  wsl_process_state_file_path="$(wsl_process_state_file "$wsl_process_state_dir")"
+  [ -r "$wsl_process_state_file_path" ] || return 1
 
   WSL_PROCESS_LEADER_PID=""
   WSL_PROCESS_LEADER_START_TIME=""
   WSL_PROCESS_GROUP_ID=""
   WSL_PROCESS_TOKEN=""
-  while IFS='=' read -r key value || [ -n "$key" ]; do
-    case "$key" in
-      leader_pid) WSL_PROCESS_LEADER_PID="$value" ;;
-      leader_start_time) WSL_PROCESS_LEADER_START_TIME="$value" ;;
-      group_id) WSL_PROCESS_GROUP_ID="$value" ;;
-      token) WSL_PROCESS_TOKEN="$value" ;;
+  while IFS='=' read -r wsl_process_key wsl_process_value || [ -n "$wsl_process_key" ]; do
+    case "$wsl_process_key" in
+      leader_pid) WSL_PROCESS_LEADER_PID="$wsl_process_value" ;;
+      leader_start_time) WSL_PROCESS_LEADER_START_TIME="$wsl_process_value" ;;
+      group_id) WSL_PROCESS_GROUP_ID="$wsl_process_value" ;;
+      token) WSL_PROCESS_TOKEN="$wsl_process_value" ;;
     esac
-  done <"$state_file"
+  done <"$wsl_process_state_file_path"
 
   case "$WSL_PROCESS_LEADER_PID" in ''|*[!0-9]*) return 1 ;; esac
   case "$WSL_PROCESS_LEADER_START_TIME" in ''|*[!0-9]*) return 1 ;; esac
@@ -100,117 +100,117 @@ wsl_process_read_state() {
 # every member carries the recorded per-start token. Returns 1 when the group
 # is gone and 2 when ownership cannot be proven.
 wsl_process_group_is_owned() {
-  state_dir="$1"
-  wsl_process_read_state "$state_dir" || return 2
+  wsl_process_state_dir="$1"
+  wsl_process_read_state "$wsl_process_state_dir" || return 2
 
-  found=0
-  for process_dir in /proc/[0-9]*; do
-    pid="${process_dir#/proc/}"
-    [ "$(wsl_process_group_id "$pid" 2>/dev/null || true)" = "$WSL_PROCESS_GROUP_ID" ] || continue
-    case "$(wsl_process_run_state "$pid" 2>/dev/null || true)" in
+  wsl_process_found=0
+  for wsl_process_proc_dir in /proc/[0-9]*; do
+    wsl_process_pid="${wsl_process_proc_dir#/proc/}"
+    [ "$(wsl_process_group_id "$wsl_process_pid" 2>/dev/null || true)" = "$WSL_PROCESS_GROUP_ID" ] || continue
+    case "$(wsl_process_run_state "$wsl_process_pid" 2>/dev/null || true)" in
       Z|X) continue ;;
     esac
-    if ! wsl_process_has_token "$pid" "$WSL_PROCESS_TOKEN"; then
-      [ -d "$process_dir" ] || continue
+    if ! wsl_process_has_token "$wsl_process_pid" "$WSL_PROCESS_TOKEN"; then
+      [ -d "$wsl_process_proc_dir" ] || continue
       return 2
     fi
-    found=1
+    wsl_process_found=1
   done
-  [ "$found" -eq 1 ]
+  [ "$wsl_process_found" -eq 1 ]
 }
 
 wsl_process_token_group_is_owned() {
-  group_id="$1"
-  token="$2"
-  case "$group_id" in ''|*[!0-9]*) return 2 ;; esac
+  wsl_process_group_id_value="$1"
+  wsl_process_token_value="$2"
+  case "$wsl_process_group_id_value" in ''|*[!0-9]*) return 2 ;; esac
 
-  found=0
-  for process_dir in /proc/[0-9]*; do
-    pid="${process_dir#/proc/}"
-    [ "$(wsl_process_group_id "$pid" 2>/dev/null || true)" = "$group_id" ] || continue
-    case "$(wsl_process_run_state "$pid" 2>/dev/null || true)" in
+  wsl_process_found=0
+  for wsl_process_proc_dir in /proc/[0-9]*; do
+    wsl_process_pid="${wsl_process_proc_dir#/proc/}"
+    [ "$(wsl_process_group_id "$wsl_process_pid" 2>/dev/null || true)" = "$wsl_process_group_id_value" ] || continue
+    case "$(wsl_process_run_state "$wsl_process_pid" 2>/dev/null || true)" in
       Z|X) continue ;;
     esac
-    if ! wsl_process_has_token "$pid" "$token"; then
-      [ -d "$process_dir" ] || continue
+    if ! wsl_process_has_token "$wsl_process_pid" "$wsl_process_token_value"; then
+      [ -d "$wsl_process_proc_dir" ] || continue
       return 2
     fi
-    found=1
+    wsl_process_found=1
   done
-  [ "$found" -eq 1 ]
+  [ "$wsl_process_found" -eq 1 ]
 }
 
 wsl_process_collect_token_groups() {
-  token="$1"
-  groups_file="$2"
-  : >"$groups_file"
-  for process_dir in /proc/[0-9]*; do
-    pid="${process_dir#/proc/}"
-    case "$(wsl_process_run_state "$pid" 2>/dev/null || true)" in
+  wsl_process_token_value="$1"
+  wsl_process_groups_file="$2"
+  : >"$wsl_process_groups_file"
+  for wsl_process_proc_dir in /proc/[0-9]*; do
+    wsl_process_pid="${wsl_process_proc_dir#/proc/}"
+    case "$(wsl_process_run_state "$wsl_process_pid" 2>/dev/null || true)" in
       Z|X|'') continue ;;
     esac
-    wsl_process_has_token "$pid" "$token" || continue
-    group_id="$(wsl_process_group_id "$pid" 2>/dev/null || true)"
-    case "$group_id" in ''|*[!0-9]*) continue ;; esac
-    grep -Fx -- "$group_id" "$groups_file" >/dev/null 2>&1 || printf '%s\n' "$group_id" >>"$groups_file"
+    wsl_process_has_token "$wsl_process_pid" "$wsl_process_token_value" || continue
+    wsl_process_group_id_value="$(wsl_process_group_id "$wsl_process_pid" 2>/dev/null || true)"
+    case "$wsl_process_group_id_value" in ''|*[!0-9]*) continue ;; esac
+    grep -Fx -- "$wsl_process_group_id_value" "$wsl_process_groups_file" >/dev/null 2>&1 || printf '%s\n' "$wsl_process_group_id_value" >>"$wsl_process_groups_file"
   done
 }
 
 wsl_process_token_is_owned() {
-  state_dir="$1"
-  wsl_process_read_state "$state_dir" || return 2
+  wsl_process_state_dir="$1"
+  wsl_process_read_state "$wsl_process_state_dir" || return 2
 
-  groups_file="$(mktemp)"
-  wsl_process_collect_token_groups "$WSL_PROCESS_TOKEN" "$groups_file"
-  found=0
-  unsafe=0
-  while IFS= read -r group_id; do
-    [ -n "$group_id" ] || continue
-    if wsl_process_token_group_is_owned "$group_id" "$WSL_PROCESS_TOKEN"; then
-      ownership_status=0
+  wsl_process_groups_file="$(mktemp)"
+  wsl_process_collect_token_groups "$WSL_PROCESS_TOKEN" "$wsl_process_groups_file"
+  wsl_process_found=0
+  wsl_process_unsafe=0
+  while IFS= read -r wsl_process_group_id_value; do
+    [ -n "$wsl_process_group_id_value" ] || continue
+    if wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$WSL_PROCESS_TOKEN"; then
+      wsl_process_ownership_status=0
     else
-      ownership_status=$?
+      wsl_process_ownership_status=$?
     fi
-    case "$ownership_status" in
-      0) found=1 ;;
-      2) unsafe=1 ;;
+    case "$wsl_process_ownership_status" in
+      0) wsl_process_found=1 ;;
+      2) wsl_process_unsafe=1 ;;
     esac
-  done <"$groups_file"
-  rm -f "$groups_file"
+  done <"$wsl_process_groups_file"
+  rm -f "$wsl_process_groups_file"
 
-  [ "$found" -eq 1 ] && return 0
-  [ "$unsafe" -eq 1 ] && return 2
+  [ "$wsl_process_found" -eq 1 ] && return 0
+  [ "$wsl_process_unsafe" -eq 1 ] && return 2
   return 1
 }
 
 wsl_process_token_processes_remain() {
-  token="$1"
-  for process_dir in /proc/[0-9]*; do
-    pid="${process_dir#/proc/}"
-    case "$(wsl_process_run_state "$pid" 2>/dev/null || true)" in
+  wsl_process_token_value="$1"
+  for wsl_process_proc_dir in /proc/[0-9]*; do
+    wsl_process_pid="${wsl_process_proc_dir#/proc/}"
+    case "$(wsl_process_run_state "$wsl_process_pid" 2>/dev/null || true)" in
       Z|X|'') continue ;;
     esac
-    wsl_process_has_token "$pid" "$token" && return 0
+    wsl_process_has_token "$wsl_process_pid" "$wsl_process_token_value" && return 0
   done
   return 1
 }
 
 wsl_process_matches() {
-  state_dir="$1"
-  if wsl_process_group_is_owned "$state_dir"; then
+  wsl_process_state_dir="$1"
+  if wsl_process_group_is_owned "$wsl_process_state_dir"; then
     return 0
   else
-    group_status=$?
+    wsl_process_group_status=$?
   fi
-  [ "$group_status" -eq 1 ] || return "$group_status"
-  wsl_process_token_is_owned "$state_dir"
+  [ "$wsl_process_group_status" -eq 1 ] || return "$wsl_process_group_status"
+  wsl_process_token_is_owned "$wsl_process_state_dir"
 }
 
 wsl_process_state() {
-  state_dir="$1"
-  if wsl_process_matches "$state_dir"; then
+  wsl_process_state_dir="$1"
+  if wsl_process_matches "$wsl_process_state_dir"; then
     printf 'running\n'
-  elif [ -e "$(wsl_process_state_file "$state_dir")" ]; then
+  elif [ -e "$(wsl_process_state_file "$wsl_process_state_dir")" ]; then
     printf 'stale\n'
   else
     printf 'stopped\n'
@@ -218,181 +218,181 @@ wsl_process_state() {
 }
 
 wsl_process_clear_state_locked() {
-  state_dir="$1"
-  rm -f "$(wsl_process_state_file "$state_dir")"
+  wsl_process_state_dir="$1"
+  rm -f "$(wsl_process_state_file "$wsl_process_state_dir")"
 }
 
 wsl_process_clear_state() {
-  state_dir="$1"
-  wsl_process_lock "$state_dir" || return 1
-  wsl_process_clear_state_locked "$state_dir"
-  wsl_process_unlock "$state_dir"
+  wsl_process_state_dir="$1"
+  wsl_process_lock "$wsl_process_state_dir" || return 1
+  wsl_process_clear_state_locked "$wsl_process_state_dir"
+  wsl_process_unlock "$wsl_process_state_dir"
 }
 
 wsl_process_lock_owner_is_live() {
-  lock_dir="$1"
-  owner_file="${lock_dir}/owner.state"
-  [ -r "$owner_file" ] || return 1
-  owner_pid=""
-  owner_start_time=""
-  while IFS='=' read -r key value || [ -n "$key" ]; do
-    case "$key" in
-      pid) owner_pid="$value" ;;
-      start_time) owner_start_time="$value" ;;
+  wsl_process_lock_dir="$1"
+  wsl_process_owner_file="${wsl_process_lock_dir}/owner.state"
+  [ -r "$wsl_process_owner_file" ] || return 1
+  wsl_process_owner_pid=""
+  wsl_process_owner_start_time=""
+  while IFS='=' read -r wsl_process_key wsl_process_value || [ -n "$wsl_process_key" ]; do
+    case "$wsl_process_key" in
+      pid) wsl_process_owner_pid="$wsl_process_value" ;;
+      start_time) wsl_process_owner_start_time="$wsl_process_value" ;;
     esac
-  done <"$owner_file"
-  case "$owner_pid" in ''|*[!0-9]*) return 1 ;; esac
-  case "$owner_start_time" in ''|*[!0-9]*) return 1 ;; esac
-  [ "$(wsl_process_start_time "$owner_pid" 2>/dev/null || true)" = "$owner_start_time" ]
+  done <"$wsl_process_owner_file"
+  case "$wsl_process_owner_pid" in ''|*[!0-9]*) return 1 ;; esac
+  case "$wsl_process_owner_start_time" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$(wsl_process_start_time "$wsl_process_owner_pid" 2>/dev/null || true)" = "$wsl_process_owner_start_time" ]
 }
 
 wsl_process_lock() {
-  state_dir="$1"
-  lock_dir="${state_dir}/.operation-lock"
-  mkdir -p "$state_dir"
-  attempts=0
-  missing_owner_attempts=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    if [ -e "${lock_dir}/owner.state" ]; then
-      missing_owner_attempts=0
-      if ! wsl_process_lock_owner_is_live "$lock_dir"; then
-        rm -f "${lock_dir}/owner.state"
-        rmdir "$lock_dir" 2>/dev/null || true
+  wsl_process_state_dir="$1"
+  wsl_process_lock_dir="${wsl_process_state_dir}/.operation-lock"
+  mkdir -p "$wsl_process_state_dir"
+  wsl_process_attempts=0
+  wsl_process_missing_owner_attempts=0
+  while ! mkdir "$wsl_process_lock_dir" 2>/dev/null; do
+    if [ -e "${wsl_process_lock_dir}/owner.state" ]; then
+      wsl_process_missing_owner_attempts=0
+      if ! wsl_process_lock_owner_is_live "$wsl_process_lock_dir"; then
+        rm -f "${wsl_process_lock_dir}/owner.state"
+        rmdir "$wsl_process_lock_dir" 2>/dev/null || true
       fi
     else
-      missing_owner_attempts=$((missing_owner_attempts + 1))
-      if [ "$missing_owner_attempts" -ge 10 ]; then
-        rmdir "$lock_dir" 2>/dev/null || true
+      wsl_process_missing_owner_attempts=$((wsl_process_missing_owner_attempts + 1))
+      if [ "$wsl_process_missing_owner_attempts" -ge 10 ]; then
+        rmdir "$wsl_process_lock_dir" 2>/dev/null || true
       fi
     fi
-    attempts=$((attempts + 1))
-    if [ "$attempts" -ge 600 ]; then
-      printf 'timed out waiting for service operation lock: %s\n' "$state_dir" >&2
+    wsl_process_attempts=$((wsl_process_attempts + 1))
+    if [ "$wsl_process_attempts" -ge 600 ]; then
+      printf 'timed out waiting for service operation lock: %s\n' "$wsl_process_state_dir" >&2
       return 1
     fi
     sleep 0.05
   done
 
   if ! wsl_current_process_identity; then
-    rmdir "$lock_dir" 2>/dev/null || true
+    rmdir "$wsl_process_lock_dir" 2>/dev/null || true
     return 1
   fi
   (
     umask 077
-    printf 'pid=%s\nstart_time=%s\n' "$WSL_CURRENT_PROCESS_PID" "$WSL_CURRENT_PROCESS_START_TIME" >"${lock_dir}/owner.state.new"
-    mv -f "${lock_dir}/owner.state.new" "${lock_dir}/owner.state"
+    printf 'pid=%s\nstart_time=%s\n' "$WSL_CURRENT_PROCESS_PID" "$WSL_CURRENT_PROCESS_START_TIME" >"${wsl_process_lock_dir}/owner.state.new"
+    mv -f "${wsl_process_lock_dir}/owner.state.new" "${wsl_process_lock_dir}/owner.state"
   )
 }
 
 wsl_process_unlock() {
-  state_dir="$1"
-  lock_dir="${state_dir}/.operation-lock"
-  rm -f "${lock_dir}/owner.state"
-  rmdir "$lock_dir" 2>/dev/null || true
+  wsl_process_state_dir="$1"
+  wsl_process_lock_dir="${wsl_process_state_dir}/.operation-lock"
+  rm -f "${wsl_process_lock_dir}/owner.state"
+  rmdir "$wsl_process_lock_dir" 2>/dev/null || true
 }
 
 wsl_process_write_state_locked() {
-  state_dir="$1"
-  leader_pid="$2"
-  leader_start_time="$3"
-  group_id="$4"
-  token="$5"
-  state_file="$(wsl_process_state_file "$state_dir")"
-  temp_file="${state_file}.new.$$"
+  wsl_process_state_dir="$1"
+  wsl_process_leader_pid="$2"
+  wsl_process_leader_start_time="$3"
+  wsl_process_group_id_value="$4"
+  wsl_process_token_value="$5"
+  wsl_process_state_file_path="$(wsl_process_state_file "$wsl_process_state_dir")"
+  wsl_process_temp_file="${wsl_process_state_file_path}.new.$$"
   (
     umask 077
     printf 'leader_pid=%s\nleader_start_time=%s\ngroup_id=%s\ntoken=%s\n' \
-      "$leader_pid" "$leader_start_time" "$group_id" "$token" >"$temp_file"
-    mv -f "$temp_file" "$state_file"
+      "$wsl_process_leader_pid" "$wsl_process_leader_start_time" "$wsl_process_group_id_value" "$wsl_process_token_value" >"$wsl_process_temp_file"
+    mv -f "$wsl_process_temp_file" "$wsl_process_state_file_path"
   )
 }
 
 # Sends a signal only after ownership of every process in the group has been
 # rechecked. This avoids signalling a reused PID or process-group identifier.
 wsl_process_signal_token_group() {
-  group_id="$1"
-  token="$2"
-  signal="$3"
-  wsl_process_token_group_is_owned "$group_id" "$token"
-  ownership_status=$?
-  if [ "$ownership_status" -ne 0 ]; then
-    return "$ownership_status"
+  wsl_process_group_id_value="$1"
+  wsl_process_token_value="$2"
+  wsl_process_signal_name="$3"
+  wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value"
+  wsl_process_ownership_status=$?
+  if [ "$wsl_process_ownership_status" -ne 0 ]; then
+    return "$wsl_process_ownership_status"
   fi
-  /bin/kill "-${signal}" -- "-${group_id}" >/dev/null 2>&1 || true
+  /bin/kill "-${wsl_process_signal_name}" -- "-${wsl_process_group_id_value}" >/dev/null 2>&1 || true
 }
 
 wsl_process_stop_token_group() {
-  group_id="$1"
-  token="$2"
-  wsl_process_token_group_is_owned "$group_id" "$token"
-  ownership_status=$?
-  case "$ownership_status" in
+  wsl_process_group_id_value="$1"
+  wsl_process_token_value="$2"
+  wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value"
+  wsl_process_ownership_status=$?
+  case "$wsl_process_ownership_status" in
     1) return 0 ;;
     2) return 1 ;;
   esac
 
-  wsl_process_signal_token_group "$group_id" "$token" TERM || return 1
-  attempts=0
-  while wsl_process_token_group_is_owned "$group_id" "$token" && [ "$attempts" -lt 50 ]; do
+  wsl_process_signal_token_group "$wsl_process_group_id_value" "$wsl_process_token_value" TERM || return 1
+  wsl_process_attempts=0
+  while wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value" && [ "$wsl_process_attempts" -lt 50 ]; do
     sleep 0.1
-    attempts=$((attempts + 1))
+    wsl_process_attempts=$((wsl_process_attempts + 1))
   done
-  if wsl_process_token_group_is_owned "$group_id" "$token"; then
-    if ! wsl_process_signal_token_group "$group_id" "$token" KILL; then
+  if wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value"; then
+    if ! wsl_process_signal_token_group "$wsl_process_group_id_value" "$wsl_process_token_value" KILL; then
       return 1
     fi
-    attempts=0
-    while wsl_process_token_group_is_owned "$group_id" "$token" && [ "$attempts" -lt 20 ]; do
+    wsl_process_attempts=0
+    while wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value" && [ "$wsl_process_attempts" -lt 20 ]; do
       sleep 0.1
-      attempts=$((attempts + 1))
+      wsl_process_attempts=$((wsl_process_attempts + 1))
     done
   fi
-  if wsl_process_token_group_is_owned "$group_id" "$token"; then
-    printf 'failed to stop owned process group %s\n' "$group_id" >&2
+  if wsl_process_token_group_is_owned "$wsl_process_group_id_value" "$wsl_process_token_value"; then
+    printf 'failed to stop owned process group %s\n' "$wsl_process_group_id_value" >&2
     return 1
   fi
 }
 
 wsl_process_stop_locked() {
-  state_dir="$1"
-  if ! wsl_process_read_state "$state_dir"; then
-    wsl_process_clear_state_locked "$state_dir"
+  wsl_process_state_dir="$1"
+  if ! wsl_process_read_state "$wsl_process_state_dir"; then
+    wsl_process_clear_state_locked "$wsl_process_state_dir"
     return 0
   fi
 
-  token="$WSL_PROCESS_TOKEN"
-  stop_failed=0
-  passes=0
-  while wsl_process_token_processes_remain "$token" && [ "$passes" -lt 5 ]; do
-    groups_file="$(mktemp)"
-    wsl_process_collect_token_groups "$token" "$groups_file"
-    while IFS= read -r group_id; do
-      [ -n "$group_id" ] || continue
-      wsl_process_stop_token_group "$group_id" "$token" || stop_failed=1
-    done <"$groups_file"
-    rm -f "$groups_file"
-    passes=$((passes + 1))
+  wsl_process_token_value="$WSL_PROCESS_TOKEN"
+  wsl_process_stop_failed=0
+  wsl_process_passes=0
+  while wsl_process_token_processes_remain "$wsl_process_token_value" && [ "$wsl_process_passes" -lt 5 ]; do
+    wsl_process_groups_file="$(mktemp)"
+    wsl_process_collect_token_groups "$wsl_process_token_value" "$wsl_process_groups_file"
+    while IFS= read -r wsl_process_group_id_value; do
+      [ -n "$wsl_process_group_id_value" ] || continue
+      wsl_process_stop_token_group "$wsl_process_group_id_value" "$wsl_process_token_value" || wsl_process_stop_failed=1
+    done <"$wsl_process_groups_file"
+    rm -f "$wsl_process_groups_file"
+    wsl_process_passes=$((wsl_process_passes + 1))
   done
 
-  if wsl_process_token_processes_remain "$token"; then
+  if wsl_process_token_processes_remain "$wsl_process_token_value"; then
     printf 'failed to stop all token-owned process groups\n' >&2
     return 1
   fi
-  if [ "$stop_failed" -ne 0 ]; then
+  if [ "$wsl_process_stop_failed" -ne 0 ]; then
     printf 'failed to verify token-owned process groups during stop\n' >&2
     return 1
   fi
-  wsl_process_clear_state_locked "$state_dir"
+  wsl_process_clear_state_locked "$wsl_process_state_dir"
 }
 
 wsl_process_stop() {
-  state_dir="$1"
-  wsl_process_lock "$state_dir" || return 1
-  if wsl_process_stop_locked "$state_dir"; then
-    wsl_process_unlock "$state_dir"
+  wsl_process_state_dir="$1"
+  wsl_process_lock "$wsl_process_state_dir" || return 1
+  if wsl_process_stop_locked "$wsl_process_state_dir"; then
+    wsl_process_unlock "$wsl_process_state_dir"
     return 0
   fi
-  wsl_process_unlock "$state_dir"
+  wsl_process_unlock "$wsl_process_state_dir"
   return 1
 }
 
@@ -400,133 +400,133 @@ wsl_process_stop() {
 # may be signalled without a token. Never signal a numeric group from this
 # path: its original leader may already be gone and the identifier reused.
 wsl_process_started_leader_matches() {
-  leader_pid="$1"
-  leader_start_time="$2"
-  case "$leader_pid" in ''|*[!0-9]*) return 2 ;; esac
-  case "$leader_start_time" in ''|*[!0-9]*) return 2 ;; esac
-  case "$(wsl_process_run_state "$leader_pid" 2>/dev/null || true)" in
+  wsl_process_leader_pid="$1"
+  wsl_process_leader_start_time="$2"
+  case "$wsl_process_leader_pid" in ''|*[!0-9]*) return 2 ;; esac
+  case "$wsl_process_leader_start_time" in ''|*[!0-9]*) return 2 ;; esac
+  case "$(wsl_process_run_state "$wsl_process_leader_pid" 2>/dev/null || true)" in
     Z|X|'') return 1 ;;
   esac
-  [ "$(wsl_process_start_time "$leader_pid" 2>/dev/null || true)" = "$leader_start_time" ]
+  [ "$(wsl_process_start_time "$wsl_process_leader_pid" 2>/dev/null || true)" = "$wsl_process_leader_start_time" ]
 }
 
 wsl_process_cleanup_started_leader() {
-  leader_pid="$1"
-  leader_start_time="$2"
-  if ! wsl_process_started_leader_matches "$leader_pid" "$leader_start_time"; then
+  wsl_process_leader_pid="$1"
+  wsl_process_leader_start_time="$2"
+  if ! wsl_process_started_leader_matches "$wsl_process_leader_pid" "$wsl_process_leader_start_time"; then
     return 0
   fi
-  /bin/kill -TERM "$leader_pid" >/dev/null 2>&1 || true
-  attempts=0
-  while wsl_process_started_leader_matches "$leader_pid" "$leader_start_time" && [ "$attempts" -lt 50 ]; do
+  /bin/kill -TERM "$wsl_process_leader_pid" >/dev/null 2>&1 || true
+  wsl_process_attempts=0
+  while wsl_process_started_leader_matches "$wsl_process_leader_pid" "$wsl_process_leader_start_time" && [ "$wsl_process_attempts" -lt 50 ]; do
     sleep 0.1
-    attempts=$((attempts + 1))
+    wsl_process_attempts=$((wsl_process_attempts + 1))
   done
-  if wsl_process_started_leader_matches "$leader_pid" "$leader_start_time"; then
-    /bin/kill -KILL "$leader_pid" >/dev/null 2>&1 || true
+  if wsl_process_started_leader_matches "$wsl_process_leader_pid" "$wsl_process_leader_start_time"; then
+    /bin/kill -KILL "$wsl_process_leader_pid" >/dev/null 2>&1 || true
   fi
 }
 
 wsl_process_cleanup_token_group() {
-  group_id="$1"
-  token="$2"
-  wsl_process_stop_token_group "$group_id" "$token" || true
+  wsl_process_group_id_value="$1"
+  wsl_process_token_value="$2"
+  wsl_process_stop_token_group "$wsl_process_group_id_value" "$wsl_process_token_value" || true
 }
 
 wsl_process_cleanup_token_groups() {
-  token="$1"
-  passes=0
-  while wsl_process_token_processes_remain "$token" && [ "$passes" -lt 5 ]; do
-    groups_file="$(mktemp)"
-    wsl_process_collect_token_groups "$token" "$groups_file"
-    while IFS= read -r group_id; do
-      [ -n "$group_id" ] || continue
-      wsl_process_cleanup_token_group "$group_id" "$token"
-    done <"$groups_file"
-    rm -f "$groups_file"
-    passes=$((passes + 1))
+  wsl_process_token_value="$1"
+  wsl_process_passes=0
+  while wsl_process_token_processes_remain "$wsl_process_token_value" && [ "$wsl_process_passes" -lt 5 ]; do
+    wsl_process_groups_file="$(mktemp)"
+    wsl_process_collect_token_groups "$wsl_process_token_value" "$wsl_process_groups_file"
+    while IFS= read -r wsl_process_group_id_value; do
+      [ -n "$wsl_process_group_id_value" ] || continue
+      wsl_process_cleanup_token_group "$wsl_process_group_id_value" "$wsl_process_token_value"
+    done <"$wsl_process_groups_file"
+    rm -f "$wsl_process_groups_file"
+    wsl_process_passes=$((wsl_process_passes + 1))
   done
-  ! wsl_process_token_processes_remain "$token"
+  ! wsl_process_token_processes_remain "$wsl_process_token_value"
 }
 
 wsl_process_start_locked() {
-  state_dir="$1"
-  command_marker="$2"
-  work_dir="$3"
-  stdout_path="$4"
-  stderr_path="$5"
+  wsl_process_state_dir="$1"
+  wsl_process_command_marker="$2"
+  wsl_process_work_dir="$3"
+  wsl_process_stdout_path="$4"
+  wsl_process_stderr_path="$5"
   shift 5
 
-  wsl_process_stop_locked "$state_dir" || return 1
-  token_file="$(mktemp "${state_dir}/.process-token.XXXXXX")"
-  token="$(basename "$token_file")"
-  rm -f "$token_file"
+  wsl_process_stop_locked "$wsl_process_state_dir" || return 1
+  wsl_process_token_file="$(mktemp "${wsl_process_state_dir}/.process-token.XXXXXX")"
+  wsl_process_token_value="$(basename "$wsl_process_token_file")"
+  rm -f "$wsl_process_token_file"
 
   (
-    cd "$work_dir"
-    exec nohup setsid env "WSL_PROCESS_TOKEN=${token}" "$@" >"$stdout_path" 2>"$stderr_path" </dev/null
+    cd "$wsl_process_work_dir"
+    exec nohup setsid env "WSL_PROCESS_TOKEN=${wsl_process_token_value}" "$@" >"$wsl_process_stdout_path" 2>"$wsl_process_stderr_path" </dev/null
   ) &
-  leader_pid=$!
-  attempts=0
-  leader_start_time=""
-  group_id=""
-  while [ "$attempts" -lt 20 ]; do
-    leader_start_time="$(wsl_process_start_time "$leader_pid" 2>/dev/null || true)"
-    group_id="$(wsl_process_group_id "$leader_pid" 2>/dev/null || true)"
-    session_id="$(wsl_process_session_id "$leader_pid" 2>/dev/null || true)"
-    if [ -n "$leader_start_time" ] && [ -n "$group_id" ] && [ "$group_id" = "$session_id" ] && \
-      wsl_process_has_token "$leader_pid" "$token"; then
+  wsl_process_leader_pid=$!
+  wsl_process_attempts=0
+  wsl_process_leader_start_time=""
+  wsl_process_group_id_value=""
+  while [ "$wsl_process_attempts" -lt 20 ]; do
+    wsl_process_leader_start_time="$(wsl_process_start_time "$wsl_process_leader_pid" 2>/dev/null || true)"
+    wsl_process_group_id_value="$(wsl_process_group_id "$wsl_process_leader_pid" 2>/dev/null || true)"
+    wsl_process_session_id_value="$(wsl_process_session_id "$wsl_process_leader_pid" 2>/dev/null || true)"
+    if [ -n "$wsl_process_leader_start_time" ] && [ -n "$wsl_process_group_id_value" ] && [ "$wsl_process_group_id_value" = "$wsl_process_session_id_value" ] && \
+      wsl_process_has_token "$wsl_process_leader_pid" "$wsl_process_token_value"; then
       break
     fi
     sleep 0.05
-    attempts=$((attempts + 1))
+    wsl_process_attempts=$((wsl_process_attempts + 1))
   done
-  if [ -z "$leader_start_time" ] || [ -z "$group_id" ] || \
-    [ "$(wsl_process_session_id "$leader_pid" 2>/dev/null || true)" != "$group_id" ] || \
-    ! wsl_process_has_token "$leader_pid" "$token"; then
-    wsl_process_cleanup_started_leader "$leader_pid" "$leader_start_time"
-    if ! wsl_process_cleanup_token_groups "$token"; then
+  if [ -z "$wsl_process_leader_start_time" ] || [ -z "$wsl_process_group_id_value" ] || \
+    [ "$(wsl_process_session_id "$wsl_process_leader_pid" 2>/dev/null || true)" != "$wsl_process_group_id_value" ] || \
+    ! wsl_process_has_token "$wsl_process_leader_pid" "$wsl_process_token_value"; then
+    wsl_process_cleanup_started_leader "$wsl_process_leader_pid" "$wsl_process_leader_start_time"
+    if ! wsl_process_cleanup_token_groups "$wsl_process_token_value"; then
       printf 'failed to reclaim token-owned process groups after start failure\n' >&2
     fi
-    wait "$leader_pid" 2>/dev/null || true
+    wait "$wsl_process_leader_pid" 2>/dev/null || true
     return 1
   fi
 
-  wsl_process_write_state_locked "$state_dir" "$leader_pid" "$leader_start_time" "$group_id" "$token"
-  if ! wsl_process_matches "$state_dir"; then
-    wsl_process_cleanup_started_leader "$leader_pid" "$leader_start_time"
-    if ! wsl_process_cleanup_token_groups "$token"; then
+  wsl_process_write_state_locked "$wsl_process_state_dir" "$wsl_process_leader_pid" "$wsl_process_leader_start_time" "$wsl_process_group_id_value" "$wsl_process_token_value"
+  if ! wsl_process_matches "$wsl_process_state_dir"; then
+    wsl_process_cleanup_started_leader "$wsl_process_leader_pid" "$wsl_process_leader_start_time"
+    if ! wsl_process_cleanup_token_groups "$wsl_process_token_value"; then
       printf 'failed to reclaim token-owned process groups after ownership check\n' >&2
       return 1
     fi
-    wsl_process_clear_state_locked "$state_dir"
+    wsl_process_clear_state_locked "$wsl_process_state_dir"
     return 1
   fi
 }
 
 wsl_process_start() {
-  state_dir="$1"
-  stdout_path="$4"
-  stderr_path="$5"
-  mkdir -p "$state_dir" "$(dirname "$stdout_path")" "$(dirname "$stderr_path")"
-  wsl_process_lock "$state_dir" || return 1
+  wsl_process_state_dir="$1"
+  wsl_process_stdout_path="$4"
+  wsl_process_stderr_path="$5"
+  mkdir -p "$wsl_process_state_dir" "$(dirname "$wsl_process_stdout_path")" "$(dirname "$wsl_process_stderr_path")"
+  wsl_process_lock "$wsl_process_state_dir" || return 1
   if wsl_process_start_locked "$@"; then
-    wsl_process_unlock "$state_dir"
+    wsl_process_unlock "$wsl_process_state_dir"
     return 0
   fi
-  wsl_process_unlock "$state_dir"
+  wsl_process_unlock "$wsl_process_state_dir"
   return 1
 }
 
 wsl_process_logs() {
-  lines="$1"
+  wsl_process_lines="$1"
   shift
-  for log_path in "$@"; do
-    if [ -f "$log_path" ]; then
-      printf '== %s ==\n' "$log_path"
-      tail -n "$lines" "$log_path"
+  for wsl_process_log_path in "$@"; do
+    if [ -f "$wsl_process_log_path" ]; then
+      printf '== %s ==\n' "$wsl_process_log_path"
+      tail -n "$wsl_process_lines" "$wsl_process_log_path"
     else
-      printf '%s: no log yet\n' "$log_path"
+      printf '%s: no log yet\n' "$wsl_process_log_path"
     fi
   done
 }
