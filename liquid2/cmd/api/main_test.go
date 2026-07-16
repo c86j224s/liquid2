@@ -43,19 +43,24 @@ func TestRunStatusFieldReportsResolvedWebPort(t *testing.T) {
 	}
 }
 
-func TestDefaultReleaseDBDataDirUsesWSL2FallbackOnly(t *testing.T) {
+func TestReleasePathsUseWSL2FallbackOnly(t *testing.T) {
 	home := t.TempDir()
-	if got := releaseDBDataDirForPlatform("darwin", "", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Liquid2") {
-		t.Fatalf("unexpected macOS release data dir %q", got)
-	}
-	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, ""); got != filepath.Join(home, ".local", "share", "liquid2") {
-		t.Fatalf("unexpected WSL release data dir %q", got)
-	}
-	if got := releaseDBDataDirForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, "/xdg/data"); got != filepath.Join("/xdg/data", "liquid2") {
-		t.Fatalf("unexpected XDG release data dir %q", got)
-	}
-	if got := releaseDBDataDirForPlatform("linux", "4.4.0-19041-Microsoft", home, "/xdg/data"); got != filepath.Join(home, "Library", "Application Support", "Liquid2") {
-		t.Fatalf("unexpected non-WSL2 release data dir %q", got)
+	dbPath, exportDir, backupDir := releasePathsForPlatform("darwin", "", home, "/xdg/data")
+	assertReleasePaths(t, filepath.Join(home, "Library", "Application Support", "Liquid2"), dbPath, exportDir, backupDir)
+	dbPath, exportDir, backupDir = releasePathsForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, "")
+	assertReleasePaths(t, filepath.Join(home, ".local", "share", "liquid2"), dbPath, exportDir, backupDir)
+	dbPath, exportDir, backupDir = releasePathsForPlatform("linux", "6.6.87.2-microsoft-standard-WSL2", home, "/xdg/data")
+	assertReleasePaths(t, filepath.Join("/xdg/data", "liquid2"), dbPath, exportDir, backupDir)
+	dbPath, exportDir, backupDir = releasePathsForPlatform("linux", "4.4.0-19041-Microsoft", home, "/xdg/data")
+	assertReleasePaths(t, filepath.Join(home, "Library", "Application Support", "Liquid2"), dbPath, exportDir, backupDir)
+}
+
+func assertReleasePaths(t *testing.T, wantDir, dbPath, exportDir, backupDir string) {
+	t.Helper()
+	if dbPath != filepath.Join(wantDir, "liquid2.db") ||
+		exportDir != filepath.Join(wantDir, "exports") ||
+		backupDir != filepath.Join(wantDir, "backups") {
+		t.Fatalf("unexpected release paths db=%q export=%q backup=%q want dir=%q", dbPath, exportDir, backupDir, wantDir)
 	}
 }
 

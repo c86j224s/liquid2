@@ -169,10 +169,10 @@ func runtimeDefaults(mode string) liquidconfig.Args {
 		defaults[liquidconfig.KeyWebAddr] = "127.0.0.1"
 		defaults[liquidconfig.KeyWebPort] = "3001"
 		if home != "" {
-			defaults[liquidconfig.KeyDBPath] = filepath.Join(defaultReleaseDBDataDir(home, os.Getenv("XDG_DATA_HOME")), "liquid2.db")
-			dataDir := filepath.Join(home, "Library", "Application Support", "Liquid2")
-			defaults[liquidconfig.KeyExportDir] = filepath.Join(dataDir, "exports")
-			defaults[liquidconfig.KeyBackupDir] = filepath.Join(dataDir, "backups")
+			dbPath, exportDir, backupDir := defaultReleasePaths(home, os.Getenv("XDG_DATA_HOME"))
+			defaults[liquidconfig.KeyDBPath] = dbPath
+			defaults[liquidconfig.KeyExportDir] = exportDir
+			defaults[liquidconfig.KeyBackupDir] = backupDir
 		}
 	}
 	return defaults

@@ -207,8 +207,8 @@ git pull --ff-only
 - Liquid2 Web이 `HTTP ok`, service `loaded`(macOS) 또는 `running`(WSL2)
 - Plasma가 `HTTP ok`, service `loaded`(macOS) 또는 `running`(WSL2)
 - Plasma가 release Liquid2 API를 바라봄
-- DB 경로가 macOS에서는 `~/Library/Application Support/...`, WSL2에서는
-  `${XDG_DATA_HOME:-$HOME/.local/share}/...` 아래임
+- DB, export, backup 경로가 macOS에서는 `~/Library/Application Support/...`,
+  WSL2에서는 `${XDG_DATA_HOME:-$HOME/.local/share}/...` 아래임
 
 WSL2 서비스는 배포판이 종료되면 함께 종료되며 자동 재시작되지 않는다. 다음 WSL2
 세션에서 `start`를 다시 실행한다.

@@ -7,11 +7,16 @@ import (
 	"strings"
 )
 
-func defaultReleaseDBDataDir(home, xdgDataHome string) string {
-	return releaseDBDataDirForPlatform(runtime.GOOS, kernelRelease(), home, xdgDataHome)
+func defaultReleasePaths(home, xdgDataHome string) (string, string, string) {
+	return releasePathsForPlatform(runtime.GOOS, kernelRelease(), home, xdgDataHome)
 }
 
-func releaseDBDataDirForPlatform(goos, release, home, xdgDataHome string) string {
+func releasePathsForPlatform(goos, release, home, xdgDataHome string) (string, string, string) {
+	dataDir := releaseDataDirForPlatform(goos, release, home, xdgDataHome)
+	return filepath.Join(dataDir, "liquid2.db"), filepath.Join(dataDir, "exports"), filepath.Join(dataDir, "backups")
+}
+
+func releaseDataDirForPlatform(goos, release, home, xdgDataHome string) string {
 	if goos == "linux" && isWSL2KernelRelease(release) {
 		if strings.TrimSpace(xdgDataHome) != "" {
 			return filepath.Join(xdgDataHome, "liquid2")
