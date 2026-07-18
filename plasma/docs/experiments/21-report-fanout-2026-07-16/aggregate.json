@@ -1,0 +1,250 @@
+{
+  "experiment": "21-report-fanout-2026-07-16",
+  "failures": [],
+  "median_speedup_seconds": 263.474406,
+  "paired_completed": 24,
+  "pairs": [
+    {
+      "fanout_preservation_ratio": 1.3210003425830763,
+      "fanout_wall_seconds": 265.375228,
+      "fanout_words": 3856,
+      "serial_preservation_ratio": 1.3123439667128987,
+      "serial_wall_seconds": 550.905476,
+      "serial_words": 4731,
+      "speedup_seconds": 285.53024800000003,
+      "topic": "accessibility-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.3202548625083836,
+      "fanout_wall_seconds": 326.802826,
+      "fanout_words": 3937,
+      "serial_preservation_ratio": 1.2371405961487734,
+      "serial_wall_seconds": 539.529,
+      "serial_words": 4690,
+      "speedup_seconds": 212.72617400000001,
+      "topic": "accessibility-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.1833056017748198,
+      "fanout_wall_seconds": 540.509374,
+      "fanout_words": 8534,
+      "serial_preservation_ratio": 1.1821256898700374,
+      "serial_wall_seconds": 786.833563,
+      "serial_words": 6640,
+      "speedup_seconds": 246.32418900000005,
+      "topic": "climate-adaptation-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2151329243353783,
+      "fanout_wall_seconds": 415.913393,
+      "fanout_words": 5942,
+      "serial_preservation_ratio": 1.1670733996620988,
+      "serial_wall_seconds": 682.883657,
+      "serial_words": 6217,
+      "speedup_seconds": 266.970264,
+      "topic": "climate-adaptation-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.231791464349604,
+      "fanout_wall_seconds": 360.139156,
+      "fanout_words": 4820,
+      "serial_preservation_ratio": 1.2079853862212944,
+      "serial_wall_seconds": 548.182136,
+      "serial_words": 4629,
+      "speedup_seconds": 188.04298,
+      "topic": "consumer-finance-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2594086021505377,
+      "fanout_wall_seconds": 307.765795,
+      "fanout_words": 4685,
+      "serial_preservation_ratio": 1.1835544833132288,
+      "serial_wall_seconds": 606.778937,
+      "serial_words": 5887,
+      "speedup_seconds": 299.013142,
+      "topic": "consumer-finance-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.2273632942218287,
+      "fanout_wall_seconds": 368.870081,
+      "fanout_words": 5544,
+      "serial_preservation_ratio": 1.1904517453798769,
+      "serial_wall_seconds": 539.867921,
+      "serial_words": 4638,
+      "speedup_seconds": 170.99784,
+      "topic": "cybersecurity-guidance-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2322295805739514,
+      "fanout_wall_seconds": 429.547363,
+      "fanout_words": 5582,
+      "serial_preservation_ratio": 1.2349634626194492,
+      "serial_wall_seconds": 577.723134,
+      "serial_words": 4394,
+      "speedup_seconds": 148.17577099999994,
+      "topic": "cybersecurity-guidance-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.150940746981185,
+      "fanout_wall_seconds": 476.776122,
+      "fanout_words": 8197,
+      "serial_preservation_ratio": 1.164287074052922,
+      "serial_wall_seconds": 549.893733,
+      "serial_words": 6116,
+      "speedup_seconds": 73.11761100000001,
+      "topic": "disaster-preparedness-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.256578947368421,
+      "fanout_wall_seconds": 393.451616,
+      "fanout_words": 4393,
+      "serial_preservation_ratio": 1.2268699042892592,
+      "serial_wall_seconds": 416.202544,
+      "serial_words": 3461,
+      "speedup_seconds": 22.750927999999988,
+      "topic": "disaster-preparedness-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.1846256018595385,
+      "fanout_wall_seconds": 394.764567,
+      "fanout_words": 7135,
+      "serial_preservation_ratio": 1.1986963362553382,
+      "serial_wall_seconds": 612.197858,
+      "serial_words": 5333,
+      "speedup_seconds": 217.433291,
+      "topic": "education-policy-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.216477150826003,
+      "fanout_wall_seconds": 364.532347,
+      "fanout_words": 5670,
+      "serial_preservation_ratio": 1.1997572815533981,
+      "serial_wall_seconds": 573.529837,
+      "serial_words": 4943,
+      "speedup_seconds": 208.99749000000003,
+      "topic": "education-policy-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.1893817922679495,
+      "fanout_wall_seconds": 376.2405,
+      "fanout_words": 6676,
+      "serial_preservation_ratio": 1.1476683937823835,
+      "serial_wall_seconds": 863.567647,
+      "serial_words": 7974,
+      "speedup_seconds": 487.32714699999997,
+      "topic": "energy-efficiency-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.23986856516977,
+      "fanout_wall_seconds": 393.060839,
+      "fanout_words": 6792,
+      "serial_preservation_ratio": 1.1409515340151177,
+      "serial_wall_seconds": 758.713961,
+      "serial_words": 7698,
+      "speedup_seconds": 365.65312200000005,
+      "topic": "energy-efficiency-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.322924600152323,
+      "fanout_wall_seconds": 279.285975,
+      "fanout_words": 3474,
+      "serial_preservation_ratio": 1.1393188854489165,
+      "serial_wall_seconds": 750.944214,
+      "serial_words": 6992,
+      "speedup_seconds": 471.658239,
+      "topic": "labor-statistics-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2652761457109283,
+      "fanout_wall_seconds": 320.476511,
+      "fanout_words": 4307,
+      "serial_preservation_ratio": 1.1261442694983523,
+      "serial_wall_seconds": 616.307474,
+      "serial_words": 6151,
+      "speedup_seconds": 295.83096299999994,
+      "topic": "labor-statistics-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.2317805087167761,
+      "fanout_wall_seconds": 350.362991,
+      "fanout_words": 4310,
+      "serial_preservation_ratio": 1.2492581602373887,
+      "serial_wall_seconds": 487.590552,
+      "serial_words": 3789,
+      "speedup_seconds": 137.22756099999998,
+      "topic": "open-source-governance-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.312870699881376,
+      "fanout_wall_seconds": 335.128267,
+      "fanout_words": 4427,
+      "serial_preservation_ratio": 1.1363428397132835,
+      "serial_wall_seconds": 852.839486,
+      "serial_words": 7451,
+      "speedup_seconds": 517.711219,
+      "topic": "open-source-governance-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.2761402420105492,
+      "fanout_wall_seconds": 297.265234,
+      "fanout_words": 4113,
+      "serial_preservation_ratio": 1.2476344958096783,
+      "serial_wall_seconds": 606.830503,
+      "serial_words": 4615,
+      "speedup_seconds": 309.565269,
+      "topic": "public-health-guidance-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2690781796966162,
+      "fanout_wall_seconds": 406.005547,
+      "fanout_words": 5438,
+      "serial_preservation_ratio": 1.217622571692877,
+      "serial_wall_seconds": 684.701539,
+      "serial_words": 5265,
+      "speedup_seconds": 278.69599200000005,
+      "topic": "public-health-guidance-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.2140724946695096,
+      "fanout_wall_seconds": 372.781615,
+      "fanout_words": 5694,
+      "serial_preservation_ratio": 1.1840664527090805,
+      "serial_wall_seconds": 647.387277,
+      "serial_words": 6272,
+      "speedup_seconds": 274.60566200000005,
+      "topic": "public-procurement-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.210807347287484,
+      "fanout_wall_seconds": 332.988082,
+      "fanout_words": 5669,
+      "serial_preservation_ratio": 1.164841611263199,
+      "serial_wall_seconds": 569.870279,
+      "serial_words": 5957,
+      "speedup_seconds": 236.88219699999996,
+      "topic": "public-procurement-b"
+    },
+    {
+      "fanout_preservation_ratio": 1.2543759945442146,
+      "fanout_wall_seconds": 364.344534,
+      "fanout_words": 5518,
+      "serial_preservation_ratio": 1.1957807570977919,
+      "serial_wall_seconds": 624.323082,
+      "serial_words": 6065,
+      "speedup_seconds": 259.978548,
+      "topic": "transport-safety-a"
+    },
+    {
+      "fanout_preservation_ratio": 1.2310177705977383,
+      "fanout_wall_seconds": 323.201288,
+      "fanout_words": 4572,
+      "serial_preservation_ratio": 1.15977150770296,
+      "serial_wall_seconds": 681.725276,
+      "serial_words": 6700,
+      "speedup_seconds": 358.52398800000003,
+      "topic": "transport-safety-b"
+    }
+  ],
+  "records": 48,
+  "speed_sign_p_one_sided": 5.960464477539063e-08
+}

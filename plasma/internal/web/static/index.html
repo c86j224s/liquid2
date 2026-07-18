@@ -497,6 +497,21 @@
 					  <label class="inline-control segmented-select-control report-select-model" for="reportAgentModel"><span class="segmented-select-label">모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
 					  <label class="inline-control segmented-select-control report-select-effort" for="reportAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
 					</div>
+					<label class="inline-control segmented-select-control report-select-execution" for="reportLongFormExecutionStrategy">
+					  <span class="segmented-select-label">장문 작성</span>
+					  <select id="reportLongFormExecutionStrategy" title="장문 보고서 생성에만 적용됩니다">
+						<option value="serial" selected>순차</option>
+						<option value="section_fanout">빠른 병렬</option>
+					  </select>
+					</label>
+					<label class="inline-control segmented-select-control report-select-generation-guidance" for="reportGenerationGuidance">
+					  <span class="segmented-select-label">장문 글쓰기</span>
+					  <select id="reportGenerationGuidance" title="장문 보고서 생성에만 적용됩니다">
+						<option value="g2" selected>기본</option>
+						<option value="section-brief">섹션 중심</option>
+						<option value="section-brief-cluster-memory">섹션 중심 + 풍부하게</option>
+					  </select>
+					</label>
 				  </div>
 				  <details class="report-direction-details">
 					<summary>방향 추가 <span class="badge muted">선택</span></summary>
@@ -629,6 +644,7 @@
         <div class="panel-head">
           <h2 id="detailTitle">상세 보기</h2>
           <div class="panel-actions">
+            <span id="detailPositionRatio" class="detail-scroll-ratio hidden" aria-live="polite"></span>
             <button id="copyDetail" class="icon-button quiet" type="button" title="상세 내용 복사">⧉</button>
             <button id="closeDetail" class="icon-button quiet" type="button" title="닫기">×</button>
           </div>

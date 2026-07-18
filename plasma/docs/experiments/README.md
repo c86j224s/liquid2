@@ -60,6 +60,22 @@ large artifacts live outside the repository under `research-artifacts/`.
 20. [`20-report-long-form-finalize-operational-reliability-2026-07-14/`](20-report-long-form-finalize-operational-reliability-2026-07-14/README.md)
     - Passed corrected two-arm smoke and current-candidate-only operational gate
       with 12 of 12 long-form runs satisfying every locked invariant.
+21. [`21-report-fanout-2026-07-16/`](21-report-fanout-2026-07-16/README.md)
+    - Completed 24-topic A/B comparison of current serial long-form report
+      generation against section-level fanout; the candidate was faster on all
+      paired topics with no terminal failures and was productized as an
+      explicit long-form "fast parallel" option while keeping serial as the
+      default.
+22. [`22-report-section-contract-2026-07-17/`](22-report-section-contract-2026-07-17/README.md)
+    - Completed three-arm reinforcement on whether the existing long-form
+      section `purpose` field can carry a more concrete writing contract. The
+      idea improved section focus in some readings but produced statistically
+      visible shortening, and the coverage-locked arm did not fix it. Later
+      section-brief follow-ups found `section_brief` promising but not
+      statistically proven as a quality upgrade, while `section_brief_cluster_memory`
+      produced a statistically visible length increase. Both follow-up arms were
+      kept as explicit long-form writing options, while the default path stayed
+      on the existing guidance.
 
 ## Controller Experiment Sequence
 

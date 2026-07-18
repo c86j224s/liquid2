@@ -75,6 +75,8 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 		server.handleMissionWorkflows(w, r, missionID, parts[2:])
 	case "artifacts":
 		server.handleMissionArtifacts(w, r, missionID, parts[2:])
+	case "conversation_exports":
+		server.handleMissionConversationExports(w, r, missionID, parts[2:])
 	case "sources":
 		server.handleMissionSources(w, r, missionID, parts[2:])
 	case "connector-access":

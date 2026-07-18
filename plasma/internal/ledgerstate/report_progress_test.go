@@ -101,6 +101,38 @@ func TestProjectReportProgressRunsEverySectionBeforePartAssembly(t *testing.T) {
 	}
 }
 
+func TestProjectReportProgressProjectsParallelSectionStarts(t *testing.T) {
+	base := time.Date(2026, 7, 17, 1, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "plan": map[string]any{"parts": []any{
+			map[string]any{"sections": []any{"one"}},
+			map[string]any{"sections": []any{"two"}},
+		}}}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section_1_start", EventType: "report.section.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(12 * time.Second)},
+		{EventID: "evt_section_2_start", EventType: "report.section.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 2, "section_index": 1}), CreatedAt: base.Add(13 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := map[string]ReportProgressNode{}
+	running := 0
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+		if node.State == "running" {
+			running++
+		}
+	}
+	if running != 2 || nodes["section-1-1"].State != "running" || nodes["section-2-1"].State != "running" || nodes["part-1"].State != "pending" {
+		t.Fatalf("parallel section starts should be the only running nodes: %#v", progress.Nodes)
+	}
+	if nodes["section-1-1"].StartedAt == nil || !nodes["section-1-1"].StartedAt.Equal(base.Add(12*time.Second)) {
+		t.Fatalf("first section start time not projected: %#v", nodes["section-1-1"])
+	}
+	if nodes["section-2-1"].StartedAt == nil || !nodes["section-2-1"].StartedAt.Equal(base.Add(13*time.Second)) {
+		t.Fatalf("second section start time not projected: %#v", nodes["section-2-1"])
+	}
+}
+
 func TestProjectReportProgressTimesPartAssemblyAfterEverySection(t *testing.T) {
 	base := time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)
 	events := []Event{

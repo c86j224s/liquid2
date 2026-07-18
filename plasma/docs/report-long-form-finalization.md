@@ -1,13 +1,35 @@
 # Long-Form Report Finalization
 
 Web long-form reports keep the existing plan, section drafting, Part assembly,
-session policy, H5, and designed HTML workflow. Only the final handoff changes:
-the report agent submits the opening and closing through
-`plasma.report.long_form.finalize`; the server assembles them with the durable
-Part artifacts and atomically creates the existing raw Markdown artifact and
-`report.artifact.created` event.
+session policy, H5, and designed HTML workflow. The default execution strategy
+is serial. A separate long-form-only "fast parallel" option may fan out section
+drafting from the canonical plan session, then returns to the same Part
+assembly and finalization contract.
+
+The final handoff is unchanged in both strategies: the report agent submits the
+opening and closing through `plasma.report.long_form.finalize`; the server
+assembles them with the durable Part artifacts and atomically creates the
+existing raw Markdown artifact and `report.artifact.created` event.
 
 Planned reports and CLI report behavior do not use this command.
+
+## Execution Strategies
+
+`serial` is the default long-form strategy. It chains planning, each section,
+each Part, and finalization through the existing report session sequence.
+
+`section_fanout` is an explicit browser long-form option. It creates one
+canonical plan through the existing `plasma.report.plan.submit` boundary, then
+forks the report-plan provider session for independent section workers. Each
+section still uses the normal section prompt and bounded source tools. Part
+assembly waits for the section artifacts in that Part and preserves their
+bodies. Finalization still uses `plasma.report.long_form.finalize`; the agent
+does not submit full final Markdown.
+
+The strategy is stored on `report.draft.pending` as `execution_strategy` so
+restart and stale recovery use the same path. Omitted or `serial` values keep
+the default serial behavior. `section_fanout` is invalid for planned,
+one-take, CLI, H5, patch, or designed HTML requests.
 
 ## Public Tool Contract
 

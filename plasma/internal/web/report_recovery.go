@@ -40,6 +40,7 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 	return server.reportRunner().RunDraft(context.Background(), missionID, reporting.DraftRequest{
 		Title:                        req.Title,
 		DirectionHint:                req.DirectionHint,
+		ExecutionStrategy:            req.ExecutionStrategy,
 		AgentExecutor:                req.AgentExecutor,
 		AgentModel:                   req.AgentModel,
 		AgentReasoningEffort:         req.AgentReasoningEffort,
@@ -59,6 +60,7 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 	var payload struct {
 		Title                        string `json:"title"`
 		DirectionHint                string `json:"direction_hint"`
+		ExecutionStrategy            string `json:"execution_strategy"`
 		AgentExecutor                string `json:"agent_executor"`
 		AgentModel                   string `json:"agent_model"`
 		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
@@ -78,6 +80,7 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 	return reportDraftRequest{
 		Title:                        firstNonEmpty(payload.Title, "Mission report"),
 		DirectionHint:                reporting.NormalizeDirectionHint(payload.DirectionHint),
+		ExecutionStrategy:            strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
 		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
 		AgentModel:                   strings.TrimSpace(payload.AgentModel),
 		AgentReasoningEffort:         strings.TrimSpace(payload.AgentReasoningEffort),

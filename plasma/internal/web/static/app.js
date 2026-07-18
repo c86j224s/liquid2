@@ -43,6 +43,7 @@ const state = {
   detailText: "",
   selectedReportKey: "",
   reportPreview: null,
+  detailScrollRatioEnabled: false,
   turnScrollMission: "",
   agentModelTouched: false,
   agentModelExecutor: "",
@@ -80,8 +81,25 @@ const REPORT_MODE_LABELS = {
   long_form: "장문 보고서"
 };
 
+const REPORT_EXECUTION_STRATEGY_LABELS = {
+  serial: "순차",
+  section_fanout: "빠른 병렬"
+};
+
+const REPORT_GENERATION_GUIDANCE_LABELS = {
+  g2: "기본",
+  "section-brief": "섹션 중심",
+  "section-brief-cluster-memory": "섹션 중심 + 풍부하게",
+  none: "없음"
+};
+
 const WORKFLOW_DEFAULT_MAX_STEPS = 20;
 const WORKFLOW_DEFAULT_MAX_DURATION_MS = 0;
+
+function reportGenerationGuidanceLabel(value) {
+  const normalized = String(value || "g2").trim() || "g2";
+  return REPORT_GENERATION_GUIDANCE_LABELS[normalized] || normalized;
+}
 
 const AGENT_MODEL_OPTIONS = {
   claude: [
@@ -231,6 +249,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("closeError").addEventListener("click", hideError);
   $("copyDetail").addEventListener("click", copyDetail);
   $("closeDetail").addEventListener("click", hideDetail);
+  $("detailBody").addEventListener("scroll", updateDetailScrollRatio);
+  window.addEventListener("resize", updateDetailScrollRatio);
   $("detailModal").addEventListener("click", onDetailModalClick);
   $("missionList").addEventListener("click", onMissionListClick);
   $("missionRecallButton").addEventListener("click", showMissionRecall);
@@ -1526,9 +1546,17 @@ async function draftReport(reportMode = "one_take") {
   const missionId = owner.missionId;
   const title = `${state.detail?.projection?.title || "미션"} 리포트`;
   const reportSelection = ReportModelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
+  const executionStrategy = reportMode === "long_form"
+    ? ($("reportLongFormExecutionStrategy")?.value || "serial")
+    : "serial";
+  const generationGuidanceProfile = reportMode === "long_form"
+    ? ($("reportGenerationGuidance")?.value || "g2")
+    : "g2";
   const pendingPayload = {
     title,
     report_mode: reportMode,
+    execution_strategy: executionStrategy,
+    generation_guidance_profile: generationGuidanceProfile,
     rigor_level: $("reportRigor").value || "balanced",
     agent_model: reportSelection.agent_model,
     agent_reasoning_effort: reportSelection.agent_reasoning_effort,
@@ -1693,6 +1721,44 @@ async function downloadReportArtifact(artifactID) {
   }
 }
 
+async function createConversationExport() {
+  if (!state.missionId) return;
+  const owner = captureMissionSelection();
+  setReportNotice("대화내역 export를 생성하는 중입니다.");
+  try {
+    const result = await missionApi(owner, "/conversation_exports", {
+      method: "POST",
+      body: { title: "대화내역 export" }
+    });
+    const artifact = result.artifact || {};
+    const artifactID = artifact.artifact_id || artifact.ArtifactID || "";
+    await reloadMission();
+    setReportNotice("대화내역 export를 생성했습니다.");
+    if (artifactID) {
+      applyReportPreview(`conversation:${artifactID}`, "markdown", conversationExportPreviewHeader(artifactID, result), result.content || "");
+    }
+  } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
+    setReportNotice(err.userMessage || err.message || String(err), "error");
+    showError(err);
+  }
+}
+
+async function viewConversationExport(artifactID) {
+  if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
+  const key = `conversation:${artifactID}`;
+  setReportPreviewLoading(key);
+  try {
+    const result = await missionApi(owner, `/artifacts/${artifactID}`);
+    applyReportPreview(key, "markdown", conversationExportPreviewHeader(artifactID, result), result.content || "");
+  } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
+    if (state.reportPreview && state.reportPreview.key === key) clearReportPreview();
+    showError(err);
+  }
+}
+
 async function exportReportArtifactHTML(artifactID, options = {}) {
   if (!state.missionId || !artifactID) return;
   const owner = captureMissionSelection();
@@ -1814,6 +1880,16 @@ function reportArtifactPreviewHeader(artifactID, result) {
   const filename = artifact.filename || artifact.Filename || "";
   return [
     `리포트 artifact: ${artifactID}`,
+    filename ? `파일명: ${filename}` : "",
+    artifact.media_type ? `형식: ${artifact.media_type}` : ""
+  ].filter(Boolean).join("\n");
+}
+
+function conversationExportPreviewHeader(artifactID, result) {
+  const artifact = result.artifact || {};
+  const filename = artifact.filename || artifact.Filename || "";
+  return [
+    `대화내역 export: ${artifactID}`,
     filename ? `파일명: ${filename}` : "",
     artifact.media_type ? `형식: ${artifact.media_type}` : ""
   ].filter(Boolean).join("\n");
@@ -2158,7 +2234,7 @@ function applyActiveWorkDescriptions(activeWork) {
 function activeWorkControlElementIDs(control) {
   if (control === "turn_submit") return ["turnText", "sendTurnButton"];
   if (control === "workflow_start") return ["workflowInstruction", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"];
-  if (control === "report_start") return ["reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"];
+  if (control === "report_start") return ["reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport"];
   return [];
 }
 
@@ -3665,10 +3741,14 @@ function reportGenerationContext(payload = {}) {
 function reportGenerationSummary(payload = {}) {
   const context = reportGenerationContext(payload);
   const mode = context.report_mode || "planned";
+  const strategy = String(context.execution_strategy || "serial").trim() || "serial";
   const model = String(context.agent_model || "").trim();
   const effort = String(context.agent_reasoning_effort || "").trim();
+  const guidance = String(context.generation_guidance_profile || "g2").trim() || "g2";
   return {
     mode: context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서",
+    strategy: mode === "long_form" ? (REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy) : "",
+    guidance: mode === "long_form" ? reportGenerationGuidanceLabel(guidance) : "",
     rigor: context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정",
     model: model || "미션 설정 상속",
     effort: effort || (model ? "모델 기본값" : "미션 설정 상속"),
@@ -3681,6 +3761,8 @@ function reportGenerationSummaryHTML(payload = {}) {
   return `
     <div class="report-generation-summary" aria-label="리포트 생성 설정">
       <span class="report-generation-item"><strong>방식</strong><span>${escapeHTML(summary.mode)}</span></span>
+      ${summary.strategy ? `<span class="report-generation-item"><strong>장문 작성</strong><span>${escapeHTML(summary.strategy)}</span></span>` : ""}
+      ${summary.guidance ? `<span class="report-generation-item"><strong>장문 글쓰기</strong><span>${escapeHTML(summary.guidance)}</span></span>` : ""}
       <span class="report-generation-item"><strong>엄격도</strong><span>${escapeHTML(summary.rigor)}</span></span>
       <span class="report-generation-item"><strong>모델</strong><span>${escapeHTML(summary.model)}</span></span>
       <span class="report-generation-item"><strong>추론</strong><span>${escapeHTML(summary.effort)}</span></span>
@@ -3738,18 +3820,24 @@ function reportSourceCheckText(check = {}) {
 
 function renderReports(versions) {
 	if (window.renderReportPipeline) window.renderReportPipeline(state.detail?.report_progress);
+  const conversationExports = conversationExportPayloads();
   const artifactReports = reportArtifactPayloads();
   const reports = versions.map((version, index) => reportViewModel(version, index));
-  updateCountChip("reportListCount", artifactReports.length + reports.length);
-  updateCountChip("reportTabCount", artifactReports.length + reports.length);
+  updateCountChip("reportListCount", conversationExports.length + artifactReports.length + reports.length);
+  updateCountChip("reportTabCount", conversationExports.length + artifactReports.length + reports.length);
 
+  const conversationCards = conversationExports.map((payload, index) => ({
+    key: `conversation:${payload.artifact_id || `idx${index}`}`,
+    isLatest: index === 0,
+    payload
+  }));
   const artifactCards = artifactReports.map((payload, index) => ({
     key: `artifact:${payload.artifact_id || `idx${index}`}`,
     isLatest: index === 0,
     payload
   }));
   const legacyCards = reports.map((report) => ({ key: `version:${report.versionID}`, report }));
-  const allKeys = [...artifactCards.map((c) => c.key), ...legacyCards.map((c) => c.key)];
+  const allKeys = [...conversationCards.map((c) => c.key), ...artifactCards.map((c) => c.key), ...legacyCards.map((c) => c.key)];
 
   // Default to the newest card; drop a stale selection/preview if its card is gone.
   if (!state.selectedReportKey || !allKeys.includes(state.selectedReportKey)) {
@@ -3761,6 +3849,42 @@ function renderReports(versions) {
   const selectedKey = state.selectedReportKey;
 
   const sections = [];
+  sections.push(`
+    <div class="list-section-label">대화내역 export</div>
+    <div class="item conversation-export-control">
+      <div class="item-title">대화내역 export</div>
+      <div class="item-meta">보고서로 다시 쓰지 않고, 사용자 요청과 에이전트 응답을 원형에 가깝게 Markdown으로 저장합니다.</div>
+      <div class="item-actions">
+        <button type="button" data-conversation-export-create>새 export 생성</button>
+      </div>
+    </div>
+    ${conversationCards.map(({ key, isLatest, payload }) => `
+      <div class="item report-card ${isLatest ? "active" : ""} ${key === selectedKey ? "selected" : ""}" data-report-key="${escapeAttr(key)}">
+        <div class="item-title report-title-line report-card-toggle">
+          <span>${escapeHTML(payload.title || "대화내역 export")}</span>
+          <span class="chip-row report-chip-row">
+            ${isLatest ? `<span class="badge session-new">최신</span>` : `<span class="badge muted">이전</span>`}
+            <span class="badge">대화내역</span>
+            <span class="badge muted">Markdown artifact</span>
+          </span>
+        </div>
+        <div class="report-card-body">
+          <div class="item-meta clamp-line" title="${escapeAttr(payload.artifact_id || "")}">${escapeHTML(payload.artifact_id || "")}</div>
+          <div class="item-meta">${escapeHTML(payload.text || "대화내역 export artifact가 생성되었습니다.")}</div>
+          <div class="report-plan-line">
+            <span class="badge muted">포함 항목</span>
+            <span>${escapeHTML(`${payload.entry_count || 0}개 요청/응답`)}</span>
+          </div>
+          <div class="item-actions">
+            <button type="button" data-conversation-export-id="${escapeAttr(payload.artifact_id || "")}" data-action="view">Markdown 보기</button>
+            <button type="button" class="secondary" data-conversation-export-id="${escapeAttr(payload.artifact_id || "")}" data-action="download">MD 받기</button>
+            ${reportActionMenu("도구 ▾", `<button type="button" class="secondary" data-detail-title="대화내역 export 상세" data-detail-json="${escapeAttr(JSON.stringify(payload))}">자세히</button>`)}
+          </div>
+          ${reportPreviewInlineHTML(key)}
+        </div>
+      </div>
+    `).join("")}
+  `);
   if (artifactCards.length) {
     sections.push(`
       <div class="list-section-label">Markdown artifact</div>
@@ -3934,12 +4058,14 @@ function openReportModal(header, kind, content) {
   $("detailBody").innerHTML = body;
   window.renderPlasmaMath?.($("detailBody"));
   openDetailModal(true);
+  enableDetailScrollRatio();
 }
 
 function openReportModalLoading(header) {
   $("detailTitle").textContent = header || "리포트 불러오는 중";
   $("detailBody").innerHTML = `<div class="report-preview-loading"><span class="spinner"></span>불러오는 중…</div>`;
   openDetailModal(true);
+  disableDetailScrollRatio();
 }
 
 function openDetailModal(wide) {
@@ -3990,6 +4116,14 @@ function reportArtifactPayloads() {
   const events = state.detail?.events || [];
   return events
     .filter((event) => event.EventType === "report.artifact.created")
+    .map((event) => ({ ...(event.Payload || {}), event_id: event.EventID, created_at: event.CreatedAt }))
+    .reverse();
+}
+
+function conversationExportPayloads() {
+  const events = state.detail?.events || [];
+  return events
+    .filter((event) => event.EventType === "conversation.exported" && (event.Payload || {}).kind === "conversation_export_markdown")
     .map((event) => ({ ...(event.Payload || {}), event_id: event.EventID, created_at: event.CreatedAt }))
     .reverse();
 }
@@ -4424,6 +4558,10 @@ function reportPendingMessage(event) {
   const mode = payload.report_mode || "planned";
   const modeLabel = payload.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서";
   const modeLine = `\n방식: ${modeLabel}`;
+  const strategy = String(payload.execution_strategy || "serial").trim() || "serial";
+  const strategyLine = mode === "long_form" ? `\n장문 작성: ${REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy}` : "";
+  const guidance = String(payload.generation_guidance_profile || "g2").trim() || "g2";
+  const guidanceLine = mode === "long_form" ? `\n장문 글쓰기: ${reportGenerationGuidanceLabel(guidance)}` : "";
   const model = String(payload.agent_model || "").trim();
   const effort = String(payload.agent_reasoning_effort || "").trim();
   const modelLine = `\n모델: ${model || "미션 설정 상속"}`;
@@ -4439,7 +4577,7 @@ function reportPendingMessage(event) {
     "리포트 초안 생성 요청을 보냈습니다.",
     workLine,
     "완료되면 아래 리포트 목록에 새 artifact 기록이 추가됩니다."
-  ].join("\n") + title + modeLine + rigorLine + modelLine + effortLine + directionLine + timing + eventID;
+  ].join("\n") + title + modeLine + strategyLine + guidanceLine + rigorLine + modelLine + effortLine + directionLine + timing + eventID;
 }
 
 function reportTimingDetails(event) {
@@ -4551,16 +4689,16 @@ function approvedClaims(proposals, claims) {
 }
 
 function setFormsEnabled(enabled) {
-  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
+  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
     const el = $(id);
     if (el) {
       el.disabled = !enabled ||
         (id === "agentExecutor" && Boolean(lockedAgentExecutor())) ||
         (id === "agentReasoningEffort" && agentReasoningEffortSelectionDisabled(false)) ||
-		(state.reportPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "draftQuickReport", "draftLongReport", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort"].includes(id)) ||
+		(state.reportPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "draftQuickReport", "draftLongReport", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance"].includes(id)) ||
         (state.workflowGoalDraftPending && ["turnText", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"].includes(id)) ||
-		(state.turnPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"].includes(id)) ||
-		(state.workflowPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "reportAgentModel", "reportAgentReasoningEffort", "draftQuickReport", "draftLongReport"].includes(id));
+		(state.turnPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport"].includes(id)) ||
+		(state.workflowPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport"].includes(id));
     }
   }
   for (const form of ["turnForm", "sourceForm", "sourceUploadForm", "mediaSourceForm", "pdfSourceForm", "localPathForm", "confluenceURLForm", "confluenceSearchForm", "liquid2Form", "candidateForm"]) {
@@ -4603,6 +4741,8 @@ function syncReportControls() {
 	$("reportRigor").disabled = blocked;
 	$("reportAgentModel").disabled = blocked;
 	$("reportAgentReasoningEffort").disabled = blocked;
+	$("reportLongFormExecutionStrategy").disabled = blocked;
+	$("reportGenerationGuidance").disabled = blocked;
 	$("draftQuickReport").disabled = blocked;
 	$("draftLongReport").disabled = blocked;
 }
@@ -4861,6 +5001,20 @@ function onProposalListClick(event) {
 
 function onReportListClick(event) {
   if (onDetailButtonClick(event)) return;
+  if (event.target.closest("[data-conversation-export-create]")) {
+    createConversationExport();
+    return;
+  }
+  const conversationExportButton = event.target.closest("[data-conversation-export-id][data-action]");
+  if (conversationExportButton) {
+    const artifactID = conversationExportButton.dataset.conversationExportId;
+    if (conversationExportButton.dataset.action === "download") {
+      downloadReportArtifact(artifactID);
+    } else {
+      viewConversationExport(artifactID);
+    }
+    return;
+  }
   const planButton = event.target.closest("[data-report-plan-event-id][data-action]");
   if (planButton) {
     showReportPlanEvent(planButton.dataset.reportPlanEventId);
@@ -5062,6 +5216,48 @@ function hideDetail() {
   $("detailModal").classList.add("hidden");
   const card = $("detailModal").querySelector(".modal-card");
   if (card) card.classList.remove("modal-card--wide");
+  disableDetailScrollRatio();
+}
+
+function enableDetailScrollRatio() {
+  state.detailScrollRatioEnabled = true;
+  $("detailBody").scrollTop = 0;
+  requestAnimationFrame(updateDetailScrollRatio);
+}
+
+function disableDetailScrollRatio() {
+  state.detailScrollRatioEnabled = false;
+  const ratio = $("detailPositionRatio");
+  if (!ratio) return;
+  ratio.classList.add("hidden");
+  ratio.textContent = "";
+}
+
+function updateDetailScrollRatio() {
+  const ratio = $("detailPositionRatio");
+  const body = $("detailBody");
+  if (!ratio || !body || !state.detailScrollRatioEnabled || $("detailModal").classList.contains("hidden")) {
+    if (ratio) ratio.classList.add("hidden");
+    return;
+  }
+  const scroll = detailScrollPosition();
+  const maxScroll = scroll.maxScroll;
+  if (maxScroll <= 1) {
+    ratio.classList.add("hidden");
+    ratio.textContent = "";
+    return;
+  }
+  const percent = Math.round((scroll.scrollTop / maxScroll) * 100);
+  ratio.textContent = `위치 ${Math.max(0, Math.min(100, percent))}%`;
+  ratio.classList.remove("hidden");
+}
+
+function detailScrollPosition() {
+  const body = $("detailBody");
+  return {
+    scrollTop: body?.scrollTop || 0,
+    maxScroll: Math.max(0, (body?.scrollHeight || 0) - (body?.clientHeight || 0))
+  };
 }
 
 function onDetailModalClick(event) {

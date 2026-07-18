@@ -1018,6 +1018,88 @@ func TestBuildMarkdownReportSectionCreatedAppendRequestPreservesPayloadContract(
 	assertRunnerAgentUsage(t, payload, "report_section", 111, "ses_plan", "ses_section", true)
 }
 
+func TestBuildMarkdownReportSectionStartedAppendRequestPreservesPayloadContract(t *testing.T) {
+	req := BuildMarkdownReportSectionStartedAppendRequest(MarkdownReportSectionStartedEventRequest{
+		MarkdownReportStageEventBase: MarkdownReportStageEventBase{
+			EventID:                      "evt_section_start",
+			MissionID:                    "mis_1",
+			PendingEventID:               "evt_pending",
+			PlanEventID:                  "evt_plan",
+			Title:                        "Section",
+			AgentExecutor:                "codex",
+			AgentModel:                   "gpt-5.5",
+			AgentReasoningEffort:         "medium",
+			AgentSessionID:               "ses_section",
+			PreviousAgentSessionID:       "ses_plan",
+			ToolSessionID:                "ses_tool",
+			ReportMode:                   ModeLongForm,
+			ReportModeLabel:              ModeLabel(ModeLongForm),
+			ReportSessionPolicy:          SessionPolicyIsolatedFork,
+			ReportSessionPolicySelection: SessionPolicySelectionAutoIsolatedFork,
+			PostReportHumanize:           "h5",
+			HumanizeEnabled:              true,
+			GenerationGuidanceProfile:    "g2",
+			GenerationGuidanceSHA256:     "sha",
+			SessionChainKind:             "forked_report",
+			PreReportResearchSessionID:   "ses_research",
+			ReportPlanSessionID:          "ses_plan",
+			ReportSessionID:              "ses_section",
+			ForkSourceAgentSessionID:     "ses_research",
+			CompositionStrategy:          "sectional_preserve_markdown",
+			AssemblyStrategy:             "c4_normalized_section_headings",
+			Text:                         "장문 리포트 섹션 Markdown 생성을 시작했습니다.",
+			Producer:                     app.Producer{Type: "agent_session", ID: "ses_section"},
+		},
+		PartIndex:    1,
+		SectionIndex: 2,
+	})
+	if req.EventID != "evt_section_start" || req.MissionID != "mis_1" || req.EventType != "report.section.started" ||
+		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_section" {
+		t.Fatalf("unexpected section started event shell: %#v", req)
+	}
+	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	expected := map[string]any{
+		"kind":                            "sectional_markdown_report_section_started",
+		"pending_event_id":                "evt_pending",
+		"plan_event_id":                   "evt_plan",
+		"title":                           "Section",
+		"agent_executor":                  "codex",
+		"agent_model":                     "gpt-5.5",
+		"agent_reasoning_effort":          "medium",
+		"agent_session_id":                "ses_section",
+		"previous_agent_session_id":       "ses_plan",
+		"tool_session_id":                 "ses_tool",
+		"report_mode":                     ModeLongForm,
+		"report_mode_label":               ModeLabel(ModeLongForm),
+		"report_session_policy":           SessionPolicyIsolatedFork,
+		"report_session_policy_selection": SessionPolicySelectionAutoIsolatedFork,
+		"post_report_humanize":            "h5",
+		"humanize_enabled":                true,
+		"generation_guidance_profile":     "g2",
+		"generation_guidance_sha256":      "sha",
+		"session_chain_kind":              "forked_report",
+		"pre_report_research_session_id":  "ses_research",
+		"report_plan_session_id":          "ses_plan",
+		"report_session_id":               "ses_section",
+		"fork_source_agent_session_id":    "ses_research",
+		"part_index":                      float64(1),
+		"section_index":                   float64(2),
+		"composition_strategy":            "sectional_preserve_markdown",
+		"assembly_strategy":               "c4_normalized_section_headings",
+		"text":                            "장문 리포트 섹션 Markdown 생성을 시작했습니다.",
+	}
+	for key, want := range expected {
+		if got := payload[key]; got != want {
+			t.Fatalf("payload key %q mismatch: got %#v want %#v in %#v", key, got, want, payload)
+		}
+	}
+	for _, unexpected := range []string{"artifact_id", "media_type", "duration_ms", "agent_usage"} {
+		if _, ok := payload[unexpected]; ok {
+			t.Fatalf("unexpected section started payload key %q in %#v", unexpected, payload)
+		}
+	}
+}
+
 func TestBuildMarkdownReportPartCreatedAppendRequestPreservesPayloadContract(t *testing.T) {
 	usage := agentusage.New("codex", "codex", "gpt-5.5", "medium", "part prompt")
 	req := BuildMarkdownReportPartCreatedAppendRequest(MarkdownReportPartCreatedEventRequest{

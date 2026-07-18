@@ -34,7 +34,7 @@
 .pipeline-details { margin-top: 10px; }
 .pipeline-details > summary { color: var(--ink2); cursor: pointer; font-size: 13px; font-weight: 600; }
 .pipeline-visual { width: 100%; min-width: 0; max-width: 100%; margin: 10px 0 4px; overflow-x: auto; overscroll-behavior-inline: contain; }
-.pipeline-graph { display: block; width: max(100%, var(--pipeline-width)); height: 136px; }
+.pipeline-graph { display: block; width: max(100%, var(--pipeline-width)); height: var(--pipeline-height, 136px); }
 .pipeline-connector { fill: none; stroke: var(--line2); stroke-width: 2; }
 .pipeline-graph marker path { fill: var(--line2); }
 .pipeline-visual-phase rect { fill: color-mix(in srgb, var(--surface) 86%, var(--line2)); stroke: var(--line2); }

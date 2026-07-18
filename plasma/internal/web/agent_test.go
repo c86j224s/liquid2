@@ -516,7 +516,7 @@ func TestCodexExecutorAddsBoundReportPlanToolWithoutReplacingResearchTools(t *te
 }
 
 func TestAgentSectionalReportPlanPromptContainsConcreteBinding(t *testing.T) {
-	prompt := agentSectionalReportPlanPrompt("Long", "mis_long", "ses_tool", "evt_pending_long", "key_long", reportRigorProfiles["strict"])
+	prompt := agentSectionalReportPlanPrompt("Long", "mis_long", "ses_tool", "evt_pending_long", "key_long", reportRigorProfiles["strict"], "")
 	for _, expected := range []string{"mission_id mis_long", "session_id ses_tool", "pending_event_id evt_pending_long", "report_mode long_form", "idempotency_key key_long", `producer {"type":"agent_session","id":"ses_tool"}`, "at most three parsed submission calls total"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("sectional prompt missing %q:\n%s", expected, prompt)
@@ -524,6 +524,46 @@ func TestAgentSectionalReportPlanPromptContainsConcreteBinding(t *testing.T) {
 	}
 	if strings.Contains(prompt, "supplied by the tool context") || strings.Contains(prompt, "exactly once") {
 		t.Fatalf("sectional prompt retained false binding or retry wording:\n%s", prompt)
+	}
+}
+
+func TestLongFormGenerationGuidanceAcceptsSectionBriefOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		profile string
+		marker  string
+	}{
+		{
+			name:    "section brief",
+			input:   "section_brief",
+			profile: reportGenerationGuidanceProfileSectionBrief,
+			marker:  "Long-form section-brief guidance:",
+		},
+		{
+			name:    "section brief cluster memory",
+			input:   "section_brief_cluster_memory",
+			profile: reportGenerationGuidanceProfileSectionBriefCluster,
+			marker:  "Long-form section-brief cluster-memory guidance:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			if err != nil {
+				t.Fatalf("expected %s to be accepted for long-form reports: %v", tt.input, err)
+			}
+			if profile != tt.profile || strings.TrimSpace(sha) == "" {
+				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
+			}
+			guidance := LongFormReportGenerationGuidance(profile)
+			if !strings.Contains(guidance, tt.marker) || !strings.Contains(guidance, "Long-form human-writer guidance:") {
+				t.Fatalf("long-form guidance for %s missing expected markers:\n%s", profile, guidance)
+			}
+		})
+	}
+	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief"); err == nil {
+		t.Fatalf("section_brief must remain long-form-only")
 	}
 }
 

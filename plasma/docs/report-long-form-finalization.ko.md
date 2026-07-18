@@ -1,12 +1,34 @@
 # 장문 보고서 최종화
 
 Web 장문 보고서는 기존 계획, 섹션 작성, 파트 조립, 세션 정책, H5, 디자인
-HTML 흐름을 그대로 사용한다. 바뀌는 부분은 마지막 인계뿐이다. 보고서
-에이전트가 여는 글과 맺는 글을 `plasma.report.long_form.finalize`로 제출하면,
-서버가 내구 저장된 파트 artifact와 조립하고 기존 raw Markdown artifact와
-`report.artifact.created` event를 한 트랜잭션에서 만든다.
+HTML 흐름을 그대로 사용한다. 기본 실행 전략은 순차 작성이다. 별도 장문 전용
+"빠른 병렬" 선택지를 고르면 canonical 계획 세션에서 섹션 작성을 fanout한 뒤,
+다시 같은 파트 조립과 최종화 계약으로 돌아온다.
+
+두 전략 모두 마지막 인계는 같다. 보고서 에이전트가 여는 글과 맺는 글을
+`plasma.report.long_form.finalize`로 제출하면, 서버가 내구 저장된 파트
+artifact와 조립하고 기존 raw Markdown artifact와 `report.artifact.created`
+event를 한 트랜잭션에서 만든다.
 
 계획형 보고서와 CLI 보고서 동작은 이 명령을 사용하지 않는다.
+
+## 실행 전략
+
+`serial`은 기본 장문 전략이다. 계획, 각 섹션, 각 파트, 최종화를 기존 보고서
+세션 순서대로 이어 간다.
+
+`section_fanout`은 명시적으로 선택하는 브라우저 장문 옵션이다. 먼저 기존
+`plasma.report.plan.submit` 경계로 canonical 계획을 만든다. 그 뒤 보고서 계획
+공급자 세션을 fork해 섹션 작업자들이 독립적으로 작성한다. 각 섹션은 여전히
+기존 섹션 프롬프트와 bounded source tool을 쓴다. 파트 조립은 해당 파트의 섹션
+artifact가 모두 끝난 뒤 시작하며, 섹션 본문을 보존한다. 최종화는 계속
+`plasma.report.long_form.finalize`를 사용하므로 에이전트가 전체 최종 Markdown을
+제출하지 않는다.
+
+선택한 전략은 `report.draft.pending`의 `execution_strategy`에 저장되어 재시작과
+stale 복구가 같은 경로를 사용한다. 값이 없거나 `serial`이면 기존 순차 동작이다.
+`section_fanout`은 계획형, 원테이크, CLI, H5, patch, 디자인 HTML 요청에는 사용할
+수 없다.
 
 ## 공개 도구 계약
 

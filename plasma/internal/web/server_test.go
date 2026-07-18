@@ -1125,6 +1125,62 @@ func TestReportArtifactPreviewReturnsFullContent(t *testing.T) {
 	}
 }
 
+func TestConversationExportCreatesReadableMarkdownArtifact(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	handler := NewServer(svc, Options{})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Conversation export"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	if _, err := appendTestEvent(t, webServer, ctx, missionID, "turn.user", map[string]any{
+		"kind":            "user_turn",
+		"text":            "기술면접 Q&A를 그대로 뽑아줘",
+		"tool_session_id": "ses_private",
+	}, app.Producer{Type: "user", ID: "plasma-ui"}); err != nil {
+		t.Fatalf("append user turn returned error: %v", err)
+	}
+	if _, err := appendTestEvent(t, webServer, ctx, missionID, "turn.agent.response", map[string]any{
+		"kind":             "agent_response",
+		"text":             "Q. HTTP 캐시는 무엇인가?\n\nA. 응답 재사용을 제어하는 메커니즘입니다.",
+		"agent_session_id": "ses_private",
+		"user_event_id":    "evt_user",
+	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+		t.Fatalf("append agent response returned error: %v", err)
+	}
+
+	export := postJSON(t, server.URL+"/api/missions/"+missionID+"/conversation_exports", map[string]any{"title": "Q&A 원문"})
+	artifactID := nestedString(t, export, "artifact", "artifact_id")
+	if artifactID == "" || nestedString(t, export, "event", "EventType") != app.ConversationExportedEvent {
+		t.Fatalf("unexpected conversation export response: %#v", export)
+	}
+	content, _ := export["content"].(string)
+	if !strings.Contains(content, "# Q&A 원문") ||
+		!strings.Contains(content, "기술면접 Q&A를 그대로 뽑아줘") ||
+		!strings.Contains(content, "Q. HTTP 캐시는 무엇인가?") {
+		t.Fatalf("conversation export content missing visible turns:\n%s", content)
+	}
+	if strings.Contains(content, "ses_private") || strings.Contains(content, "tool_session_id") {
+		t.Fatalf("conversation export leaked internal fields:\n%s", content)
+	}
+
+	read := getJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+artifactID)
+	if got := nestedString(t, read, "artifact", "artifact_id"); got != artifactID {
+		t.Fatalf("expected readable conversation export artifact %q, got %#v", artifactID, read)
+	}
+	if readContent, _ := read["content"].(string); !strings.Contains(readContent, "Q. HTTP 캐시는 무엇인가?") {
+		t.Fatalf("expected exported content read, got %#v", read)
+	}
+}
+
 func TestReportPatchPromptDoesNotAdvertiseUnavailableResearchTools(t *testing.T) {
 	prompt := agentReportPatchPrompt("Patch", "mis_prompt", "ses_prompt", "evt_pending", "art_base", "Fix wording.", reporting.PatchRequest{
 		AgentExecutor:                "codex",
@@ -2942,6 +2998,87 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	}
 	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "research-session-1" {
 		t.Fatalf("expected isolated long-form report not to replace research session, got %q", got)
+	}
+}
+
+func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	agent := &fakeForkingAgentExecutor{
+		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
+			{Text: "mission answer", SessionID: "research-session-1"},
+			{Text: agentReportAnyJSON(agentSectionalReportPlan{
+				Summary: "Use section fanout for one preserved section.",
+				Parts: []agentReportPart{{
+					Title:   "Fanout Part",
+					Purpose: "Write one section through the fanout strategy.",
+					Sections: []agentReportSection{{
+						Title:   "Fanout Section",
+						Purpose: "Draft the independent section.",
+					}},
+				}},
+			}), SessionID: "report-fork-1", Resumed: true},
+			{Text: "Fanout section body.", SessionID: "report-fork-1", Resumed: true},
+			{Text: `{"intro":"Fanout part intro.","transitions":[],"closing":"Fanout part closing."}`, SessionID: "report-fork-1", Resumed: true},
+			{Text: `{"front_matter":"# Fanout Long Report\n\nFanout opening.","closing":"Fanout final closing."}`, SessionID: "report-fork-1", Resumed: true},
+		}},
+		forkSessionID: "report-fork-1",
+	}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
+		"title":     "Section fanout report test",
+		"objective": "Check section fanout report execution",
+	})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
+		"text": "Prepare fanout report context.",
+	})
+	waitForEventType(t, server.URL, missionID, "turn.agent.response")
+
+	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title":              "Fanout Long Report",
+		"report_mode":        "long_form",
+		"execution_strategy": "section_fanout",
+	})
+	if strategy := nestedString(t, response, "pending_event", "Payload", "execution_strategy"); strategy != reportExecutionStrategySectionFanout {
+		t.Fatalf("expected pending event to preserve section fanout strategy, got %q", strategy)
+	}
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.started") != 1 || countEvents(detail, "report.section.created") != 1 || countEvents(detail, "report.part.created") != 1 {
+		t.Fatalf("expected plan, section start, section, and part events, got %#v", detail["events"])
+	}
+	if len(agent.requests) != 5 {
+		t.Fatalf("expected answer, plan, section, part, and frame requests, got %d", len(agent.requests))
+	}
+	for index := 1; index < len(agent.requests); index++ {
+		if got := agent.requests[index].PreviousSessionID; got != "report-fork-1" {
+			t.Fatalf("expected fanout report request %d to resume a forked session, got %q", index, got)
+		}
+	}
+	if len(agent.forkSources) != 4 || agent.forkSources[0] != "research-session-1" || agent.forkSources[1] != "report-fork-1" || agent.forkSources[2] != "report-fork-1" || agent.forkSources[3] != "report-fork-1" {
+		t.Fatalf("expected report, section, part, and final forks, got %#v", agent.forkSources)
+	}
+	payload := lastEventPayload(t, detail, "report.artifact.created")
+	if payload["report_mode"] != reportModeLongForm ||
+		payload["session_chain_kind"] != "section_fanout_report" ||
+		payload["composition_strategy"] != "sectional_preserve_markdown" ||
+		payload["assembly_strategy"] != "c4_normalized_section_headings" {
+		t.Fatalf("expected section fanout long-form metadata, got %#v", payload)
+	}
+	artifact, err := svc.GetRawArtifact(ctx, payload["artifact_id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content := string(artifact.Content); !strings.Contains(content, "Fanout section body.") || !strings.Contains(content, "Fanout final closing.") {
+		t.Fatalf("expected final Markdown to preserve section and closing:\n%s", content)
 	}
 }
 

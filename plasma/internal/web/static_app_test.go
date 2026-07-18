@@ -36,12 +36,12 @@ func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
 func TestReportPipelineStaticGraphAndRetryContracts(t *testing.T) {
 	script := string(mustReadStatic(t, "static/report_pipeline.js"))
 	styles := string(mustReadStatic(t, "static/report_pipeline.css"))
-	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-phase", "섹션 작성", "파트 조립", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
+	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "--pipeline-height:", "pipeline-graph-fanout", "pipeline-visual-phase-fanout", "pathConnector", "pipelineLiveTimingTimer", "syncLiveTiming", "data-pipeline-live-timing", "data-pipeline-started-at", "data-pipeline-title-prefix", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-phase", "섹션 작성", "파트 조립", "섹션 ${runningSections.length}개 병렬 작성", "phaseSummary(nodes)", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("missing report pipeline contract %q", expected)
 		}
 	}
-	for _, expected := range []string{".pipeline-details", ".pipeline-attempt-meta", ".pipeline-visual", "max-width: 100%", "overflow-x: auto", "min-width: 0", "width: max(100%, var(--pipeline-width))", ".pipeline-visual-dot", ".pipeline-visual-time", "font-variant-numeric: tabular-nums", "pipeline-node-pulse", "prefers-reduced-motion: reduce", "pipeline-graph-revealing"} {
+	for _, expected := range []string{".pipeline-details", ".pipeline-attempt-meta", ".pipeline-visual", "max-width: 100%", "overflow-x: auto", "min-width: 0", "width: max(100%, var(--pipeline-width))", "height: var(--pipeline-height, 136px)", ".pipeline-visual-dot", ".pipeline-visual-time", "font-variant-numeric: tabular-nums", "pipeline-node-pulse", "prefers-reduced-motion: reduce", "pipeline-graph-revealing"} {
 		if !strings.Contains(styles, expected) {
 			t.Fatalf("missing report pipeline style contract %q", expected)
 		}
@@ -61,7 +61,7 @@ const fs=require("fs"), vm=require("vm");
     if(selector==="[data-report-retry]") return [resume,restart];
     return [];
   }};
-  const context={window:{},state:{detail:{events:[{EventID:"evt_failed",Payload:{title:"<안전한 제목>",started_at:"2026-07-13T01:02:03Z"}}]}},document:{getElementById(id){return id==="reportPipeline"?host:null}},crypto:{randomUUID(){return "retry"}},
+  const context={window:{},state:{detail:{events:[{EventID:"evt_failed",Payload:{title:"<안전한 제목>",started_at:"2026-07-13T01:02:03Z"}}]}},document:{getElementById(id){return id==="reportPipeline"?host:null}},crypto:{randomUUID(){return "retry"}},setInterval(){return 99;},clearInterval(){},
     captureMissionSelection(){return {missionId:"mis_a"}},
     missionFetch(_owner,_path,options){requests.push(JSON.parse(options.body));return Promise.resolve({ok:true});},
     ownsMissionSelection(){return current;},reloadMission(){reloads++;},isStaleMissionOperation(){return false}};
@@ -72,7 +72,7 @@ const fs=require("fs"), vm=require("vm");
   if(pipelineVisual.scrollLeft!==73)process.exit(10);
   const graphNodes=[...html.matchAll(/data-pipeline-node-width="(\d+)" transform="translate\((\d+) 62\)"/g)].map(([,width,x])=>({width:Number(width),x:Number(x)}));
   if(graphNodes.length!==7||graphNodes.some((node,index)=>index>0&&node.x-graphNodes[index-1].x<(node.width+graphNodes[index-1].width)/2+32))process.exit(11);
-  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("aria-label=\"part 2 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
+  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("data-pipeline-live-timing=\"1\"")||!html.includes("data-pipeline-started-at=\"2026-07-13T01:02:15Z\"")||!html.includes("data-pipeline-title-prefix=\"section 2.1\"")||!html.includes("aria-label=\"part 2 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
   if(!(html.indexOf("pipeline-plan") < html.indexOf("pipeline-section-1-1") && html.indexOf("pipeline-section-1-1") < html.indexOf("pipeline-section-2-1") && html.indexOf("pipeline-section-2-1") < html.indexOf("pipeline-part-1") && html.indexOf("pipeline-part-1") < html.indexOf("pipeline-part-2") && html.indexOf("pipeline-part-2") < html.indexOf("pipeline-final") && html.indexOf("pipeline-final") < html.indexOf("pipeline-artifact")))process.exit(7);
   if(typeof resume.listener!=="function"||typeof restart.listener!=="function")process.exit(3);
   await resume.listener();
@@ -87,6 +87,12 @@ const fs=require("fs"), vm=require("vm");
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"running"}]});
   if(!host.innerHTML.includes("pipeline-graph-revealing")||!host.innerHTML.includes("파트 1 작성")||!host.innerHTML.includes("진행 중")||pipelineVisual.scrollLeft!==73)process.exit(9);
+  context.state.detail.events=[{EventID:"evt_fanout",Payload:{title:"병렬 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form",execution_strategy:"section_fanout"}}];
+  context.window.renderReportPipeline({attempt_id:"evt_fanout",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"running"},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"running"},{id:"part-1",kind:"part",part_index:1,state:"pending"},{id:"part-2",kind:"part",part_index:2,state:"pending"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const fanoutHtml=host.innerHTML;
+  if(!fanoutHtml.includes("장문 · 빠른 병렬")||!fanoutHtml.includes("섹션 2개 병렬 작성")||!fanoutHtml.includes("진행 2")||!fanoutHtml.includes("pipeline-graph pipeline-graph-fanout")||!fanoutHtml.includes("계획에서 여러 섹션 작성으로 갈라지고")||!fanoutHtml.includes("pipeline-visual-phase-fanout"))process.exit(12);
+  const fanoutRows=new Set([...fanoutHtml.matchAll(/transform="translate\((?:[\d.]+) ([\d.]+)\)"/g)].map(([,y])=>Number(y)));
+  if(!fanoutRows.has(62)||!fanoutRows.has(146)||fanoutRows.size<2)process.exit(13);
 })().catch((error)=>{console.error(error);process.exit(6);});`
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("pipeline DOM fixture: %v: %s", err, out)
@@ -103,6 +109,25 @@ func TestStaticMissionScopedActiveWorkContracts(t *testing.T) {
 	} {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("missing mission-scoped active-work contract %q", expected)
+		}
+	}
+}
+
+func TestConversationExportStaticContracts(t *testing.T) {
+	script := string(mustReadStatic(t, "static/app.js"))
+	for _, expected := range []string{
+		"createConversationExport",
+		"viewConversationExport",
+		"conversationExportPayloads",
+		`"/conversation_exports"`,
+		`"conversation.exported"`,
+		`"conversation_export_markdown"`,
+		"data-conversation-export-create",
+		"data-conversation-export-id",
+		"대화내역 export",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("missing conversation export static contract %q", expected)
 		}
 	}
 }
@@ -646,9 +671,11 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 		`class="inline-control segmented-select-control report-select-rigor"`,
 		`class="inline-control segmented-select-control report-select-model"`,
 		`class="inline-control segmented-select-control report-select-effort"`,
+		`class="inline-control segmented-select-control report-select-execution"`,
 		`<span class="segmented-select-label">엄격도</span>`,
 		`<span class="segmented-select-label">모델</span>`,
 		`<span class="segmented-select-label">추론</span>`,
+		`<span class="segmented-select-label">장문 작성</span>`,
 	} {
 		if !strings.Contains(index, expected) {
 			t.Fatalf("missing integrated report control label %q", expected)
@@ -685,6 +712,8 @@ func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.
 		"reportRigor",
 		"reportAgentModel",
 		"reportAgentReasoningEffort",
+		"reportLongFormExecutionStrategy",
+		"reportGenerationGuidance",
 		"workflowGoalDefaultModel",
 		"workflowGoalDefaultReasoningEffort",
 	}
@@ -897,13 +926,13 @@ func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
 	source := jsFunctionSource(t, script, "activeWorkBlocksControl") + "\n" + jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
 	fixture := `
 const elements = {};
-for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport","cancelReportButton"]) {
+for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","reportGenerationGuidance","draftQuickReport","draftLongReport","cancelReportButton"]) {
   elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
 }
 const $ = (id) => elements[id];
 const state = {detail:{active_work:{blocked_controls:[]}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
 ` + source + `
-const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","draftQuickReport","draftLongReport"];
+const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","reportGenerationGuidance","draftQuickReport","draftLongReport"];
 function assertDisabled(label) {
   if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
 }
@@ -1093,6 +1122,47 @@ func TestStaticDetailModalKeepsTitleBarVisibleWhileBodyScrolls(t *testing.T) {
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("expected detail modal CSS to keep the title bar visible while body scrolls: %q", expected)
+		}
+	}
+}
+
+func TestStaticReportPreviewShowsVerticalPositionRatio(t *testing.T) {
+	html, err := os.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("static/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style, err := os.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := string(html) + "\n" + string(script) + "\n" + string(style)
+	for _, expected := range []string{
+		`id="detailPositionRatio"`,
+		"detail-scroll-ratio",
+		"detailScrollRatioEnabled",
+		"enableDetailScrollRatio",
+		"disableDetailScrollRatio",
+		"updateDetailScrollRatio",
+		"detailScrollPosition",
+		"scrollTop / maxScroll",
+		"`위치 ${Math.max(0, Math.min(100, percent))}%`",
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("expected report preview vertical position contract %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"instrumentHTMLPreview",
+		"window.parent.postMessage",
+		`plasma:detail-scroll-ratio`,
+		`allow-same-origin`,
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("HTML preview scroll ratio support should stay disabled; found %q", forbidden)
 		}
 	}
 }

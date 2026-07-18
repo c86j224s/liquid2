@@ -111,6 +111,7 @@ func EventLocksAgentExecutor(eventType string) bool {
 		WorkflowRunInterruptedEvent,
 		"report.draft.pending",
 		"report.plan.created",
+		"report.section.started",
 		"report.section.created",
 		"report.part.created",
 		"report.artifact.created",

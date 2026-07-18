@@ -61,6 +61,7 @@ type Service interface {
 type DraftRequest struct {
 	Title                        string
 	DirectionHint                string
+	ExecutionStrategy            string
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
@@ -528,6 +529,9 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 	}
 	if req.DirectionHint != "" {
 		payload["direction_hint"] = req.DirectionHint
+	}
+	if req.ExecutionStrategy != "" {
+		payload["execution_strategy"] = req.ExecutionStrategy
 	}
 	appended, err := runner.Service.AppendEventsIfNoActiveAgentWork(ctx, missionID, []app.AppendEventRequest{{
 		EventID:   pendingEventID,
@@ -1149,6 +1153,7 @@ func DraftRequestFromPendingEvent(event app.LedgerEvent) (DraftRequest, error) {
 	var payload struct {
 		Title                        string `json:"title"`
 		DirectionHint                string `json:"direction_hint"`
+		ExecutionStrategy            string `json:"execution_strategy"`
 		AgentExecutor                string `json:"agent_executor"`
 		AgentModel                   string `json:"agent_model"`
 		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
@@ -1169,6 +1174,7 @@ func DraftRequestFromPendingEvent(event app.LedgerEvent) (DraftRequest, error) {
 	return normalizeDraftRequest(DraftRequest{
 		Title:                        firstNonEmpty(payload.Title, "Mission report"),
 		DirectionHint:                payload.DirectionHint,
+		ExecutionStrategy:            payload.ExecutionStrategy,
 		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
 		AgentModel:                   payload.AgentModel,
 		AgentReasoningEffort:         payload.AgentReasoningEffort,
@@ -1341,6 +1347,7 @@ func (runner Runner) id(prefix string) string {
 
 func normalizeDraftRequest(req DraftRequest) DraftRequest {
 	req.DirectionHint = NormalizeDirectionHint(req.DirectionHint)
+	req.ExecutionStrategy = strings.TrimSpace(strings.ToLower(req.ExecutionStrategy))
 	req.Title = firstNonEmpty(req.Title, "Mission report")
 	req.AgentExecutor = firstNonEmpty(req.AgentExecutor, "codex")
 	req.AgentModel = strings.TrimSpace(req.AgentModel)

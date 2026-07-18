@@ -215,7 +215,7 @@ func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusNotFound, "artifact not found")
 		return
 	}
-	if ok, err := server.isReportArtifact(r.Context(), missionID, artifact.ArtifactID); err != nil {
+	if ok, err := server.isReadableArtifact(r.Context(), missionID, artifact.ArtifactID); err != nil {
 		writeAppError(w, err)
 		return
 	} else if !ok {
@@ -1014,11 +1014,16 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	if err != nil {
 		return nil, err
 	}
+	executionStrategy, err := normalizeReportExecutionStrategy(req.ExecutionStrategy, reportMode)
+	if err != nil {
+		return nil, err
+	}
 	req.Title = title
 	req.AgentExecutor = executorName
 	req.MCPMode = mcpMode
 	req.RigorLevel = rigor.level
 	req.ReportMode = reportMode
+	req.ExecutionStrategy = executionStrategy
 	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
 		return nil, err
@@ -1061,6 +1066,7 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	pendingEvent, err := server.reportRunner().StartDraft(ctx, missionID, reporting.DraftRequest{
 		Title:                        title,
 		DirectionHint:                req.DirectionHint,
+		ExecutionStrategy:            storedReportExecutionStrategy(req.ExecutionStrategy),
 		AgentExecutor:                executorName,
 		AgentModel:                   req.AgentModel,
 		AgentReasoningEffort:         req.AgentReasoningEffort,
@@ -1285,6 +1291,7 @@ func (server *Server) reportRunner() reporting.Runner {
 			_, err := server.createReportDraft(ctx, missionID, reportDraftRequest{
 				Title:                        req.Title,
 				DirectionHint:                req.DirectionHint,
+				ExecutionStrategy:            req.ExecutionStrategy,
 				AgentExecutor:                req.AgentExecutor,
 				AgentModel:                   req.AgentModel,
 				AgentReasoningEffort:         req.AgentReasoningEffort,
@@ -1390,6 +1397,10 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	if err != nil {
 		return nil, err
 	}
+	executionStrategy, err := normalizeReportExecutionStrategy(req.ExecutionStrategy, reportMode)
+	if err != nil {
+		return nil, err
+	}
 	reportSessionPolicy, err := normalizeReportSessionPolicy(req.ReportSessionPolicy)
 	if err != nil {
 		return nil, err
@@ -1419,6 +1430,9 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	}
 	switch reportMode {
 	case reportModeLongForm:
+		if executionStrategy == reportExecutionStrategySectionFanout {
+			return server.createSectionFanoutLongFormReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
+		}
 		return server.createSectionalLongFormReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
 	case reportModePlanned:
 		return server.createPlannedReportDraft(ctx, missionID, title, req.DirectionHint, executorName, agentModel, agentReasoningEffort, req.AgentSelectionSource, mcpMode, rigor, reportSessionPolicy, req.ReportSessionPolicySelection, postReportHumanize, guidanceProfile, guidanceSHA, pendingEventID, executor)
@@ -2052,7 +2066,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 				planStarted := time.Now()
 				result, runErr := executor.Run(ctx, AgentRequest{
-					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor), directionHint),
+					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 					ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
 				})
@@ -2599,7 +2613,11 @@ Rules:
 		req.SessionChainKind)
 }
 
-func agentSectionalReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile) string {
+func agentSectionalReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile, generationGuidanceProfile string) string {
+	experimentalGuidance := strings.TrimSpace(longFormExperimentalPlanningGuidance(generationGuidanceProfile))
+	if experimentalGuidance != "" {
+		experimentalGuidance = "\n" + experimentalGuidance + "\n"
+	}
 	return fmt.Sprintf(`You are planning a section-first Korean long-form Plasma report.
 
 Do not write the report yet. Submit the plan through plasma.report.plan.submit.
@@ -2622,6 +2640,7 @@ Planning rules:
 - Each Section must be specific enough to be drafted independently.
 - Sources are original materials. Prior answers, controller questions, plans, generated notes, section drafts, and reports are working memory or results, not sources.
 - target_refs should name the source snapshots, evidence records, or saved claims the Section should inspect when available.
+%s
 
 Submit one accepted plan with this plan shape. If the tool returns a retryable validation error, correct the plan and resubmit; make at most three parsed submission calls total. Every parsed call consumes this budget, including a success or replay; protocol/envelope parse failures do not:
 {
@@ -2643,7 +2662,7 @@ Submit one accepted plan with this plan shape. If the tool returns a retryable v
   "planned_omissions": ["known gaps or intentionally omitted areas"]
 }
 
-After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final response. Do not return plan JSON, fences, or commentary.`, missionID, title, missionID, toolSessionID, pendingEventID, idempotencyKey, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions)
+After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final response. Do not return plan JSON, fences, or commentary.`, missionID, title, missionID, toolSessionID, pendingEventID, idempotencyKey, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, experimentalGuidance)
 }
 
 func agentSectionDraftPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, section agentReportSection, partIndex int, sectionIndex int, generationGuidanceProfile string) string {
@@ -2777,6 +2796,27 @@ Rules:
 
 func normalizeReportMode(mode string) (string, error) {
 	return reporting.NormalizeMode(mode)
+}
+
+func normalizeReportExecutionStrategy(strategy string, reportMode string) (string, error) {
+	strategy = strings.TrimSpace(strings.ToLower(strategy))
+	if strategy == "" || strategy == reportExecutionStrategySerial {
+		return reportExecutionStrategySerial, nil
+	}
+	if strategy != reportExecutionStrategySectionFanout {
+		return "", fmt.Errorf("%w: unsupported report execution strategy", app.ErrInvalidInput)
+	}
+	if reportMode != reportModeLongForm {
+		return "", fmt.Errorf("%w: section fanout is only supported for long-form reports", app.ErrInvalidInput)
+	}
+	return strategy, nil
+}
+
+func storedReportExecutionStrategy(strategy string) string {
+	if strings.TrimSpace(strings.ToLower(strategy)) == reportExecutionStrategySerial {
+		return ""
+	}
+	return strings.TrimSpace(strings.ToLower(strategy))
 }
 
 func reportEventString(event app.LedgerEvent, key string) string {

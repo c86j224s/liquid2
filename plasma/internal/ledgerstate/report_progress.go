@@ -223,6 +223,13 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		}
 		id := ""
 		switch e.EventType {
+		case "report.section.started":
+			id = stageID("section", q.Part, q.Section)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
 		case "report.section.created":
 			id = stageID("section", q.Part, q.Section)
 		case "report.part.created":
@@ -270,7 +277,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		}
 	}
 	// The first incomplete stage is the only running node in an open attempt.
-	if result.State == "running" {
+	if result.State == "running" && !hasRunningReportNode(nodes) {
 		for i := range nodes {
 			if nodes[i].State == "pending" || nodes[i].State == "unknown" {
 				nodes[i].State = "running"
@@ -300,6 +307,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 // timestamps. Events without CreatedAt intentionally leave timing absent so
 // legacy projections do not present invented values.
 func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Time, attemptTerminal Event, events []Event, lineage map[string]bool) {
+	starts := map[string]time.Time{}
 	terminals := map[string]time.Time{}
 	for _, event := range events {
 		var payload reportPayload
@@ -308,6 +316,8 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 			continue
 		}
 		switch event.EventType {
+		case "report.section.started":
+			starts[stageID("section", payload.Part, payload.Section)] = event.CreatedAt
 		case "report.plan.created":
 			terminals["plan"] = event.CreatedAt
 		case "report.section.created", "report.section.failed":
@@ -340,19 +350,31 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 		if !completed && nodes[i].State != "running" {
 			continue
 		}
-		if !previous.IsZero() {
-			startedAt := previous
+		startedAt := starts[nodes[i].ID]
+		if startedAt.IsZero() {
+			startedAt = previous
+		}
+		if !startedAt.IsZero() {
 			nodes[i].StartedAt = &startedAt
 		}
 		if !completed {
 			continue
 		}
-		if !previous.IsZero() && !terminalAt.Before(previous) {
-			durationMS := terminalAt.Sub(previous).Milliseconds()
+		if !startedAt.IsZero() && !terminalAt.Before(startedAt) {
+			durationMS := terminalAt.Sub(startedAt).Milliseconds()
 			nodes[i].DurationMS = &durationMS
 		}
 		previous = terminalAt
 	}
+}
+
+func hasRunningReportNode(nodes []ReportProgressNode) bool {
+	for _, node := range nodes {
+		if node.State == "running" {
+			return true
+		}
+	}
+	return false
 }
 
 func unknownReportProgress() ReportProgress {

@@ -21,6 +21,9 @@ const (
 	reportModeLabelPlan = "보고서"
 	reportModeLabelLong = "장문 보고서"
 
+	reportExecutionStrategySerial        = "serial"
+	reportExecutionStrategySectionFanout = "section_fanout"
+
 	reportSessionPolicySameSession  = reporting.SessionPolicySameSession
 	reportSessionPolicyIsolatedFork = reporting.SessionPolicyIsolatedFork
 
@@ -100,6 +103,7 @@ type reportRefViolation struct {
 type reportDraftRequest struct {
 	Title                        string `json:"title"`
 	DirectionHint                string `json:"direction_hint"`
+	ExecutionStrategy            string `json:"execution_strategy"`
 	AgentExecutor                string `json:"agent_executor"`
 	AgentModel                   string `json:"agent_model"`
 	AgentReasoningEffort         string `json:"agent_reasoning_effort"`
