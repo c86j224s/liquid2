@@ -12,10 +12,27 @@
   --font-body:    "IBM Plex Sans KR", "Pretendard", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", Consolas, monospace;
 
-  /* radii — editorial, lightly rounded */
+  /* radii — editorial, lightly rounded. --radius matches the dominant 8px. */
   --radius-sm:   4px;
-  --radius:      7px;
+  --radius:      8px;
+  --radius-md:   10px;
   --radius-lg:   11px;
+
+  /* spacing scale — snap gaps/padding to this rhythm (4 · 8 · 12 · 16 · 24 · 32) */
+  --space-1:     4px;
+  --space-2:     8px;
+  --space-3:     12px;
+  --space-4:     16px;
+  --space-5:     24px;
+  --space-6:     32px;
+
+  /* type scale — data/label · body · title · display (no half-steps) */
+  --text-xs:     11px;
+  --text-sm:     12px;
+  --text-base:   13px;
+  --text-md:     15px;
+  --text-lg:     18px;
+  --text-xl:     23px;
 
   /* compact command controls; touch layouts override this to 40px */
   --control-height: 34px;
@@ -244,7 +261,7 @@ select,
 textarea {
   width: 100%;
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface2);
   color: var(--ink);
   padding: 9px 11px;
@@ -490,7 +507,7 @@ button.button-sm {
   min-height: 0;
   overflow: hidden;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 /* Flex column (not a fixed 3-row grid) so hiding the banner in focus mode
@@ -514,6 +531,8 @@ button.button-sm {
   overflow: auto;
   /* Pack items at their content height; don't stretch rows to fill the rail. */
   align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
 }
 
 /* ============================================================
@@ -688,7 +707,7 @@ button.button-sm {
   width: auto;
   min-width: 92px;
   padding: 6px 28px 6px 9px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 12px;
 }
 
@@ -698,7 +717,7 @@ button.button-sm {
   height: var(--control-height);
   gap: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent-from) 42%, var(--line2));
+  border: 1px solid var(--line2);
   border-radius: 999px;
   background: var(--surface2);
   color: var(--ink);
@@ -707,21 +726,26 @@ button.button-sm {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
+/* Label chip stays quiet (brass on inset surface); ember is reserved for
+   primary actions and focus/active state, not every select. */
 .segmented-select-label {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   padding: 0 11px;
-  background: var(--accent-from);
-  color: #fff8ef;
-  font-weight: 700;
+  background: var(--surface3);
+  color: var(--muted);
+  border-right: 1px solid var(--line2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   line-height: 1.2;
   pointer-events: none;
 }
 
 .segmented-select-control:focus-within .segmented-select-label {
-  background: var(--accent-mid);
+  color: var(--ink2);
 }
 
 .segmented-select-control select {
@@ -782,11 +806,56 @@ button.button-sm {
 	flex: 1;
 }
 
-.mission-metadata-editor { margin-top: 10px; max-width: 760px; }
+.mission-metadata-editor { max-width: 760px; }
 .mission-metadata-editor label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
 .mission-metadata-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
 .mission-metadata-editor .inline-actions { margin-top: 8px; }
 .field-error { color: var(--danger); font-size: 12px; }
+.mission-settings-card[open] > .stack {
+  gap: 12px;
+}
+.mission-lifecycle-settings,
+.mission-hard-delete-settings {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 760px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.mission-hard-delete-settings {
+  border-top-color: color-mix(in srgb, var(--red) 35%, var(--line));
+}
+
+.mission-lifecycle-settings strong,
+.mission-hard-delete-settings strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.mission-hard-delete-settings strong {
+  color: var(--red);
+}
+
+.mission-lifecycle-settings .inline-actions,
+.mission-hard-delete-settings .inline-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.mission-lifecycle-button {
+  min-height: 30px;
+  padding: 4px 10px;
+}
+.mission-lifecycle-notice {
+  margin-top: 5px;
+  color: var(--amber);
+  font-size: 12px;
+}
 .report-direction-field { display: grid; gap: 5px; max-width: 760px; color: var(--muted); font-size: 12px; }
 
 .report-generation-summary {
@@ -837,6 +906,10 @@ button.button-sm {
 @media (max-width: 640px) {
 	.mission-banner { align-items: flex-start; }
 	.mission-metadata-scope { grid-template-columns: 1fr; }
+  .mission-lifecycle-settings,
+  .mission-hard-delete-settings {
+    display: grid;
+  }
 }
 
 .mission-title-row {
@@ -986,7 +1059,7 @@ body.chat-focus #workflowControlDetails {
   height: var(--control-height);
   min-height: var(--control-height);
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface3);
   color: var(--ink2);
   border: 1px solid var(--line2);
@@ -1051,7 +1124,7 @@ body.chat-focus #workflowControlDetails {
   gap: 7px;
   padding: 5px 10px;
   border: 1px solid var(--line2);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface2);
   color: var(--ink2);
   font-size: 12px;
@@ -1079,7 +1152,7 @@ body.chat-focus #workflowControlDetails {
    ============================================================ */
 .recall-box {
   border: 1px dashed var(--line2);
-  border-radius: 8px;
+  border-radius: var(--radius);
   padding: 8px 10px;
   margin-bottom: 10px;
   background: var(--surface);
@@ -1119,7 +1192,7 @@ body.chat-focus #workflowControlDetails {
 
 .turn {
   border: 1px solid var(--item-bdr);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   background: var(--item-bg);
   min-width: 0;
@@ -1243,7 +1316,7 @@ body.chat-focus #workflowControlDetails {
 
 .turn-markdown pre {
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--code-bg);
   color: var(--code-fg);
   overflow: auto;
@@ -1351,7 +1424,7 @@ body.chat-focus #workflowControlDetails {
   cursor: pointer;
   list-style: none;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -1615,7 +1688,7 @@ body.chat-focus #workflowControlDetails {
 
 .composer textarea {
   min-height: 64px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   font-size: 14px;
 }
 
@@ -1646,7 +1719,7 @@ body.chat-focus #workflowControlDetails {
   justify-content: center;
   min-height: var(--control-height);
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--line2);
   background: var(--surface2);
   color: var(--ink2);
@@ -1662,7 +1735,7 @@ body.chat-focus #workflowControlDetails {
 
 .source-helper {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--muted);
   font-size: 12px;
@@ -1683,7 +1756,7 @@ body.chat-focus #workflowControlDetails {
    Sources › Confluence tab (distinct from adding a page as a source). */
 .confluence-agent-grant {
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   margin-top: 4px;
 }
@@ -1765,7 +1838,7 @@ body.chat-focus #workflowControlDetails {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   padding: 10px;
 }
@@ -1888,12 +1961,18 @@ body.chat-focus #workflowControlDetails {
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
 .model-default-row.readonly {
   grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+/* Read-only rows show their value as a badge; hug the right edge so the value
+   column lines up with the editable rows' controls above/below. */
+.model-default-row.readonly > .badge {
+  justify-self: end;
 }
 
 .model-default-copy {
@@ -1937,7 +2016,7 @@ body.chat-focus #workflowControlDetails {
 
 .confluence-conn-card {
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   overflow: hidden;
 }
@@ -2008,7 +2087,7 @@ body.chat-focus #workflowControlDetails {
 /* New-token card: collapsed by default at the bottom of the list. */
 .confluence-add-card {
   border: 1px dashed var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: transparent;
 }
 
@@ -2040,7 +2119,7 @@ body.chat-focus #workflowControlDetails {
   gap: 8px;
   padding: 11px 12px;
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--surface);
 }
 
@@ -2143,7 +2222,7 @@ body.chat-focus #workflowControlDetails {
   text-align: left;
   justify-content: flex-start;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--item-bg);
   border: 1px solid var(--item-bdr);
   color: var(--ink2);
@@ -2270,7 +2349,7 @@ input.item-select {
   margin: 0 0 8px;
   background: var(--surface2);
   border: 1px solid var(--line2);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   position: sticky;
   top: 0;
   z-index: 2;
@@ -2320,15 +2399,23 @@ button.item.secondary {
   margin-bottom: 3px;
   color: var(--ink);
   min-width: 0;
-  /* keep-all (without overflow-wrap:anywhere) so Korean wraps at word
-     boundaries and never splits mid-syllable. */
+  /* Override the inherited button white-space:nowrap so long titles wrap
+     instead of overflowing the card. */
+  white-space: normal;
+  /* keep-all so Korean wraps at word boundaries; overflow-wrap:anywhere
+     (inherited from .item) still breaks a too-long unbreakable token. */
   word-break: keep-all;
-  /* Clamp to 2 lines so long titles don't balloon a card's height. */
+  /* Clamp to 2 lines. max-height + overflow:hidden is the hard cap that works
+     in every browser (so the title can never exceed the card); -webkit-box
+     line-clamp adds the ellipsis where supported. The standard `line-clamp`
+     shorthand is intentionally omitted — it made display compute to flow-root
+     and broke the clamp in some browsers, letting long titles overflow. */
+  line-height: 1.4;
+  max-height: 2.8em;
+  overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
-  line-clamp: 2;
   -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 .item-title-row {
@@ -2402,10 +2489,18 @@ button.item.secondary {
   }
 }
 
-/* Mission picker items: keep cards uniform and compact — the raw mission id
-   stays on a single ellipsised line (full value still available on hover). */
+/* Mission picker items: titles may wrap; secondary metadata stays compact. */
 #missionList .item {
   padding: 8px 11px;
+}
+
+#missionList .item-title {
+  display: block;
+  max-height: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
 }
 
 #missionList .item-meta {
@@ -2415,6 +2510,50 @@ button.item.secondary {
   font-family: var(--font-mono);
   font-size: 10.5px;
   letter-spacing: -0.01em;
+}
+
+#missionList .mission-archived {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
+.mission-archive-toggle {
+  min-height: 24px;
+  margin: 10px 0 10px;
+  padding: 2px;
+  align-self: start;
+}
+
+.mission-archive-toggle input[type="checkbox"] {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  padding: 0;
+  flex: 0 0 14px;
+}
+
+.mission-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mission-item-meta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mission-lifecycle-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--amber);
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0;
 }
 
 /* identifier metas read as data: monospace, slightly dimmer */
@@ -2821,7 +2960,7 @@ button.item.secondary {
 .detail-body pre {
   margin: 0;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--code-bg);
   color: var(--code-fg);
   max-height: 520px;
@@ -2840,7 +2979,7 @@ button.item.secondary {
   display: grid;
   gap: 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   padding: 9px;
 }
@@ -2941,7 +3080,7 @@ button.item.secondary {
 .report-notice {
   margin: 0 0 10px;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -2962,7 +3101,7 @@ button.item.secondary {
   margin: 0 0 10px;
   padding: 8px 10px;
   border: 1px solid color-mix(in srgb, var(--accent-from) 38%, var(--line));
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--accent-from) 8%, var(--surface));
   color: var(--ink2);
   font-size: 13px;
@@ -2994,7 +3133,7 @@ button.item.secondary {
   gap: 10px;
   margin: 0 0 10px;
   padding: 9px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -3027,7 +3166,7 @@ button.item.secondary {
   max-height: 360px;
   overflow: auto;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
 }
@@ -3037,7 +3176,7 @@ button.item.secondary {
   overflow: auto;
   margin: 0;
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--code-bg);
   color: var(--code-fg);
   font-family: var(--font-mono);
@@ -3052,7 +3191,7 @@ button.item.secondary {
   width: 100%;
   height: min(72vh, 760px);
   border: 1px solid var(--line2);
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: #111;
 }
 
@@ -3310,14 +3449,14 @@ button.item.secondary {
   color: var(--code-fg);
   background: var(--code-bg);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .report-modal-frame iframe {
   width: 100%;
   height: 74vh;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: #fff;
 }
 
@@ -3341,7 +3480,7 @@ details.section-details > summary {
   cursor: pointer;
   list-style: none;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -3383,7 +3522,7 @@ details.section-details > summary:focus-visible {
 }
 
 details.section-details[open] > summary {
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   border-bottom-color: transparent;
 }
 
@@ -3407,7 +3546,7 @@ details.section-details[open] > .stack {
   cursor: pointer;
   list-style: none;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -3463,7 +3602,7 @@ details.section-details[open] > .stack {
   cursor: pointer;
   list-style: none;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -3520,7 +3659,7 @@ details.section-details[open] > .stack {
   cursor: pointer;
   list-style: none;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--surface);
   border: 1px solid var(--line2);
   color: var(--ink2);
@@ -3598,7 +3737,7 @@ details.section-details[open] > .stack {
   padding: 7px 13px;
   border: 1px solid transparent;
   border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius) var(--radius) 0 0;
   background: transparent;
   color: var(--muted);
   font-size: 13px;
@@ -3647,7 +3786,7 @@ details.section-details[open] > .stack {
 }
 
 .source-add-group .source-add[open] > .stack {
-  border-radius: 8px;
+  border-radius: var(--radius);
   border-top: 1px solid var(--line2);
 }
 

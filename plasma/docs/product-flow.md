@@ -86,6 +86,12 @@ notice, modal, 목록, busy 상태를 바꾸지 않는다.
 
 사용자는 현재 제목, 목표, 포함/제외 범위를 Web 편집기, `missions update`, `plasma.mission.update`로 명시적으로 고칠 수도 있다. 이 동작은 대화 조향과 구별되며 `mission.metadata.updated` 이벤트를 추가한다. 공급한 필드만 장부 순서대로 최신 값이 되고 이전 이벤트는 수정하지 않는다.
 
+사용자가 완료했거나 당장 보지 않을 미션은 보관할 수 있다. 보관은 `mission.archived`
+이벤트가 projection의 lifecycle state를 바꾸는 soft delete이며, 기본 미션 목록에서만
+숨긴다. 보관된 미션은 별도 보기로 다시 열 수 있고 `mission.restored` 이벤트로 기본
+목록에 복원된다. 이 흐름은 미션 장부, 소스, 저장 지식, 리포트 artifact를 삭제하거나
+purge하지 않는다.
+
 ### Source
 
 소스는 원본 자료다. 예시는 Liquid2 문서, URL, PDF, 로컬 파일, 외부 저장소,

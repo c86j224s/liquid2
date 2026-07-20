@@ -12,7 +12,7 @@ import (
 
 func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: plasma missions <create|list|show|update> [options]")
+		fmt.Fprintln(stderr, "usage: plasma missions <create|list|show|update|archive|restore> [options]")
 		return 2
 	}
 	switch args[0] {
@@ -77,6 +77,7 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		fs.SetOutput(stderr)
 		dbPath := fs.String("db", "", "Plasma SQLite database path")
 		jsonOut := fs.Bool("json", false, "write JSON")
+		includeArchived := fs.Bool("include-archived", false, "include archived missions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -86,7 +87,7 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 1
 		}
 		defer closeStore()
-		missions, err := svc.ListMissions(ctx)
+		missions, err := svc.ListMissionsWithState(ctx, app.ListMissionsRequest{IncludeArchived: *includeArchived})
 		if err != nil {
 			fmt.Fprintf(stderr, "list missions: %v\n", err)
 			return 1
@@ -96,7 +97,11 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 0
 		}
 		for _, mission := range missions {
-			fmt.Fprintf(stdout, "%s\t%s\n", mission.MissionID, mission.Title)
+			stateSuffix := ""
+			if mission.LifecycleState == app.MissionLifecycleArchived {
+				stateSuffix = "\tarchived"
+			}
+			fmt.Fprintf(stdout, "%s\t%s%s\n", mission.MissionID, mission.Title, stateSuffix)
 		}
 		return 0
 	case "show":
@@ -134,6 +139,10 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return 0
 	case "update":
 		return runMissionUpdate(ctx, args[1:], stdout, stderr)
+	case "archive":
+		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, app.MissionLifecycleArchived)
+	case "restore":
+		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, app.MissionLifecycleActive)
 	default:
 		fmt.Fprintf(stderr, "unknown missions command %q\n", args[0])
 		return 2

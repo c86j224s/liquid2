@@ -27,6 +27,13 @@ This repository includes generated code and vendored browser libraries.
   - License source: https://github.com/KaTeX/KaTeX/blob/v0.17.0/LICENSE
   - Only the runtime, stylesheet, and WOFF2 fonts referenced by the stylesheet
     are vendored. No CDN or runtime package manager is required.
+- `plasma/internal/web/static/vendor/mermaid.min.js`
+  - Project: Mermaid
+  - Version: 11.16.0
+  - License: MIT
+  - Source: https://github.com/mermaid-js/mermaid
+  - The browser runtime is loaded lazily only when a rendered Markdown surface
+    contains a Mermaid code block.
 
 ## Generated Code
 

@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +15,9 @@ import (
 func (server *Server) handleMissions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		missions, err := server.service.ListMissions(r.Context())
+		missions, err := server.service.ListMissionsWithState(r.Context(), app.ListMissionsRequest{
+			IncludeArchived: queryBool(r, "include_archived"),
+		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -48,6 +52,10 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 			server.handleMissionMetadataUpdate(w, r, missionID)
 			return
 		}
+		if r.Method == http.MethodDelete {
+			server.handleMissionHardDelete(w, r, missionID)
+			return
+		}
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -57,6 +65,24 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 	}
 
 	switch parts[1] {
+	case "archive":
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		server.handleMissionArchive(w, r, missionID)
+	case "restore":
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		server.handleMissionRestore(w, r, missionID)
+	case "hard_delete_preview":
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		server.handleMissionHardDeletePreview(w, r, missionID)
 	case "activity":
 		if len(parts) != 2 {
 			http.NotFound(w, r)
@@ -94,6 +120,80 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (server *Server) handleMissionArchive(w http.ResponseWriter, r *http.Request, missionID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req missionLifecycleRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := server.service.ArchiveMission(r.Context(), app.MissionLifecycleChangeRequest{
+		EventID:   newID("evt"),
+		MissionID: missionID,
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Reason:    req.Reason,
+	})
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (server *Server) handleMissionRestore(w http.ResponseWriter, r *http.Request, missionID string) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var req missionLifecycleRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := server.service.RestoreMission(r.Context(), app.MissionLifecycleChangeRequest{
+		EventID:   newID("evt"),
+		MissionID: missionID,
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Reason:    req.Reason,
+	})
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (server *Server) handleMissionHardDeletePreview(w http.ResponseWriter, r *http.Request, missionID string) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	preview, err := server.service.PreviewMissionHardDelete(r.Context(), missionID)
+	if err != nil {
+		writeMissionRouteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (server *Server) handleMissionHardDelete(w http.ResponseWriter, r *http.Request, missionID string) {
+	var req missionHardDeleteRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := server.service.HardDeleteMission(r.Context(), app.MissionHardDeleteRequest{
+		MissionID:        missionID,
+		ConfirmMissionID: req.ConfirmMissionID,
+		Producer:         app.Producer{Type: "user", ID: "plasma-ui"},
+	})
+	if err != nil {
+		writeMissionRouteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (server *Server) handleMissionActivity(w http.ResponseWriter, r *http.Request, missionID string) {
@@ -195,10 +295,18 @@ func (server *Server) writeMissionDetail(w http.ResponseWriter, r *http.Request,
 	}
 	detail, err := server.missionDetail(r.Context(), missionID)
 	if err != nil {
-		writeAppError(w, err)
+		writeMissionRouteError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func writeMissionRouteError(w http.ResponseWriter, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "mission not found")
+		return
+	}
+	writeAppError(w, err)
 }
 
 func (server *Server) createMission(ctx context.Context, req createMissionRequest) (missionDetailResponse, error) {

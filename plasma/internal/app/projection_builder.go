@@ -42,7 +42,7 @@ func BuildProjection(missionID string, events []LedgerEvent) (MissionProjection,
 	builder := projectionBuildState{
 		projection: MissionProjection{
 			MissionID:        missionID,
-			LifecycleState:   "active",
+			LifecycleState:   MissionLifecycleActive,
 			Scope:            MissionScope{},
 			ActiveSessionIDs: []string{},
 			AcceptedClaimIDs: []string{},
@@ -64,8 +64,10 @@ func BuildProjection(missionID string, events []LedgerEvent) (MissionProjection,
 			builder.applyMissionSteered(event)
 		case "mission.metadata.updated":
 			builder.applyMissionMetadataUpdated(event)
-		case "mission.archived":
-			builder.projection.LifecycleState = "archived"
+		case MissionArchivedEvent:
+			builder.projection.LifecycleState = MissionLifecycleArchived
+		case MissionRestoredEvent:
+			builder.projection.LifecycleState = MissionLifecycleActive
 		case "session.attached":
 			if sessionID, ok := builder.payloadRequiredString(event, "session_id", "session.attached requires session_id"); ok {
 				addUnique(&builder.projection.ActiveSessionIDs, sessionID)

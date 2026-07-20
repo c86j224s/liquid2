@@ -109,6 +109,7 @@ var (
 	schemaResearchGrep       = objectSchema([]string{"mission_id", "query"}, researchGrepProperties())
 	schemaResearchRefs       = researchRefsSchema(false)
 	schemaResearchRefsLegacy = researchRefsSchema(true)
+	schemaMermaidValidate    = objectSchema([]string{"mission_id", "source"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "source": map[string]any{"type": "string", "maxLength": 50000}})
 	schemaWorkflowStart      = objectSchema([]string{"mission_id", "instruction"}, workflowStartProperties())
 	schemaWorkflowStatus     = objectSchema([]string{"mission_id"}, workflowStatusProperties())
 	schemaWorkflowStop       = objectSchema([]string{"mission_id", "workflow_run_id"}, workflowStopProperties())

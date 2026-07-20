@@ -97,12 +97,46 @@ func TestListMissionsUsesBulkActivityInputsWhenSupported(t *testing.T) {
 	if store.listLedgerEventsCalls != 0 {
 		t.Fatalf("bulk activity store must not fall back to per-mission ledger reads: %d", store.listLedgerEventsCalls)
 	}
+	if len(store.lastRequestedMissionIDs) != 1 || store.lastRequestedMissionIDs[0] != "mis_1" {
+		t.Fatalf("bulk activity request must be scoped to visible missions: %#v", store.lastRequestedMissionIDs)
+	}
 	if len(missions) != 1 || missions[0].Activity.LastSequence != 9 || missions[0].Activity.LatestTerminalActivity == nil || missions[0].Activity.LatestTerminalActivity.Outcome != TerminalActivityCompleted {
 		t.Fatalf("missions = %#v", missions)
 	}
 	activity, err := NewService(store).MissionActivity(context.Background(), "mis_1")
 	if err != nil || activity.LastSequence != 9 || len(store.lastRequestedMissionIDs) != 1 || store.lastRequestedMissionIDs[0] != "mis_1" {
 		t.Fatalf("single mission activity = %#v, requested=%#v, err=%v", activity, store.lastRequestedMissionIDs, err)
+	}
+}
+
+func TestListMissionsFiltersArchivedByDefault(t *testing.T) {
+	store := &missionActivityListStore{
+		missions: []Mission{
+			{MissionID: "mis_active", Title: "Active", LifecycleState: MissionLifecycleActive},
+			{MissionID: "mis_archived", Title: "Archived", LifecycleState: MissionLifecycleArchived},
+		},
+		inputs: []MissionActivityInput{{MissionID: "mis_active", LastSequence: 2}, {MissionID: "mis_archived", LastSequence: 3}},
+	}
+	missions, err := NewService(store).ListMissions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missions) != 1 || missions[0].MissionID != "mis_active" {
+		t.Fatalf("default missions = %#v", missions)
+	}
+	if len(store.lastRequestedMissionIDs) != 1 || store.lastRequestedMissionIDs[0] != "mis_active" {
+		t.Fatalf("default activity scope = %#v", store.lastRequestedMissionIDs)
+	}
+
+	missions, err = NewService(store).ListMissionsWithState(context.Background(), ListMissionsRequest{IncludeArchived: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missions) != 2 || missions[1].MissionID != "mis_archived" || missions[1].LifecycleState != MissionLifecycleArchived {
+		t.Fatalf("include archived missions = %#v", missions)
+	}
+	if len(store.lastRequestedMissionIDs) != 2 || store.lastRequestedMissionIDs[0] != "mis_active" || store.lastRequestedMissionIDs[1] != "mis_archived" {
+		t.Fatalf("include archived activity scope = %#v", store.lastRequestedMissionIDs)
 	}
 }
 

@@ -17,6 +17,9 @@ const state = {
   missionActivityPollTimer: 0,
   missionActivityPollInFlight: false,
   missionActivityCursors: {},
+  showArchivedMissions: false,
+  missionLifecyclePending: false,
+  missionHardDeletePending: false,
   sourceCandidateBusy: new Set(),
   selectedSourceCandidates: new Set(),
   selectedProposals: new Set(),
@@ -86,10 +89,27 @@ const REPORT_EXECUTION_STRATEGY_LABELS = {
   section_fanout: "빠른 병렬"
 };
 
+const DEFAULT_REPORT_GENERATION_GUIDANCE = "visual-plan";
+// These older long-form profiles remain understood for stored events and API
+// compatibility, but are not offered as selectable UI choices.
+const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
+  "section-brief",
+  "section-brief-cluster-memory",
+  "section-brief-visual-plan",
+  "section-brief-cluster-memory-visual-plan"
+]);
+
+// Labels include active UI choices plus legacy profiles that may appear in
+// historical report events. Do not infer that every label is a current selector
+// option.
 const REPORT_GENERATION_GUIDANCE_LABELS = {
-  g2: "기본",
-  "section-brief": "섹션 중심",
-  "section-brief-cluster-memory": "섹션 중심 + 풍부하게",
+  "visual-plan": "시각자료 계획",
+  "visual-supplement": "시각자료 보조",
+  g2: "기본 글쓰기",
+  "section-brief": "섹션 중심 (이전)",
+  "section-brief-cluster-memory": "섹션 중심 + 풍부하게 (이전)",
+  "section-brief-visual-plan": "섹션 중심",
+  "section-brief-cluster-memory-visual-plan": "섹션 중심 + 풍부하게",
   none: "없음"
 };
 
@@ -97,8 +117,16 @@ const WORKFLOW_DEFAULT_MAX_STEPS = 20;
 const WORKFLOW_DEFAULT_MAX_DURATION_MS = 0;
 
 function reportGenerationGuidanceLabel(value) {
-  const normalized = String(value || "g2").trim() || "g2";
+  const normalized = String(value || DEFAULT_REPORT_GENERATION_GUIDANCE).trim() || DEFAULT_REPORT_GENERATION_GUIDANCE;
   return REPORT_GENERATION_GUIDANCE_LABELS[normalized] || normalized;
+}
+
+function selectedReportGenerationGuidance(reportMode) {
+  const selected = String($("reportGenerationGuidance")?.value || DEFAULT_REPORT_GENERATION_GUIDANCE).trim() || DEFAULT_REPORT_GENERATION_GUIDANCE;
+  if (reportMode !== "long_form" && LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE.has(selected)) {
+    return DEFAULT_REPORT_GENERATION_GUIDANCE;
+  }
+  return selected;
 }
 
 const AGENT_MODEL_OPTIONS = {
@@ -116,7 +144,7 @@ const AGENT_REASONING_EFFORT_OPTIONS = {
   ]
 };
 
-const DESIGNED_REPORT_RENDERER_VERSION = "dh30-source-tex-brackets-20260713";
+const DESIGNED_REPORT_RENDERER_VERSION = "dh31-source-markdown-visuals-20260721";
 
 const $ = (id) => document.getElementById(id);
 const MISSION_STORAGE_KEY = "plasma.activeMissionId";
@@ -154,6 +182,10 @@ if (markdownRenderer) {
 
 document.addEventListener("DOMContentLoaded", () => {
   $("refreshMissions").addEventListener("click", loadMissions);
+  $("includeArchivedMissions").addEventListener("change", onIncludeArchivedMissionsChange);
+  $("missionArchiveButton").addEventListener("click", () => changeMissionLifecycle("archive"));
+  $("missionRestoreButton").addEventListener("click", () => changeMissionLifecycle("restore"));
+  $("missionHardDeleteButton").addEventListener("click", hardDeleteMission);
   $("tabBar").addEventListener("click", onTabBarClick);
   $("missionForm").addEventListener("submit", createMission);
   $("turnForm").addEventListener("submit", sendTurn);
@@ -517,9 +549,9 @@ async function api(path, options = {}) {
 
 async function loadMissions() {
   try {
-    const data = await api("/api/missions");
+    const data = await api(missionListPath());
     state.missions = data.missions || [];
-    pruneMissionActivitySeenWatermarks(state.missions);
+    if (state.showArchivedMissions) pruneMissionActivitySeenWatermarks(state.missions);
     renderMissions();
     const missionIDs = new Set(state.missions.map((mission) => mission.MissionID).filter(Boolean));
     const savedMissionID = storedMissionID();
@@ -555,12 +587,152 @@ async function createMission(event) {
 }
 
 async function refreshMissionList(owner = captureMissionSelection()) {
-  const data = await api("/api/missions");
+  const data = await api(missionListPath());
   if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
   state.missions = data.missions || [];
-  pruneMissionActivitySeenWatermarks(state.missions);
+  if (state.showArchivedMissions) pruneMissionActivitySeenWatermarks(state.missions);
   renderMissions();
   scheduleMissionActivityPoll();
+}
+
+function missionListPath() {
+  return state.showArchivedMissions ? "/api/missions?include_archived=true" : "/api/missions";
+}
+
+function onIncludeArchivedMissionsChange(event) {
+  state.showArchivedMissions = Boolean(event.target.checked);
+  loadMissions();
+}
+
+async function changeMissionLifecycle(action) {
+  if (!requireMission() || state.missionLifecyclePending) return;
+  if (!confirmMissionLifecycleChange(action)) return;
+  const owner = captureMissionSelection();
+  state.missionLifecyclePending = true;
+  renderMissionLifecycleControls();
+  try {
+    await missionApi(owner, `/${action}`, { method: "POST", body: { reason: "" } });
+    if (!ownsMissionSelection(owner)) return;
+    if (action === "archive") {
+      state.missionLifecyclePending = false;
+      await selectMissionAfterArchive(owner);
+      return;
+    }
+    await selectMission(owner.missionId);
+  } catch (err) {
+    if (ownsMissionSelection(owner)) showError(err);
+  } finally {
+    if (ownsMissionSelection(owner)) {
+      state.missionLifecyclePending = false;
+      renderMissionLifecycleControls();
+      setFormsEnabled(Boolean(state.detail));
+    }
+  }
+}
+
+function confirmMissionLifecycleChange(action) {
+  const projection = state.detail?.projection || {};
+  const missionTitle = projection.title || projection.mission_id || state.missionId || "현재 미션";
+  if (action === "archive") {
+    return window.confirm(`${missionTitle}을(를) 보관할까요?\n\n보관하면 기본 미션 목록에서 숨겨지고, 보관된 미션 보기에서 다시 찾을 수 있습니다.`);
+  }
+  if (action === "restore") {
+    return window.confirm(`${missionTitle}을(를) 복원할까요?\n\n복원하면 기본 미션 목록에 다시 표시되고 새 작업을 이어갈 수 있습니다.`);
+  }
+  return false;
+}
+
+async function selectMissionAfterArchive(owner) {
+  await refreshMissionList(owner);
+  const nextMissionID = state.missions.find((mission) => mission.MissionID && mission.MissionID !== owner.missionId)?.MissionID;
+  if (nextMissionID) {
+    await selectMission(nextMissionID);
+    return;
+  }
+  clearMissionSelection();
+}
+
+async function hardDeleteMission() {
+  if (!requireMission() || state.missionHardDeletePending) return;
+  const owner = captureMissionSelection();
+  state.missionHardDeletePending = true;
+  renderMissionLifecycleControls();
+  try {
+    const preview = await missionApi(owner, "/hard_delete_preview");
+    if (!ownsMissionSelection(owner)) return;
+    if (!preview.eligible) {
+      const reasons = (preview.blocking_reasons || []).map((reason) => reason.message).filter(Boolean).join("\n");
+      const err = new Error(reasons || "이 미션은 완전 삭제할 수 없습니다.");
+      err.userMessage = err.message;
+      showError(err);
+      return;
+    }
+    if (!confirmMissionHardDelete(preview)) return;
+    await missionApi(owner, "", { method: "DELETE", body: { confirm_mission_id: owner.missionId } });
+    if (!ownsMissionSelection(owner)) return;
+    state.missionHardDeletePending = false;
+    await selectMissionAfterHardDelete(owner);
+  } catch (err) {
+    if (ownsMissionSelection(owner)) showError(err);
+  } finally {
+    if (ownsMissionSelection(owner)) {
+      state.missionHardDeletePending = false;
+      renderMissionLifecycleControls();
+      setFormsEnabled(Boolean(state.detail));
+    }
+  }
+}
+
+function confirmMissionHardDelete(preview) {
+  const title = preview.title || preview.mission_id || state.missionId || "현재 미션";
+  const lines = missionHardDeleteImpactLines(preview.impact || {});
+  const summary = lines.length ? lines.join("\n") : "삭제할 연결 데이터가 거의 없습니다.";
+  return window.confirm(`${title}을(를) 완전 삭제할까요?\n\n이 작업은 복구할 수 없습니다.\n\n삭제 영향:\n${summary}\n\n저장공간 회수와 민감정보 흔적 제거는 별도 작업입니다.`);
+}
+
+function missionHardDeleteImpactLines(impact) {
+  const rows = [
+    ["source_snapshots", "소스"],
+    ["raw_artifacts", "원문 데이터"],
+    ["ledger_events", "장부 이벤트"],
+    ["reports", "보고서"],
+    ["report_versions", "보고서 버전"],
+    ["report_blocks", "보고서 블록"],
+    ["evidence_records", "근거"],
+    ["claim_records", "주장"],
+    ["question_records", "질문"],
+    ["option_records", "선택지"],
+    ["proposal_bundles", "제안"]
+  ];
+  const lines = rows
+    .map(([key, label]) => [Number(impact[key] || 0), label])
+    .filter(([count]) => count > 0)
+    .map(([count, label]) => `- ${label} ${count}개`);
+  const bytes = formatBytes(impact.raw_artifact_bytes);
+  if (bytes) lines.push(`- 원문 데이터 용량 ${bytes}`);
+  return lines;
+}
+
+async function selectMissionAfterHardDelete(owner) {
+  await refreshMissionList(owner);
+  const nextMissionID = state.missions.find((mission) => mission.MissionID && mission.MissionID !== owner.missionId)?.MissionID;
+  if (nextMissionID) {
+    await selectMission(nextMissionID);
+    return;
+  }
+  clearMissionSelection();
+}
+
+function clearMissionSelection() {
+  state.selectionGeneration += 1;
+  state.detailGeneration += 1;
+  state.missionId = "";
+  forgetStoredMissionID();
+  resetMissionTransientState();
+  $("missionName").textContent = "선택된 미션 없음";
+  $("missionObjectiveText").textContent = "미션을 만들거나 선택하세요.";
+  $("turnLog").innerHTML = empty("미션을 선택하세요");
+  renderMissions();
 }
 
 async function selectMission(missionId) {
@@ -649,6 +821,7 @@ function resetMissionTransientState() {
   state.reportPending = false;
   state.workflowPending = false;
   state.workflowGoalDraftPending = false;
+  state.missionHardDeletePending = false;
   state.workflowGoalDraftRaw = "";
   state.pendingTurn = null;
   state.sourceCandidateBusy.clear();
@@ -677,6 +850,8 @@ function resetMissionTransientState() {
   setReportNotice("");
   renderActiveWork({ items: [], blocks: [] });
   setFormsEnabled(false);
+  renderMissionLifecycleControls();
+  if (typeof renderMissionMetadataEditor === "function") renderMissionMetadataEditor(null, true);
   hideDetail();
   for (const id of ["workflowRunList", "sourceList", "sourceCandidateList", "rejectedSourceCandidateList", "proposalList", "savedList", "claimConfidenceList", "savedClaimList", "reportList", "ledgerList"]) {
     const el = $(id);
@@ -701,6 +876,7 @@ function renderMissionLoadFailed() {
   $("missionObjectiveText").textContent = "네트워크 또는 서버 상태를 확인한 뒤 다시 시도하세요.";
   $("turnLog").innerHTML = `<div class="empty-state">미션 상세를 불러오지 못했습니다. <button type="button" class="secondary" data-retry-mission-load>다시 시도</button></div>`;
   setFormsEnabled(false);
+  renderMissionLifecycleControls();
 }
 
 async function reloadMission(missionId = state.missionId) {
@@ -1549,9 +1725,7 @@ async function draftReport(reportMode = "one_take") {
   const executionStrategy = reportMode === "long_form"
     ? ($("reportLongFormExecutionStrategy")?.value || "serial")
     : "serial";
-  const generationGuidanceProfile = reportMode === "long_form"
-    ? ($("reportGenerationGuidance")?.value || "g2")
-    : "g2";
+  const generationGuidanceProfile = selectedReportGenerationGuidance(reportMode);
   const pendingPayload = {
     title,
     report_mode: reportMode,
@@ -2033,20 +2207,73 @@ function renderMissions() {
   const n = state.missions.length;
   const watermarks = missionActivitySeenWatermarks();
   updateCountChip("missionListCount", n);
+  if ($("includeArchivedMissions")) $("includeArchivedMissions").checked = state.showArchivedMissions;
   if (n === 0) {
-    list.innerHTML = empty("미션 없음");
+    list.innerHTML = empty(state.showArchivedMissions ? "표시할 미션 없음" : "미션 없음");
     return;
   }
-  list.innerHTML = state.missions.map((mission) => `
-    <button class="item secondary ${mission.MissionID === state.missionId ? "active" : ""}"
+  list.innerHTML = state.missions.map((mission) => {
+    const archived = missionLifecycleState(mission) === "archived";
+    return `
+    <button class="item secondary ${mission.MissionID === state.missionId ? "active" : ""} ${archived ? "mission-archived" : ""}"
       type="button" data-mission-id="${escapeAttr(mission.MissionID)}" title="${escapeAttr(mission.Title || mission.MissionID)}">
       <div class="item-title-row">
         <div class="item-title">${escapeHTML(mission.Title || mission.MissionID)}</div>
         ${renderMissionActivity(mission, watermarks)}
       </div>
-      <div class="item-meta" title="${escapeAttr(mission.MissionID)}">${escapeHTML(mission.MissionID)}</div>
+      ${archived ? `<div class="item-meta mission-item-meta"><span class="mission-lifecycle-pill">보관됨</span></div>` : ""}
     </button>
-  `).join("");
+  `;
+  }).join("");
+}
+
+function missionLifecycleState(value) {
+  const raw = value?.lifecycle_state ?? value?.LifecycleState ?? value?.projection?.lifecycle_state ?? "";
+  return String(raw).trim() === "archived" ? "archived" : "active";
+}
+
+function currentMissionArchived() {
+  return missionLifecycleState(state.detail?.projection) === "archived";
+}
+
+function missionLifecycleWriteBlocked() {
+  return currentMissionArchived() || state.missionLifecyclePending;
+}
+
+function renderMissionLifecycleControls() {
+  const hasDetail = Boolean(state.detail);
+  const archived = currentMissionArchived();
+  const activeWork = state.detail?.active_work?.items || [];
+  const blocked = !hasDetail || state.missionLifecyclePending || state.missionHardDeletePending || activeWork.length > 0;
+  const text = $("missionLifecycleSettingsText");
+  const hardDeleteSettings = $("missionHardDeleteSettings");
+  const hardDeleteText = $("missionHardDeleteText");
+  $("missionLifecycleBadge").classList.toggle("hidden", !archived);
+  $("missionLifecycleNotice").classList.toggle("hidden", !archived);
+  $("missionArchiveButton").classList.toggle("hidden", !hasDetail || archived);
+  $("missionRestoreButton").classList.toggle("hidden", !hasDetail || !archived);
+  if (hardDeleteSettings) hardDeleteSettings.classList.toggle("hidden", !hasDetail || !archived);
+  $("missionArchiveButton").disabled = blocked || archived;
+  $("missionRestoreButton").disabled = blocked || !archived;
+  if ($("missionHardDeleteButton")) $("missionHardDeleteButton").disabled = blocked || !archived;
+  if (!text) return;
+  if (!hasDetail) {
+    text.textContent = "미션을 선택하면 보관 또는 복원할 수 있습니다.";
+  } else if (activeWork.length > 0) {
+    text.textContent = "진행 중인 작업이 있어 보관 또는 복원을 잠시 막았습니다.";
+  } else if (archived) {
+    text.textContent = "이 미션은 보관되어 있습니다. 복원하면 기본 미션 목록에 다시 표시됩니다.";
+  } else {
+    text.textContent = "보관하면 기본 미션 목록에서 숨겨지고, 보관된 미션 보기에서 다시 찾을 수 있습니다.";
+  }
+  if (!hardDeleteText) return;
+  if (state.missionHardDeletePending) {
+    hardDeleteText.textContent = "완전 삭제 영향을 확인하는 중입니다.";
+  } else if (activeWork.length > 0) {
+    hardDeleteText.textContent = "진행 중인 작업이 있어 완전 삭제할 수 없습니다.";
+  } else {
+    hardDeleteText.textContent = "이 보관된 미션의 앱 기록을 복구할 수 없게 삭제합니다. 저장공간 회수와 민감정보 흔적 제거는 별도 작업입니다.";
+  }
 }
 
 function renderMissionActivity(mission, watermarks = missionActivitySeenWatermarks()) {
@@ -2124,6 +2351,14 @@ function rememberMissionID(missionID) {
   }
 }
 
+function forgetStoredMissionID() {
+  try {
+    localStorage.removeItem(MISSION_STORAGE_KEY);
+  } catch (_) {
+    // Clearing the last selection is optional and must not block UI recovery.
+  }
+}
+
 function renderDetail() {
   const detail = state.detail;
   if (!detail) return;
@@ -2147,6 +2382,7 @@ function renderDetail() {
   renderWorkflowControls(workflowRuns);
   $("missionName").textContent = detail.projection.title || detail.projection.mission_id;
   $("missionObjectiveText").textContent = detail.projection.objective || "목표 없음";
+  renderMissionLifecycleControls();
 	if (typeof renderMissionMetadataEditor === "function") renderMissionMetadataEditor(detail.projection);
 
   const sources = detail.sources || [];
@@ -2551,6 +2787,7 @@ function renderTurns(events) {
   const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   log.innerHTML = html.length ? html.join("") : empty("아직 대화가 없습니다.");
   window.renderPlasmaMath?.(log);
+  window.renderPlasmaMermaid?.(log);
   if (missionChanged || nearBottom) log.scrollTop = log.scrollHeight;
   state.turnScrollMission = state.missionId;
   updateTurnNavVisibility();
@@ -3748,7 +3985,7 @@ function reportGenerationSummary(payload = {}) {
   return {
     mode: context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서",
     strategy: mode === "long_form" ? (REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy) : "",
-    guidance: mode === "long_form" ? reportGenerationGuidanceLabel(guidance) : "",
+    guidance: reportGenerationGuidanceLabel(guidance),
     rigor: context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정",
     model: model || "미션 설정 상속",
     effort: effort || (model ? "모델 기본값" : "미션 설정 상속"),
@@ -3762,7 +3999,7 @@ function reportGenerationSummaryHTML(payload = {}) {
     <div class="report-generation-summary" aria-label="리포트 생성 설정">
       <span class="report-generation-item"><strong>방식</strong><span>${escapeHTML(summary.mode)}</span></span>
       ${summary.strategy ? `<span class="report-generation-item"><strong>장문 작성</strong><span>${escapeHTML(summary.strategy)}</span></span>` : ""}
-      ${summary.guidance ? `<span class="report-generation-item"><strong>장문 글쓰기</strong><span>${escapeHTML(summary.guidance)}</span></span>` : ""}
+      ${summary.guidance ? `<span class="report-generation-item"><strong>글쓰기</strong><span>${escapeHTML(summary.guidance)}</span></span>` : ""}
       <span class="report-generation-item"><strong>엄격도</strong><span>${escapeHTML(summary.rigor)}</span></span>
       <span class="report-generation-item"><strong>모델</strong><span>${escapeHTML(summary.model)}</span></span>
       <span class="report-generation-item"><strong>추론</strong><span>${escapeHTML(summary.effort)}</span></span>
@@ -4057,6 +4294,7 @@ function openReportModal(header, kind, content) {
   }
   $("detailBody").innerHTML = body;
   window.renderPlasmaMath?.($("detailBody"));
+  if (kind === "markdown") window.renderPlasmaMermaid?.($("detailBody"));
   openDetailModal(true);
   enableDetailScrollRatio();
 }
@@ -4561,7 +4799,7 @@ function reportPendingMessage(event) {
   const strategy = String(payload.execution_strategy || "serial").trim() || "serial";
   const strategyLine = mode === "long_form" ? `\n장문 작성: ${REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy}` : "";
   const guidance = String(payload.generation_guidance_profile || "g2").trim() || "g2";
-  const guidanceLine = mode === "long_form" ? `\n장문 글쓰기: ${reportGenerationGuidanceLabel(guidance)}` : "";
+  const guidanceLine = `\n글쓰기: ${reportGenerationGuidanceLabel(guidance)}`;
   const model = String(payload.agent_model || "").trim();
   const effort = String(payload.agent_reasoning_effort || "").trim();
   const modelLine = `\n모델: ${model || "미션 설정 상속"}`;
@@ -4689,10 +4927,11 @@ function approvedClaims(proposals, claims) {
 }
 
 function setFormsEnabled(enabled) {
-  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
+  const lifecycleBlocked = missionLifecycleWriteBlocked();
+  for (const id of ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "confluenceAccessConnectionSelect", "confluenceAccessSiteSelect", "confluenceAccessSpaceKey", "confluenceAccessEnable", "confluenceAccessDisable", "missionHardDeleteButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "stopWorkflowButton", "sourceTitle", "sourceURI", "sourceContent", "sourceUploadFile", "sourceUploadTitle", "sourceFetchURLButton", "mediaSourceURL", "mediaSourceTitle", "mediaSourceLicense", "mediaSourceAttribution", "pdfSourceURL", "pdfSourceTitle", "localPathRoot", "localPathRelativePath", "localPathTitle", "localPathRestore", "localPathTreeButton", "localPathAttachButton", "confluenceConnectionSelect", "confluenceRefreshConnections", "openConfluenceSettings", "confluenceOneClickStart", "confluenceSiteSelect", "confluencePageURL", "confluenceAddURLButton", "confluenceLoadSpaces", "confluenceLoadMoreSpaces", "confluenceLoadMorePages", "confluenceQuery", "confluenceSpaceKey", "confluenceLimit", "confluenceRangeSelect", "confluenceUpdateRangeSelect", "liquid2Query", "candidateSource", "candidateEvidenceType", "candidateSummary", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance", "draftQuickReport", "draftLongReport", "cancelReportButton"]) {
     const el = $(id);
     if (el) {
-      el.disabled = !enabled ||
+      el.disabled = !enabled || lifecycleBlocked ||
         (id === "agentExecutor" && Boolean(lockedAgentExecutor())) ||
         (id === "agentReasoningEffort" && agentReasoningEffortSelectionDisabled(false)) ||
 		(state.reportPending && ["turnText", "agentExecutor", "agentModel", "agentReasoningEffort", "mcpMode", "controllerStrategy", "resetAgentSessionButton", "workflowInstruction", "workflowStepInstructionMode", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton", "draftQuickReport", "draftLongReport", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportGenerationGuidance"].includes(id)) ||
@@ -4703,7 +4942,7 @@ function setFormsEnabled(enabled) {
   }
   for (const form of ["turnForm", "sourceForm", "sourceUploadForm", "mediaSourceForm", "pdfSourceForm", "localPathForm", "confluenceURLForm", "confluenceSearchForm", "liquid2Form", "candidateForm"]) {
     for (const button of $(form).querySelectorAll("button")) {
-      button.disabled = !enabled || ((state.turnPending || state.workflowPending || state.reportPending) && button.id === "sendTurnButton");
+      button.disabled = !enabled || lifecycleBlocked || ((state.turnPending || state.workflowPending || state.reportPending) && button.id === "sendTurnButton");
     }
   }
   if (enabled) setTurnBusy(state.turnPending);
@@ -4714,7 +4953,7 @@ function setFormsEnabled(enabled) {
 function setTurnBusy(busy) {
   $("turnStatus").classList.toggle("hidden", !busy);
   $("cancelTurnButton").classList.toggle("hidden", !busy);
-  const blocked = busy || activeWorkBlocksControl("turn_submit") || state.workflowGoalDraftPending || !state.detail;
+  const blocked = busy || activeWorkBlocksControl("turn_submit") || state.workflowGoalDraftPending || missionLifecycleWriteBlocked() || !state.detail;
   $("turnText").disabled = blocked;
   $("agentExecutor").disabled = agentExecutorSelectionDisabled(blocked);
   $("agentModel").disabled = blocked;
@@ -4737,7 +4976,7 @@ function setReportBusy(busy) {
 }
 
 function syncReportControls() {
-	const blocked = activeWorkBlocksControl("report_start") || state.workflowGoalDraftPending || state.reportPending || !state.detail;
+	const blocked = activeWorkBlocksControl("report_start") || state.workflowGoalDraftPending || state.reportPending || missionLifecycleWriteBlocked() || !state.detail;
 	$("reportRigor").disabled = blocked;
 	$("reportAgentModel").disabled = blocked;
 	$("reportAgentReasoningEffort").disabled = blocked;
@@ -4751,7 +4990,7 @@ function setWorkflowBusy(busy) {
   state.workflowPending = busy;
   const draftBusy = state.workflowGoalDraftPending;
   const layered = workflowStepInstructionMode() === "layered";
-  const blocked = activeWorkBlocksControl("workflow_start");
+  const blocked = activeWorkBlocksControl("workflow_start") || missionLifecycleWriteBlocked();
   $("workflowInstruction").disabled = busy || draftBusy || blocked || !state.detail;
   $("workflowStepInstructionMode").disabled = busy || draftBusy || blocked || !state.detail;
   $("draftWorkflowGoalButton").disabled = !layered || busy || draftBusy || blocked || !state.detail;

@@ -6,11 +6,16 @@ import (
 )
 
 type Mission struct {
-	MissionID string
-	Title     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Activity  MissionActivitySummary `json:"activity"`
+	MissionID      string
+	Title          string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	LifecycleState string                 `json:"lifecycle_state"`
+	Activity       MissionActivitySummary `json:"activity"`
+}
+
+type ListMissionsRequest struct {
+	IncludeArchived bool
 }
 
 // MissionActivityInput is the minimum durable ledger input needed to derive a

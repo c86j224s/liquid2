@@ -57,7 +57,8 @@ create a separate hidden research product.
 - Confluence Cloud source intake with API-token connections, site/space/page
   browsing, candidate review, version-pinned snapshots, range snapshots for
   large pages, and update preview/approval.
-- MCP research tools for outline, list, grep, read, and reference traversal.
+- MCP research tools for outline, list, grep, read, reference traversal, and
+  static Mermaid preflight before showing diagrams to users.
 - Codex-backed and Claude-backed agent turns with session resume when available.
 - Markdown reports, long-form part/section reports, and HTML exports.
 - MCP-backed Markdown report patching that creates a new report artifact from a
@@ -103,6 +104,34 @@ Run the local release surface:
 Plasma release defaults to browser/API port `3002`. The default database is
 `~/Library/Application Support/Plasma/plasma.db` on macOS and
 `${XDG_DATA_HOME:-$HOME/.local/share}/plasma/plasma.db` on WSL2.
+
+Inspect SQLite storage after stopping Plasma:
+
+```sh
+cd plasma
+go run ./cmd/plasma storage stats -db /path/to/plasma.db
+```
+
+Measure the exact compacted size without leaving an output database:
+
+```sh
+go run ./cmd/plasma storage compact -db /path/to/plasma.db -dry-run
+```
+
+Create a compacted copy without changing the source database:
+
+```sh
+go run ./cmd/plasma storage compact \
+  -db /path/to/plasma.db \
+  -output /path/to/plasma.compact.db
+```
+
+Only run in-place compaction while the Plasma server is stopped. The command
+backs up the current DB and SQLite sidecar files before replacing the source:
+
+```sh
+go run ./cmd/plasma storage compact -db /path/to/plasma.db -replace
+```
 
 ## Common Commands
 
@@ -220,6 +249,8 @@ A typical MCP-driven flow is:
 - Use `plasma.research.list` or `plasma.research.grep` to find candidates.
 - Use `plasma.research.read` to inspect bounded chunks.
 - Use `plasma.research.references` to check relationships before reporting.
+- When the response includes Mermaid, use `plasma.mermaid.validate` before
+  showing the diagram. This is a static preflight, not a browser-render proof.
 
 Edit current mission metadata through the same application contract from CLI or the mission-bound idempotent `plasma.mission.update` MCP tool:
 

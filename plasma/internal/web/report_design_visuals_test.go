@@ -71,7 +71,7 @@ func TestDesignedReportSourceTeXPromptAndVersionContract(t *testing.T) {
 		}
 	}
 
-	const expectedVersion = "dh30-source-tex-brackets-20260713"
+	const expectedVersion = "dh31-source-markdown-visuals-20260721"
 	if designedReportRendererVersion != expectedVersion {
 		t.Fatalf("designed renderer version = %q, want %q", designedReportRendererVersion, expectedVersion)
 	}
@@ -145,7 +145,7 @@ func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 		t.Fatalf("designed HTML should not auto-load external resources:\n%s", content)
 	}
 	htmlContent := string(content)
-	for _, expected := range []string{"renderDesignedTextMath(document.body)", "data:font/woff2;base64,", `version:"0.17.0"`, `<text class="hero-map-label" x="-98" y="2">SVG \(x\)</text>`} {
+	for _, expected := range []string{"renderDesignedTextMath(document.body)", "renderPlasmaMarkdown(node,JSON.parse(source.textContent))", "renderPlasmaMermaid(root)", "data:font/woff2;base64,", `version:"0.17.0"`, `<text class="hero-map-label" x="-98" y="2">SVG \(x\)</text>`} {
 		if !strings.Contains(htmlContent, expected) {
 			t.Fatalf("expected designed math contract %q", expected)
 		}

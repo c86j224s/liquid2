@@ -21,10 +21,11 @@ each Part, and finalization through the existing report session sequence.
 `section_fanout` is an explicit browser long-form option. It creates one
 canonical plan through the existing `plasma.report.plan.submit` boundary, then
 forks the report-plan provider session for independent section workers. Each
-section still uses the normal section prompt and bounded source tools. Part
-assembly waits for the section artifacts in that Part and preserves their
-bodies. Finalization still uses `plasma.report.long_form.finalize`; the agent
-does not submit full final Markdown.
+section still uses the normal section prompt and bounded source tools. The
+browser runner executes at most eight section workers at once. Part assembly
+waits for the section artifacts in that Part and preserves their bodies.
+Finalization still uses `plasma.report.long_form.finalize`; the agent does not
+submit full final Markdown.
 
 The strategy is stored on `report.draft.pending` as `execution_strategy` so
 restart and stale recovery use the same path. Omitted or `serial` values keep

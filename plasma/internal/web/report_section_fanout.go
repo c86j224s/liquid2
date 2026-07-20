@@ -8,7 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
-const sectionFanoutWorkerLimit = 4
+const sectionFanoutWorkerLimit = 8
 
 type sectionFanoutLongFormRequest struct {
 	missionID                    string

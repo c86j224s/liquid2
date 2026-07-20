@@ -8,9 +8,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/app.css">
-	<link rel="stylesheet" href="/static/report_pipeline.css">
+    <link rel="stylesheet" href="/static/report_pipeline.css">
     <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
     <link rel="stylesheet" href="/static/report_math.css">
+    <link rel="stylesheet" href="/static/report_mermaid.css">
   </head>
   <body>
     <div class="app-shell">
@@ -48,6 +49,10 @@
               </form>
             </details>
             <p id="missionActivityStorageNotice" class="sr-only">미션을 열어 확인한 활동은 이 브라우저에만 저장됩니다. 브라우저 저장 공간을 지우면 완료 또는 실패 활동이 다시 미확인으로 표시될 수 있습니다.</p>
+            <label class="inline-control mission-archive-toggle">
+              <input id="includeArchivedMissions" type="checkbox">
+              <span>보관된 미션 보기</span>
+            </label>
             <div id="missionList" class="list" aria-describedby="missionActivityStorageNotice"></div>
           </section>
         </aside>
@@ -57,19 +62,11 @@
             <div class="mission-banner-head">
               <div class="mission-title-row">
                 <h1 id="missionName">선택된 미션 없음</h1>
-                <button id="missionRecallButton" class="secondary mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
-				<button id="missionMetadataEdit" class="quiet mission-recall-button" type="button">편집</button>
+                <span id="missionLifecycleBadge" class="badge muted hidden">보관됨</span>
+                <button id="missionRecallButton" class="quiet mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
               </div>
               <p id="missionObjectiveText">미션을 만들거나 선택하세요.</p>
-			  <form id="missionMetadataForm" class="mission-metadata-editor hidden">
-				<label>제목<input id="missionMetadataTitle" required></label>
-				<label>목표<textarea id="missionMetadataObjective" rows="2"></textarea></label>
-				<div class="mission-metadata-scope">
-				  <label>포함 범위<textarea id="missionMetadataIncluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
-				  <label>제외 범위<textarea id="missionMetadataExcluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
-				</div>
-				<div class="inline-actions"><button type="submit">저장</button><button id="missionMetadataCancel" class="secondary" type="button">취소</button><span id="missionMetadataError" class="field-error" role="alert"></span></div>
-			  </form>
+              <p id="missionLifecycleNotice" class="mission-lifecycle-notice hidden">보관된 미션입니다. 기존 자료는 볼 수 있고, 새 작업은 복원 후 가능합니다.</p>
             </div>
             <div class="metric-row">
               <span id="sourceCount" class="metric">소스 0개</span>
@@ -505,11 +502,11 @@
 					  </select>
 					</label>
 					<label class="inline-control segmented-select-control report-select-generation-guidance" for="reportGenerationGuidance">
-					  <span class="segmented-select-label">장문 글쓰기</span>
-					  <select id="reportGenerationGuidance" title="장문 보고서 생성에만 적용됩니다">
-						<option value="g2" selected>기본</option>
-						<option value="section-brief">섹션 중심</option>
-						<option value="section-brief-cluster-memory">섹션 중심 + 풍부하게</option>
+					  <span class="segmented-select-label">글쓰기</span>
+					  <select id="reportGenerationGuidance" title="보고서와 장문 보고서 생성에 적용됩니다. 섹션 중심 옵션은 장문 보고서에만 적용됩니다">
+						<option value="visual-plan" selected>기본: 시각자료 계획</option>
+						<option value="section-brief-visual-plan">섹션 중심</option>
+						<option value="section-brief-cluster-memory-visual-plan">섹션 중심 + 풍부하게</option>
 					  </select>
 					</label>
 				  </div>
@@ -547,9 +544,47 @@
           <section class="tab-panel" data-tab-panel="settings">
             <section class="panel">
               <div class="panel-head">
-                <h2>Settings</h2>
-                <span class="badge">전역 설정</span>
+                <h2>설정</h2>
+                <span class="badge">미션 · 전역</span>
               </div>
+              <details id="missionSettingsDetails" class="source-add mission-settings-card" open>
+                <summary>미션 정보와 보관</summary>
+                <div class="stack">
+                  <p id="missionSettingsStatus" class="source-helper">미션을 선택하면 제목, 목표, 범위와 보관 상태를 관리할 수 있습니다.</p>
+                  <form id="missionMetadataForm" class="mission-metadata-editor">
+                    <label>제목<input id="missionMetadataTitle" required></label>
+                    <label>목표<textarea id="missionMetadataObjective" rows="2"></textarea></label>
+                    <div class="mission-metadata-scope">
+                      <label>포함 범위<textarea id="missionMetadataIncluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
+                      <label>제외 범위<textarea id="missionMetadataExcluded" rows="3" placeholder="한 줄에 하나"></textarea></label>
+                    </div>
+                    <div class="inline-actions">
+                      <button id="missionMetadataSave" type="submit">미션 저장</button>
+                      <button id="missionMetadataCancel" class="secondary" type="button">되돌리기</button>
+                      <span id="missionMetadataError" class="field-error" role="alert"></span>
+                    </div>
+                  </form>
+                  <div class="mission-lifecycle-settings">
+                    <div>
+                      <strong>미션 보관</strong>
+                      <p id="missionLifecycleSettingsText" class="source-helper">보관하면 기본 목록에서 숨겨지고, 보관된 미션 보기에서 다시 찾을 수 있습니다.</p>
+                    </div>
+                    <div class="inline-actions">
+                      <button id="missionArchiveButton" class="mission-lifecycle-button hidden" type="button">보관</button>
+                      <button id="missionRestoreButton" class="secondary mission-lifecycle-button hidden" type="button">복원</button>
+                    </div>
+                  </div>
+                  <div class="mission-hard-delete-settings hidden" id="missionHardDeleteSettings">
+                    <div>
+                      <strong>완전 삭제</strong>
+                      <p id="missionHardDeleteText" class="source-helper">보관된 미션의 앱 기록을 복구할 수 없게 삭제합니다. 저장공간 회수와 민감정보 흔적 제거는 별도 작업입니다.</p>
+                    </div>
+                    <div class="inline-actions">
+                      <button id="missionHardDeleteButton" class="danger mission-lifecycle-button" type="button">완전 삭제</button>
+                    </div>
+                  </div>
+                </div>
+              </details>
               <details id="modelDefaultsDetails" class="source-add model-defaults-card" open>
                 <summary>기본 모델 설정</summary>
                 <form id="modelDefaultsForm" class="stack">
@@ -561,7 +596,7 @@
                     <section class="model-default-row editable">
                       <div class="model-default-copy">
                         <strong>자율진행 조향 모델</strong>
-                        <span>workflow directing model · 현재는 시작 시점의 3층 지시 초안 생성에만 사용</span>
+                        <span>자율진행을 조향하는 모델 · 현재는 시작 시점의 3층 지시 초안 생성에만 사용</span>
                       </div>
                       <label class="segmented-select-control compact">
                         <span class="segmented-select-label">모델</span>
@@ -658,6 +693,7 @@
     <script src="/static/vendor/purify.min.js"></script>
 	<script src="/static/vendor/katex/katex.min.js"></script>
 	<script src="/static/report_math.js"></script>
+	<script src="/static/report_mermaid.js"></script>
 	<script src="/static/report_pipeline.js"></script>
 	<script src="/static/report_model_selection.js"></script>
 	<script src="/static/model_settings.js"></script>

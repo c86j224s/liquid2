@@ -48,6 +48,7 @@
     root.innerHTML = global.DOMPurify.sanitize(md.render(String(markdown || "")), { USE_PROFILES: { html: true }, ADD_ATTR: ["target", "rel", "data-tex", "data-display"] });
     renderPlasmaMath(root);
     bindReportHeadingInteractions(root);
+    if (typeof global.renderPlasmaMermaid === "function") global.renderPlasmaMermaid(root);
   }
 
   function bindReportHeadingInteractions(root) {

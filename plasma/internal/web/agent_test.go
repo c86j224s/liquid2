@@ -46,6 +46,7 @@ func TestAgentPromptAutoUsesC1ReadLoopWithoutLegacyMutations(t *testing.T) {
 		"plasma.research.grep",
 		"plasma.research.read",
 		"plasma.research.references",
+		"plasma.mermaid.validate",
 		"plasma.sources.read",
 		"plasma.sources.search",
 		"plasma.sources.candidates.propose",
@@ -177,7 +178,7 @@ func TestAgentProposalPromptAsksForMissingEvidenceSlate(t *testing.T) {
 }
 
 func TestAgentReportPromptUsesResearchToolsWithoutRecallPayload(t *testing.T) {
-	planPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["strict"])
+	planPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["strict"], "")
 	plan := agentReportPlan{
 		Summary: "Use source-backed material.",
 		Sections: []agentReportSection{{
@@ -564,6 +565,135 @@ func TestLongFormGenerationGuidanceAcceptsSectionBriefOptions(t *testing.T) {
 	}
 	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief"); err == nil {
 		t.Fatalf("section_brief must remain long-form-only")
+	}
+}
+
+func TestLongFormGenerationGuidanceCombinesSectionBriefAndVisualPlan(t *testing.T) {
+	tests := []struct {
+		name          string
+		input         string
+		profile       string
+		sectionMarker string
+		planMarker    string
+	}{
+		{
+			name:          "section brief with visual plan",
+			input:         "section_brief_visual_plan",
+			profile:       reportGenerationGuidanceProfileSectionBriefVisualPlan,
+			sectionMarker: "Long-form section-brief guidance:",
+			planMarker:    "Section-brief planning guidance:",
+		},
+		{
+			name:          "section brief cluster memory with visual plan",
+			input:         "section_brief_cluster_memory_visual_plan",
+			profile:       reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+			sectionMarker: "Long-form section-brief cluster-memory guidance:",
+			planMarker:    "Section-brief cluster-memory planning guidance:",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			if err != nil {
+				t.Fatalf("expected %s to be accepted for long-form reports: %v", tt.input, err)
+			}
+			if profile != tt.profile || strings.TrimSpace(sha) == "" {
+				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
+			}
+			planGuidance := longFormExperimentalPlanningGuidance(profile)
+			for _, expected := range []string{"Visual-aid planning guidance:", tt.planMarker} {
+				if !strings.Contains(planGuidance, expected) {
+					t.Fatalf("combined long-form planning guidance missing %q:\n%s", expected, planGuidance)
+				}
+			}
+			writeGuidance := LongFormReportGenerationGuidance(profile)
+			for _, expected := range []string{"Report visual-aid guidance:", tt.sectionMarker, "Long-form human-writer guidance:"} {
+				if !strings.Contains(writeGuidance, expected) {
+					t.Fatalf("combined long-form writing guidance missing %q:\n%s", expected, writeGuidance)
+				}
+			}
+		})
+	}
+	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief_visual_plan"); err == nil {
+		t.Fatalf("section_brief_visual_plan must remain long-form-only")
+	}
+}
+
+func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       string
+		input      string
+		profile    string
+		hasPlan    bool
+		hasWriting bool
+	}{
+		{
+			name:       "planned default",
+			mode:       reportModePlanned,
+			input:      "",
+			profile:    reportGenerationGuidanceProfileVisualPlan,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual supplement",
+			mode:       reportModePlanned,
+			input:      "visual_supplement",
+			profile:    reportGenerationGuidanceProfileVisualSupplement,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual plan",
+			mode:       reportModePlanned,
+			input:      "visual_plan",
+			profile:    reportGenerationGuidanceProfileVisualPlan,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form default",
+			mode:       reportModeLongForm,
+			input:      "",
+			profile:    reportGenerationGuidanceProfileVisualPlan,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, sha, err := SelectReportGenerationGuidanceForMode(tt.mode, tt.input)
+			if err != nil {
+				t.Fatalf("expected %s to be accepted for %s reports: %v", tt.input, tt.mode, err)
+			}
+			if profile != tt.profile || strings.TrimSpace(sha) == "" {
+				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
+			}
+			if tt.hasWriting && !strings.Contains(ReportGenerationGuidance(profile), "Report visual-aid guidance:") {
+				t.Fatalf("visual profile %s missing writing guidance", profile)
+			}
+			if tt.hasPlan && !strings.Contains(reportVisualAidPlanningGuidance(profile), "Visual-aid planning guidance:") {
+				t.Fatalf("visual profile %s missing planning guidance", profile)
+			}
+		})
+	}
+}
+
+func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
+	planPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-plan")
+	if !strings.Contains(planPrompt, "Visual-aid planning guidance:") {
+		t.Fatalf("planned report prompt missing visual planning guidance:\n%s", planPrompt)
+	}
+	if strings.Contains(planPrompt, "plasma.mermaid.validate") {
+		t.Fatalf("planning prompt should not require unavailable Mermaid validation:\n%s", planPrompt)
+	}
+	writePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-supplement")
+	if !strings.Contains(writePrompt, "Report visual-aid guidance:") || !strings.Contains(writePrompt, "plasma.mermaid.validate") {
+		t.Fatalf("writing prompt missing visual writing or Mermaid validation guidance:\n%s", writePrompt)
+	}
+	longPlanPrompt := agentSectionalReportPlanPrompt("Long", "mis_long", "ses_tool", "evt_pending_long", "key_long", reportRigorProfiles["balanced"], "visual-plan")
+	if !strings.Contains(longPlanPrompt, "Visual-aid planning guidance:") {
+		t.Fatalf("long-form plan prompt missing visual planning guidance:\n%s", longPlanPrompt)
 	}
 }
 

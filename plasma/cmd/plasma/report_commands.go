@@ -46,7 +46,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	wait := fs.Bool("wait", false, "run the report agent and wait for the artifact")
 	jsonOut := fs.Bool("json", false, "write JSON")
 	humanize := fs.Bool("humanize", false, "run the optional post-report H5 humanize pass")
-	generationGuidance := fs.String("generation-guidance", "g2", "report generation guidance profile: g2 or none")
+	generationGuidance := fs.String("generation-guidance", "visual-plan", "report generation guidance profile: visual-plan, g2, or none")
 	experimentalGenerationGuidance := fs.String("experimental-generation-guidance", "", "deprecated alias for -generation-guidance")
 	reportSessionPolicyFlag := fs.String("report-session-policy", "", "report session policy: auto, same_session, or isolated_fork")
 	liquid2URL := fs.String("liquid2-url", "", "optional Liquid2 base URL")

@@ -76,6 +76,17 @@ large artifacts live outside the repository under `research-artifacts/`.
       produced a statistically visible length increase. Both follow-up arms were
       kept as explicit long-form writing options, while the default path stayed
       on the existing guidance.
+23. [`23-report-visual-aids-2026-07-20/`](23-report-visual-aids-2026-07-20/README.md)
+    - Completed product-path visual-aid experiment. The user selected
+      `visual_plan`, which adds sparse table/Mermaid intent during planning and
+      writing without changing the report schema or forcing visuals, as the
+      product default for normal and long-form reports.
+24. [`24-report-section-visual-plan-2026-07-20/`](24-report-section-visual-plan-2026-07-20/README.md)
+    - Completed product-path follow-up for combining sparse visual-aid planning
+      with long-form-only writing options. The focused `section-brief` visual
+      candidate looked productizable, while the rich
+      `section-brief-cluster-memory` visual candidate stayed mixed because it
+      changed the rich-coverage option's length and density more often.
 
 ## Controller Experiment Sequence
 

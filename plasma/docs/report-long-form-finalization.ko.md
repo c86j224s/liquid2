@@ -20,8 +20,9 @@ event를 한 트랜잭션에서 만든다.
 `section_fanout`은 명시적으로 선택하는 브라우저 장문 옵션이다. 먼저 기존
 `plasma.report.plan.submit` 경계로 canonical 계획을 만든다. 그 뒤 보고서 계획
 공급자 세션을 fork해 섹션 작업자들이 독립적으로 작성한다. 각 섹션은 여전히
-기존 섹션 프롬프트와 bounded source tool을 쓴다. 파트 조립은 해당 파트의 섹션
-artifact가 모두 끝난 뒤 시작하며, 섹션 본문을 보존한다. 최종화는 계속
+기존 섹션 프롬프트와 bounded source tool을 쓴다. 브라우저 실행기는 동시에 최대
+8개의 섹션 작업자를 실행한다. 파트 조립은 해당 파트의 섹션 artifact가 모두
+끝난 뒤 시작하며, 섹션 본문을 보존한다. 최종화는 계속
 `plasma.report.long_form.finalize`를 사용하므로 에이전트가 전체 최종 Markdown을
 제출하지 않는다.
 

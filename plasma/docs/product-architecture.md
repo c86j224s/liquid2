@@ -78,6 +78,16 @@ The MCP mutation is available to an explicit user-controlled MCP client, but is 
 
 The ledger remains authoritative and `plasma_missions` remains a rebuildable projection cache. Explicit editing does not rewrite earlier events and is distinct from conversational `mission.steered`; its producer ownership and conflict semantics are unchanged. Existing ledgers without metadata events remain compatible.
 
+### Mission archive and restore
+
+Mission archive is a mission-level soft delete. Web and CLI adapters append
+user-owned `mission.archived` and `mission.restored` events through the
+application service; projection replay maps them to `active` or `archived`
+lifecycle state. Default mission lists include only active missions, while an
+explicit include-archived request shows both states. Archive and restore do not
+delete ledger events, source snapshots, saved knowledge, reports, raw artifacts,
+or provider-session records.
+
 Plasma has one durable Mission Ledger. User-driven turns, bounded workflow runs,
 MCP tool calls, and report requests are event producers over the same ledger:
 

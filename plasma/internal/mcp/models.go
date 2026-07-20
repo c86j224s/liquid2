@@ -219,6 +219,11 @@ type researchReadInput struct {
 	Legacy     bool   `json:"legacy"`
 }
 
+type mermaidValidateInput struct {
+	MissionID string `json:"mission_id"`
+	Source    string `json:"source"`
+}
+
 type researchGrepInput struct {
 	MissionID string `json:"mission_id"`
 	Query     string `json:"query"`

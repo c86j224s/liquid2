@@ -26,6 +26,7 @@ const (
 	ToolResearchRead             = "plasma.research.read"
 	ToolResearchGrep             = "plasma.research.grep"
 	ToolResearchRefs             = "plasma.research.references"
+	ToolMermaidValidate          = "plasma.mermaid.validate"
 	ToolWorkflowStart            = "plasma.workflow.start"
 	ToolWorkflowStatus           = "plasma.workflow.status"
 	ToolWorkflowStop             = "plasma.workflow.stop"
@@ -106,6 +107,7 @@ func (server *Server) ListTools() []ToolDefinition {
 		{Name: ToolResearchRead, Description: "Read one mission ledger object or source artifact with bounded bytes and next_offset for long payloads.", InputSchema: researchReadSchema},
 		{Name: ToolResearchGrep, Description: "Find candidate snippets across mission ledger objects. Matches are candidates, not evidence or sources until read and referenced.", InputSchema: schemaResearchGrep},
 		{Name: ToolResearchRefs, Description: researchRefsDescription, InputSchema: researchRefsSchema},
+		{Name: ToolMermaidValidate, Description: "Validate Mermaid source with Plasma's server-side preflight rules before showing it to the user. This catches known Mermaid 11.16.0 parse-breaking patterns and compatibility risks; it does not execute a browser render.", InputSchema: schemaMermaidValidate},
 		{Name: ToolWorkflowStart, Description: "Request a bounded Plasma workflow run for the bound mission. This queues work and does not call the provider inside the MCP tool.", InputSchema: schemaWorkflowStart},
 		{Name: ToolWorkflowStatus, Description: "Read shared workflow run status from the mission ledger projection.", InputSchema: schemaWorkflowStatus},
 		{Name: ToolWorkflowStop, Description: "Request that a bounded workflow run stop before the next step.", InputSchema: schemaWorkflowStop},

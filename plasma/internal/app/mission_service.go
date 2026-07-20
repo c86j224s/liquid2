@@ -170,10 +170,11 @@ func (s *Service) CreateMission(ctx context.Context, req CreateMissionRequest) (
 
 	now := time.Now().UTC()
 	mission := Mission{
-		MissionID: req.MissionID,
-		Title:     strings.TrimSpace(req.Title),
-		CreatedAt: now,
-		UpdatedAt: now,
+		MissionID:      req.MissionID,
+		Title:          strings.TrimSpace(req.Title),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		LifecycleState: MissionLifecycleActive,
 	}
 	if err := s.store.CreateMission(ctx, mission); err != nil {
 		return Mission{}, err
@@ -289,6 +290,10 @@ func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID
 }
 
 func (s *Service) ListMissions(ctx context.Context) ([]Mission, error) {
+	return s.ListMissionsWithState(ctx, ListMissionsRequest{})
+}
+
+func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsRequest) ([]Mission, error) {
 	store, ok := s.store.(MissionListStore)
 	if !ok {
 		return nil, fmt.Errorf("%w: mission list store is required", ErrInvalidInput)
@@ -297,8 +302,16 @@ func (s *Service) ListMissions(ctx context.Context) ([]Mission, error) {
 	if err != nil {
 		return nil, err
 	}
+	missions = filterMissionsByLifecycle(missions, req)
+	if len(missions) == 0 {
+		return missions, nil
+	}
+	missionIDs := make([]string, 0, len(missions))
+	for _, mission := range missions {
+		missionIDs = append(missionIDs, mission.MissionID)
+	}
 	if activityStore, ok := s.store.(MissionActivityListStore); ok {
-		inputs, err := activityStore.ListMissionActivityInputs(ctx, nil)
+		inputs, err := activityStore.ListMissionActivityInputs(ctx, missionIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -322,6 +335,18 @@ func (s *Service) ListMissions(ctx context.Context) ([]Mission, error) {
 		missions[index].Activity = MissionActivityFromEvents(events)
 	}
 	return missions, nil
+}
+
+func filterMissionsByLifecycle(missions []Mission, req ListMissionsRequest) []Mission {
+	result := make([]Mission, 0, len(missions))
+	for _, mission := range missions {
+		mission.LifecycleState = normalizeMissionLifecycleState(mission.LifecycleState)
+		if !req.IncludeArchived && mission.LifecycleState == MissionLifecycleArchived {
+			continue
+		}
+		result = append(result, mission)
+	}
+	return result
 }
 
 // MissionActivity returns one mission's list-level activity projection without

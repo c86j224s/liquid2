@@ -816,6 +816,10 @@ func (server *Server) renderSelfContainedReportHTML(ctx context.Context, mission
 	if err != nil {
 		return nil, err
 	}
+	mermaidHead, err := selfContainedMermaidHead()
+	if err != nil {
+		return nil, err
+	}
 	mathScripts, err := selfContainedMarkdownScripts()
 	if err != nil {
 		return nil, err
@@ -831,6 +835,7 @@ func (server *Server) renderSelfContainedReportHTML(ctx context.Context, mission
 	out.WriteString("<title>" + htmlpkg.EscapeString(title) + "</title>\n")
 	out.WriteString(selfContainedReportCSS())
 	out.WriteString(mathHead)
+	out.WriteString(mermaidHead)
 	out.WriteString("</head>\n<body>\n")
 	out.WriteString("<header class=\"hero\"><div><p class=\"eyebrow\">Plasma Report</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"sub\">Markdown report artifact에서 파생한 self-contained interactive HTML입니다. 이미지는 가능한 경우 원본 source artifact를 data URI로 포함했습니다.</p></div><button id=\"themeToggle\" type=\"button\">테마 전환</button></header>\n")
 	out.WriteString("<main class=\"layout\">\n")
@@ -911,7 +916,7 @@ button{border:1px solid var(--line);background:transparent;color:var(--text);bor
 nav{display:grid;gap:8px;margin-top:8px}nav a{color:var(--accent2);text-decoration:none}
 .report-body{padding:clamp(22px,4vw,54px);min-width:0}.report-body h1:first-child{font-size:clamp(30px,5vw,54px)}
 .report-body h2{margin-top:38px;border-top:1px solid var(--line);padding-top:22px}.report-body h2.marked,.report-body h3.marked{color:var(--accent)}
-.report-body p,.report-body li{font-size:17px}.report-body a{color:var(--accent2)}.report-body img{max-width:100%;height:auto;border-radius:8px}
+.report-body p,.report-body li{font-size:17px}.report-body a{color:var(--accent2)}.report-body img{max-width:100%;height:auto;border-radius:8px}.report-body table{width:100%;border-collapse:collapse;margin:18px 0;background:rgba(255,255,255,.025);border-radius:8px;overflow:hidden}.report-body th,.report-body td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}.report-body th{color:var(--accent);font-size:13px}
 pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{overflow:auto;padding:14px;background:rgba(0,0,0,.22);border-radius:8px}
 .media-panel,.notes{grid-column:2;padding:24px}.section-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.muted,.notes{color:var(--muted)}
 .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.gallery figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:rgba(255,255,255,.03)}.gallery img{display:block;width:100%;height:auto}.gallery figcaption{display:grid;gap:4px;padding:10px}.gallery figcaption span{font-size:12px;color:var(--muted);word-break:break-word}
@@ -1828,7 +1833,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 		Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 			planStarted := time.Now()
 			result, runErr := executor.Run(ctx, AgentRequest{
-				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor), directionHint),
+				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 				Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 				ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
 			})
@@ -2500,6 +2505,7 @@ Report rigor:
 
 Rules:
 - Use MCP/source read tools to inspect original materials when the report needs grounding. Do not assume source bodies are present in this prompt.
+- %s
 - Sources are original materials. Your report is a result artifact, not a source.
 - Use prior investigation answers, normal conversation, and controller questions as working memory only. They may guide themes, gaps, structure, and practical implications, but they are not sources and must not be cited.
 - Main conclusions must be grounded in original sources or clearly labeled as interpretation, hypothesis, practical implication, rumor, weak signal, or unresolved uncertainty according to the rigor level.
@@ -2507,7 +2513,7 @@ Rules:
 - Do not create evidence, claims, confidence updates, source candidates, report blocks, report plans, or report AST JSON.
 - Cite source titles, URLs, and human-readable locators when useful. Do not expose internal evidence, claim, or report block IDs as public citations.
 - Do not mention this prompt, prompt variant names, experiment labels, tool session IDs, run identifiers, temporary paths, or working directories. Code/source file paths may be cited only when they are original source locators relevant to the user's topic.
-- Return only the Markdown report body.`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance)
+- Return only the Markdown report body.`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
 }
 
 func agentMarkdownReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan, generationGuidanceProfile string) string {
@@ -2533,6 +2539,7 @@ Report rigor:
 Rules:
 - Use MCP/source read tools to inspect original materials. Do not assume source bodies are present in this prompt.
 - Start with plasma.research.outline, then use plasma.research.list, plasma.research.read, plasma.research.grep, and plasma.research.references as needed.
+- %s
 - Distinguish snapshot_only pinned sources, PDF documents, and live_reference local_path sources. PDF reads return extracted text and metadata, not raw PDF bytes. Live local path reads produce source.observed events; when a report sentence depends on them, cite the human locator plus observation_event_id, observed_at, sha256, and git metadata when available.
 - Sources are original materials. Your report is a result artifact, not a source.
 - Use prior investigation answers, normal conversation, and controller questions as working memory only. They may guide themes, gaps, structure, and practical implications, but they are not sources and must not be cited.
@@ -2546,7 +2553,7 @@ Rules:
 - Return only the Markdown report body.
 
 	Visible generation plan:
-	%s`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, planJSON)
+	%s`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule, planJSON)
 }
 
 func agentReportPatchPrompt(title string, missionID string, toolSessionID string, pendingEventID string, baseArtifactID string, instruction string, req reporting.PatchRequest) string {
@@ -2694,11 +2701,12 @@ Report rigor:
 Rules:
 - Write only this section as Markdown. Do not write the whole report.
 - Use MCP/source read tools to inspect original materials relevant to this Section. Do not assume source bodies are present in this prompt.
+- %s
 - Sources are original materials. Prior answers, controller questions, plans, generated notes, section drafts, and reports are working memory or results, not sources.
 - Include concrete detail where the sources support it: events, mechanisms, examples, comparisons, tensions, caveats, weak signals, code, formulas, or benchmarks when relevant.
 - Preserve uncertainty and competing interpretations instead of flattening them.
 - Do not mention prompts, internal run labels, tool session IDs, or temporary implementation details.
-- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance)
+- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
 }
 
 func agentPartAssemblyPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, drafts []sectionalReportDraft, partIndex int, generationGuidanceProfile string) string {
@@ -2739,8 +2747,9 @@ Rules:
 - Use Korean.
 - Do not include the immutable Section bodies.
 - Do not summarize the Section bodies into a replacement overview.
+- %s
 - Transitions are optional, but when useful they should connect adjacent Sections without compressing them.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, partIndex+1, part.Title, sectionalDraftInventoryJSON(drafts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, partIndex+1, part.Title, sectionalDraftInventoryJSON(drafts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
 }
 
 func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
@@ -2789,9 +2798,10 @@ Rules:
 - Call plasma.report.long_form.finalize with exactly the bound identities and producer above plus opening_markdown and closing_markdown that you write.
 - opening_markdown contains the Markdown title, introduction, reading guide, and compact table of contents.
 - closing_markdown contains the conclusion that synthesizes tensions, supported conclusions, remaining uncertainty, and useful next checks.
+- %s
 - The server owns ordered Part assembly. Do not submit Part bodies, artifact IDs, title, full Markdown, or metadata.
 - After the tool succeeds or durably replays, return exactly REPORT_FINALIZED as the entire response. Do not add text or fences.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, agentReportAnyJSON(binding.ToolSessionID), sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, agentReportAnyJSON(binding.ToolSessionID), sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportMermaidValidationRule)
 }
 
 func normalizeReportMode(mode string) (string, error) {
@@ -2896,7 +2906,11 @@ func normalizeReportRigorProfile(level string) (reportRigorProfile, error) {
 	return profile, nil
 }
 
-func agentReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile) string {
+func agentReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile, generationGuidanceProfile string) string {
+	experimentalGuidance := strings.TrimSpace(reportVisualAidPlanningGuidance(generationGuidanceProfile))
+	if experimentalGuidance != "" {
+		experimentalGuidance = "\n" + experimentalGuidance + "\n"
+	}
 	return fmt.Sprintf(`You are planning a Plasma report before writing it.
 
 Create a user-visible Korean report generation plan for the current mission.
@@ -2920,6 +2934,7 @@ Planning workflow:
 - Treat repeated or explicit user questions as coverage signals. If the user steered the mission toward a person, event, comparison, dispute, or source cluster, include it in sections or planned_omissions after checking source support.
 - Plan for richness. Include facts, interpretations, reactions, rumors, disputes, code, formulas, benchmarks, and open questions when the mission and rigor level allow them.
 - The plan is visible to the user. Be concrete enough that the user can tell what the report will cover and what evidence clusters it will use.
+%s
 
 Report title requested by the user interface:
 %s
@@ -2941,7 +2956,7 @@ Submit one accepted plan with this plan shape. If the tool returns a retryable v
 }
 
 After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final response. Do not return plan JSON, fences, or commentary.
-`, rigor.level, rigor.label, rigor.description, rigor.instructions, strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, pendingEventID, idempotencyKey, toolSessionID)
+`, rigor.level, rigor.label, rigor.description, rigor.instructions, experimentalGuidance, strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, pendingEventID, idempotencyKey, toolSessionID)
 }
 
 func agentReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan) string {

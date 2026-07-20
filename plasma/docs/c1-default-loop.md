@@ -95,6 +95,9 @@ The default MCP path is read-first: `plasma.research.outline`,
 `plasma.research.references`, and source read/search tools. For accepted live
 local path directory sources, `plasma.sources.read`, `plasma.sources.tree`, and
 `plasma.sources.grep` may use `subpath` inside the accepted source boundary.
+Mermaid diagrams are checked through `plasma.mermaid.validate` before they are
+shown to the user; this is a static preflight helper, not another source-read
+surface and not a browser-render guarantee.
 These tools must not be replaced by large mission prompt packs, source body
 stuffing, report-only corpora, or root-wide local filesystem browsing.
 

@@ -23,6 +23,7 @@ func agentMCPEnabledTools() []string {
 		mcp.ToolResearchGrep,
 		mcp.ToolResearchRead,
 		mcp.ToolResearchRefs,
+		mcp.ToolMermaidValidate,
 		mcp.ToolSourcesList,
 		mcp.ToolSourcesRead,
 		mcp.ToolSourcesTree,

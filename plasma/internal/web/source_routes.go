@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -255,6 +256,10 @@ func (server *Server) handleSourceRead(w http.ResponseWriter, r *http.Request, m
 	}
 	snapshot, err := server.service.GetSourceSnapshot(r.Context(), snapshotID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "source not found")
+			return
+		}
 		writeAppError(w, err)
 		return
 	}

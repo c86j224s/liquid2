@@ -35,6 +35,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runWorkflow(ctx, args[1:], stdout, stderr)
 	case "reports":
 		return runReports(ctx, args[1:], stdout, stderr)
+	case "storage":
+		return runStorage(ctx, args[1:], stdout, stderr)
 	case "mcp":
 		return runMCP(ctx, args[1:], os.Stdin, stdout, stderr)
 	case "status":
@@ -49,5 +51,5 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: plasma <version|health|missions|turns|sources|workflow|reports|mcp|status|serve> [options]")
+	fmt.Fprintln(w, "usage: plasma <version|health|missions|turns|sources|workflow|reports|storage|mcp|status|serve> [options]")
 }

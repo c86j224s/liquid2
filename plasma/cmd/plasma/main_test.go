@@ -28,7 +28,7 @@ import (
 func TestCLIReportDirectionPromptAllowlist(t *testing.T) {
 	const hint = "CLI_DIRECTION_SENTINEL"
 	for name, prompt := range map[string]string{
-		"plan":   cliPromptWithDirection(cliReportPlanPrompt("t", "mis_1", "ses_1"), hint),
+		"plan":   cliPromptWithDirection(cliReportPlanPrompt("t", "mis_1", "ses_1", ""), hint),
 		"writer": cliPromptWithDirection(cliReportPrompt("t", "mis_1", "ses_1", "planned", "evt_1", ""), hint),
 	} {
 		if !strings.Contains(prompt, hint) || !strings.Contains(prompt, "weak editorial axis") {
@@ -144,6 +144,7 @@ func TestRunMCPListsPlasmaResearchTools(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"plasma.research.outline"`) ||
 		!strings.Contains(out.String(), `"plasma.research.references"`) ||
+		!strings.Contains(out.String(), `"plasma.mermaid.validate"`) ||
 		!strings.Contains(out.String(), `"plasma.sources.list"`) ||
 		!strings.Contains(out.String(), `"plasma.sources.read"`) ||
 		!strings.Contains(out.String(), `"plasma.sources.search"`) ||
@@ -370,6 +371,39 @@ func TestRunMissionCommandsCreateListShow(t *testing.T) {
 	shown := decodeCLIJSON(t, out.String())
 	if got := nestedCLIString(t, shown, "projection", "mission_id"); got != missionID {
 		t.Fatalf("expected mission %q, got %q", missionID, got)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "archive", missionID, "-db", dbPath, "-json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("missions archive returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	archived := decodeCLIJSON(t, out.String())
+	if got := nestedCLIString(t, archived, "projection", "lifecycle_state"); got != app.MissionLifecycleArchived {
+		t.Fatalf("archived lifecycle = %q", got)
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "list", "-db", dbPath}, &out, &errOut)
+	if code != 0 || strings.Contains(out.String(), missionID) {
+		t.Fatalf("default list after archive returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "list", "-db", dbPath, "-include-archived"}, &out, &errOut)
+	if code != 0 || !strings.Contains(out.String(), missionID) || !strings.Contains(out.String(), "archived") {
+		t.Fatalf("include archived list returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{"missions", "restore", missionID, "-db", dbPath, "-json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("missions restore returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	restored := decodeCLIJSON(t, out.String())
+	if got := nestedCLIString(t, restored, "projection", "lifecycle_state"); got != app.MissionLifecycleActive {
+		t.Fatalf("restored lifecycle = %q", got)
 	}
 }
 
@@ -1168,6 +1202,9 @@ func TestBuildCLIAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	if !hasCLIArgPair(codex.MCPServer.Args, "-enabled-tool", mcp.ToolResearchOutline) {
 		t.Fatalf("expected enabled tool in MCP args, got %#v", codex.MCPServer.Args)
 	}
+	if !hasCLIArgPair(codex.MCPServer.Args, "-enabled-tool", mcp.ToolMermaidValidate) {
+		t.Fatalf("expected Mermaid validation tool in MCP args, got %#v", codex.MCPServer.Args)
+	}
 }
 
 func TestBuildCLIClaudeAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
@@ -1195,6 +1232,9 @@ func TestBuildCLIClaudeAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	}
 	if !hasCLIArgPair(claude.MCPServer.Args, "-enabled-tool", mcp.ToolResearchOutline) {
 		t.Fatalf("expected enabled tool in MCP args, got %#v", claude.MCPServer.Args)
+	}
+	if !hasCLIArgPair(claude.MCPServer.Args, "-enabled-tool", mcp.ToolMermaidValidate) {
+		t.Fatalf("expected Mermaid validation tool in MCP args, got %#v", claude.MCPServer.Args)
 	}
 }
 
@@ -1520,6 +1560,13 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 		fake.requests[2].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected report request to resume same provider session, got %#v", fake.requests)
 	}
+	if !strings.Contains(fake.requests[1].Prompt, "Visual-aid planning guidance:") {
+		t.Fatalf("expected default CLI plan prompt to receive visual-plan guidance: %s", fake.requests[1].Prompt)
+	}
+	if !strings.Contains(fake.requests[2].Prompt, "Report visual-aid guidance:") ||
+		!strings.Contains(fake.requests[2].Prompt, "Follow the generation plan's visual-aid intent") {
+		t.Fatalf("expected default CLI report prompt to receive visual-plan guidance: %s", fake.requests[2].Prompt)
+	}
 
 	store, err := sqlite.Open(context.Background(), dbPath)
 	if err != nil {
@@ -1566,9 +1613,9 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 	}
 	if artifactPayload["post_report_humanize"] != "disabled" ||
 		artifactPayload["humanize_enabled"] != false ||
-		artifactPayload["generation_guidance_profile"] != "g2" ||
+		artifactPayload["generation_guidance_profile"] != "visual-plan" ||
 		artifactPayload["generation_guidance_sha256"] == "" {
-		t.Fatalf("expected default CLI report to record G2 guidance and disabled H5, got %#v", artifactPayload)
+		t.Fatalf("expected default CLI report to record visual-plan guidance and disabled H5, got %#v", artifactPayload)
 	}
 }
 
@@ -1608,6 +1655,9 @@ func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
 	if !strings.Contains(fake.requests[1].Prompt, "Report writing guidance:") ||
 		!strings.Contains(fake.requests[1].Prompt, "never improve fluency by dropping concrete source details") {
 		t.Fatalf("report prompt did not receive G2 guidance: %s", fake.requests[1].Prompt)
+	}
+	if !strings.Contains(fake.requests[1].Prompt, "plasma.mermaid.validate") {
+		t.Fatalf("report prompt did not receive Mermaid validation guidance: %s", fake.requests[1].Prompt)
 	}
 	if fake.requests[1].ReportPatch != nil {
 		t.Fatalf("humanize=false should not create an H5 report patch request")
@@ -1897,6 +1947,7 @@ func TestCodexEnabledToolsExposeResearchSurface(t *testing.T) {
 		mcp.ToolResearchGrep,
 		mcp.ToolResearchRead,
 		mcp.ToolResearchRefs,
+		mcp.ToolMermaidValidate,
 		mcp.ToolSourcesList,
 		mcp.ToolSourcesRead,
 		mcp.ToolSourcesTree,

@@ -72,6 +72,8 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.callResearchGrep(ctx, call)
 	case ToolResearchRefs:
 		return server.callResearchReferences(ctx, call)
+	case ToolMermaidValidate:
+		return server.callMermaidValidate(ctx, call)
 	case ToolWorkflowStart:
 		return server.callWorkflowStart(ctx, call)
 	case ToolWorkflowStatus:

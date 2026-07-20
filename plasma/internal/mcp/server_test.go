@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	mermaidpkg "github.com/c86j224s/liquid2/plasma/internal/mermaid"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/urlsource"
 )
@@ -40,6 +41,7 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 		ToolResearchRead:            false,
 		ToolResearchGrep:            false,
 		ToolResearchRefs:            false,
+		ToolMermaidValidate:         false,
 		ToolWorkflowStart:           false,
 		ToolWorkflowStatus:          false,
 		ToolWorkflowStop:            false,
@@ -60,6 +62,65 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 		if !seen {
 			t.Fatalf("expected tool missing: %s", name)
 		}
+	}
+}
+
+func TestMermaidValidateToolPreflightsKnownParseRisks(t *testing.T) {
+	server := NewServer(&fakeMCPService{}, WithBinding(Binding{MissionID: "mis_1"}))
+	result := server.dispatchCall(context.Background(), ToolCall{
+		Name: ToolMermaidValidate,
+		Arguments: mustArgs(t, map[string]any{
+			"mission_id": "mis_1",
+			"source": `requirementDiagram
+
+requirement root_access {
+  id: AUTH-ROOT
+  text: Access decisions must combine identity, policy, and auditability
+  risk: high
+  verifymethod: inspection
+}`,
+		}),
+	})
+	if result.Error != nil {
+		t.Fatalf("validate returned tool error: %#v", result.Error)
+	}
+	content, ok := result.Content.(mermaidpkg.Result)
+	if !ok {
+		t.Fatalf("unexpected content type: %#v", result.Content)
+	}
+	if content.OK || content.DiagramType != "requirementDiagram" {
+		t.Fatalf("expected failed requirementDiagram preflight, got %#v", content)
+	}
+	if !containsMermaidIssue(content.Errors, "requirement_id_token") || !containsMermaidIssue(content.Errors, "requirement_text_needs_quotes") {
+		t.Fatalf("expected id and text issues, got %#v", content.Errors)
+	}
+}
+
+func TestMermaidValidateToolAcceptsQuotedRequirementText(t *testing.T) {
+	server := NewServer(&fakeMCPService{}, WithBinding(Binding{MissionID: "mis_1"}))
+	result := server.dispatchCall(context.Background(), ToolCall{
+		Name: ToolMermaidValidate,
+		Arguments: mustArgs(t, map[string]any{
+			"mission_id": "mis_1",
+			"source": `requirementDiagram
+
+requirement root_access {
+  id: AUTH_ROOT
+  text: "Access decisions must combine identity, policy, and auditability"
+  risk: high
+  verifymethod: inspection
+}`,
+		}),
+	})
+	if result.Error != nil {
+		t.Fatalf("validate returned tool error: %#v", result.Error)
+	}
+	content, ok := result.Content.(mermaidpkg.Result)
+	if !ok {
+		t.Fatalf("unexpected content type: %#v", result.Content)
+	}
+	if !content.OK || content.CanConfirmRender {
+		t.Fatalf("expected static preflight pass without render guarantee, got %#v", content)
 	}
 }
 
@@ -3055,6 +3116,15 @@ func cloneMap(values map[string]any) map[string]any {
 func fakeMCPHasEventType(events []app.AppendEventRequest, eventType string) bool {
 	for _, event := range events {
 		if event.EventType == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+func containsMermaidIssue(issues []mermaidpkg.Issue, kind string) bool {
+	for _, issue := range issues {
+		if issue.Kind == kind {
 			return true
 		}
 	}

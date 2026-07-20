@@ -297,7 +297,7 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		planPreviousSessionID := previousSessionID
 		planResult, err := executor.Run(ctx, web.AgentRequest{
 			UserText:          "plan markdown report artifact",
-			Prompt:            cliPromptWithDirection(cliReportPlanPrompt(reportTitle, missionID, planToolSessionID), directionHint),
+			Prompt:            cliPromptWithDirection(cliReportPlanPrompt(reportTitle, missionID, planToolSessionID, generationGuidanceProfile), directionHint),
 			MissionID:         missionID,
 			ToolSessionID:     planToolSessionID,
 			PreviousSessionID: planPreviousSessionID,

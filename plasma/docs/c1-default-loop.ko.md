@@ -114,6 +114,9 @@ turn은 같은 session의 C0 흐름에 가깝게 두고, controller behavior는 
 Accepted live local path directory source에 대해서는 `plasma.sources.read`, `plasma.sources.tree`,
 `plasma.sources.grep`이 source boundary 내부의 `subpath`를 사용할 수 있습니다.
 
+Mermaid 다이어그램은 사용자에게 보여주기 전에 `plasma.mermaid.validate`로 정적 사전검사를 합니다.
+이 도구는 source read 표면이 아니며, 브라우저 렌더링 성공을 보장하지도 않습니다.
+
 이 도구들은 large mission prompt pack, source body stuffing, report-only corpus, root-wide local filesystem
 browsing으로 대체하면 안 됩니다.
 

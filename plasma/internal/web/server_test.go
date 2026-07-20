@@ -174,6 +174,150 @@ func TestMissionListActivitySummaryExposesAgentFailure(t *testing.T) {
 	}
 }
 
+func TestMissionArchiveRestoreHidesListAndKeepsDetailData(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Archive me"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/text", map[string]any{
+		"title": "Kept source", "content": "Archived missions keep source data.",
+	})
+
+	archived := postJSON(t, server.URL+"/api/missions/"+missionID+"/archive", map[string]any{"reason": "finished"})
+	if nestedString(t, archived, "event", "EventType") != app.MissionArchivedEvent {
+		t.Fatalf("archive result = %#v", archived)
+	}
+	if nestedString(t, archived, "projection", "lifecycle_state") != app.MissionLifecycleArchived {
+		t.Fatalf("archive projection = %#v", archived["projection"])
+	}
+
+	defaultList := getJSON(t, server.URL+"/api/missions")
+	if missions := defaultList["missions"].([]any); len(missions) != 0 {
+		t.Fatalf("default list must hide archived mission: %#v", defaultList)
+	}
+	archivedList := getJSON(t, server.URL+"/api/missions?include_archived=true")
+	missions := archivedList["missions"].([]any)
+	if len(missions) != 1 {
+		t.Fatalf("include archived list = %#v", archivedList)
+	}
+	item := missions[0].(map[string]any)
+	if item["lifecycle_state"] != app.MissionLifecycleArchived {
+		t.Fatalf("archived list item = %#v", item)
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	if nestedString(t, detail, "projection", "lifecycle_state") != app.MissionLifecycleArchived {
+		t.Fatalf("detail projection = %#v", detail["projection"])
+	}
+	if sources := detail["sources"].([]any); len(sources) != 1 {
+		t.Fatalf("archived detail must retain sources: %#v", detail["sources"])
+	}
+
+	restored := postJSON(t, server.URL+"/api/missions/"+missionID+"/restore", map[string]any{})
+	if nestedString(t, restored, "event", "EventType") != app.MissionRestoredEvent {
+		t.Fatalf("restore result = %#v", restored)
+	}
+	defaultList = getJSON(t, server.URL+"/api/missions")
+	if missions := defaultList["missions"].([]any); len(missions) != 1 {
+		t.Fatalf("restored mission must return to default list: %#v", defaultList)
+	}
+}
+
+func TestMissionHardDeletePreviewAndDelete(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Delete me"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	keepMission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Keep me"})
+	keepMissionID := nestedString(t, keepMission, "projection", "mission_id")
+	source := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/text", map[string]any{
+		"title": "Deleted source", "content": "Deleted source body.",
+	})
+	snapshotID := nestedString(t, source, "snapshot", "SnapshotID")
+
+	status, failure := deleteJSONBodyFailure(t, server.URL+"/api/missions/"+missionID, map[string]any{"confirm_mission_id": missionID})
+	if status != http.StatusConflict || !strings.Contains(nestedString(t, failure, "error", "message"), "eligible") {
+		t.Fatalf("expected active hard delete conflict, got %d %#v", status, failure)
+	}
+
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/archive", map[string]any{"reason": "finished"})
+	preview := getJSON(t, server.URL+"/api/missions/"+missionID+"/hard_delete_preview")
+	if eligible, _ := preview["eligible"].(bool); !eligible {
+		t.Fatalf("expected archived mission to be eligible, got %#v", preview)
+	}
+	impact := nestedMap(t, preview, "impact")
+	if impact["raw_artifacts"] != float64(1) || impact["source_snapshots"] != float64(1) || impact["source_snapshot_artifact_links"] != float64(1) {
+		t.Fatalf("unexpected hard delete impact: %#v", impact)
+	}
+
+	status, failure = deleteJSONBodyFailure(t, server.URL+"/api/missions/"+missionID, map[string]any{"confirm_mission_id": keepMissionID})
+	if status != http.StatusBadRequest || !strings.Contains(nestedString(t, failure, "error", "message"), "confirmation") {
+		t.Fatalf("expected confirmation mismatch failure, got %d %#v", status, failure)
+	}
+	deleted := deleteJSONBody(t, server.URL+"/api/missions/"+missionID, map[string]any{"confirm_mission_id": missionID})
+	if deleted["deleted"] != true || nestedString(t, deleted, "mission_id") != missionID {
+		t.Fatalf("hard delete result = %#v", deleted)
+	}
+
+	list := getJSON(t, server.URL+"/api/missions?include_archived=true")
+	missions := list["missions"].([]any)
+	if len(missions) != 1 || missions[0].(map[string]any)["MissionID"] != keepMissionID {
+		t.Fatalf("deleted mission remained in list: %#v", list)
+	}
+	status, failure = getJSONFailure(t, server.URL+"/api/missions/"+missionID)
+	if status != http.StatusNotFound {
+		t.Fatalf("expected deleted mission detail 404, got %d %#v", status, failure)
+	}
+	status, failure = getJSONFailure(t, server.URL+"/api/missions/"+missionID+"/hard_delete_preview")
+	if status != http.StatusNotFound {
+		t.Fatalf("expected deleted mission preview 404, got %d %#v", status, failure)
+	}
+	status, failure = getJSONFailure(t, server.URL+"/api/missions/"+missionID+"/sources/"+snapshotID+"/read")
+	if status != http.StatusNotFound {
+		t.Fatalf("expected deleted source read 404, got %d %#v", status, failure)
+	}
+}
+
+func TestMissionArchiveRejectsOpenActiveWork(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	server := httptest.NewServer(NewServer(service, Options{}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Busy"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_busy_turn", MissionID: missionID, EventType: "turn.agent.pending",
+		Producer: app.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, failure := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/archive", map[string]any{})
+	if status != http.StatusBadRequest || !strings.Contains(nestedString(t, failure, "error", "message"), "agent turn") {
+		t.Fatalf("archive active work failure status=%d body=%#v", status, failure)
+	}
+}
+
 func TestWorkspaceFlow(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -1892,7 +2036,7 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "odyssey-report.md",
 		Producer:   app.Producer{Type: "agent", ID: "codex"},
-		Content:    []byte("# 오디세이 리포트\n\n본문 \\(E=mc^2\\) 입니다.\n\n\\[x^2+y^2=z^2\\]\n\n잘못된 \\(\\notacommand{\\) 수식입니다.\n\n`\\(code\\)`와 $dollar$는 그대로입니다.\n"),
+		Content:    []byte("# 오디세이 리포트\n\n본문 \\(E=mc^2\\) 입니다.\n\n| 항목 | 값 |\n| --- | --- |\n| 수식 | \\(x+1\\) |\n\n```mermaid\nflowchart TD\n  A[시작] --> B[검토]\n```\n\n\\[x^2+y^2=z^2\\]\n\n잘못된 \\(\\notacommand{\\) 수식입니다.\n\n`\\(code\\)`와 $dollar$는 그대로입니다.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -2038,6 +2182,9 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		`id="report-markdown" type="application/json"`,
 		"data:font/woff2;base64,",
 		`version:"0.17.0"`,
+		"Mermaid 그래프",
+		"securityLevel",
+		"renderPlasmaMermaid(root)",
 		"renderPlasmaMarkdown(target,JSON.parse(source.textContent))",
 	} {
 		if !strings.Contains(content, expected) {
@@ -2111,7 +2258,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 	  ],
 	  "tabs": [
 	    {"label": "개요", "question": "무엇을 봐야 하는가", "summary": "오디세이 리포트의 주요 관점을 요약합니다.", "takeaway": "사실과 해석을 분리해 읽어야 합니다.", "sections": [
-	      {"heading": "보고서의 중심", "body": ["첫 문단은 작품을 둘러싼 핵심 맥락과 \\(E=mc^2\\)를 설명합니다.", "둘째 문단은 조사에서 확인한 한계와 해석 가능성을 함께 보여줍니다."], "bullets": ["원전과 영화의 차이를 구분합니다.", "음악 선택은 별도 쟁점으로 봅니다."], "component": "analysis", "table": {"columns": ["관계", "식"], "rows": [["피타고라스", "\\[x^2+y^2=z^2\\]"]]}, "images": [{"image_ref": "image_1", "caption": "오디세이 시각 자료를 제작 맥락 옆에 둡니다.", "placement": "after_body"}, {"image_ref": "image_1", "caption": "중복 배치는 한 번만 렌더링되어야 합니다.", "placement": "after_body"}], "source_note": "원본 Markdown 리포트 기반"}
+	      {"heading": "보고서의 중심", "body": ["첫 문단은 작품을 둘러싼 핵심 맥락과 \\(E=mc^2\\)를 설명합니다.", "| 구분 | 의미 |\\n| --- | --- |\\n| 원전 | 비교 기준 |\\n| 영화 | 현대적 해석 |", "\u0060\u0060\u0060mermaid\\nflowchart TD\\n  A[원전] --> B[영화]\\n\u0060\u0060\u0060"], "bullets": ["원전과 영화의 차이를 구분합니다.", "음악 선택은 별도 쟁점으로 봅니다."], "component": "analysis", "table": {"columns": ["관계", "식"], "rows": [["피타고라스", "\\[x^2+y^2=z^2\\]"]]}, "images": [{"image_ref": "image_1", "caption": "오디세이 시각 자료를 제작 맥락 옆에 둡니다.", "placement": "after_body"}, {"image_ref": "image_1", "caption": "중복 배치는 한 번만 렌더링되어야 합니다.", "placement": "after_body"}], "source_note": "원본 Markdown 리포트 기반"}
 	    ]}
 	  ],
 	  "sources": [{"label": "원본 Markdown", "note": "저장된 리포트 artifact"}],
@@ -2249,6 +2396,10 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		"모든 이미지는 관련 본문 섹션 안에 배치되었습니다.",
 		`\(E=mc^2\)`,
 		`\[x^2+y^2=z^2\]`,
+		`data-designed-markdown`,
+		`renderPlasmaMarkdown(node,JSON.parse(source.textContent))`,
+		`renderPlasmaMermaid(root)`,
+		`Mermaid 그래프`,
 		"renderDesignedTextMath(document.body)",
 	} {
 		if !strings.Contains(content, expected) {
@@ -2757,8 +2908,8 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if humanize := nestedString(t, response, "pending_event", "Payload", "post_report_humanize"); humanize != "disabled" {
 		t.Fatalf("expected default report draft to leave H5 disabled, got %q", humanize)
 	}
-	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportGenerationGuidanceProfileG2 {
-		t.Fatalf("expected default report draft to use G2 generation guidance, got %q", profile)
+	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportGenerationGuidanceProfileVisualPlan {
+		t.Fatalf("expected default report draft to use visual-plan generation guidance, got %q", profile)
 	}
 	if sha := nestedString(t, response, "pending_event", "Payload", "generation_guidance_sha256"); sha == "" {
 		t.Fatalf("expected default report draft pending event to record generation guidance sha")
@@ -2787,6 +2938,9 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reporting.DirectionAdvisory) {
 		t.Fatalf("planned report direction did not reach planning prompt:\n%s", planReq.Prompt)
 	}
+	if !strings.Contains(planReq.Prompt, "Visual-aid planning guidance:") {
+		t.Fatalf("planned report default visual guidance did not reach planning prompt:\n%s", planReq.Prompt)
+	}
 	reportReq := agent.requests[2]
 	if reportReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
@@ -2801,7 +2955,9 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		"Level: exploratory",
 		"mission_id " + missionID,
 		"Report writing guidance:",
+		"Report visual-aid guidance:",
 		"never improve fluency by dropping concrete source details",
+		"Follow the generation plan's visual-aid intent",
 		"use only \\(...\\) for inline math and \\[...\\] for display math",
 	} {
 		if !strings.Contains(reportReq.Prompt, expected) {
@@ -2819,8 +2975,8 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected planned composition metadata, got %#v", payload)
 	}
 	if payload["post_report_humanize"] != "disabled" || payload["humanize_enabled"] != false ||
-		payload["generation_guidance_profile"] != reportGenerationGuidanceProfileG2 || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
-		t.Fatalf("expected default G2 and disabled H5 metadata, got %#v", payload)
+		payload["generation_guidance_profile"] != reportGenerationGuidanceProfileVisualPlan || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
+		t.Fatalf("expected default visual-plan and disabled H5 metadata, got %#v", payload)
 	}
 	if payload["report_session_policy"] != reportSessionPolicySameSession ||
 		payload["session_chain_kind"] != "same_session_report" ||
@@ -9484,6 +9640,38 @@ func deleteJSON(t *testing.T, url string) map[string]any {
 		t.Fatalf("DELETE %s returned %d: %#v", url, resp.StatusCode, decoded)
 	}
 	return decoded
+}
+
+func deleteJSONBody(t *testing.T, url string, body any) map[string]any {
+	t.Helper()
+	status, decoded := deleteJSONBodyFailure(t, url, body)
+	if status < 200 || status >= 300 {
+		t.Fatalf("DELETE %s returned %d: %#v", url, status, decoded)
+	}
+	return decoded
+}
+
+func deleteJSONBodyFailure(t *testing.T, url string, body any) (int, map[string]any) {
+	t.Helper()
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodDelete, url, bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	return resp.StatusCode, decoded
 }
 
 func patchJSON(t *testing.T, url string, payload any) map[string]any {

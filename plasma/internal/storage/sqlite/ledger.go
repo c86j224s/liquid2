@@ -23,7 +23,7 @@ VALUES (?, ?, ?, ?)`,
 
 func (s *Store) ListMissions(ctx context.Context) ([]app.Mission, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT mission_id, title, created_at, updated_at
+SELECT mission_id, title, created_at, updated_at, lifecycle_state
 FROM plasma_missions
 ORDER BY updated_at DESC, created_at DESC, mission_id`)
 	if err != nil {
@@ -36,7 +36,7 @@ ORDER BY updated_at DESC, created_at DESC, mission_id`)
 		var mission app.Mission
 		var createdAt string
 		var updatedAt string
-		if err := rows.Scan(&mission.MissionID, &mission.Title, &createdAt, &updatedAt); err != nil {
+		if err := rows.Scan(&mission.MissionID, &mission.Title, &createdAt, &updatedAt, &mission.LifecycleState); err != nil {
 			return nil, err
 		}
 		mission.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)

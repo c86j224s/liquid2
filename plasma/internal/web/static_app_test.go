@@ -21,7 +21,7 @@ func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
 		combined.WriteByte('\n')
 	}
 	text := combined.String()
-	for _, expected := range []string{"missionMetadataForm", "missionMetadataIncluded", "missionMetadataExcluded", "missionMetadataLines", ".filter(Boolean)", "method: 'PATCH'", "reportDirectionHint", "direction_hint", "clearAcceptedReportDirectionHint", "catch (err)"} {
+	for _, expected := range []string{"missionSettingsDetails", "missionMetadataForm", "missionMetadataIncluded", "missionMetadataExcluded", "missionMetadataLines", ".filter(Boolean)", `method: "PATCH"`, "reportDirectionHint", "direction_hint", "clearAcceptedReportDirectionHint", "catch (err)"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("missing static contract %q", expected)
 		}
@@ -110,6 +110,258 @@ func TestStaticMissionScopedActiveWorkContracts(t *testing.T) {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("missing mission-scoped active-work contract %q", expected)
 		}
+	}
+}
+
+func TestStaticMissionLifecycleContracts(t *testing.T) {
+	combined := string(mustReadStatic(t, "static/index.html")) + string(mustReadStatic(t, "static/app.js")) + string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		"includeArchivedMissions",
+		"include_archived=true",
+		"missionArchiveButton",
+		"missionRestoreButton",
+		"missionHardDeleteButton",
+		"missionHardDeleteSettings",
+		"hard_delete_preview",
+		"hardDeleteMission",
+		"confirmMissionHardDelete",
+		"selectMissionAfterHardDelete",
+		"missionLifecycleWriteBlocked",
+		"missionLifecycleSettingsText",
+		"changeMissionLifecycle",
+		"confirmMissionLifecycleChange",
+		"selectMissionAfterArchive",
+		"missionLifecycleNotice",
+		"보관된 미션 보기",
+		"보관된 미션입니다",
+		"mission-archived",
+		`mission-archive-toggle input[type="checkbox"]`,
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing mission lifecycle contract %q", expected)
+		}
+	}
+	banner := htmlSection(t, string(mustReadStatic(t, "static/index.html")), `class="panel mission-banner"`, `id="tabBar"`)
+	for _, forbidden := range []string{"missionMetadataForm", "missionMetadataEdit", "missionArchiveButton", "missionRestoreButton"} {
+		if strings.Contains(banner, forbidden) {
+			t.Fatalf("mission banner must not expose mission management control %q", forbidden)
+		}
+	}
+}
+
+func TestStaticMissionListTitlesCanGrowItems(t *testing.T) {
+	styles := string(mustReadStatic(t, "static/app.css"))
+	railMatch := regexp.MustCompile(`(?s)\.rail > \.panel\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	if len(railMatch) != 2 {
+		t.Fatal("missing mission rail panel grid rule")
+	}
+	if !strings.Contains(railMatch[1], "grid-template-rows: auto auto auto minmax(0, 1fr)") {
+		t.Fatalf("mission rail must reserve a row for the archived toggle: %s", railMatch[1])
+	}
+	listMatch := regexp.MustCompile(`(?s)#missionList\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	if len(listMatch) != 2 {
+		t.Fatal("missing mission list grid rule")
+	}
+	listBlock := listMatch[1]
+	for _, expected := range []string{
+		"align-content: start",
+		"align-items: start",
+		"grid-auto-rows: max-content",
+	} {
+		if !strings.Contains(listBlock, expected) {
+			t.Fatalf("mission list grid must size items from content; missing %q in %s", expected, listBlock)
+		}
+	}
+	match := regexp.MustCompile(`(?s)#missionList \.item-title\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	if len(match) != 2 {
+		t.Fatal("missing mission list title override")
+	}
+	block := match[1]
+	for _, expected := range []string{
+		"display: block",
+		"max-height: none",
+		"overflow: visible",
+		"overflow-wrap: anywhere",
+		"-webkit-line-clamp: unset",
+	} {
+		if !strings.Contains(block, expected) {
+			t.Fatalf("mission list titles must wrap and grow their item box; missing %q in %s", expected, block)
+		}
+	}
+	if strings.Contains(block, "overflow: hidden") || strings.Contains(block, "max-height: 2.8em") {
+		t.Fatalf("mission list title override must not clamp long titles: %s", block)
+	}
+	toggleMatch := regexp.MustCompile(`(?s)\.mission-archive-toggle\s*\{([^}]*)\}`).FindStringSubmatch(styles)
+	if len(toggleMatch) != 2 {
+		t.Fatal("missing mission archive toggle spacing rule")
+	}
+	toggleBlock := toggleMatch[1]
+	for _, expected := range []string{
+		"min-height: 24px",
+		"margin: 10px 0 10px",
+		"padding: 2px",
+		"align-self: start",
+	} {
+		if !strings.Contains(toggleBlock, expected) {
+			t.Fatalf("mission archive toggle must keep visible space between new mission and list; missing %q in %s", expected, toggleBlock)
+		}
+	}
+}
+
+func TestMissionHardDeleteRequiresPreviewAndConfirmation(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	hardDelete := jsSourceRange(t, script, "async function hardDeleteMission", "function confirmMissionHardDelete")
+	confirm := jsFunctionSource(t, script, "confirmMissionHardDelete")
+	impactLines := jsFunctionSource(t, script, "missionHardDeleteImpactLines")
+	afterDelete := jsSourceRange(t, script, "async function selectMissionAfterHardDelete", "function clearMissionSelection")
+	formatBytes := jsFunctionSource(t, script, "formatBytes")
+	fixture := `
+const state = {missionId:"mis_a",selectionGeneration:1,missionHardDeletePending:false,detail:{projection:{title:"삭제 대상",mission_id:"mis_a"}},missions:[]};
+const requireMission = () => true;
+const captureMissionSelection = () => ({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = (owner) => owner && owner.missionId === state.missionId && owner.selectionGeneration === state.selectionGeneration;
+let calls = [], confirms = [], deleteBody = null;
+const renderMissionLifecycleControls = () => calls.push("render:" + state.missionHardDeletePending);
+const setFormsEnabled = () => calls.push("forms");
+const showError = (err) => { throw err; };
+const missionApi = async (owner, suffix, options = {}) => {
+  calls.push((options.method || "GET") + ":" + suffix);
+  if (suffix === "/hard_delete_preview") return {eligible:true,mission_id:"mis_a",title:"삭제 대상",impact:{raw_artifacts:1,raw_artifact_bytes:14,source_snapshots:1}};
+  if (options.method === "DELETE") { deleteBody = options.body; return {deleted:true}; }
+  throw new Error("unexpected missionApi call");
+};
+const refreshMissionList = async () => { calls.push("refresh"); state.missions = [{MissionID:"mis_a"},{MissionID:"mis_b"}]; };
+const selectMission = async (missionID) => { calls.push("select:" + missionID); state.missionId = missionID; state.selectionGeneration += 1; };
+const clearMissionSelection = () => { calls.push("clear"); state.missionId = ""; };
+const window = {confirm(message) { confirms.push(message); return false; }};
+` + formatBytes + `
+` + impactLines + `
+` + confirm + `
+` + afterDelete + `
+` + hardDelete + `
+(async () => {
+  await hardDeleteMission();
+  if (calls.includes("DELETE:")) throw new Error("cancelled hard delete sent DELETE");
+  if (!confirms[0].includes("복구할 수 없습니다") || !confirms[0].includes("원문 데이터 용량 14 B")) throw new Error("confirmation did not include irreversible impact");
+  if (state.missionHardDeletePending) throw new Error("cancelled hard delete left pending state");
+  calls = [];
+  window.confirm = (message) => { confirms.push(message); return true; };
+  await hardDeleteMission();
+  if (calls.join("|") !== "render:true|GET:/hard_delete_preview|DELETE:|refresh|select:mis_b") throw new Error("unexpected hard delete flow: " + calls.join("|"));
+  if (!deleteBody || deleteBody.confirm_mission_id !== "mis_a") throw new Error("DELETE confirmation body missing mission id");
+  if (state.missionId !== "mis_b") throw new Error("hard delete did not select next mission");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("mission hard delete fixture: %v: %s", err, out)
+	}
+}
+
+func TestMissionLifecycleRequiresConfirmationBeforeRequest(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	change := strings.Replace(jsFunctionSource(t, script, "changeMissionLifecycle"), "function changeMissionLifecycle", "async function changeMissionLifecycle", 1)
+	confirm := jsFunctionSource(t, script, "confirmMissionLifecycleChange")
+	fixture := `
+const state = {missionId:"mis_a",selectionGeneration:1,missionLifecyclePending:false,detail:{projection:{title:"테스트 미션",mission_id:"mis_a"}}};
+const requireMission = () => true;
+let confirms = [], apiCalls = 0, renders = 0;
+const window = {confirm(message) { confirms.push(message); return false; }};
+const captureMissionSelection = () => ({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = () => true;
+const renderMissionLifecycleControls = () => { renders++; };
+const missionApi = async () => { apiCalls++; };
+const selectMission = async () => {};
+const selectMissionAfterArchive = async () => {};
+const setFormsEnabled = () => {};
+const showError = (err) => { throw err; };
+` + confirm + `
+` + change + `
+(async () => {
+  await changeMissionLifecycle("archive");
+  if (apiCalls || renders || state.missionLifecyclePending) throw new Error("cancelled archive touched lifecycle state");
+  if (confirms.length !== 1 || !confirms[0].includes("테스트 미션") || !confirms[0].includes("보관할까요")) throw new Error("archive confirmation message is missing context");
+  window.confirm = (message) => { confirms.push(message); return false; };
+  await changeMissionLifecycle("restore");
+  if (apiCalls || renders || state.missionLifecyclePending) throw new Error("cancelled restore touched lifecycle state");
+  if (!confirms[1].includes("복원할까요")) throw new Error("restore confirmation message is missing context");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("mission lifecycle confirmation fixture: %v: %s", err, out)
+	}
+}
+
+func TestArchiveMissionSelectsNextMission(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	change := strings.Replace(jsFunctionSource(t, script, "changeMissionLifecycle"), "function changeMissionLifecycle", "async function changeMissionLifecycle", 1)
+	afterArchive := strings.Replace(jsFunctionSource(t, script, "selectMissionAfterArchive"), "function selectMissionAfterArchive", "async function selectMissionAfterArchive", 1)
+	fixture := `
+const state = {missionId:"mis_a",selectionGeneration:1,missionLifecyclePending:false,missions:[]};
+const requireMission = () => true;
+const confirmMissionLifecycleChange = () => true;
+const captureMissionSelection = () => ({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = (owner) => owner && owner.missionId === state.missionId && owner.selectionGeneration === state.selectionGeneration;
+let calls = [];
+const renderMissionLifecycleControls = () => calls.push("render");
+const missionApi = async (owner, suffix) => { calls.push(suffix); };
+const refreshMissionList = async () => { state.missions = [{MissionID:"mis_a"},{MissionID:"mis_b"},{MissionID:"mis_c"}]; calls.push("refresh"); };
+const selectMission = async (missionID) => { calls.push("select:"+missionID); state.missionId = missionID; state.selectionGeneration += 1; };
+const clearMissionSelection = () => { throw new Error("unexpected clear"); };
+const setFormsEnabled = () => calls.push("forms");
+const showError = (err) => { throw err; };
+` + afterArchive + `
+` + change + `
+(async () => {
+  await changeMissionLifecycle("archive");
+  if (calls.join("|") !== "render|/archive|refresh|select:mis_b") throw new Error("unexpected archive flow: " + calls.join("|"));
+  if (state.missionLifecyclePending) throw new Error("archive left lifecycle pending");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("archive next-mission fixture: %v: %s", err, out)
+	}
+}
+
+func TestArchiveMissionClearsSelectionWhenNoOtherMissionExists(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	change := strings.Replace(jsFunctionSource(t, script, "changeMissionLifecycle"), "function changeMissionLifecycle", "async function changeMissionLifecycle", 1)
+	afterArchive := strings.Replace(jsFunctionSource(t, script, "selectMissionAfterArchive"), "function selectMissionAfterArchive", "async function selectMissionAfterArchive", 1)
+	fixture := `
+const state = {missionId:"mis_a",selectionGeneration:1,missionLifecyclePending:false,missions:[]};
+const requireMission = () => true;
+const confirmMissionLifecycleChange = () => true;
+const captureMissionSelection = () => ({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = (owner) => owner && owner.missionId === state.missionId && owner.selectionGeneration === state.selectionGeneration;
+let calls = [];
+const renderMissionLifecycleControls = () => calls.push("render");
+const missionApi = async (owner, suffix) => { calls.push(suffix); };
+const refreshMissionList = async () => { state.missions = [{MissionID:"mis_a"}]; calls.push("refresh"); };
+const selectMission = async (missionID) => { calls.push("select:"+missionID); };
+const clearMissionSelection = () => { calls.push("clear"); state.missionId = ""; state.selectionGeneration += 1; };
+const setFormsEnabled = () => calls.push("forms");
+const showError = (err) => { throw err; };
+` + afterArchive + `
+` + change + `
+(async () => {
+  await changeMissionLifecycle("archive");
+  if (calls.join("|") !== "render|/archive|refresh|clear") throw new Error("unexpected archive clear flow: " + calls.join("|"));
+  if (state.missionLifecyclePending || state.missionId) throw new Error("archive did not clear selection cleanly");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("archive clear-selection fixture: %v: %s", err, out)
 	}
 }
 
@@ -324,7 +576,10 @@ const workflowStepInstructionMode = () => "layered"; const workflowRawInputValue
 const setReportBusy = (busy) => { state.reportPending = busy; }; const setReportNotice = () => {}; const reportPendingMessage = () => "pending";
 const ReportModelSelection = {payload:() => ({agent_model:"",agent_reasoning_effort:""})};
 const currentReportDirectionHint = () => ""; const clearAcceptedReportDirectionHint = () => {};
+const missionListPath = () => "/api/missions";
 const document = {hidden:false}; const window = {clearTimeout(){},setTimeout(){ scheduled++; return scheduled; }};
+const DEFAULT_REPORT_GENERATION_GUIDANCE = "visual-plan";
+const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set(["section-brief","section-brief-cluster-memory","section-brief-visual-plan","section-brief-cluster-memory-visual-plan"]);
 ` + asyncSource("refreshMissionList") + `
 ` + jsFunctionSource(t, script, "missionActivityCursor") + `
 ` + jsFunctionSource(t, script, "detailMissionActivityCursor") + `
@@ -335,6 +590,7 @@ const document = {hidden:false}; const window = {clearTimeout(){},setTimeout(){ 
 ` + jsFunctionSource(t, script, "scheduleMissionActivityPoll") + `
 ` + asyncSource("sendTurn") + `
 ` + asyncSource("startWorkflow") + `
+` + jsFunctionSource(t, script, "selectedReportGenerationGuidance") + `
 ` + asyncSource("draftReport") + `
 async function assertWorkStart(name, run, expectedPath) {
   detailLoads = 0; listLoads = 0; scheduled = 0; started.length = 0; state.missions = []; state.missionActivityPollTimer = 0;
@@ -376,6 +632,7 @@ const clearPendingPoll = () => { pollCleared = true; };
 const setReportNotice = (value) => { notice = value; };
 const renderActiveWork = () => {};
 const setFormsEnabled = () => {};
+const renderMissionLifecycleControls = () => {};
 const renderMissionLoading = () => {};
 const resetConfluenceMissionUI = () => {};
 const hideDetail = () => {};
@@ -399,7 +656,7 @@ func TestResetMissionTransientStateHidesBulkBarsImmediately(t *testing.T) {
 	fixture := `
 const state={detail:{},turnPending:true,reportPending:true,workflowPending:true,workflowGoalDraftPending:false,workflowGoalDraftRaw:"",pendingTurn:null,sourceCandidateBusy:new Set(),selectedSourceCandidates:new Set(["a"]),selectedProposals:new Set(["p"]),selectedReportKey:"",reportPreview:null,confluenceSearchResults:[],confluenceSearchContext:null,confluenceSpaces:[],confluencePages:[],confluenceBrowseContext:null,confluencePreview:null,confluenceUpdatePreview:null,confluenceAccess:null,confluenceBusy:true,confluenceOAuthURL:""};
 const nodes={sourceCandidateBulk:{classList:{hidden:false,add(v){this.hidden=v}}},proposalBulk:{classList:{hidden:false,add(v){this.hidden=v}}},sourceCandidateBulkCount:{textContent:"7"},proposalBulkCount:{textContent:"8"}};
-const $=(id)=>nodes[id]||null; const clearPendingPoll=()=>{}; const setReportNotice=()=>{}; const renderActiveWork=()=>{}; const setFormsEnabled=()=>{}; const hideDetail=()=>{}; const empty=()=>""; const renderMissionLoading=()=>{}; const resetConfluenceMissionUI=()=>{};
+const $=(id)=>nodes[id]||null; const clearPendingPoll=()=>{}; const setReportNotice=()=>{}; const renderActiveWork=()=>{}; const setFormsEnabled=()=>{}; const renderMissionLifecycleControls=()=>{}; const hideDetail=()=>{}; const empty=()=>""; const renderMissionLoading=()=>{}; const resetConfluenceMissionUI=()=>{};
 ` + source + `
 resetMissionTransientState(); if(!nodes.sourceCandidateBulk.classList.hidden||!nodes.proposalBulk.classList.hidden||nodes.sourceCandidateBulkCount.textContent!=="0"||nodes.proposalBulkCount.textContent!=="0")process.exit(1);
 `
@@ -422,11 +679,11 @@ let createResolve,listResolve; let selected=[]; let renders=0; let errors=0;
 const api=(path)=>path==="/api/missions"?(createResolve?new Promise(r=>{listResolve=r}):new Promise(r=>{createResolve=r})):Promise.reject(new Error("unexpected"));
 const captureMissionSelection=()=>({missionId:state.missionId,selectionGeneration:state.selectionGeneration});
 const ownsMissionSelection=(o)=>o.missionId===state.missionId&&o.selectionGeneration===state.selectionGeneration;
-class StaleMissionOperationError extends Error{}; const renderMissions=()=>{renders++}; const pruneMissionActivitySeenWatermarks=()=>{}; const scheduleMissionActivityPoll=()=>{}; const selectMission=async(id)=>{selected.push(id)}; const showError=()=>{errors++};
+class StaleMissionOperationError extends Error{}; const renderMissions=()=>{renders++}; const pruneMissionActivitySeenWatermarks=()=>{}; const scheduleMissionActivityPoll=()=>{}; const selectMission=async(id)=>{selected.push(id)}; const showError=()=>{errors++}; const missionListPath=()=>"/api/missions";
 ` + create + `
 ` + refresh + `
 (async()=>{
-  const run=createMission({preventDefault(){}}); createResolve({projection:{mission_id:"mis_new"}}); await Promise.resolve(); listResolve({missions:[{MissionID:"mis_new"}]}); await run;
+  const run=createMission({preventDefault(){}}); createResolve({projection:{mission_id:"mis_new"}}); await Promise.resolve(); await Promise.resolve(); listResolve({missions:[{MissionID:"mis_new"}]}); await run;
   if(selected.join()!=="mis_new"||state.missions.length!==1||renders!==1||errors!==0)throw new Error("owned create did not select and refresh");
   state.missionId="mis_a"; state.selectionGeneration=3; nodes.missionTitle.value="Late"; selected=[]; let lateResolve; createResolve=undefined; listResolve=undefined;
   const late=createMission({preventDefault(){}}); lateResolve=createResolve; state.missionId="mis_c"; state.selectionGeneration=4; lateResolve({projection:{mission_id:"mis_late"}}); await late;
@@ -697,6 +954,49 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 	}
 }
 
+func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	for _, expected := range []string{
+		`<option value="section-brief-visual-plan">섹션 중심</option>`,
+		`<option value="section-brief-cluster-memory-visual-plan">섹션 중심 + 풍부하게</option>`,
+	} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("missing report generation option %q", expected)
+		}
+	}
+	for _, legacy := range []string{
+		`<option value="g2">기본 글쓰기</option>`,
+		`<option value="section-brief">섹션 중심</option>`,
+		`<option value="section-brief-cluster-memory">섹션 중심 + 풍부하게</option>`,
+	} {
+		if strings.Contains(index, legacy) {
+			t.Fatalf("legacy long-form option remained in the Web UI: %q", legacy)
+		}
+	}
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+let nodes = {reportGenerationGuidance:{value:"section-brief-visual-plan"}};
+const $ = (id) => nodes[id] || null;
+` + jsSourceRange(t, script, "const DEFAULT_REPORT_GENERATION_GUIDANCE", "\nconst AGENT_MODEL_OPTIONS") + `
+if (selectedReportGenerationGuidance("long_form") !== "section-brief-visual-plan") throw new Error("section brief visual plan did not pass through for long-form");
+if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("section brief visual plan did not fall back for planned reports");
+nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-visual-plan";
+if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-visual-plan") throw new Error("cluster memory visual plan did not pass through for long-form");
+if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("cluster memory visual plan did not fall back for planned reports");
+if (reportGenerationGuidanceLabel("g2") !== "기본 글쓰기") throw new Error("legacy g2 label not retained");
+if (reportGenerationGuidanceLabel("section-brief") !== "섹션 중심 (이전)") throw new Error("legacy section label not distinguished");
+if (reportGenerationGuidanceLabel("section-brief-visual-plan") !== "섹션 중심") throw new Error("section visual label mismatch");
+if (reportGenerationGuidanceLabel("section-brief-cluster-memory-visual-plan") !== "섹션 중심 + 풍부하게") throw new Error("cluster visual label mismatch");
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("report generation guidance fixture failed: %v: %s", err, out)
+	}
+}
+
 func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	ids := []string{
@@ -767,7 +1067,7 @@ func TestStaticButtonDesignSystemDefinesSharedRoles(t *testing.T) {
 		`id="focusToggle" class="quiet"`,
 		`id="themeToggle" class="icon-button quiet"`,
 		`id="refreshMissions" class="icon-button quiet"`,
-		`id="missionMetadataEdit" class="quiet mission-recall-button"`,
+		`id="missionArchiveButton" class="mission-lifecycle-button hidden"`,
 		`id="closeDetail" class="icon-button quiet"`,
 	} {
 		if !strings.Contains(index, expected) {
@@ -868,7 +1168,7 @@ func TestStaticSettingsExposeModelDefaultsCard(t *testing.T) {
 		`loadModelDefaults`,
 		`renderModelDefaultEfforts`,
 		`자율진행 조향 모델`,
-		`workflow directing model`,
+		`자율진행을 조향하는 모델`,
 		`현재는 시작 시점의 3층 지시 초안 생성에만 사용`,
 		`새 에이전트 세션`,
 		`보고서 생성`,
@@ -878,9 +1178,10 @@ func TestStaticSettingsExposeModelDefaultsCard(t *testing.T) {
 		}
 	}
 	settingsPanel := htmlSection(t, html, `data-tab-panel="settings"`, `id="errorToast"`)
-	if strings.Index(settingsPanel, `id="modelDefaultsDetails"`) < 0 || strings.Index(settingsPanel, `id="confluenceSettingsDetails"`) < 0 ||
+	if strings.Index(settingsPanel, `id="missionSettingsDetails"`) < 0 || strings.Index(settingsPanel, `id="modelDefaultsDetails"`) < 0 || strings.Index(settingsPanel, `id="confluenceSettingsDetails"`) < 0 ||
+		strings.Index(settingsPanel, `id="missionSettingsDetails"`) > strings.Index(settingsPanel, `id="modelDefaultsDetails"`) ||
 		strings.Index(settingsPanel, `id="modelDefaultsDetails"`) > strings.Index(settingsPanel, `id="confluenceSettingsDetails"`) {
-		t.Fatalf("model defaults card must be the first Settings fold card")
+		t.Fatalf("mission management, model defaults, and Confluence settings must stay ordered in the Settings panel")
 	}
 	setFormsBody := jsFunctionBody(t, appScript, "setFormsEnabled")
 	for _, forbidden := range []string{"modelDefaultsForm", "workflowGoalDefaultModel", "workflowGoalDefaultReasoningEffort"} {
@@ -931,6 +1232,7 @@ for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentRe
 }
 const $ = (id) => elements[id];
 const state = {detail:{active_work:{blocked_controls:[]}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const missionLifecycleWriteBlocked = () => false;
 ` + source + `
 const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","reportGenerationGuidance","draftQuickReport","draftLongReport"];
 function assertDisabled(label) {

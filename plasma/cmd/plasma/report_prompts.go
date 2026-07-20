@@ -9,7 +9,11 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/web"
 )
 
-func cliReportPlanPrompt(title string, missionID string, toolSessionID string) string {
+func cliReportPlanPrompt(title string, missionID string, toolSessionID string, generationGuidanceProfile string) string {
+	guidance := strings.TrimSpace(web.ReportGenerationPlanningGuidance(generationGuidanceProfile))
+	if guidance != "" {
+		guidance = "\n" + guidance + "\n"
+	}
 	return fmt.Sprintf(`You are planning a Plasma Markdown report.
 
 Do not write the report yet. Use Plasma read tools when useful, starting with plasma.research.outline.
@@ -17,11 +21,12 @@ Do not write the report yet. Use Plasma read tools when useful, starting with pl
 Mission ID: %s
 Report title: %s
 Tool session ID: %s
+%s
 
 Rules:
 - Sources are original materials. Prior answers and reports are results, not sources.
 - Do not create evidence, claims, confidence updates, source candidates, proposal bundles, report blocks, or report AST JSON.
-- Return a concise Korean generation plan as Markdown bullets.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID))
+- Return a concise Korean generation plan as Markdown bullets.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID), guidance)
 }
 
 func cliPromptWithDirection(prompt, hint string) string {
@@ -90,11 +95,12 @@ Report mode: %s
 Rules:
 - Use MCP/source read tools to inspect original materials. Do not assume source bodies are present in this prompt.
 - Start with plasma.research.outline, then use plasma.research.list, plasma.research.grep, plasma.research.read, plasma.sources.read, plasma.sources.tree, plasma.sources.grep, and plasma.research.references as needed.
+- %s
 - PDF sources are original documents; read them through Plasma tools, which return extracted text and metadata rather than raw PDF bytes.
 - For live_reference local_path sources, use explicit source observations and cite observation_event_id, observed_at, relative_path, sha256, and git metadata when available.
 - Sources are original materials. This Markdown report is an output artifact, not a source.
 - Do not create evidence, claims, confidence updates, proposal bundles, report blocks, or report AST JSON.
-- Return only the Markdown report body.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID), strings.TrimSpace(reportMode), modeLine, guidance)
+- Return only the Markdown report body.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID), strings.TrimSpace(reportMode), modeLine, guidance, web.ReportMermaidValidationRule())
 }
 
 func cliReportCompositionStrategy(reportMode string) string {

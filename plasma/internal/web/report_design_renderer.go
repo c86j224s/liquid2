@@ -21,7 +21,11 @@ func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, m
 	if err != nil {
 		return nil, err
 	}
-	mathScripts, err := selfContainedMathScripts()
+	mermaidHead, err := selfContainedMermaidHead()
+	if err != nil {
+		return nil, err
+	}
+	reportScripts, err := selfContainedDesignedScripts()
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +41,7 @@ func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, m
 	out.WriteString("<title>" + htmlpkg.EscapeString(title) + "</title>\n")
 	out.WriteString(designedReportCSS())
 	out.WriteString(mathHead)
+	out.WriteString(mermaidHead)
 	out.WriteString("</head>\n<body>\n")
 	out.WriteString("<header class=\"designed-hero visual-map-hero theme-" + htmlpkg.EscapeString(designedStyleClass(model.VisualIdentity.StyleKey)) + "\" id=\"top\"><div class=\"hero-copy\"><p class=\"eyebrow\">" + htmlpkg.EscapeString(kicker) + "</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"subtitle\">" + htmlpkg.EscapeString(subtitle) + "</p>")
 	if model.Thesis != "" {
@@ -76,7 +81,7 @@ func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, m
 	renderDesignedSources(&out, model, sourceArtifact, notes)
 	out.WriteString("</section>\n</main>\n")
 	out.WriteString("<script>const b=document.body,t=document.getElementById('themeToggle');t?.addEventListener('click',()=>b.classList.toggle('light'));document.querySelectorAll('[data-tab-target]').forEach(btn=>btn.addEventListener('click',()=>{document.querySelector(btn.dataset.tabTarget)?.scrollIntoView({behavior:'smooth',block:'start'});}));</script>\n")
-	out.WriteString(mathScripts)
+	out.WriteString(reportScripts)
 	out.WriteString("</body>\n</html>\n")
 	return out.Bytes(), nil
 }
@@ -297,7 +302,7 @@ func renderDesignedSection(out *bytes.Buffer, section designedReportSection, ind
 	out.WriteString("<article class=\"content-card component-" + htmlpkg.EscapeString(component) + "\"><div class=\"content-card-head\"><span>" + fmt.Sprintf("%02d", index+1) + "</span><h3>" + htmlpkg.EscapeString(firstNonEmpty(section.Heading, "세부 항목")) + "</h3></div>")
 	renderDesignedInlineImages(out, section.Images, imageByRef, usedImages, "before_body")
 	for _, paragraph := range section.Body {
-		out.WriteString("<p>" + htmlpkg.EscapeString(paragraph) + "</p>")
+		renderDesignedBodyText(out, paragraph)
 	}
 	if len(section.Bullets) > 0 {
 		out.WriteString("<ul>")
@@ -316,6 +321,58 @@ func renderDesignedSection(out *bytes.Buffer, section designedReportSection, ind
 		out.WriteString("<p class=\"source-note\">" + htmlpkg.EscapeString(section.SourceNote) + "</p>")
 	}
 	out.WriteString("</article>")
+}
+
+func renderDesignedBodyText(out *bytes.Buffer, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	if !designedBodyNeedsMarkdownRendering(text) {
+		out.WriteString("<p>" + htmlpkg.EscapeString(text) + "</p>")
+		return
+	}
+	encoded, err := json.Marshal(text)
+	if err != nil {
+		out.WriteString("<p>" + htmlpkg.EscapeString(text) + "</p>")
+		return
+	}
+	out.WriteString("<div class=\"designed-markdown-block\" data-designed-markdown>")
+	out.WriteString("<pre class=\"designed-markdown-raw\">" + htmlpkg.EscapeString(text) + "</pre>")
+	out.WriteString("<script type=\"application/json\">" + string(encoded) + "</script>")
+	out.WriteString("</div>")
+}
+
+func designedBodyNeedsMarkdownRendering(text string) bool {
+	return strings.Contains(strings.ToLower(text), "```mermaid") || designedBodyLooksLikeMarkdownTable(text)
+}
+
+func designedBodyLooksLikeMarkdownTable(text string) bool {
+	lines := strings.Split(text, "\n")
+	for index := 0; index < len(lines)-1; index++ {
+		header := strings.TrimSpace(lines[index])
+		separator := strings.TrimSpace(lines[index+1])
+		if strings.Count(header, "|") < 2 || strings.Count(separator, "|") < 2 {
+			continue
+		}
+		cells := strings.Split(strings.Trim(separator, "| "), "|")
+		if len(cells) == 0 {
+			continue
+		}
+		valid := true
+		for _, cell := range cells {
+			cell = strings.TrimSpace(cell)
+			cell = strings.Trim(cell, ":")
+			if len(cell) < 3 || strings.Trim(cell, "-") != "" {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return true
+		}
+	}
+	return false
 }
 
 func renderDesignedInlineImages(out *bytes.Buffer, placements []designedReportImagePlacement, imageByRef map[string]reportInlineImage, usedImages map[string]bool, position string) {
@@ -494,7 +551,7 @@ body.light .visual-map-hero{background:radial-gradient(circle at 76% 18%,rgba(15
 .section-heading p{margin:0 0 6px;color:var(--accent);font:800 12px/1.2 ui-monospace,monospace;text-transform:uppercase}.section-heading h2{margin:0;font-size:clamp(24px,3vw,42px);line-height:1.08}.overview-thesis,.tab-summary{font-size:18px;color:var(--ink);max-width:900px}.marker-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:22px}.marker{border:1px solid var(--line);border-radius:10px;padding:14px;background:rgba(255,255,255,.035)}.marker span{font-size:12px;color:var(--muted)}.marker strong{display:block;font-size:26px;color:var(--accent);margin:4px 0}.marker p{margin:0;color:var(--muted);font-size:13px}.tab-jump-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
 .visual-stack{display:grid;gap:18px}.visual-question,.caption,.muted{color:var(--muted)}.relationship-svg{display:block;width:100%;height:auto;margin-top:16px;border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025)}.svg-node{fill:var(--panel2);stroke:var(--blue);stroke-width:3}.svg-accent{stroke:var(--accent)}.svg-warn{stroke:var(--warn)}.svg-good{stroke:var(--good)}.svg-index{fill:var(--ink);font:800 13px ui-monospace,monospace}.svg-label{fill:var(--ink);font:800 18px Inter,system-ui}.svg-body{margin:0;color:var(--muted);font:13px/1.45 Inter,system-ui}
 .visual-grammar{margin-top:16px}.visual-ladder{display:grid;gap:10px;margin:16px 0 0;padding:0;list-style:none}.visual-ladder-item{display:grid;grid-template-columns:54px minmax(0,1fr);gap:14px;align-items:start;border-left:3px solid var(--line);padding:12px 14px;background:rgba(255,255,255,.025);border-radius:10px}.visual-ladder-index{display:grid;place-items:center;min-height:34px;border:1px solid var(--line);border-radius:999px;color:var(--accent);font:900 12px/1 ui-monospace,monospace}.visual-ladder-item strong,.evidence-step strong,.matrix-cell strong,.loop-node strong{display:block}.visual-ladder-item p,.evidence-step p,.matrix-cell p,.loop-node p{margin:5px 0 0;color:var(--muted);font-size:13px}.visual-evidence-chain{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.evidence-step{border-top:3px solid var(--line);padding:12px;background:rgba(255,255,255,.025);border-radius:10px}.evidence-step span,.matrix-cell span,.loop-node span{display:inline-block;margin-bottom:8px;color:var(--accent);font:900 12px/1 ui-monospace,monospace}.visual-matrix{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.matrix-cell{min-height:118px;border:1px solid var(--line);border-radius:10px;padding:14px;background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.02))}.visual-loop{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}.loop-node{position:relative;border:1px solid var(--line);border-radius:999px;padding:14px 18px;background:rgba(255,255,255,.03)}.loop-node:after{content:"";position:absolute;right:-12px;top:50%;width:12px;border-top:2px solid var(--accent2)}.loop-node:last-child:after{display:none}.tone-accent{border-color:color-mix(in srgb,var(--accent) 65%,var(--line))}.tone-warn{border-color:color-mix(in srgb,var(--warn) 65%,var(--line))}.tone-good{border-color:color-mix(in srgb,var(--good) 65%,var(--line))}
-.tab-section{scroll-margin-top:18px}.takeaway{border-left:3px solid var(--accent2);padding-left:14px;color:var(--muted)}.content-card{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}.content-card-head{display:flex;gap:12px;align-items:baseline}.content-card-head span{color:var(--accent);font:800 12px ui-monospace,monospace}.content-card h3{margin:0;font-size:23px}.content-card p,.content-card li{font-size:16px}.content-card p{max-width:980px}.source-note{color:var(--muted);font-size:13px!important}.caveat{color:var(--warn)}.table-wrap{overflow:auto;margin:16px 0}table{width:100%;border-collapse:collapse;background:rgba(255,255,255,.025);border-radius:8px;overflow:hidden}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{color:var(--accent);font-size:13px}.mini-diagram{display:grid;gap:8px;margin:16px 0}.mini-diagram h4{margin:0}.mini-step{display:grid;grid-template-columns:minmax(100px,180px) 1fr;gap:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:rgba(255,255,255,.025)}
+.tab-section{scroll-margin-top:18px}.takeaway{border-left:3px solid var(--accent2);padding-left:14px;color:var(--muted)}.content-card{margin-top:18px;border-top:1px solid var(--line);padding-top:18px}.content-card-head{display:flex;gap:12px;align-items:baseline}.content-card-head span{color:var(--accent);font:800 12px ui-monospace,monospace}.content-card h3{margin:0;font-size:23px}.content-card p,.content-card li{font-size:16px}.content-card p{max-width:980px}.source-note{color:var(--muted);font-size:13px!important}.caveat{color:var(--warn)}.table-wrap,.designed-markdown-block{overflow:auto;margin:16px 0}table{width:100%;border-collapse:collapse;background:rgba(255,255,255,.025);border-radius:8px;overflow:hidden}th,td{border:1px solid var(--line);padding:10px;text-align:left;vertical-align:top}th{color:var(--accent);font-size:13px}.designed-markdown-block pre{white-space:pre-wrap}.designed-markdown-block p{max-width:980px}.mini-diagram{display:grid;gap:8px;margin:16px 0}.mini-diagram h4{margin:0}.mini-step{display:grid;grid-template-columns:minmax(100px,180px) 1fr;gap:10px;border:1px solid var(--line);border-radius:8px;padding:10px;background:rgba(255,255,255,.025)}
 .inline-image-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:18px 0}.inline-report-image{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:rgba(255,255,255,.035)}.inline-report-image img{display:block;width:100%;height:auto;max-height:420px;object-fit:contain;background:rgba(0,0,0,.18)}.inline-report-image figcaption{display:grid;gap:5px;padding:12px 14px}.inline-report-image figcaption strong{font-size:14px}.inline-report-image figcaption span{color:var(--muted);font-size:13px;word-break:break-word}
 .designed-gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.designed-gallery figure{margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:rgba(255,255,255,.03)}.designed-gallery img{display:block;width:100%;height:auto}.designed-gallery figcaption{display:grid;gap:4px;padding:10px}.designed-gallery span,.source-row p{color:var(--muted);font-size:12px;word-break:break-word}.source-origin{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.03)}.source-list,.caveat-list,.glossary{display:grid;gap:10px;margin-top:16px}.source-row{border-top:1px solid var(--line);padding-top:10px}.source-row a{color:var(--accent2)}.glossary div{display:grid;grid-template-columns:160px 1fr;gap:12px}.glossary dt{font-weight:800}.glossary dd{margin:0;color:var(--muted)}
 @media(max-width:940px){.designed-hero,.designed-shell{width:100%;overflow:hidden}.designed-hero *,.designed-shell *{max-width:100%;min-width:0}.designed-hero{display:block;min-height:auto}.hero-copy,.hero-copy p,.hero-visual,.designed-shell,.designed-content,.overview-panel,.visual-card,.tab-section,.media-panel,.sources-panel{max-width:100%;min-width:0}.subtitle,.thesis,.motif-note,.hero-map-readable span,.visual-question,.caption,.content-card p,.content-card li,.visual-ladder-item p,.evidence-step p,.matrix-cell p,.loop-node p,.source-row p,.inline-report-image span,code,a{word-break:break-all;overflow-wrap:anywhere}.hero-visual{margin-top:24px;overflow:hidden}.hero-map-svg{display:none}.hero-map-readable{display:grid;gap:8px;padding-left:20px}.hero-map-readable li{color:var(--muted)}.hero-map-readable strong{display:block;color:var(--ink)}.designed-shell{display:block}.designed-rail{position:static;margin-bottom:18px}.designed-rail nav{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}.hero-copy h1{font-size:42px;line-height:1.06;word-break:break-all}.mini-step,.glossary div,.visual-ladder-item,.inline-image-strip{grid-template-columns:1fr}.overview-panel,.visual-card,.tab-section,.media-panel,.sources-panel{padding:18px}.content-card p,.content-card li{font-size:15px}.visual-loop{grid-template-columns:1fr}.loop-node{border-radius:12px}.loop-node:after{display:none}}

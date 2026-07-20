@@ -8,6 +8,14 @@ type createMissionRequest struct {
 	Scope     app.MissionScope `json:"scope"`
 }
 
+type missionLifecycleRequest struct {
+	Reason string `json:"reason"`
+}
+
+type missionHardDeleteRequest struct {
+	ConfirmMissionID string `json:"confirm_mission_id"`
+}
+
 type turnRequest struct {
 	Text               string `json:"text"`
 	AgentExecutor      string `json:"agent_executor"`
