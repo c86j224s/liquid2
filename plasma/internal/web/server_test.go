@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2191,6 +2192,64 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 			t.Fatalf("expected HTML export to contain %q:\n%s", expected, content)
 		}
 	}
+	previewURL := nestedString(t, export, "preview_url")
+	expectedPreviewURL := "/api/missions/" + missionID + "/artifacts/" + exportArtifactID + "/preview"
+	if previewURL != expectedPreviewURL {
+		t.Fatalf("expected preview URL %q, got %q", expectedPreviewURL, previewURL)
+	}
+	previewResp, err := http.Get(server.URL + previewURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer previewResp.Body.Close()
+	if previewResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected HTML preview 200, got %d", previewResp.StatusCode)
+	}
+	if got := previewResp.Header.Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Fatalf("expected inline HTML preview disposition, got %q", got)
+	}
+	if got := previewResp.Header.Get("Content-Security-Policy"); !strings.Contains(got, "sandbox allow-scripts") || strings.Contains(got, "allow-same-origin") {
+		t.Fatalf("expected sandboxed HTML preview CSP without same-origin, got %q", got)
+	}
+	previewBody, err := io.ReadAll(previewResp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(previewBody), "<!doctype html>") || !strings.Contains(string(previewBody), "renderPlasmaMarkdown") {
+		t.Fatalf("expected rendered HTML artifact preview body, got %q", string(previewBody))
+	}
+	status, failure := getJSONFailure(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/preview")
+	if status != http.StatusUnsupportedMediaType || !strings.Contains(nestedString(t, failure, "error", "message"), "previewable as HTML") {
+		t.Fatalf("expected markdown artifact preview rejection, got %d %#v", status, failure)
+	}
+	metadataOnly := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/html_export", map[string]any{"include_content": false})
+	if got := nestedString(t, metadataOnly, "artifact", "artifact_id"); got != exportArtifactID {
+		t.Fatalf("expected cached metadata-only HTML artifact %q, got %q", exportArtifactID, got)
+	}
+	if _, ok := metadataOnly["content"]; ok {
+		t.Fatalf("metadata-only HTML export should not include content")
+	}
+	emptyReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/html_export", strings.NewReader(""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyReq.Header.Set("Content-Type", "application/json")
+	emptyResp, err := http.DefaultClient.Do(emptyReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer emptyResp.Body.Close()
+	if emptyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(emptyResp.Body)
+		t.Fatalf("expected empty-body HTML export to remain compatible, got %d %s", emptyResp.StatusCode, body)
+	}
+	var emptyPost map[string]any
+	if err := json.NewDecoder(emptyResp.Body).Decode(&emptyPost); err != nil {
+		t.Fatal(err)
+	}
+	if got := nestedString(t, emptyPost, "artifact", "artifact_id"); got != exportArtifactID {
+		t.Fatalf("expected empty-body HTML export to reuse %q, got %q", exportArtifactID, got)
+	}
 	if !strings.Contains(content, `<pre class="report-markdown-raw"># 오디세이 리포트`) || !strings.Contains(content, "$dollar$") {
 		t.Fatalf("basic export parsed math on the backend: %s", content)
 	}
@@ -2935,6 +2994,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if planReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue the mission session while planning, got %q", planReq.PreviousSessionID)
 	}
+	assertReportMCPToolSurface(t, planReq, plasmamcp.ToolReportPlanSubmit, plasmamcp.ToolSourcesRead)
 	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reporting.DirectionAdvisory) {
 		t.Fatalf("planned report direction did not reach planning prompt:\n%s", planReq.Prompt)
 	}
@@ -2945,6 +3005,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if reportReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
 	}
+	assertReportMCPToolSurface(t, reportReq, plasmamcp.ToolSourcesRead)
 	if !strings.Contains(reportReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(reportReq.Prompt, reporting.DirectionAdvisory) {
 		t.Fatalf("planned report direction did not reach writing prompt:\n%s", reportReq.Prompt)
 	}
@@ -4182,6 +4243,16 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 			t.Fatalf("long-form selection not propagated: %#v", request)
 		}
 	}
+	assertReportMCPToolSurface(t, agent.requests[0], plasmamcp.ToolReportPlanSubmit, plasmamcp.ToolSourcesRead)
+	assertReportMCPToolSurface(t, agent.requests[1], plasmamcp.ToolSourcesRead)
+	assertReportMCPToolSurface(t, agent.requests[2], plasmamcp.ToolSourcesRead)
+	assertReportMCPToolSurface(t, agent.requests[3],
+		plasmamcp.ToolReportPartAssemblyStart,
+		plasmamcp.ToolReportPartAssemblyRead,
+		plasmamcp.ToolReportPartAssemblyPatch,
+		plasmamcp.ToolReportPartAssemblySubmit,
+	)
+	assertReportMCPToolSurface(t, agent.requests[4], plasmamcp.ToolReportLongFormFinalize)
 	for _, eventType := range []string{"report.plan.created", "report.section.created", "report.part.created", "report.artifact.created"} {
 		selectionPayload := lastEventPayload(t, detail, eventType)
 		if selectionPayload["agent_model"] != "gpt-5.5" || selectionPayload["agent_reasoning_effort"] != "high" || selectionPayload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
@@ -4234,6 +4305,89 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	}
 	if strings.Contains(content, "sectional long-form") {
 		t.Fatalf("final Markdown leaked implementation wording:\n%s", content)
+	}
+}
+
+func TestRunPartAssemblyAgentUsesMCPToolsForPartAssemblyEditProfile(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_part_assembly", Title: "Part assembly test"}); err != nil {
+		t.Fatal(err)
+	}
+	server := NewServer(svc, Options{}).(*Server)
+	agent := &fakeAgentExecutor{
+		responses: []AgentResult{{Text: reporting.PartAssemblySubmittedSentinel, SessionID: "report-session-1"}},
+		onRun: func(runCtx context.Context, req AgentRequest) {
+			if req.PartAssembly == nil {
+				t.Fatalf("expected part assembly binding on agent request: %#v", req)
+			}
+			assertReportMCPToolSurface(t, req,
+				plasmamcp.ToolReportPartAssemblyStart,
+				plasmamcp.ToolReportPartAssemblyRead,
+				plasmamcp.ToolReportPartAssemblyPatch,
+				plasmamcp.ToolReportPartAssemblySubmit,
+			)
+			for _, expected := range []string{
+				plasmamcp.ToolReportPartAssemblyStart,
+				plasmamcp.ToolReportPartAssemblyRead,
+				plasmamcp.ToolReportPartAssemblyPatch,
+				plasmamcp.ToolReportPartAssemblySubmit,
+			} {
+				if !slices.Contains(req.ExtraMCPTools, expected) {
+					t.Fatalf("expected %s in part assembly tools: %#v", expected, req.ExtraMCPTools)
+				}
+			}
+			if _, err := svc.AppendEvent(runCtx, reporting.BuildPartAssemblySubmittedAppendRequest(reporting.PartAssemblySubmittedEventRequest{
+				EventID: "evt_part_assembly_submitted",
+				Binding: *req.PartAssembly,
+				Assembly: reporting.PartAssembly{
+					Intro: "파트 도입입니다.",
+					Transitions: []reporting.PartTransition{{
+						AfterSectionIndex: 1,
+						Markdown:          "섹션 전환입니다.",
+					}},
+					Closing: "파트 마무리입니다.",
+				},
+			})); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	assembly, result, returnedSessionID, err := server.runPartAssemblyAgent(ctx, reportPartAssemblyAgentRequest{
+		title:                     "Report",
+		missionID:                 "mis_part_assembly",
+		toolSessionID:             "ses_part_assembly",
+		previousSessionID:         "report-session-1",
+		pendingEventID:            "evt_pending",
+		planEventID:               "evt_plan",
+		executorName:              "codex",
+		agentModel:                "gpt-5.5",
+		agentReasoningEffort:      "medium",
+		agentSelectionSource:      reporting.AgentSelectionSourceExplicitRequest,
+		mcpMode:                   "auto",
+		rigor:                     reportRigorProfiles["balanced"],
+		plan:                      agentSectionalReportPlan{Summary: "Plan"},
+		part:                      agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "First"}, {Title: "Second"}}},
+		drafts:                    []sectionalReportDraft{{Title: "First", Markdown: "첫 섹션 본문입니다.", WordCount: 2}, {Title: "Second", Markdown: "둘째 섹션 본문입니다.", WordCount: 2}},
+		generationGuidanceProfile: reportGenerationGuidanceProfilePartAssemblyEditTools,
+	}, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SessionID != "report-session-1" || returnedSessionID != "report-session-1" {
+		t.Fatalf("unexpected session ids: result=%q returned=%q", result.SessionID, returnedSessionID)
+	}
+	if assembly.Intro != "파트 도입입니다." || assembly.Closing != "파트 마무리입니다." || len(assembly.Transitions) != 1 {
+		t.Fatalf("expected submitted MCP connective tissue, got %#v", assembly)
+	}
+	if len(agent.requests) != 1 || !strings.Contains(agent.requests[0].Prompt, "Required tool sequence:") {
+		t.Fatalf("expected edit-tools part assembly prompt, got %#v", agent.requests)
 	}
 }
 
@@ -10507,6 +10661,22 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 	if err != nil {
 		return result, err
 	}
+	if req.PartAssembly != nil {
+		var assembly reporting.PartAssembly
+		if parseErr := json.Unmarshal([]byte(result.Text), &assembly); parseErr != nil {
+			return result, parseErr
+		}
+		_, submitErr := executor.service.AppendEvent(ctx, reporting.BuildPartAssemblySubmittedAppendRequest(reporting.PartAssemblySubmittedEventRequest{
+			EventID:  fmt.Sprintf("evt_part_assembly_fixture_%d", executor.sequence.Add(1)),
+			Binding:  *req.PartAssembly,
+			Assembly: assembly,
+		}))
+		if submitErr != nil {
+			return result, submitErr
+		}
+		result.Text = reporting.PartAssemblySubmittedSentinel
+		return result, nil
+	}
 	if req.LongFormFinalize != nil {
 		frame, parseErr := parseFixtureSectionalFrame(result.Text)
 		if parseErr != nil {
@@ -10573,6 +10743,30 @@ func parseFixtureSectionalFrame(text string) (fixtureSectionalFrame, error) {
 	var frame fixtureSectionalFrame
 	err := json.Unmarshal([]byte(text), &frame)
 	return frame, err
+}
+
+func assertReportMCPToolSurface(t *testing.T, req AgentRequest, expected ...string) {
+	t.Helper()
+	if req.DisableTools {
+		t.Fatalf("report request disabled tools instead of using report MCP tools: %#v", req)
+	}
+	if !req.ReplaceMCPTools {
+		t.Fatalf("report request must replace the default MCP tool surface: %#v", req)
+	}
+	for _, forbidden := range []string{
+		plasmamcp.ToolSourcesSearch,
+		plasmamcp.ToolSourceCandidatesPropose,
+		plasmamcp.ToolSourceCandidatesRead,
+	} {
+		if slices.Contains(req.ExtraMCPTools, forbidden) {
+			t.Fatalf("report request exposed conversation/source-candidate tool %s: %#v", forbidden, req.ExtraMCPTools)
+		}
+	}
+	for _, tool := range expected {
+		if !slices.Contains(req.ExtraMCPTools, tool) {
+			t.Fatalf("report request missing required MCP tool %s: %#v", tool, req.ExtraMCPTools)
+		}
+	}
 }
 
 func (executor *reportPlanFixtureForkExecutor) ForkSession(ctx context.Context, sessionID string) (AgentSessionForkResult, error) {

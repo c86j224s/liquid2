@@ -165,6 +165,8 @@
         }
       }
       if (typeof result.bindFunctions === "function") result.bindFunctions(output);
+      global.applyPlasmaMermaidLineLegend?.(figure, source);
+      global.enhancePlasmaImageViewing?.(output);
       code.dataset.plasmaMermaidState = "rendered";
     } catch (_error) {
       failMermaidFigure(figure, output, details, "Mermaid 그래프를 렌더링하지 못했습니다.");

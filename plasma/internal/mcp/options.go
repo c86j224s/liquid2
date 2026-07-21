@@ -127,6 +127,20 @@ func WithLongFormFinalizeBinding(binding reporting.LongFormFinalizeBinding) Opti
 	return func(server *Server) { server.longFormFinalizeBinding = binding }
 }
 
+func WithPartAssemblyBinding(binding reporting.PartAssemblyBinding) Option {
+	return func(server *Server) { server.partAssemblyBinding = binding }
+}
+
+func ValidatePartAssemblyBinding(binding Binding, part reporting.PartAssemblyBinding) error {
+	if err := reporting.ValidatePartAssemblyBinding(part); err != nil {
+		return fmt.Errorf("part assembly binding is incomplete: %w", err)
+	}
+	if strings.TrimSpace(part.MissionID) != strings.TrimSpace(binding.MissionID) || strings.TrimSpace(part.ToolSessionID) != strings.TrimSpace(binding.AgentSessionID) || strings.TrimSpace(strings.ToLower(part.AgentExecutor)) != strings.TrimSpace(strings.ToLower(binding.AgentExecutor)) {
+		return fmt.Errorf("part assembly binding conflicts with MCP binding")
+	}
+	return nil
+}
+
 func ValidateLongFormFinalizeBinding(binding Binding, final reporting.LongFormFinalizeBinding) error {
 	if err := reporting.ValidateLongFormFinalizeBinding(final); err != nil {
 		return fmt.Errorf("long-form finalization binding is incomplete: %w", err)

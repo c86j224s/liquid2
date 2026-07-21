@@ -25,7 +25,7 @@ type combinedProviderWebExecutor struct {
 }
 
 func (executor *combinedProviderWebExecutor) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
-	if req.ReportPlan != nil || req.LongFormFinalize != nil {
+	if req.ReportPlan != nil || req.PartAssembly != nil || req.LongFormFinalize != nil {
 		return executor.provider.Run(ctx, req)
 	}
 	executor.mu.Lock()
@@ -205,8 +205,35 @@ for value in argv:
   if value.startswith("mcp_servers.plasma.args="): args=json.loads(value.split("=",1)[1])
 if not command or not args: raise SystemExit("missing generated MCP config")
 def flag(name): return args[args.index(name)+1]
+def emit(sentinel):
+  if kind == "codex":
+    open(out,"w").write(sentinel)
+    print(json.dumps({"type":"thread.started","thread_id":"provider-codex-session"}))
+  else:
+    print(json.dumps({"type":"result","session_id":"22222222-2222-4222-8222-222222222222","result":sentinel}))
 final="-report-long-form-finalize-binding-json" in args
-if final:
+part="-report-part-assembly-binding-json" in args
+if part:
+  binding=json.loads(flag("-report-part-assembly-binding-json"))
+  draft_id="rpa_testshim"
+  producer={"type":"agent_session","id":binding["tool_session_id"]}
+  base={"mission_id":binding["mission_id"],"session_id":binding["tool_session_id"],"producer":producer}
+  start={**base,"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"draft_id":draft_id,"part_index":binding["part_index"],"section_count":binding["section_count"],"idempotency_key":"part_start_key"}
+  patch_intro={**base,"draft_id":draft_id,"field":"intro","markdown":"Part intro","summary":"intro","idempotency_key":"part_intro_key"}
+  patch_close={**base,"draft_id":draft_id,"field":"closing","markdown":"Part close","summary":"closing","idempotency_key":"part_close_key"}
+  submit={**base,"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"draft_id":draft_id,"idempotency_key":"part_submit_key"}
+  calls=[
+    ("plasma.report.part_assembly.start", start, "draft_id"),
+    ("plasma.report.part_assembly.patch", patch_intro, "draft_id"),
+    ("plasma.report.part_assembly.patch", patch_close, "draft_id"),
+    ("plasma.report.part_assembly.submit", submit, "event_id"),
+  ]
+  messages=[{"jsonrpc":"2.0","id":i+1,"method":"tools/call","params":{"name":tool,"arguments":arguments}} for i,(tool,arguments,_) in enumerate(calls)]
+  proc=subprocess.run([command]+args,input="".join(json.dumps(x)+"\n" for x in messages),text=True,capture_output=True)
+  if proc.returncode or '"isError":true' in proc.stdout or "event_id" not in proc.stdout: raise SystemExit(proc.stderr+proc.stdout)
+  emit("PART_ASSEMBLY_SUBMITTED")
+  raise SystemExit(0)
+elif final:
   binding=json.loads(flag("-report-long-form-finalize-binding-json"))
   arguments={"mission_id":binding["mission_id"],"session_id":binding["tool_session_id"],"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"idempotency_key":binding["idempotency_key"],"producer":{"type":"agent_session","id":binding["tool_session_id"]},"opening_markdown":"# Long report","closing_markdown":"## Close"}
   tool="plasma.report.long_form.finalize"; expected="artifact_sha256"; sentinel="REPORT_FINALIZED"
@@ -219,11 +246,7 @@ messages=[{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}},{"jsonrpc":
 proc=subprocess.run([command]+args,input="".join(json.dumps(x)+"\n" for x in messages),text=True,capture_output=True)
 if proc.returncode or expected not in proc.stdout or '"isError":true' in proc.stdout: raise SystemExit(proc.stderr+proc.stdout)
 if final: sentinel=os.environ.get("PLASMA_TEST_FINAL_ACK", sentinel)
-if kind == "codex":
-  open(out,"w").write(sentinel)
-  print(json.dumps({"type":"thread.started","thread_id":"provider-codex-session"}))
-else:
-  print(json.dumps({"type":"result","session_id":"22222222-2222-4222-8222-222222222222","result":sentinel}))
+emit(sentinel)
 `
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)

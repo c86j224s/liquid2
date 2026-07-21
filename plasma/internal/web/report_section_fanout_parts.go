@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -25,27 +24,34 @@ func (server *Server) assembleSectionFanoutParts(ctx context.Context, req sectio
 		}
 		toolSessionID := newID("ses")
 		partStarted := time.Now()
-		result, err := executor.Run(ctx, AgentRequest{
-			UserText:          fmt.Sprintf("assemble part %d for section-fanout long-form markdown report", partIndex+1),
-			Prompt:            agentPartAssemblyPrompt(req.title, req.missionID, toolSessionID, req.rigor, state.plan, part, sections[partIndex], partIndex, req.generationGuidanceProfile),
-			Model:             req.agentModel,
-			ReasoningEffort:   req.agentReasoningEffort,
-			MissionID:         req.missionID,
-			ToolSessionID:     toolSessionID,
-			PreviousSessionID: previousSessionID,
-			AgentExecutor:     req.executorName,
-			MCPMode:           req.mcpMode,
-		})
+		assembly, result, returnedSessionID, err := server.runPartAssemblyAgent(ctx, reportPartAssemblyAgentRequest{
+			title:                        req.title,
+			missionID:                    req.missionID,
+			toolSessionID:                toolSessionID,
+			previousSessionID:            previousSessionID,
+			pendingEventID:               req.pendingEventID,
+			planEventID:                  state.planEvent.EventID,
+			executorName:                 req.executorName,
+			agentModel:                   req.agentModel,
+			agentReasoningEffort:         req.agentReasoningEffort,
+			agentSelectionSource:         req.agentSelectionSource,
+			mcpMode:                      req.mcpMode,
+			rigor:                        req.rigor,
+			plan:                         state.plan,
+			part:                         part,
+			drafts:                       sections[partIndex],
+			partIndex:                    partIndex,
+			reportSessionPolicy:          state.reportSessionPolicy,
+			reportSessionPolicySelection: state.reportSessionPolicySelection,
+			postReportHumanize:           req.postReportHumanize,
+			generationGuidanceProfile:    req.generationGuidanceProfile,
+			generationGuidanceSHA256:     req.generationGuidanceSHA256,
+			sessionChainKind:             state.sessionChainKind,
+			preReportResearchSessionID:   state.preReportResearchSessionID,
+			reportPlanSessionID:          state.reportPlanSessionID,
+			forkSourceAgentSessionID:     firstNonEmpty(sourceSessionID, state.reportPlanSessionID),
+		}, executor)
 		partDurationMS := time.Since(partStarted).Milliseconds()
-		if err != nil {
-			return nil, nil, longFormStageFailure("part", state.planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousSessionID))
-		}
-		returnedSessionID := strings.TrimSpace(result.SessionID)
-		result, err = validatedSameSessionResult(result, previousSessionID)
-		if err != nil {
-			return nil, nil, longFormStageFailure("part", state.planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousSessionID))
-		}
-		assembly, err := parseAgentPartAssembly(result.Text)
 		if err != nil {
 			return nil, nil, longFormStageFailure("part", state.planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousSessionID))
 		}

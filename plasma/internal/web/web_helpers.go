@@ -29,6 +29,20 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
 	return true
 }
 
+func decodeOptionalJSON(w http.ResponseWriter, r *http.Request, target any) bool {
+	defer r.Body.Close()
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return false
+	}
+	return true
+}
+
 func queryBool(r *http.Request, key string) bool {
 	value := strings.TrimSpace(strings.ToLower(r.URL.Query().Get(key)))
 	return value == "1" || value == "true" || value == "yes" || value == "on"

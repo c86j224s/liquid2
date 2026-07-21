@@ -41,6 +41,7 @@ type AgentRequest struct {
 	ReplaceMCPTools   bool
 	ReportPatch       *AgentReportPatchContext
 	ReportPlan        *AgentReportPlanContext
+	PartAssembly      *reporting.PartAssemblyBinding
 	LongFormFinalize  *reporting.LongFormFinalizeBinding
 }
 
@@ -531,6 +532,11 @@ func codexMCPArgsForRequest(base []string, req AgentRequest) []string {
 	}
 	if req.ReportPlan != nil {
 		args = appendReportPlanMCPArgs(args, req.ToolSessionID, *req.ReportPlan)
+	}
+	if req.PartAssembly != nil {
+		if encoded, err := json.Marshal(req.PartAssembly); err == nil {
+			args = append(args, "-report-part-assembly-binding-json", string(encoded))
+		}
 	}
 	if req.LongFormFinalize != nil {
 		if encoded, err := json.Marshal(req.LongFormFinalize); err == nil {

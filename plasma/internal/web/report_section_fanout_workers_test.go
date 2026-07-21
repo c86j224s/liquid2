@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -21,6 +22,10 @@ type sectionFanoutConcurrencyAgent struct {
 	reached chan struct{}
 	release chan struct{}
 	once    sync.Once
+}
+
+type sectionFanoutCaptureAgent struct {
+	requests []AgentRequest
 }
 
 func (agent *sectionFanoutConcurrencyAgent) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
@@ -41,6 +46,11 @@ func (agent *sectionFanoutConcurrencyAgent) Run(ctx context.Context, req AgentRe
 		return AgentResult{Log: "context canceled"}, ctx.Err()
 	}
 	return AgentResult{Text: fmt.Sprintf("section body for %s", req.PreviousSessionID), SessionID: req.PreviousSessionID, Resumed: req.PreviousSessionID != ""}, nil
+}
+
+func (agent *sectionFanoutCaptureAgent) Run(ctx context.Context, req AgentRequest) (AgentResult, error) {
+	agent.requests = append(agent.requests, req)
+	return AgentResult{Text: "section body", SessionID: req.PreviousSessionID, Resumed: req.PreviousSessionID != ""}, nil
 }
 
 func TestRunSectionFanoutTasksAllowsEightConcurrentSectionWorkers(t *testing.T) {
@@ -119,4 +129,53 @@ func TestRunSectionFanoutTasksAllowsEightConcurrentSectionWorkers(t *testing.T) 
 	case <-time.After(3 * time.Second):
 		t.Fatal("section fanout tasks did not finish after release")
 	}
+}
+
+func TestRunSectionFanoutTasksUsesReportOnlyMCPTools(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_fanout_tools", Title: "Fanout tools"}); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{service: svc}
+	agent := &sectionFanoutCaptureAgent{}
+	req := sectionFanoutLongFormRequest{
+		missionID:                 "mis_fanout_tools",
+		title:                     "Fanout tools",
+		executorName:              "codex",
+		agentModel:                "gpt-5.5",
+		agentReasoningEffort:      "medium",
+		pendingEventID:            "evt_pending_fanout_tools",
+		postReportHumanize:        "disabled",
+		generationGuidanceProfile: reportGenerationGuidanceProfileVisualPlan,
+	}
+	state := sectionFanoutPlanState{
+		planEvent:           app.LedgerEvent{EventID: "evt_plan_fanout_tools"},
+		reportSessionPolicy: reportSessionPolicyIsolatedFork,
+		sessionChainKind:    "section_fanout_report",
+		reportPlanSessionID: "report-plan-session",
+		forkSourceSessionID: "report-plan-session",
+	}
+	tasks := []sectionFanoutTask{{
+		partIndex:       0,
+		sectionIndex:    0,
+		part:            agentReportPart{Title: "Part", Purpose: "Part purpose"},
+		section:         agentReportSection{Title: "Section", Purpose: "Section purpose"},
+		previousSession: "section-session-1",
+		toolSessionID:   "tool-session-1",
+		sourceSessionID: "report-plan-session",
+	}}
+
+	if _, err := server.runSectionFanoutTasks(ctx, req, state, tasks, agent); err != nil {
+		t.Fatal(err)
+	}
+	if len(agent.requests) != 1 {
+		t.Fatalf("expected one section request, got %#v", agent.requests)
+	}
+	assertReportMCPToolSurface(t, agent.requests[0], plasmamcp.ToolSourcesRead)
 }

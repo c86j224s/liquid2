@@ -35,6 +35,10 @@ const (
 	ToolReportPatchApply         = "plasma.report.patch.apply"
 	ToolReportPatchFinalize      = "plasma.report.patch.finalize"
 	ToolReportPlanSubmit         = "plasma.report.plan.submit"
+	ToolReportPartAssemblyStart  = "plasma.report.part_assembly.start"
+	ToolReportPartAssemblyRead   = "plasma.report.part_assembly.read"
+	ToolReportPartAssemblyPatch  = "plasma.report.part_assembly.patch"
+	ToolReportPartAssemblySubmit = "plasma.report.part_assembly.submit"
 	ToolReportLongFormFinalize   = "plasma.report.long_form.finalize"
 	ToolExperimentReportCreate   = "plasma.experiment.report.create"
 	ToolExperimentReportAppend   = "plasma.experiment.report.append"
@@ -129,6 +133,14 @@ func (server *Server) ListTools() []ToolDefinition {
 	}
 	if server.reportPlanBinding.complete() && server.toolEnabled(ToolReportPlanSubmit) {
 		tools = append(tools, ToolDefinition{Name: ToolReportPlanSubmit, Description: "Report-planning session only: validate and durably submit one planned or long-form report plan for runner promotion.", InputSchema: schemaReportPlanSubmit})
+	}
+	if ValidatePartAssemblyBinding(server.binding, server.partAssemblyBinding) == nil && server.anyPartAssemblyToolEnabled() {
+		tools = append(tools,
+			ToolDefinition{Name: ToolReportPartAssemblyStart, Description: "Long-form part assembly session only: start a bounded draft for connective Markdown around immutable Section bodies.", InputSchema: schemaReportPartAssemblyStart},
+			ToolDefinition{Name: ToolReportPartAssemblyRead, Description: "Long-form part assembly session only: read the current connective draft state.", InputSchema: schemaReportPartAssemblyRead},
+			ToolDefinition{Name: ToolReportPartAssemblyPatch, Description: "Long-form part assembly session only: set intro, transition, or closing connective Markdown without editing Section bodies.", InputSchema: schemaReportPartAssemblyPatch},
+			ToolDefinition{Name: ToolReportPartAssemblySubmit, Description: "Long-form part assembly session only: durably submit the connective Markdown for server-side part assembly.", InputSchema: schemaReportPartAssemblySubmit},
+		)
 	}
 	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil && server.toolEnabled(ToolReportLongFormFinalize) {
 		tools = append(tools, ToolDefinition{Name: ToolReportLongFormFinalize, Description: "Long-form final session only: atomically assemble and finalize the bound durable report parts.", InputSchema: schemaReportLongFormFinalize})

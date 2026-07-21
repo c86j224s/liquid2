@@ -24,6 +24,7 @@ const (
 	reportGenerationGuidanceProfileSectionBriefVisualPlan        = "section-brief-visual-plan"
 	reportGenerationGuidanceProfileSectionBriefClusterVisualPlan = "section-brief-cluster-memory-visual-plan"
 	reportGenerationGuidanceProfilePlanReview                    = "plan-review"
+	reportGenerationGuidanceProfilePartAssemblyEditTools         = "part-assembly-edit-tools"
 	reportGenerationGuidanceProfileVisualSupplement              = "visual-supplement"
 	reportGenerationGuidanceProfileVisualPlan                    = "visual-plan"
 	reportGenerationGuidanceProfileDefault                       = reportGenerationGuidanceProfileVisualPlan
@@ -64,6 +65,10 @@ func selectReportGenerationGuidanceText(profile string, guidance func(string) st
 		text := guidance(reportGenerationGuidanceProfileVisualPlan)
 		sum := sha256.Sum256([]byte(text))
 		return reportGenerationGuidanceProfileVisualPlan, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualTypeManual, "visual_type_manual", "visual-type-selection", "visual_type_selection":
+		text := guidance(reportGenerationGuidanceProfileVisualTypeManual)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualTypeManual, hex.EncodeToString(sum[:]), nil
 	case reportGenerationGuidanceProfileNone, "off", "disabled", "disable", "false", "0":
 		return reportGenerationGuidanceProfileNone, "", nil
 	default:
@@ -77,7 +82,7 @@ func ReportGenerationPlanningGuidance(profile string) string {
 
 func ReportGenerationGuidance(profile string) string {
 	if isReportGenerationGuidanceProfileLongFormExperiment(profile) {
-		if isReportGenerationGuidanceProfileLongFormVisualPlan(profile) {
+		if isReportGenerationGuidanceProfileLongFormVisualPlan(profile) || isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) {
 			profile = reportGenerationGuidanceProfileVisualPlan
 		} else {
 			profile = reportGenerationGuidanceProfileG2
@@ -218,7 +223,8 @@ func isReportGenerationGuidanceProfileLongFormExperiment(profile string) bool {
 		isReportGenerationGuidanceProfileSectionBrief(profile) ||
 		isReportGenerationGuidanceProfileSectionBriefCluster(profile) ||
 		isReportGenerationGuidanceProfileLongFormVisualPlan(profile) ||
-		isReportGenerationGuidanceProfilePlanReview(profile)
+		isReportGenerationGuidanceProfilePlanReview(profile) ||
+		isReportGenerationGuidanceProfilePartAssemblyEditTools(profile)
 }
 
 func normalizeLongFormExperimentProfile(profile string) string {
@@ -246,10 +252,16 @@ func normalizeLongFormExperimentProfile(profile string) string {
 	if isReportGenerationGuidanceProfilePlanReview(profile) {
 		return reportGenerationGuidanceProfilePlanReview
 	}
+	if isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) {
+		return reportGenerationGuidanceProfilePartAssemblyEditTools
+	}
 	return reportGenerationGuidanceProfileSectionContract
 }
 
 func longFormExperimentalPlanningGuidance(profile string) string {
+	if isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) {
+		return reportVisualAidPlanningGuidance(reportGenerationGuidanceProfileVisualPlan)
+	}
 	parts := []string{
 		strings.TrimSpace(reportVisualAidPlanningGuidance(profile)),
 		strings.TrimSpace(longFormSectionContractPlanningGuidance(profile)),
@@ -277,28 +289,36 @@ func reportVisualAidWritingGuidance(profile string) string {
 - A visual aid must supplement the prose, not replace it. Introduce why it is useful, then explain the takeaway after it.
 - Keep prose source-grounded and specific. Do not add decorative visuals, filler tables, or diagrams that merely repeat adjacent paragraphs.
 - If no natural visual structure appears after reading the sources, do not include a table or Mermaid diagram.`
-	if isReportGenerationGuidanceProfileVisualPlan(profile) {
+	if isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
 		guidance += `
 - Follow the generation plan's visual-aid intent when it is useful, but do not force a planned table or diagram if later source reads show prose is clearer.
 - When a planned visual aid is used, make its purpose obvious in the nearby prose.`
+	}
+	if isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
+		guidance += "\n" + reportVisualTypeSelectionWritingGuidance()
 	}
 	return guidance
 }
 
 func reportVisualAidPlanningGuidance(profile string) string {
-	if !isReportGenerationGuidanceProfileVisualPlan(profile) {
+	if !isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
 		return ""
 	}
-	return `Visual-aid planning guidance:
+	guidance := `Visual-aid planning guidance:
 - While planning, decide whether any section naturally benefits from a table or Mermaid diagram.
 - Keep the submitted plan schema unchanged. Put visual-aid intent inside the existing section purpose or coverage_notes; do not add new fields.
 - State the purpose of each planned visual aid in plain prose: comparison, process, dependency, timeline, decision path, or trade-off.
 - Plan zero visual aids when the report would read better as prose.`
+	if isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
+		guidance += "\n" + reportVisualTypeSelectionPlanningGuidance()
+	}
+	return guidance
 }
 
 func isReportGenerationGuidanceProfileVisualAid(profile string) bool {
 	return isReportGenerationGuidanceProfileVisualSupplement(profile) ||
-		isReportGenerationGuidanceProfileVisualPlan(profile)
+		isReportGenerationGuidanceProfileVisualPlan(profile) ||
+		isReportGenerationGuidanceProfileVisualTypeManual(profile)
 }
 
 func isReportGenerationGuidanceProfileVisualSupplement(profile string) bool {
@@ -319,6 +339,11 @@ func isReportGenerationGuidanceProfileVisualPlan(profile string) bool {
 	default:
 		return false
 	}
+}
+
+func isReportGenerationGuidanceProfileVisualPlanFamily(profile string) bool {
+	return isReportGenerationGuidanceProfileVisualPlan(profile) ||
+		isReportGenerationGuidanceProfileVisualTypeManual(profile)
 }
 
 func isReportGenerationGuidanceProfileLongFormVisualPlan(profile string) bool {
@@ -407,6 +432,15 @@ func isReportGenerationGuidanceProfileSectionBriefClusterVisualPlan(profile stri
 func isReportGenerationGuidanceProfilePlanReview(profile string) bool {
 	switch strings.TrimSpace(strings.ToLower(profile)) {
 	case reportGenerationGuidanceProfilePlanReview, "plan_review", "thin-plan-review", "thin_plan_review":
+		return true
+	default:
+		return false
+	}
+}
+
+func isReportGenerationGuidanceProfilePartAssemblyEditTools(profile string) bool {
+	switch strings.TrimSpace(strings.ToLower(profile)) {
+	case reportGenerationGuidanceProfilePartAssemblyEditTools, "part_assembly_edit_tools", "part-assembly-tools", "part_assembly_tools":
 		return true
 	default:
 		return false

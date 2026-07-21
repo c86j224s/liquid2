@@ -168,6 +168,42 @@ var (
 			"session_chain_kind":              stringSchema(),
 		}),
 	)
+	schemaReportPartAssemblyStart = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "pending_event_id", "plan_event_id", "part_index", "section_count"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rpa_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+			"part_index":       map[string]any{"type": "integer", "minimum": 1},
+			"section_count":    map[string]any{"type": "integer", "minimum": 1},
+		}),
+	)
+	schemaReportPartAssemblyRead = objectSchema(
+		[]string{"mission_id", "session_id", "draft_id"},
+		map[string]any{
+			"mission_id": prefixedStringSchema("mis_"),
+			"session_id": prefixedStringSchema("ses_"),
+			"draft_id":   prefixedStringSchema("rpa_"),
+		},
+	)
+	schemaReportPartAssemblyPatch = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "field", "markdown"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":            prefixedStringSchema("rpa_"),
+			"field":               enumSchema("intro", "transition", "closing"),
+			"after_section_index": map[string]any{"type": "integer", "minimum": 1},
+			"markdown":            stringSchema(),
+			"summary":             stringSchema(),
+		}),
+	)
+	schemaReportPartAssemblySubmit = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rpa_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+		}),
+	)
 	schemaExperimentReportCreate = objectSchema(
 		[]string{"mission_id", "session_id", "idempotency_key", "producer"},
 		mergeProperties(commonMutatingProperties(), map[string]any{

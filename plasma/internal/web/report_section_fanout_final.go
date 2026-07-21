@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -38,7 +37,7 @@ func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sec
 			Prompt:   agentLongFormFinalizePrompt(req.title, req.missionID, req.rigor, state.plan, parts, req.generationGuidanceProfile, binding, attempt, canonical, hint),
 			Model:    req.agentModel, ReasoningEffort: req.agentReasoningEffort, MissionID: req.missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: finalSessionID, AgentExecutor: req.executorName, MCPMode: req.mcpMode,
-			ExtraMCPTools: []string{plasmamcp.ToolReportLongFormFinalize}, LongFormFinalize: &binding,
+			ExtraMCPTools: reportFinalizeMCPTools(), ReplaceMCPTools: true, LongFormFinalize: &binding,
 		})
 		durationMS := time.Since(attemptStarted).Milliseconds()
 		logLongFormFinalObservation(req.missionID, req.pendingEventID, state.planEvent.EventID, attempt, finalSessionID, result, durationMS)

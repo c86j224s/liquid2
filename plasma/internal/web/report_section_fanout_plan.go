@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -77,7 +76,8 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 				PreviousSessionID: reportStartSessionID,
 				AgentExecutor:     req.executorName,
 				MCPMode:           req.mcpMode,
-				ExtraMCPTools:     []string{plasmamcp.ToolReportPlanSubmit},
+				ExtraMCPTools:     reportPlanMCPTools(),
+				ReplaceMCPTools:   true,
 				ReportPlan: &AgentReportPlanContext{
 					PendingEventID:            req.pendingEventID,
 					ReportMode:                reportModeLongForm,

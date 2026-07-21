@@ -50,6 +50,8 @@ func (server *Server) runSectionFanoutTasks(ctx context.Context, req sectionFano
 				PreviousSessionID: task.previousSession,
 				AgentExecutor:     req.executorName,
 				MCPMode:           req.mcpMode,
+				ExtraMCPTools:     reportReadMCPTools(),
+				ReplaceMCPTools:   true,
 			})
 			durationMS := time.Since(started).Milliseconds()
 			if err != nil {

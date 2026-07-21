@@ -87,6 +87,15 @@ large artifacts live outside the repository under `research-artifacts/`.
       candidate looked productizable, while the rich
       `section-brief-cluster-memory` visual candidate stayed mixed because it
       changed the rich-coverage option's length and density more often.
+25. [`25-report-visual-type-selection-2026-07-21/`](25-report-visual-type-selection-2026-07-21/README.md)
+    - Prepared product-path experiment for testing whether report agents can
+      choose visual types by source structure, including dense quantitative
+      tables, agent benchmark matrices, protocol lifecycles, and complex
+      architecture dependency graphs.
+26. [`26-report-assembly-edit-tools-2026-07-21/`](26-report-assembly-edit-tools-2026-07-21/README.md)
+    - Prepared product-path experiment for testing whether long-form Part
+      assembly should submit only connective tissue through MCP edit tools
+      instead of returning the assembly JSON in the agent response.
 
 ## Controller Experiment Sequence
 

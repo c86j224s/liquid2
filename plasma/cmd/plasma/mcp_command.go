@@ -53,6 +53,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	reportPlanPreviousProviderSessionID := fs.String("report-plan-previous-provider-session-id", "", "optional provider session resumed by planning")
 	reportPlanAgentModel := fs.String("report-plan-agent-model", "", "server-bound report planning model")
 	reportPlanAgentReasoningEffort := fs.String("report-plan-agent-reasoning-effort", "", "server-bound report planning reasoning effort")
+	partAssemblyBindingJSON := fs.String("report-part-assembly-binding-json", "", "server-bound long-form part assembly metadata")
 	longFormFinalizeBindingJSON := fs.String("report-long-form-finalize-binding-json", "", "server-bound long-form finalization metadata")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -143,6 +144,25 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			return 2
 		}
 		options = append(options, mcp.WithReportPlanBinding(planBinding))
+	}
+	if strings.TrimSpace(*partAssemblyBindingJSON) != "" {
+		var partBinding reporting.PartAssemblyBinding
+		decoder := json.NewDecoder(strings.NewReader(*partAssemblyBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&partBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp part assembly binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp part assembly binding: multiple JSON values")
+			return 2
+		}
+		if err := mcp.ValidatePartAssemblyBinding(binding, partBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp part assembly binding: %v\n", err)
+			return 2
+		}
+		options = append(options, mcp.WithPartAssemblyBinding(partBinding))
 	}
 	if strings.TrimSpace(*longFormFinalizeBindingJSON) != "" {
 		var finalBinding reporting.LongFormFinalizeBinding

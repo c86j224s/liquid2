@@ -11,6 +11,7 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -170,7 +171,7 @@ func (server *Server) reportCancelInFlightPendingEventID(missionID string, pendi
 }
 
 func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
-	if len(rest) != 1 && !(len(rest) == 2 && (rest[1] == "download" || rest[1] == "html_export" || rest[1] == "designed_html_export" || rest[1] == "humanized_markdown_export")) {
+	if len(rest) != 1 && !(len(rest) == 2 && (rest[1] == "download" || rest[1] == "preview" || rest[1] == "html_export" || rest[1] == "designed_html_export" || rest[1] == "humanized_markdown_export")) {
 		http.NotFound(w, r)
 		return
 	}
@@ -222,14 +223,22 @@ func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusNotFound, "artifact not found")
 		return
 	}
-	if len(rest) == 2 {
+	if len(rest) == 2 && rest[1] == "download" {
 		writeRawArtifactDownload(w, artifact)
+		return
+	}
+	if len(rest) == 2 && rest[1] == "preview" {
+		writeRawArtifactHTMLPreview(w, artifact)
 		return
 	}
 	writeRawArtifactFullPreview(w, artifact)
 }
 
 func (server *Server) handleReportArtifactHTMLExport(w http.ResponseWriter, r *http.Request, missionID string, artifactID string) {
+	var req reportArtifactHTMLExportRequest
+	if !decodeOptionalJSON(w, r, &req) {
+		return
+	}
 	sourceArtifact, err := server.reportArtifact(r.Context(), missionID, artifactID)
 	if err != nil {
 		writeAppError(w, err)
@@ -240,12 +249,24 @@ func (server *Server) handleReportArtifactHTMLExport(w http.ResponseWriter, r *h
 		writeAppError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"artifact":        rawArtifactMetadata(result.Artifact),
 		"source_artifact": rawArtifactMetadata(sourceArtifact),
 		"event":           result.Event,
-		"content":         string(result.Artifact.Content),
-	})
+		"preview_url":     rawArtifactPreviewPath(missionID, result.Artifact.ArtifactID),
+	}
+	if req.IncludeContent == nil || *req.IncludeContent {
+		response["content"] = string(result.Artifact.Content)
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type reportArtifactHTMLExportRequest struct {
+	IncludeContent *bool `json:"include_content"`
+}
+
+func rawArtifactPreviewPath(missionID string, artifactID string) string {
+	return "/api/missions/" + url.PathEscape(missionID) + "/artifacts/" + url.PathEscape(artifactID) + "/preview"
 }
 
 func (server *Server) handleReportArtifactDesignedHTMLExport(w http.ResponseWriter, r *http.Request, missionID string, artifactID string) {
@@ -1702,6 +1723,8 @@ func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID st
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		ExtraMCPTools:     reportReadMCPTools(),
+		ReplaceMCPTools:   true,
 	})
 	agentDurationMS := time.Since(started).Milliseconds()
 	if err != nil {
@@ -1835,7 +1858,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 			result, runErr := executor.Run(ctx, AgentRequest{
 				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 				Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-				ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+				ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
 			})
 			planDurationMS = time.Since(planStarted).Milliseconds()
 			planResult = result
@@ -1921,6 +1944,8 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 		PreviousSessionID: planResult.SessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		ExtraMCPTools:     reportReadMCPTools(),
+		ReplaceMCPTools:   true,
 	})
 	reportDurationMS := time.Since(reportStarted).Milliseconds()
 	if err != nil {
@@ -2073,7 +2098,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				result, runErr := executor.Run(ctx, AgentRequest{
 					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-					ExtraMCPTools: []string{plasmamcp.ToolReportPlanSubmit}, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
 				})
 				planDurationMS = time.Since(planStarted).Milliseconds()
 				planResult = result
@@ -2198,6 +2223,8 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				PreviousSessionID: previousStageSessionID,
 				AgentExecutor:     executorName,
 				MCPMode:           mcpMode,
+				ExtraMCPTools:     reportReadMCPTools(),
+				ReplaceMCPTools:   true,
 			})
 			sectionDurationMS := time.Since(sectionStarted).Milliseconds()
 			if err != nil {
@@ -2290,31 +2317,38 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		toolSessionID := newID("ses")
 		previousStageSessionID := currentSessionID
 		partStarted := time.Now()
-		result, err := executor.Run(ctx, AgentRequest{
-			UserText:          fmt.Sprintf("assemble part %d for sectional long-form markdown report", partIndex+1),
-			Prompt:            agentPartAssemblyPrompt(title, missionID, toolSessionID, rigor, plan, part, sectionDraftsByPart[partIndex], partIndex, generationGuidanceProfile),
-			Model:             agentModel,
-			ReasoningEffort:   agentReasoningEffort,
-			MissionID:         missionID,
-			ToolSessionID:     toolSessionID,
-			PreviousSessionID: previousStageSessionID,
-			AgentExecutor:     executorName,
-			MCPMode:           mcpMode,
-		})
+		assembly, result, returnedSessionID, err := server.runPartAssemblyAgent(ctx, reportPartAssemblyAgentRequest{
+			title:                        title,
+			missionID:                    missionID,
+			toolSessionID:                toolSessionID,
+			previousSessionID:            previousStageSessionID,
+			pendingEventID:               pendingEventID,
+			planEventID:                  planEvent.EventID,
+			executorName:                 executorName,
+			agentModel:                   agentModel,
+			agentReasoningEffort:         agentReasoningEffort,
+			agentSelectionSource:         agentSelectionSource,
+			mcpMode:                      mcpMode,
+			rigor:                        rigor,
+			plan:                         plan,
+			part:                         part,
+			drafts:                       sectionDraftsByPart[partIndex],
+			partIndex:                    partIndex,
+			reportSessionPolicy:          reportSessionPolicy,
+			reportSessionPolicySelection: reportSessionPolicySelection,
+			postReportHumanize:           postReportHumanize,
+			generationGuidanceProfile:    generationGuidanceProfile,
+			generationGuidanceSHA256:     generationGuidanceSHA256,
+			sessionChainKind:             sessionChainKind,
+			preReportResearchSessionID:   preReportResearchSessionID,
+			reportPlanSessionID:          reportPlanSessionID,
+			forkSourceAgentSessionID:     forkSourceSessionID,
+		}, executor)
 		partDurationMS := time.Since(partStarted).Milliseconds()
 		if err != nil {
 			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
 		}
-		returnedSessionID := strings.TrimSpace(result.SessionID)
-		result, err = validatedSameSessionResult(result, previousStageSessionID)
-		if err != nil {
-			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
-		}
 		currentSessionID = strings.TrimSpace(result.SessionID)
-		assembly, err := parseAgentPartAssembly(result.Text)
-		if err != nil {
-			return nil, longFormStageFailure("part", planEvent.EventID, partIndex+1, 0, reportAgentFailure(err, result, "report_part", partDurationMS, previousStageSessionID))
-		}
 		partMarkdown := assembleSectionalPartMarkdown(part, sectionDraftsByPart[partIndex], assembly, partIndex)
 		artifact, err := server.service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
 			ArtifactID: newID("art"),
@@ -2407,7 +2441,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Prompt:   agentLongFormFinalizePrompt(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, attempt, canonical, hint),
 			Model:    agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: previousStageSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-			ExtraMCPTools: []string{plasmamcp.ToolReportLongFormFinalize}, LongFormFinalize: &binding,
+			ExtraMCPTools: reportFinalizeMCPTools(), ReplaceMCPTools: true, LongFormFinalize: &binding,
 		})
 		durationMS := time.Since(attemptStarted).Milliseconds()
 		returnedResult := result

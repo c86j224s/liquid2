@@ -208,6 +208,112 @@ func TestStaticMissionListTitlesCanGrowItems(t *testing.T) {
 	}
 }
 
+func TestStaticImageViewerContracts(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	script := string(mustReadStatic(t, "static/app.js"))
+	viewerScript := string(mustReadStatic(t, "static/image_viewer.js"))
+	styles := string(mustReadStatic(t, "static/image_viewer.css"))
+	for _, expected := range []string{
+		`href="/static/image_viewer.css"`,
+		`src="/static/image_viewer.js"`,
+	} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("missing image viewer asset include %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"window.enhancePlasmaImageViewing?.(log)",
+		"window.preparePlasmaHTMLPreview",
+		"plasma-html-preview-frame",
+		"window.enhancePlasmaImageViewing?.($(\"detailBody\"))",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("missing app image viewer integration %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		`const MESSAGE_TYPE = "plasma:image-viewer:open"`,
+		"querySelectorAll(\"img\")",
+		"mermaidSVGSelector()",
+		"svg.outerHTML",
+		"kind: \"svg\"",
+		"legendFromMermaidSVG(svg)",
+		"renderImageViewerLegend(details?.legend)",
+		"legend: legendFromMermaidSVG(svg)",
+		"legend:legend(svg)",
+		"data-image-viewer-action=\"zoom-in\"",
+		"data-image-viewer-action=\"zoom-out\"",
+		"data-image-viewer-action=\"fit\"",
+		"data-image-viewer-action=\"actual\"",
+		"parent.postMessage(details(img),\"*\")",
+		"frame.contentWindow === event.source",
+		"window.preparePlasmaHTMLPreview = preparePlasmaHTMLPreview",
+	} {
+		if !strings.Contains(viewerScript, expected) {
+			t.Fatalf("missing image viewer behavior contract %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		".plasma-image-viewer-open",
+		".plasma-image-viewer-target--svg",
+		".image-viewer-modal",
+		".image-viewer-stage",
+		".image-viewer-legend",
+		"overflow: auto",
+		"max-width: none",
+		"z-index: 45",
+		"@media (hover: none)",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing image viewer style contract %q", expected)
+		}
+	}
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	fixture := `
+const fs = require("fs"), vm = require("vm");
+const context = { window: { addEventListener() {} } };
+vm.createContext(context);
+vm.runInContext(fs.readFileSync("static/image_viewer.js", "utf8"), context);
+const html = context.window.preparePlasmaHTMLPreview("<html><body><main><img src='chart.png' alt='chart'></main></body></html>");
+if (!html.includes("plasma-image-viewer-open") || !html.includes("parent.postMessage") || !html.includes("</script></body>")) process.exit(1);
+const fragment = context.window.preparePlasmaHTMLPreview("<img src='chart.png'>");
+if (!fragment.includes("plasma:image-viewer:open") || !fragment.includes("querySelectorAll(\"img\")")) process.exit(2);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("image viewer fixture: %v: %s", err, out)
+	}
+	mermaidScript := string(mustReadStatic(t, "static/report_mermaid.js"))
+	if !strings.Contains(mermaidScript, "global.enhancePlasmaImageViewing?.(output)") {
+		t.Fatal("Mermaid renderer must enhance rendered SVGs after async render")
+	}
+}
+
+func TestStaticBasicHTMLReportUsesArtifactPreviewURL(t *testing.T) {
+	script := string(mustReadStatic(t, "static/app.js"))
+	htmlExportFn := jsSourceRange(t, script, "async function exportReportArtifactHTML(", "\nasync function exportReportArtifactDesignedHTML(")
+	for _, expected := range []string{
+		"missionArtifactPreviewURL",
+		"openReportHTMLPreviewWindow",
+		"navigateReportHTMLPreviewWindow",
+		"body: { include_content: Boolean(options.download) }",
+		"result.preview_url",
+	} {
+		if !strings.Contains(htmlExportFn, expected) {
+			t.Fatalf("expected basic HTML export flow to contain %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"setReportPreviewLoading(key)",
+		"applyReportPreview(key, \"html\"",
+	} {
+		if strings.Contains(htmlExportFn, forbidden) {
+			t.Fatalf("basic HTML export should open an artifact preview URL, found %q", forbidden)
+		}
+	}
+}
+
 func TestMissionHardDeleteRequiresPreviewAndConfirmation(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required")
@@ -957,6 +1063,7 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	for _, expected := range []string{
+		`<option value="visual-plan" selected>기본: 시각자료 계획</option>`,
 		`<option value="section-brief-visual-plan">섹션 중심</option>`,
 		`<option value="section-brief-cluster-memory-visual-plan">섹션 중심 + 풍부하게</option>`,
 	} {
@@ -965,6 +1072,7 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 		}
 	}
 	for _, legacy := range []string{
+		`<option value="part-assembly-edit-tools">파트 조립 다듬기</option>`,
 		`<option value="g2">기본 글쓰기</option>`,
 		`<option value="section-brief">섹션 중심</option>`,
 		`<option value="section-brief-cluster-memory">섹션 중심 + 풍부하게</option>`,
@@ -982,6 +1090,7 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 let nodes = {reportGenerationGuidance:{value:"section-brief-visual-plan"}};
 const $ = (id) => nodes[id] || null;
 ` + jsSourceRange(t, script, "const DEFAULT_REPORT_GENERATION_GUIDANCE", "\nconst AGENT_MODEL_OPTIONS") + `
+nodes.reportGenerationGuidance.value = "section-brief-visual-plan";
 if (selectedReportGenerationGuidance("long_form") !== "section-brief-visual-plan") throw new Error("section brief visual plan did not pass through for long-form");
 if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("section brief visual plan did not fall back for planned reports");
 nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-visual-plan";
@@ -989,6 +1098,7 @@ if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-mem
 if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("cluster memory visual plan did not fall back for planned reports");
 if (reportGenerationGuidanceLabel("g2") !== "기본 글쓰기") throw new Error("legacy g2 label not retained");
 if (reportGenerationGuidanceLabel("section-brief") !== "섹션 중심 (이전)") throw new Error("legacy section label not distinguished");
+if (reportGenerationGuidanceLabel("part-assembly-edit-tools") !== "파트 조립 다듬기") throw new Error("hidden part assembly label not retained");
 if (reportGenerationGuidanceLabel("section-brief-visual-plan") !== "섹션 중심") throw new Error("section visual label mismatch");
 if (reportGenerationGuidanceLabel("section-brief-cluster-memory-visual-plan") !== "섹션 중심 + 풍부하게") throw new Error("cluster visual label mismatch");
 `

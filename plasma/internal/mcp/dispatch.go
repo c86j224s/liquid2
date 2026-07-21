@@ -102,6 +102,26 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.withIdempotency(ctx, call, server.callReportPatchFinalize)
 	case ToolReportPlanSubmit:
 		return server.callReportPlanSubmit(ctx, call)
+	case ToolReportPartAssemblyStart:
+		if !server.partAssemblyToolEnabled(call.Name) {
+			return partAssemblyDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartAssemblyStart)
+	case ToolReportPartAssemblyRead:
+		if !server.partAssemblyToolEnabled(call.Name) {
+			return partAssemblyDisabledResult(call)
+		}
+		return server.callReportPartAssemblyRead(ctx, call)
+	case ToolReportPartAssemblyPatch:
+		if !server.partAssemblyToolEnabled(call.Name) {
+			return partAssemblyDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartAssemblyPatch)
+	case ToolReportPartAssemblySubmit:
+		if !server.partAssemblyToolEnabled(call.Name) {
+			return partAssemblyDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartAssemblySubmit)
 	case ToolReportLongFormFinalize:
 		return server.callReportLongFormFinalize(ctx, call)
 	case ToolExperimentReportCreate:

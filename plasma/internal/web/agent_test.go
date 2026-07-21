@@ -10,6 +10,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func TestCodexEnvironmentUsesAllowlist(t *testing.T) {
@@ -619,6 +620,60 @@ func TestLongFormGenerationGuidanceCombinesSectionBriefAndVisualPlan(t *testing.
 	}
 }
 
+func TestLongFormGenerationGuidanceAcceptsPartAssemblyEditTools(t *testing.T) {
+	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "part-assembly-tools")
+	if err != nil {
+		t.Fatalf("expected part assembly edit tools to be accepted for long-form reports: %v", err)
+	}
+	if profile != reportGenerationGuidanceProfilePartAssemblyEditTools || strings.TrimSpace(sha) == "" {
+		t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
+	}
+	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "part-assembly-tools"); err == nil {
+		t.Fatalf("part assembly edit tools must remain long-form-only")
+	}
+	for _, productProfile := range []string{
+		reportGenerationGuidanceProfileVisualPlan,
+		reportGenerationGuidanceProfileSectionBriefVisualPlan,
+		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+	} {
+		if !usePartAssemblyEditTools(productProfile) {
+			t.Fatalf("part assembly tools must be active for product profile %q", productProfile)
+		}
+	}
+	for _, inactiveProfile := range []string{reportGenerationGuidanceProfileG2, reportGenerationGuidanceProfileNone, reportGenerationGuidanceProfileVisualSupplement} {
+		if usePartAssemblyEditTools(inactiveProfile) {
+			t.Fatalf("part assembly tools must not be active for profile %q", inactiveProfile)
+		}
+	}
+	planGuidance := longFormExperimentalPlanningGuidance(profile)
+	if !strings.Contains(planGuidance, "Visual-aid planning guidance:") || strings.Contains(planGuidance, "Section-brief planning guidance:") {
+		t.Fatalf("part assembly profile must keep the visual-plan planning surface only:\n%s", planGuidance)
+	}
+	writeGuidance := LongFormReportGenerationGuidance(profile)
+	for _, expected := range []string{"Report visual-aid guidance:", "Long-form human-writer guidance:"} {
+		if !strings.Contains(writeGuidance, expected) {
+			t.Fatalf("part assembly profile missing %q:\n%s", expected, writeGuidance)
+		}
+	}
+	prompt := agentPartAssemblyEditToolsPrompt(reportPartAssemblyAgentRequest{
+		title:         "Report",
+		missionID:     "mis_1",
+		toolSessionID: "ses_1",
+		rigor:         reportRigorProfiles["balanced"],
+		plan: agentSectionalReportPlan{Summary: "Plan", Parts: []agentReportPart{{
+			Title: "Part", Sections: []agentReportSection{{Title: "Section"}},
+		}}},
+		part:                      agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}},
+		partIndex:                 0,
+		generationGuidanceProfile: profile,
+	}, reporting.PartAssemblyBinding{MissionID: "mis_1", ToolSessionID: "ses_1", PartIndex: 1, SectionCount: 1, Producer: app.Producer{Type: "agent_session", ID: "ses_1"}}, "rpa_test")
+	for _, expected := range []string{"plasma.report.part_assembly.start", "plasma.report.part_assembly.patch", "plasma.report.part_assembly.submit", "Do not include immutable Section bodies", "PART_ASSEMBLY_SUBMITTED"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("part assembly edit-tools prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
 func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -652,10 +707,26 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			hasWriting: true,
 		},
 		{
+			name:       "planned visual type manual",
+			mode:       reportModePlanned,
+			input:      "visual_type_manual",
+			profile:    reportGenerationGuidanceProfileVisualTypeManual,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
 			name:       "long-form default",
 			mode:       reportModeLongForm,
 			input:      "",
 			profile:    reportGenerationGuidanceProfileVisualPlan,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual type manual",
+			mode:       reportModeLongForm,
+			input:      "visual-type-selection",
+			profile:    reportGenerationGuidanceProfileVisualTypeManual,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -684,6 +755,9 @@ func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
 	if !strings.Contains(planPrompt, "Visual-aid planning guidance:") {
 		t.Fatalf("planned report prompt missing visual planning guidance:\n%s", planPrompt)
 	}
+	if !strings.Contains(planPrompt, "Visual type selection planning guidance:") || !strings.Contains(planPrompt, "complex architecture dependency graphs") {
+		t.Fatalf("planned report prompt missing productized visual type selection guidance:\n%s", planPrompt)
+	}
 	if strings.Contains(planPrompt, "plasma.mermaid.validate") {
 		t.Fatalf("planning prompt should not require unavailable Mermaid validation:\n%s", planPrompt)
 	}
@@ -694,6 +768,24 @@ func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
 	longPlanPrompt := agentSectionalReportPlanPrompt("Long", "mis_long", "ses_tool", "evt_pending_long", "key_long", reportRigorProfiles["balanced"], "visual-plan")
 	if !strings.Contains(longPlanPrompt, "Visual-aid planning guidance:") {
 		t.Fatalf("long-form plan prompt missing visual planning guidance:\n%s", longPlanPrompt)
+	}
+	if !strings.Contains(longPlanPrompt, "Visual type selection planning guidance:") {
+		t.Fatalf("long-form plan prompt missing productized visual type selection guidance:\n%s", longPlanPrompt)
+	}
+	visualPlanWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-plan")
+	if !strings.Contains(visualPlanWritePrompt, "Match the visual type to the source structure") || !strings.Contains(visualPlanWritePrompt, "plasma.mermaid.validate") {
+		t.Fatalf("visual-plan writing prompt missing productized visual type selection or Mermaid validation guidance:\n%s", visualPlanWritePrompt)
+	}
+	typePlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-type-manual")
+	if !strings.Contains(typePlanPrompt, "Visual type selection planning guidance:") || !strings.Contains(typePlanPrompt, "complex architecture dependency graphs") {
+		t.Fatalf("visual type plan prompt missing type selection guidance:\n%s", typePlanPrompt)
+	}
+	if strings.Contains(typePlanPrompt, "plasma.mermaid.validate") {
+		t.Fatalf("visual type planning prompt should not require unavailable Mermaid validation:\n%s", typePlanPrompt)
+	}
+	typeWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-type-manual")
+	if !strings.Contains(typeWritePrompt, "Match the visual type to the source structure") || !strings.Contains(typeWritePrompt, "plasma.mermaid.validate") {
+		t.Fatalf("visual type writing prompt missing type selection or Mermaid validation guidance:\n%s", typeWritePrompt)
 	}
 }
 

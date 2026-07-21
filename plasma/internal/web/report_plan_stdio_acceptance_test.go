@@ -56,6 +56,60 @@ func (executor *stdioReportPlanExecutor) Run(ctx context.Context, req AgentReque
 		result.Text = "REPORT_FINALIZED"
 		return result, nil
 	}
+	if req.PartAssembly != nil {
+		assembly, parseErr := parseAgentPartAssembly(result.Text)
+		if parseErr != nil {
+			return result, parseErr
+		}
+		encoded, _ := json.Marshal(req.PartAssembly)
+		args := []string{
+			"mcp", "-db", executor.database, "-mission-id", req.MissionID, "-agent-session-id", req.ToolSessionID, "-agent-executor", req.AgentExecutor,
+			"-enabled-tool", plasmamcp.ToolReportPartAssemblyStart,
+			"-enabled-tool", plasmamcp.ToolReportPartAssemblyRead,
+			"-enabled-tool", plasmamcp.ToolReportPartAssemblyPatch,
+			"-enabled-tool", plasmamcp.ToolReportPartAssemblySubmit,
+			"-report-part-assembly-binding-json", string(encoded),
+		}
+		draftID := "rpa_stdio"
+		base := map[string]any{"mission_id": req.MissionID, "session_id": req.ToolSessionID, "producer": map[string]any{"type": "agent_session", "id": req.ToolSessionID}}
+		partArgs := func(extra map[string]any) map[string]any {
+			arguments := make(map[string]any, len(base)+len(extra))
+			for key, value := range base {
+				arguments[key] = value
+			}
+			for key, value := range extra {
+				arguments[key] = value
+			}
+			return arguments
+		}
+		calls := []map[string]any{
+			{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": plasmamcp.ToolReportPartAssemblyStart, "arguments": partArgs(map[string]any{"pending_event_id": req.PartAssembly.PendingEventID, "plan_event_id": req.PartAssembly.PlanEventID, "draft_id": draftID, "part_index": req.PartAssembly.PartIndex, "section_count": req.PartAssembly.SectionCount, "idempotency_key": "part_start_key"})}},
+		}
+		if strings.TrimSpace(assembly.Intro) != "" {
+			calls = append(calls, map[string]any{"jsonrpc": "2.0", "id": len(calls) + 1, "method": "tools/call", "params": map[string]any{"name": plasmamcp.ToolReportPartAssemblyPatch, "arguments": partArgs(map[string]any{"draft_id": draftID, "field": "intro", "markdown": assembly.Intro, "summary": "intro", "idempotency_key": "part_intro_key"})}})
+		}
+		for index, transition := range assembly.Transitions {
+			calls = append(calls, map[string]any{"jsonrpc": "2.0", "id": len(calls) + 1, "method": "tools/call", "params": map[string]any{"name": plasmamcp.ToolReportPartAssemblyPatch, "arguments": partArgs(map[string]any{"draft_id": draftID, "field": "transition", "after_section_index": transition.AfterSectionIndex, "markdown": transition.Markdown, "summary": "transition", "idempotency_key": fmt.Sprintf("part_transition_%d_key", index+1)})}})
+		}
+		if strings.TrimSpace(assembly.Closing) != "" {
+			calls = append(calls, map[string]any{"jsonrpc": "2.0", "id": len(calls) + 1, "method": "tools/call", "params": map[string]any{"name": plasmamcp.ToolReportPartAssemblyPatch, "arguments": partArgs(map[string]any{"draft_id": draftID, "field": "closing", "markdown": assembly.Closing, "summary": "closing", "idempotency_key": "part_closing_key"})}})
+		}
+		calls = append(calls, map[string]any{"jsonrpc": "2.0", "id": len(calls) + 1, "method": "tools/call", "params": map[string]any{"name": plasmamcp.ToolReportPartAssemblySubmit, "arguments": partArgs(map[string]any{"pending_event_id": req.PartAssembly.PendingEventID, "plan_event_id": req.PartAssembly.PlanEventID, "draft_id": draftID, "idempotency_key": "part_submit_key"})}})
+		var input bytes.Buffer
+		for _, call := range calls {
+			if err := json.NewEncoder(&input).Encode(call); err != nil {
+				return result, err
+			}
+		}
+		command := exec.CommandContext(ctx, executor.binary, args...)
+		command.Stdin = &input
+		output, runErr := command.CombinedOutput()
+		if runErr != nil || !strings.Contains(string(output), "event_id") || strings.Contains(string(output), `"isError":true`) {
+			return result, fmt.Errorf("plasma part assembly MCP stdio failed: %v: %s", runErr, output)
+		}
+		result.Text = reporting.PartAssemblySubmittedSentinel
+		return result, nil
+	}
 	if req.ReportPlan == nil {
 		return result, nil
 	}

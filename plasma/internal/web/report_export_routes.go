@@ -215,6 +215,33 @@ func writeRawArtifactDownload(w http.ResponseWriter, artifact app.RawArtifact) {
 	_, _ = w.Write(artifact.Content)
 }
 
+func writeRawArtifactHTMLPreview(w http.ResponseWriter, artifact app.RawArtifact) {
+	if !isHTMLMediaType(artifact.MediaType) {
+		writeError(w, http.StatusUnsupportedMediaType, "artifact is not previewable as HTML")
+		return
+	}
+	mediaType := strings.TrimSpace(artifact.MediaType)
+	filename := strings.TrimSpace(artifact.Filename)
+	if filename == "" {
+		filename = artifact.ArtifactID + ".html"
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(artifact.Content)))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": filename}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(artifact.Content)
+}
+
+func isHTMLMediaType(mediaType string) bool {
+	base, _, err := mime.ParseMediaType(strings.TrimSpace(mediaType))
+	if err != nil {
+		base = mediaType
+	}
+	return strings.EqualFold(strings.TrimSpace(base), "text/html")
+}
+
 func rawArtifactMetadata(artifact app.RawArtifact) map[string]any {
 	return app.UploadedArtifactMetadata(artifact)
 }

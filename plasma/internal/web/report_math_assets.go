@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed static/vendor/katex/katex.min.js static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/vendor/purify.min.js static/vendor/mermaid.min.js static/report_math.js static/report_math.css static/report_mermaid.js static/report_mermaid.css
+//go:embed static/vendor/katex/katex.min.js static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/vendor/purify.min.js static/vendor/mermaid.min.js static/report_math.js static/report_math.css static/report_mermaid_legend.js static/report_mermaid.js static/report_mermaid.css
 var reportMathAssets embed.FS
 
 var reportMathFonts = []string{
@@ -21,7 +21,7 @@ var reportMathFonts = []string{
 	"KaTeX_Size4-Regular.woff2", "KaTeX_Typewriter-Regular.woff2",
 }
 
-const selfContainedReportRendererVersion = "html5-frontend-bracket-math-mermaid-20260721"
+const selfContainedReportRendererVersion = "html5-frontend-bracket-math-mermaid-legend-20260721"
 
 var reportMathCSSURL = regexp.MustCompile(`url\(fonts/([^)]+)\)`)
 
@@ -105,11 +105,16 @@ func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mermaidLegend, err := reportMathAssets.ReadFile("static/report_mermaid_legend.js")
+	if err != nil {
+		return "", err
+	}
 	mermaidRenderer, err := reportMathAssets.ReadFile("static/report_mermaid.js")
 	if err != nil {
 		return "", err
 	}
 	scripts += "<script>" + safeRawElement(string(mermaidRuntime), "script") + "</script>\n" +
+		"<script>" + safeRawElement(string(mermaidLegend), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(mermaidRenderer), "script") + "</script>\n"
 	scripts += "<script>" + safeRawElement(bootstrap, "script") + "</script>\n"
 	return scripts, nil

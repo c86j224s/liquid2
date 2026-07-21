@@ -158,16 +158,8 @@ type sectionalReportPartDraft struct {
 	WordCount  int
 }
 
-type agentPartAssembly struct {
-	Intro       string                `json:"intro"`
-	Transitions []agentPartTransition `json:"transitions"`
-	Closing     string                `json:"closing"`
-}
-
-type agentPartTransition struct {
-	AfterSectionIndex int    `json:"after_section_index"`
-	Markdown          string `json:"markdown"`
-}
+type agentPartAssembly = reporting.PartAssembly
+type agentPartTransition = reporting.PartTransition
 
 type agentReportAST struct {
 	Title   string             `json:"title"`

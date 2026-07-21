@@ -69,6 +69,7 @@ type Server struct {
 	reportPatch                   bool
 	reportPatchBinding            ReportPatchBinding
 	reportPlanBinding             ReportPlanBinding
+	partAssemblyBinding           reporting.PartAssemblyBinding
 	longFormFinalizeBinding       reporting.LongFormFinalizeBinding
 	enabledTools                  map[string]struct{}
 	sourceCandidateFetcher        SourceCandidateFetcher
@@ -77,16 +78,18 @@ type Server struct {
 	idempotency           map[string]idempotencyEntry
 	reportDrafts          map[string]*experimentReportDraft
 	reportPatches         map[string]*reportPatchDraft
+	partAssemblyDrafts    map[string]*partAssemblyDraft
 	reportPlanParsedCalls int
 }
 
 func NewServer(service Service, options ...Option) *Server {
 	server := &Server{
-		service:       service,
-		connectors:    map[string]app.Liquid2SourceConnector{},
-		idempotency:   map[string]idempotencyEntry{},
-		reportDrafts:  map[string]*experimentReportDraft{},
-		reportPatches: map[string]*reportPatchDraft{},
+		service:            service,
+		connectors:         map[string]app.Liquid2SourceConnector{},
+		idempotency:        map[string]idempotencyEntry{},
+		reportDrafts:       map[string]*experimentReportDraft{},
+		reportPatches:      map[string]*reportPatchDraft{},
+		partAssemblyDrafts: map[string]*partAssemblyDraft{},
 	}
 	for _, option := range options {
 		option(server)

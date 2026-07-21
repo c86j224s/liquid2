@@ -13,6 +13,23 @@ existing raw Markdown artifact and `report.artifact.created` event.
 
 Planned reports and CLI report behavior do not use this command.
 
+## Part Assembly Edit Tools
+
+The browser keeps the three active writing choices: `visual-plan`,
+`section-brief-visual-plan`, and
+`section-brief-cluster-memory-visual-plan`. In long-form reports, all three use
+the same Part assembly MCP edit handoff: the Part agent receives only a bound
+MCP edit surface for Part intro, transitions, and closing, then returns the
+`PART_ASSEMBLY_SUBMITTED` sentinel.
+
+The older `part-assembly-edit-tools` profile remains accepted for experiment
+replay and stored-event compatibility, but it is not a separate browser choice.
+
+This handoff does not let the agent rewrite Section bodies or submit complete
+Part Markdown. The server still inserts the immutable Section artifacts and
+creates the canonical Part artifact. Planned reports, one-take reports, CLI
+reports, H5 patching, designed HTML, and cost policy are unchanged.
+
 ## Execution Strategies
 
 `serial` is the default long-form strategy. It chains planning, each section,

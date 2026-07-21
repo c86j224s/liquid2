@@ -93,6 +93,7 @@ const DEFAULT_REPORT_GENERATION_GUIDANCE = "visual-plan";
 // These older long-form profiles remain understood for stored events and API
 // compatibility, but are not offered as selectable UI choices.
 const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
+  "part-assembly-edit-tools",
   "section-brief",
   "section-brief-cluster-memory",
   "section-brief-visual-plan",
@@ -105,6 +106,7 @@ const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
 const REPORT_GENERATION_GUIDANCE_LABELS = {
   "visual-plan": "시각자료 계획",
   "visual-supplement": "시각자료 보조",
+  "part-assembly-edit-tools": "파트 조립 다듬기",
   g2: "기본 글쓰기",
   "section-brief": "섹션 중심 (이전)",
   "section-brief-cluster-memory": "섹션 중심 + 풍부하게 (이전)",
@@ -812,6 +814,10 @@ async function missionFetch(owner, suffix, options = {}) {
   const response = await fetch(`/api/missions/${encodeURIComponent(owner.missionId)}${suffix}`, options);
   if (!ownsMissionSelection(owner)) throw new StaleMissionOperationError();
   return response;
+}
+
+function missionArtifactPreviewURL(missionID, artifactID) {
+  return `/api/missions/${encodeURIComponent(missionID)}/artifacts/${encodeURIComponent(artifactID)}/preview`;
 }
 
 function resetMissionTransientState() {
@@ -1937,11 +1943,17 @@ async function exportReportArtifactHTML(artifactID, options = {}) {
   if (!state.missionId || !artifactID) return;
   const owner = captureMissionSelection();
   const key = `artifact:${artifactID}`;
-  if (!options.download) setReportPreviewLoading(key);
+  let previewWindow = null;
+  if (!options.download) {
+    state.selectedReportKey = key;
+    renderReportsFromState();
+    previewWindow = openReportHTMLPreviewWindow();
+    setReportNotice("기본 HTML을 새 탭에서 여는 중입니다.");
+  }
   try {
     const result = await missionApi(owner, `/artifacts/${artifactID}/html_export`, {
       method: "POST",
-      body: {}
+      body: { include_content: Boolean(options.download) }
     });
     const content = result.content || "";
     const artifact = result.artifact || {};
@@ -1950,13 +1962,49 @@ async function exportReportArtifactHTML(artifactID, options = {}) {
       const mediaType = artifact.media_type || artifact.MediaType || "text/html;charset=utf-8";
       downloadContent(filename, mediaType, content);
     } else {
-      applyReportPreview(key, "html", reportArtifactHTMLPreviewHeader(artifactID, result), content);
+      const htmlArtifactID = artifact.artifact_id || artifact.ArtifactID || "";
+      const previewURL = result.preview_url || (htmlArtifactID ? missionArtifactPreviewURL(owner.missionId, htmlArtifactID) : "");
+      if (!previewURL || !navigateReportHTMLPreviewWindow(previewWindow, previewURL)) {
+        setReportNotice("새 탭을 열 수 없습니다. 브라우저의 팝업 차단 설정을 확인해 주세요.", "error");
+      } else {
+        setReportNotice("기본 HTML을 새 탭에서 열었습니다.");
+      }
     }
     await reloadMission();
   } catch (err) {
+    if (!options.download) closeReportHTMLPreviewWindow(previewWindow);
     if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
-    if (!options.download && state.reportPreview && state.reportPreview.key === key) clearReportPreview();
     showError(err);
+  }
+}
+
+function openReportHTMLPreviewWindow() {
+  const preview = window.open("", "_blank");
+  if (!preview) return null;
+  try {
+    preview.opener = null;
+    preview.document.title = "기본 HTML 준비 중";
+    preview.document.body.innerHTML = `<main style="font-family:system-ui,sans-serif;max-width:560px;margin:20vh auto;padding:24px;color:#1f2937"><h1 style="font-size:18px;margin:0 0 8px">기본 HTML을 준비 중입니다</h1><p style="margin:0;color:#64748b;line-height:1.6">저장된 HTML artifact를 새 탭에서 여는 중입니다.</p></main>`;
+  } catch (_err) {
+    // Some browsers restrict writing to a newly opened tab. Navigation below can still work.
+  }
+  return preview;
+}
+
+function navigateReportHTMLPreviewWindow(previewWindow, previewURL) {
+  if (!previewURL) return false;
+  if (previewWindow && !previewWindow.closed) {
+    previewWindow.location.href = previewURL;
+    return true;
+  }
+  return Boolean(window.open(previewURL, "_blank", "noopener"));
+}
+
+function closeReportHTMLPreviewWindow(previewWindow) {
+  try {
+    if (previewWindow && !previewWindow.closed) previewWindow.close();
+  } catch (_err) {
+    // Best-effort cleanup for a failed export placeholder tab.
   }
 }
 
@@ -2788,6 +2836,7 @@ function renderTurns(events) {
   log.innerHTML = html.length ? html.join("") : empty("아직 대화가 없습니다.");
   window.renderPlasmaMath?.(log);
   window.renderPlasmaMermaid?.(log);
+  window.enhancePlasmaImageViewing?.(log);
   if (missionChanged || nearBottom) log.scrollTop = log.scrollHeight;
   state.turnScrollMission = state.missionId;
   updateTurnNavVisibility();
@@ -4288,13 +4337,15 @@ function openReportModal(header, kind, content) {
   if (kind === "markdown") {
     body = `<div class="report-modal-body turn-markdown">${renderMarkdown(content)}</div>`;
   } else if (kind === "html") {
-    body = `<div class="report-modal-frame"><iframe title="HTML 리포트" sandbox="allow-scripts" srcdoc="${escapeAttr(content)}"></iframe></div>`;
+    const previewContent = window.preparePlasmaHTMLPreview ? window.preparePlasmaHTMLPreview(content) : content;
+    body = `<div class="report-modal-frame"><iframe class="plasma-html-preview-frame" title="HTML 리포트" sandbox="allow-scripts" srcdoc="${escapeAttr(previewContent)}"></iframe></div>`;
   } else {
     body = `<pre class="report-modal-pre">${escapeHTML(content)}</pre>`;
   }
   $("detailBody").innerHTML = body;
   window.renderPlasmaMath?.($("detailBody"));
   if (kind === "markdown") window.renderPlasmaMermaid?.($("detailBody"));
+  if (kind === "markdown") window.enhancePlasmaImageViewing?.($("detailBody"));
   openDetailModal(true);
   enableDetailScrollRatio();
 }
