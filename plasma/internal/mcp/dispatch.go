@@ -112,6 +112,11 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 			return partAssemblyDisabledResult(call)
 		}
 		return server.callReportPartAssemblyRead(ctx, call)
+	case ToolReportPartSectionRead:
+		if !server.partAssemblySectionReadToolEnabled() {
+			return partAssemblyDisabledResult(call)
+		}
+		return server.callReportPartSectionRead(ctx, call)
 	case ToolReportPartAssemblyPatch:
 		if !server.partAssemblyToolEnabled(call.Name) {
 			return partAssemblyDisabledResult(call)
@@ -124,6 +129,26 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.withIdempotency(ctx, call, server.callReportPartAssemblySubmit)
 	case ToolReportLongFormFinalize:
 		return server.callReportLongFormFinalize(ctx, call)
+	case ToolReportLongFormEditStart:
+		if !server.longFormEditToolEnabled(call.Name) {
+			return longFormEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportLongFormEditStart)
+	case ToolReportLongFormEditRead:
+		if !server.longFormEditToolEnabled(call.Name) {
+			return longFormEditDisabledResult(call)
+		}
+		return server.callReportLongFormEditRead(ctx, call)
+	case ToolReportLongFormEditPatch:
+		if !server.longFormEditToolEnabled(call.Name) {
+			return longFormEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportLongFormEditPatch)
+	case ToolReportLongFormEditSubmit:
+		if !server.longFormEditToolEnabled(call.Name) {
+			return longFormEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportLongFormEditSubmit)
 	case ToolExperimentReportCreate:
 		if !server.experimentalReportComposition {
 			return experimentReportDisabledResult(call)

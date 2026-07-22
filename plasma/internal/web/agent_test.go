@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -529,6 +531,110 @@ func TestAgentSectionalReportPlanPromptContainsConcreteBinding(t *testing.T) {
 	}
 }
 
+func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "narrative-contract")
+		if err != nil || profile != reportGenerationGuidanceProfileNarrativeContract || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected narrative contract profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	oneTakeWrite := agentOneTakeMarkdownReportPrompt("Quick", "mis_1", "ses_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
+	if !strings.Contains(oneTakeWrite, "Reader-facing explanation guidance:") || !strings.Contains(oneTakeWrite, "reader who may read only this report") {
+		t.Fatalf("one-take writing prompt lost reader-facing guidance:\n%s", oneTakeWrite)
+	}
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Reader-facing writing-contract guidance:", `"writing_contract"`, "central_question", "must_keep"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"path"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileNarrativeContract)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section"}, 0, 0, reportGenerationGuidanceProfileNarrativeContract)
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite} {
+		for _, expected := range []string{"Reader-facing explanation guidance:", "reader who may read only this report", `"must_keep"`, `"detail"`} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+}
+
+func TestNarrativeContractPartEditorMustReadBoundSections(t *testing.T) {
+	request := reportPartAssemblyAgentRequest{
+		title: "Report", missionID: "mis_1", toolSessionID: "ses_1", rigor: reportRigorProfiles["balanced"],
+		plan: agentSectionalReportPlan{Summary: "Plan", Parts: []agentReportPart{{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}}}},
+		part: agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}}, partIndex: 0,
+		drafts:                    []sectionalReportDraft{{Title: "Section", ArtifactID: "art_section_1"}},
+		generationGuidanceProfile: reportGenerationGuidanceProfileNarrativeContract,
+	}
+	binding := request.partAssemblyBinding()
+	if !slices.Equal(binding.SectionArtifactIDs, []string{"art_section_1"}) {
+		t.Fatalf("Part binding lost ordered Section artifacts: %#v", binding.SectionArtifactIDs)
+	}
+	prompt := agentPartAssemblyEditToolsPrompt(request, binding, "rpa_1")
+	for _, expected := range []string{plasmamcp.ToolReportPartSectionRead, "for every Section", "following next_offset", "actual Section bodies"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("narrative Part prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, "art_section_1") || strings.Contains(prompt, "section_artifact_ids") {
+		t.Fatalf("narrative Part prompt leaked internal Section artifact identity:\n%s", prompt)
+	}
+	tools := reportPartAssemblyMCPTools(reportGenerationGuidanceProfileNarrativeContract)
+	if !slices.Contains(tools, plasmamcp.ToolReportPartSectionRead) {
+		t.Fatalf("narrative Part tool allowlist lost Section read: %#v", tools)
+	}
+	if slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileVisualPlan), plasmamcp.ToolReportPartSectionRead) {
+		t.Fatal("legacy visual-plan unexpectedly exposes Part Section reads")
+	}
+}
+
+func TestNarrativeContractFinalEditorUsesBoundManuscriptTools(t *testing.T) {
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	prompt := agentLongFormFinalizePrompt("Report", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{
+		Summary: "Plan", WritingContract: &reporting.ReportWritingContract{CentralQuestion: "question", MustKeep: []string{"detail"}},
+	}, []sectionalReportPartDraft{{Title: "private inventory marker"}}, reportGenerationGuidanceProfileNarrativeContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for _, expected := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit, "Read the entire manuscript", "returned next_offset", "restart at offset 0", "must_keep", "source scarcity", ":patch-N"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("narrative final prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+	if strings.Contains(prompt, "private inventory marker") || strings.Contains(prompt, plasmamcp.ToolReportLongFormFinalize) {
+		t.Fatalf("narrative final prompt leaked Part inventory or legacy tool:\n%s", prompt)
+	}
+	candidateTools := reportFinalizeMCPTools(reportGenerationGuidanceProfileNarrativeContract)
+	for _, name := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit} {
+		if !slices.Contains(candidateTools, name) {
+			t.Fatalf("candidate final tools missing %s: %#v", name, candidateTools)
+		}
+	}
+	legacyTools := reportFinalizeMCPTools(reportGenerationGuidanceProfileVisualPlan)
+	if !slices.Equal(legacyTools, []string{plasmamcp.ToolReportLongFormFinalize}) {
+		t.Fatalf("legacy final tools changed: %#v", legacyTools)
+	}
+	if longFormCompositionStrategy(reportGenerationGuidanceProfileNarrativeContract) != reporting.LongFormCompositionNarrativeEdit || longFormCompositionStrategy(reportGenerationGuidanceProfileVisualPlan) != reporting.LongFormCompositionPreserveMarkdown {
+		t.Fatal("long-form composition strategy selection changed")
+	}
+}
+
+func TestReportPlanMCPArgsRequireWritingContractOnlyWhenRequested(t *testing.T) {
+	base := appendReportPlanMCPArgs(nil, "ses_1", AgentReportPlanContext{PendingEventID: "evt_1", ReportMode: reportModePlanned, IdempotencyKey: "key_1"})
+	if slices.Contains(base, "-report-plan-require-writing-contract") {
+		t.Fatalf("legacy plan args unexpectedly require writing contract: %#v", base)
+	}
+	required := appendReportPlanMCPArgs(nil, "ses_1", AgentReportPlanContext{PendingEventID: "evt_1", ReportMode: reportModePlanned, IdempotencyKey: "key_1", RequireWritingContract: true})
+	if !slices.Contains(required, "-report-plan-require-writing-contract") {
+		t.Fatalf("candidate plan args lost writing contract requirement: %#v", required)
+	}
+}
+
 func TestLongFormGenerationGuidanceAcceptsSectionBriefOptions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -620,6 +726,51 @@ func TestLongFormGenerationGuidanceCombinesSectionBriefAndVisualPlan(t *testing.
 	}
 }
 
+func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyProfiles(t *testing.T) {
+	tests := []struct {
+		name, input, profile, sectionMarker string
+	}{
+		{name: "visual plan", input: reportGenerationGuidanceProfileNarrativeContract, profile: reportGenerationGuidanceProfileNarrativeContract},
+		{name: "section brief", input: reportGenerationGuidanceProfileSectionBriefNarrativeContract, profile: reportGenerationGuidanceProfileSectionBriefNarrativeContract, sectionMarker: "Long-form section-brief guidance:"},
+		{name: "section brief cluster", input: reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, profile: reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, sectionMarker: "Long-form section-brief cluster-memory guidance:"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			if err != nil || profile != tt.profile || strings.TrimSpace(sha) == "" {
+				t.Fatalf("active choice selection profile=%q sha=%q err=%v", profile, sha, err)
+			}
+			guidance := LongFormReportGenerationGuidance(profile)
+			for _, marker := range []string{"Report visual-aid guidance:", "Reader-facing explanation guidance:", "Long-form human-writer guidance:"} {
+				if !strings.Contains(guidance, marker) {
+					t.Fatalf("active choice %q missing %q:\n%s", profile, marker, guidance)
+				}
+			}
+			if tt.sectionMarker != "" && !strings.Contains(guidance, tt.sectionMarker) {
+				t.Fatalf("active choice %q lost section behavior %q:\n%s", profile, tt.sectionMarker, guidance)
+			}
+			if !requireReportWritingContract(profile) || longFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
+				t.Fatalf("active choice %q lost the common editorial contract", profile)
+			}
+			if !slices.Contains(reportPartAssemblyMCPTools(profile), plasmamcp.ToolReportPartSectionRead) || !slices.Contains(reportFinalizeMCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
+				t.Fatalf("active choice %q lost Part or final editor tools", profile)
+			}
+		})
+	}
+	for _, legacy := range []string{
+		reportGenerationGuidanceProfileVisualPlan,
+		reportGenerationGuidanceProfileSectionBriefVisualPlan,
+		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+	} {
+		if requireReportWritingContract(legacy) || longFormCompositionStrategy(legacy) != reporting.LongFormCompositionPreserveMarkdown {
+			t.Fatalf("legacy profile %q was reinterpreted through the new contract", legacy)
+		}
+		if slices.Contains(reportPartAssemblyMCPTools(legacy), plasmamcp.ToolReportPartSectionRead) || slices.Contains(reportFinalizeMCPTools(legacy), plasmamcp.ToolReportLongFormEditStart) {
+			t.Fatalf("legacy profile %q unexpectedly received new editor tools", legacy)
+		}
+	}
+}
+
 func TestLongFormGenerationGuidanceAcceptsPartAssemblyEditTools(t *testing.T) {
 	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "part-assembly-tools")
 	if err != nil {
@@ -687,7 +838,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned default",
 			mode:       reportModePlanned,
 			input:      "",
-			profile:    reportGenerationGuidanceProfileVisualPlan,
+			profile:    reportGenerationGuidanceProfileNarrativeContract,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -715,10 +866,50 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			hasWriting: true,
 		},
 		{
+			name:       "planned visual evidence fit",
+			mode:       reportModePlanned,
+			input:      "visual_evidence_fit",
+			profile:    reportGenerationGuidanceProfileVisualEvidenceFit,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual reading aid preferred",
+			mode:       reportModePlanned,
+			input:      "visual_reading_aid_preferred",
+			profile:    reportGenerationGuidanceProfileVisualReadingAidPreferred,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual reader intent",
+			mode:       reportModePlanned,
+			input:      "reader-intent-visuals",
+			profile:    reportGenerationGuidanceProfileVisualReaderIntent,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual clarity seeking",
+			mode:       reportModePlanned,
+			input:      "clarity-seeking-visuals",
+			profile:    reportGenerationGuidanceProfileVisualClaritySeeking,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "planned visual affordance priming",
+			mode:       reportModePlanned,
+			input:      "affordance-primed-visuals",
+			profile:    reportGenerationGuidanceProfileVisualAffordancePriming,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
 			name:       "long-form default",
 			mode:       reportModeLongForm,
 			input:      "",
-			profile:    reportGenerationGuidanceProfileVisualPlan,
+			profile:    reportGenerationGuidanceProfileNarrativeContract,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -727,6 +918,46 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			mode:       reportModeLongForm,
 			input:      "visual-type-selection",
 			profile:    reportGenerationGuidanceProfileVisualTypeManual,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual evidence fit",
+			mode:       reportModeLongForm,
+			input:      "evidence-fit-visuals",
+			profile:    reportGenerationGuidanceProfileVisualEvidenceFit,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual reading aid preferred",
+			mode:       reportModeLongForm,
+			input:      "visual-preferred",
+			profile:    reportGenerationGuidanceProfileVisualReadingAidPreferred,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual reader intent",
+			mode:       reportModeLongForm,
+			input:      "visual_reader_intent",
+			profile:    reportGenerationGuidanceProfileVisualReaderIntent,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual clarity seeking",
+			mode:       reportModeLongForm,
+			input:      "visual_clarity_seeking",
+			profile:    reportGenerationGuidanceProfileVisualClaritySeeking,
+			hasPlan:    true,
+			hasWriting: true,
+		},
+		{
+			name:       "long-form visual affordance priming",
+			mode:       reportModeLongForm,
+			input:      "visual_affordance_priming",
+			profile:    reportGenerationGuidanceProfileVisualAffordancePriming,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -758,6 +989,11 @@ func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
 	if !strings.Contains(planPrompt, "Visual type selection planning guidance:") || !strings.Contains(planPrompt, "complex architecture dependency graphs") {
 		t.Fatalf("planned report prompt missing productized visual type selection guidance:\n%s", planPrompt)
 	}
+	for _, expected := range []string{"Visual affordance priming planning guidance:", "Chronology invites a timeline", "dominant source shape"} {
+		if !strings.Contains(planPrompt, expected) {
+			t.Fatalf("planned report prompt missing productized affordance priming guidance %q:\n%s", expected, planPrompt)
+		}
+	}
 	if strings.Contains(planPrompt, "plasma.mermaid.validate") {
 		t.Fatalf("planning prompt should not require unavailable Mermaid validation:\n%s", planPrompt)
 	}
@@ -776,6 +1012,11 @@ func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
 	if !strings.Contains(visualPlanWritePrompt, "Match the visual type to the source structure") || !strings.Contains(visualPlanWritePrompt, "plasma.mermaid.validate") {
 		t.Fatalf("visual-plan writing prompt missing productized visual type selection or Mermaid validation guidance:\n%s", visualPlanWritePrompt)
 	}
+	for _, expected := range []string{"notice the dominant source shape", "timeline for timing", "prefer a Mermaid timeline"} {
+		if !strings.Contains(visualPlanWritePrompt, expected) {
+			t.Fatalf("visual-plan writing prompt missing productized affordance priming guidance %q:\n%s", expected, visualPlanWritePrompt)
+		}
+	}
 	typePlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-type-manual")
 	if !strings.Contains(typePlanPrompt, "Visual type selection planning guidance:") || !strings.Contains(typePlanPrompt, "complex architecture dependency graphs") {
 		t.Fatalf("visual type plan prompt missing type selection guidance:\n%s", typePlanPrompt)
@@ -786,6 +1027,66 @@ func TestVisualAidGuidanceReachesPlanningAndWritingPrompts(t *testing.T) {
 	typeWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-type-manual")
 	if !strings.Contains(typeWritePrompt, "Match the visual type to the source structure") || !strings.Contains(typeWritePrompt, "plasma.mermaid.validate") {
 		t.Fatalf("visual type writing prompt missing type selection or Mermaid validation guidance:\n%s", typeWritePrompt)
+	}
+	evidenceFitPlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-evidence-fit")
+	for _, expected := range []string{"Visual evidence-fit planning guidance:", "qualitative comparison", "interpretive structure"} {
+		if !strings.Contains(evidenceFitPlanPrompt, expected) {
+			t.Fatalf("visual evidence-fit planning prompt missing %q:\n%s", expected, evidenceFitPlanPrompt)
+		}
+	}
+	evidenceFitWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-evidence-fit")
+	for _, expected := range []string{"Match the visual's claim strength to the source evidence", "qualitative labels", "source-based interpretation", "plasma.mermaid.validate"} {
+		if !strings.Contains(evidenceFitWritePrompt, expected) {
+			t.Fatalf("visual evidence-fit writing prompt missing %q:\n%s", expected, evidenceFitWritePrompt)
+		}
+	}
+	readingAidPlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-reading-aid-preferred")
+	for _, expected := range []string{"Visual reading-aid preference planning guidance:", "prefer planning one compact visual aid", "source's own resolution"} {
+		if !strings.Contains(readingAidPlanPrompt, expected) {
+			t.Fatalf("visual reading-aid planning prompt missing %q:\n%s", expected, readingAidPlanPrompt)
+		}
+	}
+	readingAidWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-reading-aid-preferred")
+	for _, expected := range []string{"prefer a compact visual aid as the organizing surface", "do not omit a useful visual solely because the evidence is approximate", "plasma.mermaid.validate"} {
+		if !strings.Contains(readingAidWritePrompt, expected) {
+			t.Fatalf("visual reading-aid writing prompt missing %q:\n%s", expected, readingAidWritePrompt)
+		}
+	}
+	readerIntentPlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-reader-intent")
+	for _, expected := range []string{"Visual reader-intent planning guidance:", "central reader task", "Do not plan a visual merely because a caution"} {
+		if !strings.Contains(readerIntentPlanPrompt, expected) {
+			t.Fatalf("visual reader-intent planning prompt missing %q:\n%s", expected, readerIntentPlanPrompt)
+		}
+	}
+	readerIntentWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-reader-intent")
+	for _, expected := range []string{"Decide from the reader's task", "Prefer compact tables, source-backed charts, or timelines over meta-level diagrams", "plasma.mermaid.validate"} {
+		if !strings.Contains(readerIntentWritePrompt, expected) {
+			t.Fatalf("visual reader-intent writing prompt missing %q:\n%s", expected, readerIntentWritePrompt)
+		}
+	}
+	claritySeekingPlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-clarity-seeking")
+	for _, expected := range []string{"Visual clarity-seeking planning guidance:", "actively look for a visual surface", "intended clarity job"} {
+		if !strings.Contains(claritySeekingPlanPrompt, expected) {
+			t.Fatalf("visual clarity-seeking planning prompt missing %q:\n%s", expected, claritySeekingPlanPrompt)
+		}
+	}
+	claritySeekingWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-clarity-seeking")
+	for _, expected := range []string{"actively look for whether a compact visual", "Use the visual as an explanation surface", "plasma.mermaid.validate"} {
+		if !strings.Contains(claritySeekingWritePrompt, expected) {
+			t.Fatalf("visual clarity-seeking writing prompt missing %q:\n%s", expected, claritySeekingWritePrompt)
+		}
+	}
+	affordancePrimingPlanPrompt := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-affordance-priming")
+	for _, expected := range []string{"Visual affordance priming planning guidance:", "Chronology invites a timeline", "Mermaid timeline", "dominant source shape"} {
+		if !strings.Contains(affordancePrimingPlanPrompt, expected) {
+			t.Fatalf("visual affordance-priming planning prompt missing %q:\n%s", expected, affordancePrimingPlanPrompt)
+		}
+	}
+	affordancePrimingWritePrompt := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, "visual-affordance-priming")
+	for _, expected := range []string{"notice the dominant source shape", "timeline for timing", "prefer a Mermaid timeline", "plasma.mermaid.validate"} {
+		if !strings.Contains(affordancePrimingWritePrompt, expected) {
+			t.Fatalf("visual affordance-priming writing prompt missing %q:\n%s", expected, affordancePrimingWritePrompt)
+		}
 	}
 }
 

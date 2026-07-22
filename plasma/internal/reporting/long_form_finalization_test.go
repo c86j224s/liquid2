@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -78,6 +79,49 @@ func TestFinalizeLongFormAtomicReplayAndConflict(t *testing.T) {
 	_, err = reporting.FinalizeLongForm(ctx, svc, reporting.LongFormFinalizeRequest{Binding: binding, EventID: "evt_other", OpeningMarkdown: "# Different", ClosingMarkdown: req.ClosingMarkdown})
 	if !errors.Is(err, app.ErrConflict) {
 		t.Fatalf("different content error=%v, want conflict", err)
+	}
+}
+
+func TestFinalizeLongFormNarrativeEditUsesExactManuscriptAndReplaysIt(t *testing.T) {
+	ctx := context.Background()
+	svc, closeStore := newLongFormFinalizeFixture(t, ctx)
+	defer closeStore()
+	binding := longFormFinalizeBinding()
+	binding.CompositionStrategy = reporting.LongFormCompositionNarrativeEdit
+
+	draft, err := reporting.PrepareLongFormEditingDraft(ctx, svc, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(draft, "Preserved body.") {
+		t.Fatalf("editing draft lost bound Part content: %q", draft)
+	}
+	manuscript := "# Report\n\n직접 설명하는 도입입니다.\n\n## Part 1\n\nEdited body.\n\n## Conclusion\n\n정리합니다.\n"
+	req := reporting.LongFormFinalizeRequest{Binding: binding, EventID: "evt_final", ManuscriptMarkdown: manuscript}
+	created, err := reporting.FinalizeLongForm(ctx, svc, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(created.Artifact.Content) != manuscript {
+		t.Fatalf("canonical artifact differs from edited manuscript:\n%s", created.Artifact.Content)
+	}
+	payload := map[string]any{}
+	if err := json.Unmarshal(created.Event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["composition_strategy"] != reporting.LongFormCompositionNarrativeEdit || payload["assembly_strategy"] != "narrative_contract_final_edit" {
+		t.Fatalf("narrative-edit metadata missing: %#v", payload)
+	}
+	if _, exists := payload["preservation_ratio"]; exists {
+		t.Fatalf("edited manuscript must not claim a word-count preservation ratio: %#v", payload)
+	}
+	replayed, err := reporting.FinalizeLongForm(ctx, svc, req)
+	if err != nil || !replayed.Replay {
+		t.Fatalf("exact narrative replay=%#v err=%v", replayed, err)
+	}
+	req.ManuscriptMarkdown = strings.Replace(manuscript, "Edited body.", "Different body.", 1)
+	if _, err := reporting.FinalizeLongForm(ctx, svc, req); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("different edited manuscript error=%v, want conflict", err)
 	}
 }
 
@@ -163,6 +207,40 @@ func TestFinalizeLongFormReplayAfterSQLiteRestart(t *testing.T) {
 	replayed, err := reporting.FinalizeLongForm(ctx, app.NewService(store), req)
 	if err != nil || !replayed.Replay || replayed.Event.EventID != "evt_final" {
 		t.Fatalf("restart replay=%#v err=%v", replayed, err)
+	}
+}
+
+func TestFinalizeNarrativeEditedLongFormReplayAfterSQLiteRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "plasma.db")
+	store, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(store)
+	seedLongFormFinalizeFixture(t, ctx, svc)
+	binding := longFormFinalizeBinding()
+	binding.CompositionStrategy = reporting.LongFormCompositionNarrativeEdit
+	req := reporting.LongFormFinalizeRequest{Binding: binding, EventID: "evt_final", ManuscriptMarkdown: "# Report\n\nEdited after reading every Part.\n"}
+	if _, err := reporting.FinalizeLongForm(ctx, svc, req); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	replayed, err := reporting.FinalizeLongForm(ctx, app.NewService(store), req)
+	if err != nil || !replayed.Replay || string(replayed.Artifact.Content) != req.ManuscriptMarkdown {
+		t.Fatalf("narrative restart replay=%#v err=%v", replayed, err)
+	}
+	changed := req
+	changed.ManuscriptMarkdown = "# Report\n\nDifferent edit.\n"
+	if _, err := reporting.FinalizeLongForm(ctx, app.NewService(store), changed); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("changed narrative restart replay error=%v, want conflict", err)
 	}
 }
 

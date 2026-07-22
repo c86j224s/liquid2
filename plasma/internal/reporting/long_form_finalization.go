@@ -44,13 +44,12 @@ func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	if existing, ok, err := LoadLongFormFinalization(ctx, store, binding); err != nil {
 		return LongFormFinalizeResult{}, err
 	} else if ok {
-		return replayLongFormFinalize(ctx, store, binding, existing.Event, req.OpeningMarkdown, req.ClosingMarkdown)
+		return replayLongFormFinalize(ctx, store, binding, existing.Event, req)
 	}
-	parts, err := loadLongFormParts(ctx, store, binding)
+	markdown, err := longFormMarkdownForRequest(ctx, store, binding, req)
 	if err != nil {
 		return LongFormFinalizeResult{}, err
 	}
-	markdown := AssembleLongFormFinalMarkdown(binding.Title, req.OpeningMarkdown, req.ClosingMarkdown, parts)
 	if strings.TrimSpace(markdown) == "" {
 		return LongFormFinalizeResult{}, fmt.Errorf("%w: assembled long-form report is empty", app.ErrInvalidInput)
 	}
@@ -81,7 +80,49 @@ func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	if created {
 		return LongFormFinalizeResult{Artifact: artifact, Event: event}, nil
 	}
-	return replayLongFormFinalize(ctx, store, binding, event, req.OpeningMarkdown, req.ClosingMarkdown)
+	return replayLongFormFinalize(ctx, store, binding, event, req)
+}
+
+func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding) (string, error) {
+	binding = normalizeLongFormFinalizeBinding(binding)
+	if err := validateLongFormFinalizeBinding(binding); err != nil {
+		return "", err
+	}
+	if binding.CompositionStrategy != LongFormCompositionNarrativeEdit {
+		return "", fmt.Errorf("%w: long-form editing draft requires narrative edit strategy", app.ErrInvalidInput)
+	}
+	events, err := store.ListEvents(ctx, binding.MissionID)
+	if err != nil {
+		return "", err
+	}
+	if err := validateLongFormLineage(events, binding); err != nil {
+		return "", err
+	}
+	parts, err := loadLongFormParts(ctx, store, binding)
+	if err != nil {
+		return "", err
+	}
+	return AssembleLongFormFinalMarkdown(binding.Title, "", "", parts), nil
+}
+
+func longFormMarkdownForRequest(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding, req LongFormFinalizeRequest) (string, error) {
+	if binding.CompositionStrategy == LongFormCompositionNarrativeEdit {
+		if strings.TrimSpace(req.OpeningMarkdown) != "" || strings.TrimSpace(req.ClosingMarkdown) != "" {
+			return "", fmt.Errorf("%w: narrative edit finalization accepts only manuscript Markdown", app.ErrInvalidInput)
+		}
+		if strings.TrimSpace(req.ManuscriptMarkdown) == "" {
+			return "", fmt.Errorf("%w: edited long-form manuscript is empty", app.ErrInvalidInput)
+		}
+		return req.ManuscriptMarkdown, nil
+	}
+	if strings.TrimSpace(req.ManuscriptMarkdown) != "" {
+		return "", fmt.Errorf("%w: preserved long-form finalization cannot accept edited manuscript", app.ErrInvalidInput)
+	}
+	parts, err := loadLongFormParts(ctx, store, binding)
+	if err != nil {
+		return "", err
+	}
+	return AssembleLongFormFinalMarkdown(binding.Title, req.OpeningMarkdown, req.ClosingMarkdown, parts), nil
 }
 
 func normalizeLongFormFinalizeBinding(value LongFormFinalizeBinding) LongFormFinalizeBinding {
@@ -95,6 +136,10 @@ func normalizeLongFormFinalizeBinding(value LongFormFinalizeBinding) LongFormFin
 	value.IdempotencyKey = strings.TrimSpace(value.IdempotencyKey)
 	value.ProviderSessionID = strings.TrimSpace(value.ProviderSessionID)
 	value.PreviousProviderSessionID = strings.TrimSpace(value.PreviousProviderSessionID)
+	value.CompositionStrategy = strings.TrimSpace(value.CompositionStrategy)
+	if value.CompositionStrategy == "" {
+		value.CompositionStrategy = LongFormCompositionPreserveMarkdown
+	}
 	value.Producer.Type = strings.TrimSpace(value.Producer.Type)
 	value.Producer.ID = strings.TrimSpace(value.Producer.ID)
 	return value
@@ -110,6 +155,9 @@ func validateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 	if duplicateStrings(value.PartArtifactIDs) || duplicateStrings(value.SectionArtifactIDs) {
 		return fmt.Errorf("%w: finalization artifact order contains duplicates", app.ErrConflict)
 	}
+	if value.CompositionStrategy != LongFormCompositionPreserveMarkdown && value.CompositionStrategy != LongFormCompositionNarrativeEdit {
+		return fmt.Errorf("%w: unsupported long-form composition strategy", app.ErrInvalidInput)
+	}
 	return nil
 }
 
@@ -122,6 +170,12 @@ func longFormCanonicalRequest(eventID string, binding LongFormFinalizeBinding, a
 	if binding.StartedAt.IsZero() || duration < 0 {
 		duration = 0
 	}
+	assemblyStrategy := "c4_normalized_section_headings"
+	text := "섹션별 보존 조립 방식으로 장문 Markdown 리포트 artifact를 생성했습니다."
+	if binding.CompositionStrategy == LongFormCompositionNarrativeEdit {
+		assemblyStrategy = "narrative_contract_final_edit"
+		text = "바인딩된 파트 원고를 최종 편집해 장문 Markdown 리포트 artifact를 생성했습니다."
+	}
 	request := BuildMarkdownReportArtifactCreatedAppendRequest(MarkdownReportArtifactCreatedEventRequest{
 		MarkdownReportEventBase: MarkdownReportEventBase{
 			EventID: eventID, MissionID: binding.MissionID, PendingEventID: binding.PendingEventID, Title: binding.Title,
@@ -133,14 +187,15 @@ func longFormCanonicalRequest(eventID string, binding LongFormFinalizeBinding, a
 			GenerationGuidanceProfile: binding.GenerationGuidanceProfile, GenerationGuidanceSHA256: binding.GenerationGuidanceSHA256,
 			SessionChainKind: binding.SessionChainKind, PreReportResearchSessionID: binding.PreReportResearchSessionID, ReportPlanSessionID: binding.ReportPlanSessionID,
 			ReportSessionID: binding.ProviderSessionID, ForkSourceAgentSessionID: binding.ForkSourceAgentSessionID,
-			CompositionStrategy: "sectional_preserve_markdown", DurationMS: duration,
-			Text: "섹션별 보존 조립 방식으로 장문 Markdown 리포트 artifact를 생성했습니다.", Producer: binding.Producer,
+			CompositionStrategy: binding.CompositionStrategy, DurationMS: duration,
+			Text: text, Producer: binding.Producer,
 		},
 		Artifact: artifact, PlanEventID: binding.PlanEventID, PlanToolSessionID: binding.PlanToolSessionID,
-		IncludePlanReview: true, PlanReviewState: "auto_accepted", AssemblyStrategy: "c4_normalized_section_headings",
+		IncludePlanReview: true, PlanReviewState: "auto_accepted", AssemblyStrategy: assemblyStrategy,
 		SectionCount: len(binding.SectionArtifactIDs), PartCount: len(binding.PartArtifactIDs), SectionArtifactIDs: binding.SectionArtifactIDs,
 		PartArtifactIDs: binding.PartArtifactIDs, SectionWordCount: binding.SectionWordCount, FinalWordCount: finalWords,
-		PreservationRatio: float64(finalWords) / float64(maxReportingInt(1, binding.SectionWordCount)), IncludeLongFormFields: true,
+		PreservationRatio:     float64(finalWords) / float64(maxReportingInt(1, binding.SectionWordCount)),
+		OmitPreservationRatio: binding.CompositionStrategy == LongFormCompositionNarrativeEdit, IncludeLongFormFields: true,
 	})
 	request.CorrelationID = binding.IdempotencyKey
 	return request

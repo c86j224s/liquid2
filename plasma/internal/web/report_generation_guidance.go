@@ -27,7 +27,7 @@ const (
 	reportGenerationGuidanceProfilePartAssemblyEditTools         = "part-assembly-edit-tools"
 	reportGenerationGuidanceProfileVisualSupplement              = "visual-supplement"
 	reportGenerationGuidanceProfileVisualPlan                    = "visual-plan"
-	reportGenerationGuidanceProfileDefault                       = reportGenerationGuidanceProfileVisualPlan
+	reportGenerationGuidanceProfileDefault                       = reportGenerationGuidanceProfileNarrativeContract
 )
 
 func SelectReportGenerationGuidance(profile string) (string, string, error) {
@@ -65,10 +65,34 @@ func selectReportGenerationGuidanceText(profile string, guidance func(string) st
 		text := guidance(reportGenerationGuidanceProfileVisualPlan)
 		sum := sha256.Sum256([]byte(text))
 		return reportGenerationGuidanceProfileVisualPlan, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileNarrativeContract, "narrative_contract", "reader-first-editor", "reader_first_editor":
+		text := guidance(reportGenerationGuidanceProfileNarrativeContract)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileNarrativeContract, hex.EncodeToString(sum[:]), nil
 	case reportGenerationGuidanceProfileVisualTypeManual, "visual_type_manual", "visual-type-selection", "visual_type_selection":
 		text := guidance(reportGenerationGuidanceProfileVisualTypeManual)
 		sum := sha256.Sum256([]byte(text))
 		return reportGenerationGuidanceProfileVisualTypeManual, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualEvidenceFit, "visual_evidence_fit", "evidence-fit-visuals", "evidence_fit_visuals":
+		text := guidance(reportGenerationGuidanceProfileVisualEvidenceFit)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualEvidenceFit, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualReadingAidPreferred, "visual_reading_aid_preferred", "visual-preferred", "visual_preferred":
+		text := guidance(reportGenerationGuidanceProfileVisualReadingAidPreferred)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualReadingAidPreferred, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualReaderIntent, "visual_reader_intent", "reader-intent-visuals", "reader_intent_visuals":
+		text := guidance(reportGenerationGuidanceProfileVisualReaderIntent)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualReaderIntent, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualClaritySeeking, "visual_clarity_seeking", "clarity-seeking-visuals", "clarity_seeking_visuals":
+		text := guidance(reportGenerationGuidanceProfileVisualClaritySeeking)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualClaritySeeking, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileVisualAffordancePriming, "visual_affordance_priming", "affordance-primed-visuals", "affordance_primed_visuals":
+		text := guidance(reportGenerationGuidanceProfileVisualAffordancePriming)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileVisualAffordancePriming, hex.EncodeToString(sum[:]), nil
 	case reportGenerationGuidanceProfileNone, "off", "disabled", "disable", "false", "0":
 		return reportGenerationGuidanceProfileNone, "", nil
 	default:
@@ -77,25 +101,35 @@ func selectReportGenerationGuidanceText(profile string, guidance func(string) st
 }
 
 func ReportGenerationPlanningGuidance(profile string) string {
-	return reportVisualAidPlanningGuidance(profile)
+	parts := []string{
+		strings.TrimSpace(reportVisualAidPlanningGuidance(profile)),
+		strings.TrimSpace(reportNarrativeContractPlanningGuidance(profile)),
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
 func ReportGenerationGuidance(profile string) string {
+	narrativeContract := isReportGenerationGuidanceProfileNarrativeContract(profile)
 	if isReportGenerationGuidanceProfileLongFormExperiment(profile) {
-		if isReportGenerationGuidanceProfileLongFormVisualPlan(profile) || isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) {
+		if narrativeContract {
+			profile = reportGenerationGuidanceProfileNarrativeContract
+		} else if isReportGenerationGuidanceProfileLongFormVisualPlan(profile) || isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) {
 			profile = reportGenerationGuidanceProfileVisualPlan
 		} else {
 			profile = reportGenerationGuidanceProfileG2
 		}
 	}
-	base := baseReportGenerationGuidance()
+	guidance := baseReportGenerationGuidance()
 	if isReportGenerationGuidanceProfileVisualAid(profile) {
-		return base + "\n\n" + reportVisualAidWritingGuidance(profile)
+		guidance += "\n\n" + reportVisualAidWritingGuidance(profile)
 	}
-	if strings.TrimSpace(profile) != reportGenerationGuidanceProfileG2 {
+	if isReportGenerationGuidanceProfileNarrativeContract(profile) {
+		guidance += "\n\n" + reportNarrativeContractWritingGuidance(profile)
+	}
+	if strings.TrimSpace(profile) != reportGenerationGuidanceProfileG2 && !isReportGenerationGuidanceProfileVisualAid(profile) && !isReportGenerationGuidanceProfileNarrativeContract(profile) {
 		return ""
 	}
-	return base
+	return guidance
 }
 
 func baseReportGenerationGuidance() string {
@@ -237,6 +271,12 @@ func normalizeLongFormExperimentProfile(profile string) string {
 	if isReportGenerationGuidanceProfileSourceClusterFirst(profile) {
 		return reportGenerationGuidanceProfileSourceClusterFirst
 	}
+	if isReportGenerationGuidanceProfileSectionBriefNarrativeContract(profile) {
+		return reportGenerationGuidanceProfileSectionBriefNarrativeContract
+	}
+	if isReportGenerationGuidanceProfileSectionBriefClusterNarrativeContract(profile) {
+		return reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract
+	}
 	if isReportGenerationGuidanceProfileSectionBriefVisualPlan(profile) {
 		return reportGenerationGuidanceProfileSectionBriefVisualPlan
 	}
@@ -270,6 +310,7 @@ func longFormExperimentalPlanningGuidance(profile string) string {
 		strings.TrimSpace(longFormSectionBriefPlanningGuidance(profile)),
 		strings.TrimSpace(longFormSectionBriefClusterMemoryPlanningGuidance(profile)),
 		strings.TrimSpace(longFormPlanReviewPlanningGuidance(profile)),
+		strings.TrimSpace(reportNarrativeContractPlanningGuidance(profile)),
 	}
 	kept := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -297,6 +338,21 @@ func reportVisualAidWritingGuidance(profile string) string {
 	if isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
 		guidance += "\n" + reportVisualTypeSelectionWritingGuidance()
 	}
+	if isReportGenerationGuidanceProfileVisualEvidenceFit(profile) {
+		guidance += "\n" + reportVisualEvidenceFitWritingGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualReadingAidPreferred(profile) {
+		guidance += "\n" + reportVisualReadingAidPreferenceWritingGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualReaderIntent(profile) {
+		guidance += "\n" + reportVisualReaderIntentWritingGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualClaritySeeking(profile) {
+		guidance += "\n" + reportVisualClaritySeekingWritingGuidance()
+	}
+	if isReportGenerationGuidanceProfileProductAffordancePriming(profile) {
+		guidance += "\n" + reportVisualAffordancePrimingWritingGuidance()
+	}
 	return guidance
 }
 
@@ -312,13 +368,34 @@ func reportVisualAidPlanningGuidance(profile string) string {
 	if isReportGenerationGuidanceProfileVisualPlanFamily(profile) {
 		guidance += "\n" + reportVisualTypeSelectionPlanningGuidance()
 	}
+	if isReportGenerationGuidanceProfileVisualEvidenceFit(profile) {
+		guidance += "\n" + reportVisualEvidenceFitPlanningGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualReadingAidPreferred(profile) {
+		guidance += "\n" + reportVisualReadingAidPreferencePlanningGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualReaderIntent(profile) {
+		guidance += "\n" + reportVisualReaderIntentPlanningGuidance()
+	}
+	if isReportGenerationGuidanceProfileVisualClaritySeeking(profile) {
+		guidance += "\n" + reportVisualClaritySeekingPlanningGuidance()
+	}
+	if isReportGenerationGuidanceProfileProductAffordancePriming(profile) {
+		guidance += "\n" + reportVisualAffordancePrimingPlanningGuidance()
+	}
 	return guidance
 }
 
 func isReportGenerationGuidanceProfileVisualAid(profile string) bool {
 	return isReportGenerationGuidanceProfileVisualSupplement(profile) ||
 		isReportGenerationGuidanceProfileVisualPlan(profile) ||
-		isReportGenerationGuidanceProfileVisualTypeManual(profile)
+		isReportGenerationGuidanceProfileNarrativeContract(profile) ||
+		isReportGenerationGuidanceProfileVisualTypeManual(profile) ||
+		isReportGenerationGuidanceProfileVisualEvidenceFit(profile) ||
+		isReportGenerationGuidanceProfileVisualReadingAidPreferred(profile) ||
+		isReportGenerationGuidanceProfileVisualReaderIntent(profile) ||
+		isReportGenerationGuidanceProfileVisualClaritySeeking(profile) ||
+		isReportGenerationGuidanceProfileVisualAffordancePriming(profile)
 }
 
 func isReportGenerationGuidanceProfileVisualSupplement(profile string) bool {
@@ -331,6 +408,9 @@ func isReportGenerationGuidanceProfileVisualSupplement(profile string) bool {
 }
 
 func isReportGenerationGuidanceProfileVisualPlan(profile string) bool {
+	if isReportGenerationGuidanceProfileNarrativeContract(profile) {
+		return true
+	}
 	switch strings.TrimSpace(strings.ToLower(profile)) {
 	case reportGenerationGuidanceProfileVisualPlan, "visual_plan", "planned-visual-units", "planned_visual_units",
 		reportGenerationGuidanceProfileSectionBriefVisualPlan, "section_brief_visual_plan",
@@ -343,7 +423,17 @@ func isReportGenerationGuidanceProfileVisualPlan(profile string) bool {
 
 func isReportGenerationGuidanceProfileVisualPlanFamily(profile string) bool {
 	return isReportGenerationGuidanceProfileVisualPlan(profile) ||
-		isReportGenerationGuidanceProfileVisualTypeManual(profile)
+		isReportGenerationGuidanceProfileVisualTypeManual(profile) ||
+		isReportGenerationGuidanceProfileVisualEvidenceFit(profile) ||
+		isReportGenerationGuidanceProfileVisualReadingAidPreferred(profile) ||
+		isReportGenerationGuidanceProfileVisualReaderIntent(profile) ||
+		isReportGenerationGuidanceProfileVisualClaritySeeking(profile) ||
+		isReportGenerationGuidanceProfileVisualAffordancePriming(profile)
+}
+
+func isReportGenerationGuidanceProfileProductAffordancePriming(profile string) bool {
+	return isReportGenerationGuidanceProfileVisualPlan(profile) ||
+		isReportGenerationGuidanceProfileVisualAffordancePriming(profile)
 }
 
 func isReportGenerationGuidanceProfileLongFormVisualPlan(profile string) bool {
@@ -394,7 +484,8 @@ func isReportGenerationGuidanceProfileSourceClusterFirst(profile string) bool {
 func isReportGenerationGuidanceProfileSectionBrief(profile string) bool {
 	switch strings.TrimSpace(strings.ToLower(profile)) {
 	case reportGenerationGuidanceProfileSectionBrief, "section_brief", "section-writing-brief", "section_writing_brief",
-		reportGenerationGuidanceProfileSectionBriefVisualPlan, "section_brief_visual_plan":
+		reportGenerationGuidanceProfileSectionBriefVisualPlan, "section_brief_visual_plan",
+		reportGenerationGuidanceProfileSectionBriefNarrativeContract, "section_brief_narrative_contract":
 		return true
 	default:
 		return false
@@ -404,7 +495,8 @@ func isReportGenerationGuidanceProfileSectionBrief(profile string) bool {
 func isReportGenerationGuidanceProfileSectionBriefCluster(profile string) bool {
 	switch strings.TrimSpace(strings.ToLower(profile)) {
 	case reportGenerationGuidanceProfileSectionBriefCluster, "section_brief_cluster_memory", "section-brief-cluster", "section_brief_cluster",
-		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan, "section_brief_cluster_memory_visual_plan":
+		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan, "section_brief_cluster_memory_visual_plan",
+		reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, "section_brief_cluster_memory_narrative_contract":
 		return true
 	default:
 		return false
@@ -413,7 +505,8 @@ func isReportGenerationGuidanceProfileSectionBriefCluster(profile string) bool {
 
 func isReportGenerationGuidanceProfileSectionBriefVisualPlan(profile string) bool {
 	switch strings.TrimSpace(strings.ToLower(profile)) {
-	case reportGenerationGuidanceProfileSectionBriefVisualPlan, "section_brief_visual_plan":
+	case reportGenerationGuidanceProfileSectionBriefVisualPlan, "section_brief_visual_plan",
+		reportGenerationGuidanceProfileSectionBriefNarrativeContract, "section_brief_narrative_contract":
 		return true
 	default:
 		return false
@@ -422,7 +515,8 @@ func isReportGenerationGuidanceProfileSectionBriefVisualPlan(profile string) boo
 
 func isReportGenerationGuidanceProfileSectionBriefClusterVisualPlan(profile string) bool {
 	switch strings.TrimSpace(strings.ToLower(profile)) {
-	case reportGenerationGuidanceProfileSectionBriefClusterVisualPlan, "section_brief_cluster_memory_visual_plan":
+	case reportGenerationGuidanceProfileSectionBriefClusterVisualPlan, "section_brief_cluster_memory_visual_plan",
+		reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, "section_brief_cluster_memory_narrative_contract":
 		return true
 	default:
 		return false

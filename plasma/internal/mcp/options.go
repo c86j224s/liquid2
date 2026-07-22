@@ -43,6 +43,7 @@ type ReportPlanBinding struct {
 	AgentExecutor             string
 	AgentModel                string
 	AgentReasoningEffort      string
+	RequireWritingContract    bool
 }
 
 type idempotencyEntry struct {
@@ -157,6 +158,7 @@ func normalizeReportPlanBinding(binding ReportPlanBinding) ReportPlanBinding {
 		IdempotencyKey: strings.TrimSpace(binding.IdempotencyKey), ToolSessionID: strings.TrimSpace(binding.ToolSessionID),
 		PreviousProviderSessionID: strings.TrimSpace(binding.PreviousProviderSessionID), AgentExecutor: strings.TrimSpace(strings.ToLower(binding.AgentExecutor)),
 		AgentModel: strings.TrimSpace(binding.AgentModel), AgentReasoningEffort: strings.TrimSpace(binding.AgentReasoningEffort),
+		RequireWritingContract: binding.RequireWritingContract,
 	}
 }
 

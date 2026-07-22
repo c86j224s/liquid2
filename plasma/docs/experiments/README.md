@@ -96,6 +96,38 @@ large artifacts live outside the repository under `research-artifacts/`.
     - Prepared product-path experiment for testing whether long-form Part
       assembly should submit only connective tissue through MCP edit tools
       instead of returning the assembly JSON in the agent response.
+27. [`27-report-visual-evidence-fit-2026-07-22/`](27-report-visual-evidence-fit-2026-07-22/README.md)
+    - Prepared product-path experiment for testing whether reports should use
+      Mermaid diagrams, tables, and qualitative charts more readily when the
+      source supports a structure, flow, relation, or qualitative contrast
+      without exact numeric proof.
+28. [`28-report-visual-reading-aid-preference-2026-07-22/`](28-report-visual-reading-aid-preference-2026-07-22/README.md)
+    - Completed product-path experiment for testing whether reports should
+      prefer compact visual aids over longer explanatory prose when the source
+      supports a relationship, sequence, dependency, comparison, or uncertainty
+      structure.
+29. [`29-report-visual-reader-intent-2026-07-22/`](29-report-visual-reader-intent-2026-07-22/README.md)
+    - Completed follow-up product-path experiment for testing whether
+      reader-task intent guides visual aids better than direct visual-type
+      pressure. The candidate reduced one meta-diagram failure but was too
+      conservative overall, so it was not adopted as the product default.
+30. [`30-report-visual-clarity-seeking-2026-07-22/`](30-report-visual-clarity-seeking-2026-07-22/README.md)
+    - Completed follow-up product-path experiment for testing whether active
+      clarity-seeking guidance can improve visual-aid choice without adding
+      prohibition-heavy wording. The candidate increased visual-aid count but
+      did not improve alignment, so it was not adopted as the product default.
+31. [`31-report-visual-affordance-priming-2026-07-22/`](31-report-visual-affordance-priming-2026-07-22/README.md)
+    - Completed follow-up product-path experiment for testing whether a light
+      source-shape affordance reminder helps report writers apply the existing
+      visual-type mapping more consistently. The candidate improved timeline
+      activation without regressions, but did not reach strict statistical
+      significance and was not adopted as the product default.
+32. [`32-report-narrative-contract-2026-07-22/`](32-report-narrative-contract-2026-07-22/README.md)
+    - Productized a reader-facing writing contract, bound Section reads for Part
+      editors, and a constrained final manuscript editor. An actual serial Web
+      run preserved the required details without shortening and reduced
+      source-management language. The contract became a common baseline beneath
+      the existing Web writing choices rather than a separate visible option.
 
 ## Controller Experiment Sequence
 

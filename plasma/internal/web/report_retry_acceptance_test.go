@@ -99,6 +99,7 @@ func TestReportRetryResumeFailedReusesLongFormStagesAndFinalizes(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled",
+		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
 	})
 	failed := waitForEventType(t, server.URL, missionID, "report.draft.failed")
 	var originalPendingID string

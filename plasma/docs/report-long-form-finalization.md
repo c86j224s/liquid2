@@ -6,20 +6,30 @@ is serial. A separate long-form-only "fast parallel" option may fan out section
 drafting from the canonical plan session, then returns to the same Part
 assembly and finalization contract.
 
-The final handoff is unchanged in both strategies: the report agent submits the
-opening and closing through `plasma.report.long_form.finalize`; the server
-assembles them with the durable Part artifacts and atomically creates the
-existing raw Markdown artifact and `report.artifact.created` event.
+The active Web writing choices use the same final editorial handoff in both
+strategies. The server assembles durable Part artifacts into an in-process
+manuscript. A bound final editor reads and patches that manuscript, then submits
+it atomically as the existing raw Markdown artifact and
+`report.artifact.created` event. Stored legacy profiles retain the previous
+opening/closing-only finalization semantics for replay and interrupted work.
 
 Planned reports and CLI report behavior do not use this command.
 
 ## Part Assembly Edit Tools
 
-The browser keeps the three active writing choices: `visual-plan`,
-`section-brief-visual-plan`, and
-`section-brief-cluster-memory-visual-plan`. In long-form reports, all three use
-the same Part assembly MCP edit handoff: the Part agent receives only a bound
-MCP edit surface for Part intro, transitions, and closing, then returns the
+The browser keeps three visible writing choices: visual planning,
+section-centered writing, and section-centered writing with richer cluster
+memory. The reader-facing writing contract is a common baseline under all
+three, not a fourth choice. Internally, new requests use distinct composite
+profile values so stored legacy profile values are not reinterpreted.
+
+All three choices keep the same visual-aid default: source shape should suggest
+the aid before the writer falls back to prose, so chronology tends toward
+timeline, dependency toward flowchart, actor handoff toward sequence diagram,
+lifecycle toward state diagram, ordered values toward source-backed chart, and
+scenario or trade-off toward matrix/table. They also use the same Part assembly
+MCP handoff. The Part agent must bounded-read every immutable Section bound to
+that Part before editing its intro, transitions, and closing, then returns the
 `PART_ASSEMBLY_SUBMITTED` sentinel.
 
 The older `part-assembly-edit-tools` profile remains accepted for experiment
@@ -27,8 +37,10 @@ replay and stored-event compatibility, but it is not a separate browser choice.
 
 This handoff does not let the agent rewrite Section bodies or submit complete
 Part Markdown. The server still inserts the immutable Section artifacts and
-creates the canonical Part artifact. Planned reports, one-take reports, CLI
-reports, H5 patching, designed HTML, and cost policy are unchanged.
+creates the canonical Part artifact. Planned reports use the same writing
+contract without Part or final stages. The compatibility one-take Web API uses
+the shared writing guidance without inventing a plan. CLI reports, H5 patching,
+designed HTML, and cost policy are unchanged.
 
 ## Execution Strategies
 
@@ -41,8 +53,9 @@ forks the report-plan provider session for independent section workers. Each
 section still uses the normal section prompt and bounded source tools. The
 browser runner executes at most eight section workers at once. Part assembly
 waits for the section artifacts in that Part and preserves their bodies.
-Finalization still uses `plasma.report.long_form.finalize`; the agent does not
-submit full final Markdown.
+Active choices return to the same bound manuscript editor and atomic submit
+contract after Part assembly. Stored legacy profiles continue to use
+`plasma.report.long_form.finalize` and do not submit full final Markdown.
 
 The strategy is stored on `report.draft.pending` as `execution_strategy` so
 restart and stale recovery use the same path. Omitted or `serial` values keep
@@ -51,18 +64,22 @@ one-take, CLI, H5, patch, or designed HTML requests.
 
 ## Public Tool Contract
 
-The tool is exposed only in a long-form final session with a complete hidden
-runner binding and explicit tool enablement. Its closed input contains exactly:
+The active final editor tools are exposed only in a long-form final session with
+a complete hidden runner binding and explicit tool enablement:
 
-- `mission_id`, `session_id`, `pending_event_id`, and `plan_event_id`
-- `idempotency_key`
-- `producer`, fixed to the bound MCP tool session
-- `opening_markdown` and `closing_markdown`
+- `plasma.report.long_form.final_edit.start` creates the server-owned manuscript
+  from the ordered bound Parts.
+- `plasma.report.long_form.final_edit.read` returns bounded UTF-8 slices.
+- `plasma.report.long_form.final_edit.patch` applies bounded exact replace,
+  insert-after, or append operations.
+- `plasma.report.long_form.final_edit.submit` commits the edited manuscript
+  through the canonical finalization transaction.
 
 The agent cannot select the final artifact ID, filename, title, report mode,
-Part order, section order, provider provenance, model settings, or full report
-Markdown. These values are server-bound and checked against the mission ledger
-and raw artifacts before commit.
+Part order, section order, provider provenance, or model settings. It cannot
+read sources or research during final editing, and it cannot mutate Section or
+Part artifacts. Legacy `plasma.report.long_form.finalize` remains bound to its
+closed opening/closing input for stored-profile compatibility only.
 
 The raw final artifact and existing canonical event are committed in one SQLite
 transaction. An identical binding and assembled SHA replays the canonical

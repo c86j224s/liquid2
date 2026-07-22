@@ -319,20 +319,28 @@ Executor가 fork를 지원하지 않거나 미션에 pre-report research session
 artifact를 만듭니다. CLI `reports draft`도 같은 planned default를 사용합니다. `--mode one_take`는 명시적인
 same-session compatibility path로 남깁니다.
 
-느린 경로인 `장문 보고서`는 Part/Section plan을 만들고, section을 별도 Markdown artifact로 작성한 뒤, section
-body를 보존하면서 part/final artifact를 조립합니다. Final assembly는 C4 experiment의 limited cleanup만 wrapper
-boundary에서 적용합니다. Duplicate section heading, numbered self-heading, frame heading, connective heading,
-adjacent heading repeat은 정리하되, fenced code와 실제 section body subheading은 보존합니다.
+기본 browser 보고서는 계획에 중심 질문, 독자 결론, 읽는 순서, 보존할 정보와 압축·보조 층 후보를 담는 얇은 작성
+계약을 만들고, 원천을 따로 읽지 않을 독자에게 직접 설명하는 writer 지침을 사용합니다. 느린 경로인 `장문 보고서`는
+Part/Section plan을 만들고 section을 별도 Markdown artifact로 작성합니다. Part editor는 현재 Part에 바인딩된
+Section 본문만 bounded read한 뒤 intro, transition, closing을 만들며 Section artifact를 수정하지 않습니다.
 
-Long-form report event는 `assembly_strategy: c4_normalized_section_headings`를 기록해야 합니다. 그래야 나중에
-어떤 assembly rule이 artifact를 만들었는지 디버깅할 수 있습니다. CLI `--mode long_form`은 CLI가 같은 section
-runner를 호출할 수 있을 때까지 거부합니다. 단일 Markdown turn으로 흉내 내지 않습니다.
+이 작성 계약은 별도 글쓰기 선택지가 아닙니다. 화면의 `시각자료 계획`, `섹션 중심`, `섹션 중심 + 풍부하게`는
+구성 방식을 선택하며, 세 경로 모두 같은 독자 중심 계약과 편집 경계를 사용합니다.
+
+Final editor는 바인딩된 Part artifact를 서버 소유 임시 원고로 조립해 끝까지 읽고, 제한된 exact patch로 제목 중복,
+도입, Part 사이 연결, 반복, 결론을 편집합니다. 이 단계에는 source/research tool을 주지 않으며 Section과 Part
+artifact는 계속 불변입니다. 완성 원고는 원자적으로 새 report artifact가 되고, event는
+`composition_strategy: sectional_narrative_edit`와 `assembly_strategy: narrative_contract_final_edit`를
+기록합니다. 이전 `visual-plan` profile은 C4의 `sectional_preserve_markdown`과
+`c4_normalized_section_headings` 의미를 저장 이벤트 replay와 중단 작업 복구에만 유지합니다. 이전 값을 새 공통
+계약으로 재해석하지 않습니다. CLI `--mode long_form`은 CLI가 같은 section runner를 호출할 수 있을 때까지
+거부하며, 단일 Markdown turn으로 흉내 내지 않습니다.
 
 두 보고서 경로 모두 AST repair turn, report version, report block을 피합니다. 나중에 plan review 단계를 넣을 수
 있지만, 보고서는 여전히 report artifact로 남아야 하며 source나 legacy AST report version이 되면 안 됩니다. 기본
-guidance는 F4 experiment를 이어받습니다. 이전 대화, 조사 답변, controller question은 working memory이지 source가
-아닙니다. Writer는 fact, interpretation, weak signal, conflict, reader-facing structure를 내부적으로 정리한 뒤
-풍부한 Markdown 보고서를 써야 합니다.
+guidance는 F4와 시각자료 계획을 이어받고 독자 중심 작성 계약을 더합니다. 이전 대화, 조사 답변, controller
+question은 working memory이지 source가 아닙니다. Writer는 fact, interpretation, weak signal, conflict,
+reader-facing structure를 내부적으로 정리한 뒤 풍부한 Markdown 보고서를 써야 합니다.
 
 Web planned와 long-form 계획은
 [`report-plan-submission.ko.md`](report-plan-submission.ko.md)의 내구성 MCP 제출 수명주기를

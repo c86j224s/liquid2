@@ -85,6 +85,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 					PreviousProviderSessionID: reportStartSessionID,
 					AgentModel:                req.agentModel,
 					AgentReasoningEffort:      req.agentReasoningEffort,
+					RequireWritingContract:    requireReportWritingContract(req.generationGuidanceProfile),
 				},
 			})
 			planDurationMS = time.Since(planStarted).Milliseconds()

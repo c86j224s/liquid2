@@ -37,9 +37,14 @@ const (
 	ToolReportPlanSubmit         = "plasma.report.plan.submit"
 	ToolReportPartAssemblyStart  = "plasma.report.part_assembly.start"
 	ToolReportPartAssemblyRead   = "plasma.report.part_assembly.read"
+	ToolReportPartSectionRead    = "plasma.report.part_assembly.section.read"
 	ToolReportPartAssemblyPatch  = "plasma.report.part_assembly.patch"
 	ToolReportPartAssemblySubmit = "plasma.report.part_assembly.submit"
 	ToolReportLongFormFinalize   = "plasma.report.long_form.finalize"
+	ToolReportLongFormEditStart  = "plasma.report.long_form.final_edit.start"
+	ToolReportLongFormEditRead   = "plasma.report.long_form.final_edit.read"
+	ToolReportLongFormEditPatch  = "plasma.report.long_form.final_edit.patch"
+	ToolReportLongFormEditSubmit = "plasma.report.long_form.final_edit.submit"
 	ToolExperimentReportCreate   = "plasma.experiment.report.create"
 	ToolExperimentReportAppend   = "plasma.experiment.report.append"
 	ToolExperimentReportRead     = "plasma.experiment.report.read"
@@ -141,9 +146,24 @@ func (server *Server) ListTools() []ToolDefinition {
 			ToolDefinition{Name: ToolReportPartAssemblyPatch, Description: "Long-form part assembly session only: set intro, transition, or closing connective Markdown without editing Section bodies.", InputSchema: schemaReportPartAssemblyPatch},
 			ToolDefinition{Name: ToolReportPartAssemblySubmit, Description: "Long-form part assembly session only: durably submit the connective Markdown for server-side part assembly.", InputSchema: schemaReportPartAssemblySubmit},
 		)
+		if server.partAssemblySectionReadToolEnabled() {
+			tools = append(tools, ToolDefinition{Name: ToolReportPartSectionRead, Description: "Long-form part assembly session only: read a bounded slice of one runner-bound immutable Section artifact by its Part-local index.", InputSchema: schemaReportPartSectionRead})
+		}
 	}
 	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil && server.toolEnabled(ToolReportLongFormFinalize) {
 		tools = append(tools, ToolDefinition{Name: ToolReportLongFormFinalize, Description: "Long-form final session only: atomically assemble and finalize the bound durable report parts.", InputSchema: schemaReportLongFormFinalize})
+	}
+	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil {
+		for _, tool := range []ToolDefinition{
+			ToolDefinition{Name: ToolReportLongFormEditStart, Description: "Long-form final editor only: create an in-process manuscript from the runner-bound durable Part artifacts.", InputSchema: schemaReportLongFormEditStart},
+			ToolDefinition{Name: ToolReportLongFormEditRead, Description: "Long-form final editor only: read a bounded slice of the in-process manuscript.", InputSchema: schemaReportLongFormEditRead},
+			ToolDefinition{Name: ToolReportLongFormEditPatch, Description: "Long-form final editor only: apply an exact bounded edit to the in-process manuscript without mutating Part or Section artifacts.", InputSchema: schemaReportLongFormEditPatch},
+			ToolDefinition{Name: ToolReportLongFormEditSubmit, Description: "Long-form final editor only: atomically submit the edited manuscript through the canonical long-form finalization boundary.", InputSchema: schemaReportLongFormEditSubmit},
+		} {
+			if server.longFormEditToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
 	}
 	if server.experimentalReportComposition {
 		tools = append(tools,

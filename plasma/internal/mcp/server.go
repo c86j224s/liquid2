@@ -79,6 +79,7 @@ type Server struct {
 	reportDrafts          map[string]*experimentReportDraft
 	reportPatches         map[string]*reportPatchDraft
 	partAssemblyDrafts    map[string]*partAssemblyDraft
+	longFormEditDrafts    map[string]*longFormEditDraft
 	reportPlanParsedCalls int
 }
 
@@ -90,6 +91,7 @@ func NewServer(service Service, options ...Option) *Server {
 		reportDrafts:       map[string]*experimentReportDraft{},
 		reportPatches:      map[string]*reportPatchDraft{},
 		partAssemblyDrafts: map[string]*partAssemblyDraft{},
+		longFormEditDrafts: map[string]*longFormEditDraft{},
 	}
 	for _, option := range options {
 		option(server)

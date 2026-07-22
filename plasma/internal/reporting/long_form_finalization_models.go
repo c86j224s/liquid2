@@ -6,6 +6,11 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+const (
+	LongFormCompositionPreserveMarkdown = "sectional_preserve_markdown"
+	LongFormCompositionNarrativeEdit    = "sectional_narrative_edit"
+)
+
 type LongFormFinalizeBinding struct {
 	MissionID                    string       `json:"mission_id"`
 	PendingEventID               string       `json:"pending_event_id"`
@@ -20,6 +25,7 @@ type LongFormFinalizeBinding struct {
 	PartArtifactIDs              []string     `json:"part_artifact_ids"`
 	SectionArtifactIDs           []string     `json:"section_artifact_ids"`
 	SectionWordCount             int          `json:"section_word_count"`
+	CompositionStrategy          string       `json:"composition_strategy,omitempty"`
 	AgentExecutor                string       `json:"agent_executor"`
 	AgentModel                   string       `json:"agent_model"`
 	AgentReasoningEffort         string       `json:"agent_reasoning_effort"`
@@ -42,10 +48,11 @@ type LongFormFinalizeBinding struct {
 }
 
 type LongFormFinalizeRequest struct {
-	Binding         LongFormFinalizeBinding
-	EventID         string
-	OpeningMarkdown string
-	ClosingMarkdown string
+	Binding            LongFormFinalizeBinding
+	EventID            string
+	OpeningMarkdown    string
+	ClosingMarkdown    string
+	ManuscriptMarkdown string
 }
 
 type LongFormFinalizeResult struct {

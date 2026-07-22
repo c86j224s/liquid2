@@ -2927,6 +2927,11 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		{Text: "mission answer", SessionID: "agent-session-1"},
 		{Text: agentReportPlanJSON(agentReportPlan{
 			Summary: "Use the current mission session for a planned report.",
+			WritingContract: &reporting.ReportWritingContract{
+				CentralQuestion: "What should the reader understand?", ReaderTakeaway: "The operational trade-off.",
+				ReadingPath: []string{"state the answer", "explain the evidence"}, MustKeep: []string{"the operational trade-off"},
+				VisualRole: "none needed", ToneAndShape: "direct explanation",
+			},
 			Sections: []agentReportSection{{
 				Title:   "Mission summary",
 				Purpose: "Summarize the mission.",
@@ -2967,8 +2972,8 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if humanize := nestedString(t, response, "pending_event", "Payload", "post_report_humanize"); humanize != "disabled" {
 		t.Fatalf("expected default report draft to leave H5 disabled, got %q", humanize)
 	}
-	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportGenerationGuidanceProfileVisualPlan {
-		t.Fatalf("expected default report draft to use visual-plan generation guidance, got %q", profile)
+	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportGenerationGuidanceProfileNarrativeContract {
+		t.Fatalf("expected default report draft to use narrative-contract generation guidance, got %q", profile)
 	}
 	if sha := nestedString(t, response, "pending_event", "Payload", "generation_guidance_sha256"); sha == "" {
 		t.Fatalf("expected default report draft pending event to record generation guidance sha")
@@ -3001,6 +3006,9 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if !strings.Contains(planReq.Prompt, "Visual-aid planning guidance:") {
 		t.Fatalf("planned report default visual guidance did not reach planning prompt:\n%s", planReq.Prompt)
 	}
+	if planReq.ReportPlan == nil || !planReq.ReportPlan.RequireWritingContract || !strings.Contains(planReq.Prompt, "Reader-facing writing-contract guidance:") {
+		t.Fatalf("planned report default writing contract did not reach the product path: request=%#v\nprompt=%s", planReq.ReportPlan, planReq.Prompt)
+	}
 	reportReq := agent.requests[2]
 	if reportReq.PreviousSessionID != "agent-session-1" {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
@@ -3017,6 +3025,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		"mission_id " + missionID,
 		"Report writing guidance:",
 		"Report visual-aid guidance:",
+		"Reader-facing explanation guidance:",
 		"never improve fluency by dropping concrete source details",
 		"Follow the generation plan's visual-aid intent",
 		"use only \\(...\\) for inline math and \\[...\\] for display math",
@@ -3036,8 +3045,8 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected planned composition metadata, got %#v", payload)
 	}
 	if payload["post_report_humanize"] != "disabled" || payload["humanize_enabled"] != false ||
-		payload["generation_guidance_profile"] != reportGenerationGuidanceProfileVisualPlan || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
-		t.Fatalf("expected default visual-plan and disabled H5 metadata, got %#v", payload)
+		payload["generation_guidance_profile"] != reportGenerationGuidanceProfileNarrativeContract || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
+		t.Fatalf("expected default narrative-contract and disabled H5 metadata, got %#v", payload)
 	}
 	if payload["report_session_policy"] != reportSessionPolicySameSession ||
 		payload["session_chain_kind"] != "same_session_report" ||
@@ -3181,8 +3190,9 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":       "Forked Long Report",
-		"report_mode": "long_form",
+		"title":                       "Forked Long Report",
+		"report_mode":                 "long_form",
+		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
 	})
 	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyIsolatedFork {
 		t.Fatalf("expected isolated fork policy for long-form pending event, got %q", policy)
@@ -3261,9 +3271,10 @@ func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":              "Fanout Long Report",
-		"report_mode":        "long_form",
-		"execution_strategy": "section_fanout",
+		"title":                       "Fanout Long Report",
+		"report_mode":                 "long_form",
+		"execution_strategy":          "section_fanout",
+		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
 	})
 	if strategy := nestedString(t, response, "pending_event", "Payload", "execution_strategy"); strategy != reportExecutionStrategySectionFanout {
 		t.Fatalf("expected pending event to preserve section fanout strategy, got %q", strategy)
@@ -4177,6 +4188,21 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 		req.GenerationGuidanceSHA256 != "sha-test" {
 		t.Fatalf("expected recovered report generation metadata, got %#v", req)
 	}
+
+	legacyPayload, err := json.Marshal(map[string]any{
+		"title":       "Recover pre-profile report",
+		"report_mode": reportModeLongForm,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: legacyPayload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyReq.GenerationGuidanceProfile != reportGenerationGuidanceProfileVisualPlan {
+		t.Fatalf("pre-profile pending report must recover through legacy preserve path, got %#v", legacyReq)
+	}
 }
 
 func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing.T) {
@@ -4216,11 +4242,12 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                  "Sectional report",
-		"rigor_level":            "balanced",
-		"report_mode":            "long_form",
-		"agent_model":            "gpt-5.5",
-		"agent_reasoning_effort": "high",
+		"title":                       "Sectional report",
+		"rigor_level":                 "balanced",
+		"report_mode":                 "long_form",
+		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"agent_model":                 "gpt-5.5",
+		"agent_reasoning_effort":      "high",
 	})
 	if mode := nestedString(t, response, "pending_event", "Payload", "report_mode"); mode != reportModeLongForm {
 		t.Fatalf("expected long-form report mode in pending event, got %q", mode)
@@ -4411,7 +4438,10 @@ func TestReportDraftLongFormCanonicalSurvivesAcknowledgementAnomaly(t *testing.T
 	defer server.Close()
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Ack anomaly"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled"})
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled",
+		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	time.Sleep(50 * time.Millisecond)
 	detail = getJSON(t, server.URL+"/api/missions/"+missionID)
@@ -10678,6 +10708,16 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 		return result, nil
 	}
 	if req.LongFormFinalize != nil {
+		if req.LongFormFinalize.CompositionStrategy == reporting.LongFormCompositionNarrativeEdit {
+			_, finalizeErr := reporting.FinalizeLongForm(ctx, executor.service, reporting.LongFormFinalizeRequest{
+				Binding: *req.LongFormFinalize, EventID: fmt.Sprintf("evt_final_fixture_%d", executor.sequence.Add(1)), ManuscriptMarkdown: result.Text,
+			})
+			if finalizeErr != nil {
+				return result, finalizeErr
+			}
+			result.Text = "REPORT_FINALIZED"
+			return result, nil
+		}
 		frame, parseErr := parseFixtureSectionalFrame(result.Text)
 		if parseErr != nil {
 			return result, parseErr

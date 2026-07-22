@@ -23,15 +23,28 @@ func reportPlanMCPTools() []string {
 	return append(reportReadMCPTools(), plasmamcp.ToolReportPlanSubmit)
 }
 
-func reportPartAssemblyMCPTools() []string {
-	return []string{
+func reportPartAssemblyMCPTools(profile string) []string {
+	tools := []string{
 		plasmamcp.ToolReportPartAssemblyStart,
 		plasmamcp.ToolReportPartAssemblyRead,
 		plasmamcp.ToolReportPartAssemblyPatch,
 		plasmamcp.ToolReportPartAssemblySubmit,
 	}
+	if isReportGenerationGuidanceProfileNarrativeContract(profile) {
+		tools = append(tools, plasmamcp.ToolReportPartSectionRead, plasmamcp.ToolMermaidValidate)
+	}
+	return tools
 }
 
-func reportFinalizeMCPTools() []string {
+func reportFinalizeMCPTools(profile string) []string {
+	if isReportGenerationGuidanceProfileNarrativeContract(profile) {
+		return []string{
+			plasmamcp.ToolReportLongFormEditStart,
+			plasmamcp.ToolReportLongFormEditRead,
+			plasmamcp.ToolReportLongFormEditPatch,
+			plasmamcp.ToolReportLongFormEditSubmit,
+			plasmamcp.ToolMermaidValidate,
+		}
+	}
 	return []string{plasmamcp.ToolReportLongFormFinalize}
 }

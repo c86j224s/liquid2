@@ -7,17 +7,16 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
-func replayLongFormFinalize(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding, event app.LedgerEvent, opening, closing string) (LongFormFinalizeResult, error) {
+func replayLongFormFinalize(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding, event app.LedgerEvent, req LongFormFinalizeRequest) (LongFormFinalizeResult, error) {
 	payload := eventPayload(event)
 	artifact, err := store.GetRawArtifact(ctx, binding.ArtifactID)
 	if err != nil {
 		return LongFormFinalizeResult{}, fmt.Errorf("%w: canonical final artifact is missing", app.ErrConflict)
 	}
-	parts, err := loadLongFormParts(ctx, store, binding)
+	expected, err := longFormMarkdownForRequest(ctx, store, binding, req)
 	if err != nil {
 		return LongFormFinalizeResult{}, err
 	}
-	expected := AssembleLongFormFinalMarkdown(binding.Title, opening, closing, parts)
 	if artifact.MissionID != binding.MissionID || artifact.MediaType != "text/markdown; charset=utf-8" || artifact.Filename != binding.Filename || artifact.SHA256 != contentSHA256([]byte(expected)) || artifact.Producer != binding.Producer || event.CorrelationID != binding.IdempotencyKey || !canonicalMatchesBinding(event, payload, binding) {
 		return LongFormFinalizeResult{}, fmt.Errorf("%w: canonical long-form finalization binding differs", app.ErrConflict)
 	}
@@ -40,10 +39,17 @@ func canonicalMatchesBinding(event app.LedgerEvent, payload map[string]any, bind
 		payloadString(payload, "generation_guidance_profile") == binding.GenerationGuidanceProfile && payloadString(payload, "generation_guidance_sha256") == binding.GenerationGuidanceSHA256 &&
 		payloadString(payload, "session_chain_kind") == binding.SessionChainKind && payloadString(payload, "pre_report_research_session_id") == binding.PreReportResearchSessionID &&
 		payloadString(payload, "report_plan_session_id") == binding.ReportPlanSessionID && payloadString(payload, "fork_source_agent_session_id") == binding.ForkSourceAgentSessionID &&
-		payloadString(payload, "composition_strategy") == "sectional_preserve_markdown" && payloadString(payload, "assembly_strategy") == "c4_normalized_section_headings" &&
+		payloadString(payload, "composition_strategy") == binding.CompositionStrategy && payloadString(payload, "assembly_strategy") == longFormAssemblyStrategy(binding.CompositionStrategy) &&
 		jsonInt(payload["part_count"]) == len(binding.PartArtifactIDs) && jsonInt(payload["section_count"]) == len(binding.SectionArtifactIDs) &&
 		jsonInt(payload["section_word_count"]) == binding.SectionWordCount && equalJSONStrings(payload["part_artifact_ids"], binding.PartArtifactIDs) &&
 		equalJSONStrings(payload["section_artifact_ids"], binding.SectionArtifactIDs)
+}
+
+func longFormAssemblyStrategy(composition string) string {
+	if composition == LongFormCompositionNarrativeEdit {
+		return "narrative_contract_final_edit"
+	}
+	return "c4_normalized_section_headings"
 }
 
 func longFormCanonical(events []app.LedgerEvent, pendingID string) (app.LedgerEvent, int) {

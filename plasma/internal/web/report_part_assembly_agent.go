@@ -56,7 +56,7 @@ func (server *Server) runPartAssemblyAgent(ctx context.Context, req reportPartAs
 	if usePartAssemblyEditTools(req.generationGuidanceProfile) {
 		binding = req.partAssemblyBinding()
 		agentReq.Prompt = agentPartAssemblyEditToolsPrompt(req, binding, newID("rpa"))
-		agentReq.ExtraMCPTools = reportPartAssemblyMCPTools()
+		agentReq.ExtraMCPTools = reportPartAssemblyMCPTools(req.generationGuidanceProfile)
 		agentReq.PartAssembly = &binding
 	}
 	result, err := executor.Run(ctx, agentReq)
@@ -95,6 +95,7 @@ func (req reportPartAssemblyAgentRequest) partAssemblyBinding() reporting.PartAs
 		PreviousProviderSessionID:    req.previousSessionID,
 		PartIndex:                    req.partIndex + 1,
 		SectionCount:                 len(req.drafts),
+		SectionArtifactIDs:           partSectionArtifactIDs(req.drafts),
 		AgentExecutor:                req.executorName,
 		AgentModel:                   req.agentModel,
 		AgentReasoningEffort:         req.agentReasoningEffort,
@@ -113,6 +114,14 @@ func (req reportPartAssemblyAgentRequest) partAssemblyBinding() reporting.PartAs
 	}
 }
 
+func partSectionArtifactIDs(drafts []sectionalReportDraft) []string {
+	ids := make([]string, len(drafts))
+	for index, draft := range drafts {
+		ids[index] = strings.TrimSpace(draft.ArtifactID)
+	}
+	return ids
+}
+
 func usePartAssemblyEditTools(profile string) bool {
 	return isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) ||
 		isReportGenerationGuidanceProfileVisualPlan(profile)
@@ -122,6 +131,14 @@ func agentPartAssemblyEditToolsPrompt(req reportPartAssemblyAgentRequest, bindin
 	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(req.generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
+	}
+	sectionReading := ""
+	sectionInventory := sectionalDraftInventoryJSON(req.drafts)
+	promptBinding := binding
+	if isReportGenerationGuidanceProfileNarrativeContract(req.generationGuidanceProfile) {
+		sectionReading = fmt.Sprintf("\nRequired manuscript reading:\n- Call %s for every Section in this Part, following next_offset until truncated is false. Read the actual Section bodies before writing connective text.\n", plasmamcp.ToolReportPartSectionRead)
+		sectionInventory = narrativePartSectionInventoryJSON(req.drafts)
+		promptBinding.SectionArtifactIDs = nil
 	}
 	return fmt.Sprintf(`Prepare connective tissue for one Part of a Korean long-form Plasma report using MCP edit tools.
 
@@ -148,6 +165,7 @@ Bound MCP part assembly metadata:
 
 Required tool sequence:
 1. Call %s once with draft_id %q, the bound mission/session/pending/plan IDs, part_index, section_count, producer, and a start idempotency_key.
+%s
 2. Use %s when you need to inspect the current connective draft.
 3. Use %s to set only intro, transition, or closing. For a transition, after_section_index is the section number after which the transition appears; it must be before another section.
 4. Call %s once with the same draft_id and bound pending/plan IDs.
@@ -159,5 +177,17 @@ Rules:
 - Do not summarize the Section bodies into a replacement overview.
 - Transitions are optional, but when useful they should connect adjacent Sections without compressing them.
 - Prefer one good intro and one good closing over many filler transitions.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionalDraftInventoryJSON(req.drafts), agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(binding), plasmamcp.ToolReportPartAssemblyStart, draftID, plasmamcp.ToolReportPartAssemblyRead, plasmamcp.ToolReportPartAssemblyPatch, plasmamcp.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionInventory, agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(promptBinding), plasmamcp.ToolReportPartAssemblyStart, draftID, sectionReading, plasmamcp.ToolReportPartAssemblyRead, plasmamcp.ToolReportPartAssemblyPatch, plasmamcp.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel)
+}
+
+func narrativePartSectionInventoryJSON(drafts []sectionalReportDraft) string {
+	items := make([]map[string]any, len(drafts))
+	for index, draft := range drafts {
+		items[index] = map[string]any{
+			"section_index": index + 1,
+			"title":         draft.Title,
+			"word_count":    draft.WordCount,
+		}
+	}
+	return agentReportAnyJSON(items)
 }

@@ -22,11 +22,12 @@ var schemaReportPlanSubmit = json.RawMessage(`{
   "$defs":{
     "producer":{"type":"object","additionalProperties":false,"required":["type","id"],"properties":{"type":{"const":"agent_session"},"id":{"type":"string"}}},
     "target_refs":{"type":"object","additionalProperties":false,"properties":{"claim_ids":{"type":"array","items":{"type":"string"}},"evidence_ids":{"type":"array","items":{"type":"string"}},"snapshot_ids":{"type":"array","items":{"type":"string"}},"question_ids":{"type":"array","items":{"type":"string"}},"option_ids":{"type":"array","items":{"type":"string"}}}},
+    "writing_contract":{"type":"object","additionalProperties":false,"required":["central_question","reader_takeaway","reading_path","must_keep","visual_role","tone_and_shape"],"properties":{"central_question":{"type":"string"},"reader_takeaway":{"type":"string"},"reading_path":{"type":"array","items":{"type":"string"}},"must_keep":{"type":"array","items":{"type":"string"}},"can_summarize":{"type":"array","items":{"type":"string"}},"move_to_supporting_layer":{"type":"array","items":{"type":"string"}},"visual_role":{"type":"string"},"tone_and_shape":{"type":"string"}}},
     "planned_section":{"type":"object","additionalProperties":false,"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"target_refs":{"$ref":"#/$defs/target_refs"}}},
     "long_form_section":{"type":"object","additionalProperties":false,"required":["title"],"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"target_refs":{"$ref":"#/$defs/target_refs"}}},
     "part":{"type":"object","additionalProperties":false,"required":["title","sections"],"properties":{"title":{"type":"string"},"purpose":{"type":"string"},"sections":{"type":"array","items":{"$ref":"#/$defs/long_form_section"}}}},
-    "planned_plan":{"type":"object","additionalProperties":false,"anyOf":[{"required":["summary"]},{"required":["sections"]}],"properties":{"summary":{"type":"string"},"sections":{"type":"array","items":{"$ref":"#/$defs/planned_section"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}}}},
-    "long_form_plan":{"type":"object","additionalProperties":false,"required":["parts"],"properties":{"summary":{"type":"string"},"parts":{"type":"array","items":{"$ref":"#/$defs/part"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}}}}
+    "planned_plan":{"type":"object","additionalProperties":false,"anyOf":[{"required":["summary"]},{"required":["sections"]}],"properties":{"summary":{"type":"string"},"sections":{"type":"array","items":{"$ref":"#/$defs/planned_section"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}},"writing_contract":{"$ref":"#/$defs/writing_contract"}}},
+    "long_form_plan":{"type":"object","additionalProperties":false,"required":["parts"],"properties":{"summary":{"type":"string"},"parts":{"type":"array","items":{"$ref":"#/$defs/part"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}},"writing_contract":{"$ref":"#/$defs/writing_contract"}}}
   }
 }`)
 
@@ -45,6 +46,47 @@ var schemaReportLongFormFinalize = json.RawMessage(`{
     "closing_markdown":{"type":"string"}
   }
 }`)
+
+var (
+	schemaReportLongFormEditStart = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "pending_event_id", "plan_event_id"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rfe_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+		}),
+	)
+	schemaReportLongFormEditRead = objectSchema(
+		[]string{"mission_id", "session_id", "draft_id"},
+		map[string]any{
+			"mission_id": prefixedStringSchema("mis_"),
+			"session_id": prefixedStringSchema("ses_"),
+			"draft_id":   prefixedStringSchema("rfe_"),
+			"offset":     map[string]any{"type": "integer", "minimum": 0},
+			"max_bytes":  map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
+		},
+	)
+	schemaReportLongFormEditPatch = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "operation", "replacement"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":    prefixedStringSchema("rfe_"),
+			"operation":   enumSchema("replace", "insert_after", "append"),
+			"match_text":  stringSchema(),
+			"replacement": stringSchema(),
+			"occurrence":  map[string]any{"type": "integer", "minimum": 0},
+			"replace_all": map[string]any{"type": "boolean"},
+			"summary":     stringSchema(),
+		}),
+	)
+	schemaReportLongFormEditSubmit = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rfe_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+		}),
+	)
+)
 
 var (
 	schemaMissionGet              = objectSchema([]string{"mission_id"}, baseProperties())
@@ -184,6 +226,16 @@ var (
 			"mission_id": prefixedStringSchema("mis_"),
 			"session_id": prefixedStringSchema("ses_"),
 			"draft_id":   prefixedStringSchema("rpa_"),
+		},
+	)
+	schemaReportPartSectionRead = objectSchema(
+		[]string{"mission_id", "session_id", "section_index"},
+		map[string]any{
+			"mission_id":    prefixedStringSchema("mis_"),
+			"session_id":    prefixedStringSchema("ses_"),
+			"section_index": map[string]any{"type": "integer", "minimum": 1},
+			"offset":        map[string]any{"type": "integer", "minimum": 0},
+			"max_bytes":     map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
 		},
 	)
 	schemaReportPartAssemblyPatch = objectSchema(

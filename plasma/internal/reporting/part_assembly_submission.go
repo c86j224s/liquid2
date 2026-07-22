@@ -33,6 +33,7 @@ type PartAssemblyBinding struct {
 	PreviousProviderSessionID    string       `json:"previous_provider_session_id"`
 	PartIndex                    int          `json:"part_index"`
 	SectionCount                 int          `json:"section_count"`
+	SectionArtifactIDs           []string     `json:"section_artifact_ids,omitempty"`
 	AgentExecutor                string       `json:"agent_executor"`
 	AgentModel                   string       `json:"agent_model"`
 	AgentReasoningEffort         string       `json:"agent_reasoning_effort"`
@@ -71,6 +72,7 @@ type partAssemblySubmittedPayload struct {
 	PreviousProviderSessionID    string       `json:"previous_provider_session_id,omitempty"`
 	PartIndex                    int          `json:"part_index"`
 	SectionCount                 int          `json:"section_count"`
+	SectionArtifactIDs           []string     `json:"section_artifact_ids,omitempty"`
 	AgentExecutor                string       `json:"agent_executor"`
 	AgentModel                   string       `json:"agent_model,omitempty"`
 	AgentReasoningEffort         string       `json:"agent_reasoning_effort,omitempty"`
@@ -104,6 +106,7 @@ func BuildPartAssemblySubmittedAppendRequest(req PartAssemblySubmittedEventReque
 		PreviousProviderSessionID:    binding.PreviousProviderSessionID,
 		PartIndex:                    binding.PartIndex,
 		SectionCount:                 binding.SectionCount,
+		SectionArtifactIDs:           append([]string(nil), binding.SectionArtifactIDs...),
 		AgentExecutor:                binding.AgentExecutor,
 		AgentModel:                   binding.AgentModel,
 		AgentReasoningEffort:         binding.AgentReasoningEffort,

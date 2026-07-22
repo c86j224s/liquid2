@@ -212,6 +212,7 @@ def emit(sentinel):
   else:
     print(json.dumps({"type":"result","session_id":"22222222-2222-4222-8222-222222222222","result":sentinel}))
 final="-report-long-form-finalize-binding-json" in args
+narrative_final="plasma.report.long_form.final_edit.start" in args
 part="-report-part-assembly-binding-json" in args
 if part:
   binding=json.loads(flag("-report-part-assembly-binding-json"))
@@ -235,11 +236,33 @@ if part:
   raise SystemExit(0)
 elif final:
   binding=json.loads(flag("-report-long-form-finalize-binding-json"))
-  arguments={"mission_id":binding["mission_id"],"session_id":binding["tool_session_id"],"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"idempotency_key":binding["idempotency_key"],"producer":{"type":"agent_session","id":binding["tool_session_id"]},"opening_markdown":"# Long report","closing_markdown":"## Close"}
+  producer={"type":"agent_session","id":binding["tool_session_id"]}
+  if narrative_final:
+    draft_id="rfe_testshim"
+    common={"mission_id":binding["mission_id"],"session_id":binding["tool_session_id"]}
+    start={**common,"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"draft_id":draft_id,"idempotency_key":"final_start_key","producer":producer}
+    read={**common,"draft_id":draft_id,"offset":0,"max_bytes":65536}
+    patch={**common,"draft_id":draft_id,"operation":"append","replacement":"\n\nEditorial pass complete.","summary":"acceptance edit","idempotency_key":"final_patch_key","producer":producer}
+    submit={**common,"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"draft_id":draft_id,"idempotency_key":"final_submit_key","producer":producer}
+    calls=[
+      ("plasma.report.long_form.final_edit.start",start),
+      ("plasma.report.long_form.final_edit.read",read),
+      ("plasma.report.long_form.final_edit.patch",patch),
+      ("plasma.report.long_form.final_edit.submit",submit),
+    ]
+    messages=[{"jsonrpc":"2.0","id":i+1,"method":"tools/call","params":{"name":tool,"arguments":arguments}} for i,(tool,arguments) in enumerate(calls)]
+    proc=subprocess.run([command]+args,input="".join(json.dumps(x)+"\n" for x in messages),text=True,capture_output=True)
+    if proc.returncode or '"isError":true' in proc.stdout or "event_id" not in proc.stdout: raise SystemExit(proc.stderr+proc.stdout)
+    sentinel=os.environ.get("PLASMA_TEST_FINAL_ACK", "REPORT_FINALIZED")
+    emit(sentinel)
+    raise SystemExit(0)
+  arguments={"mission_id":binding["mission_id"],"session_id":binding["tool_session_id"],"pending_event_id":binding["pending_event_id"],"plan_event_id":binding["plan_event_id"],"idempotency_key":binding["idempotency_key"],"producer":producer,"opening_markdown":"# Long report","closing_markdown":"## Close"}
   tool="plasma.report.long_form.finalize"; expected="artifact_sha256"; sentinel="REPORT_FINALIZED"
 else:
   mode=flag("-report-plan-mode")
   plan={"summary":"Plan","sections":[{"title":"Section","purpose":"Verify"}]} if mode == "planned" else {"summary":"Plan","parts":[{"title":"Part","purpose":"Verify","sections":[{"title":"Section","purpose":"Verify"}]}]}
+  if "-report-plan-require-writing-contract" in args:
+    plan["writing_contract"]={"central_question":"What must the reader understand?","reader_takeaway":"The verified result and its limit.","reading_path":["state the result","explain the evidence","close with the limit"],"must_keep":["the verified result"],"visual_role":"none needed","tone_and_shape":"direct edited explanation"}
   arguments={"mission_id":flag("-mission-id"),"session_id":flag("-report-plan-tool-session-id"),"pending_event_id":flag("-report-plan-pending-event-id"),"report_mode":mode,"idempotency_key":flag("-report-plan-idempotency-key"),"producer":{"type":"agent_session","id":flag("-report-plan-tool-session-id")},"plan":plan}
   tool="plasma.report.plan.submit"; expected="submission_event_id"; sentinel="PLAN_SUBMITTED"
 messages=[{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}},{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":tool,"arguments":arguments}}]

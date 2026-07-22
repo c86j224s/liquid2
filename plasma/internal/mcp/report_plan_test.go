@@ -90,6 +90,71 @@ func TestReportPlanToolSubmitsNormalizedPlanAndAllRefKinds(t *testing.T) {
 	}
 }
 
+func TestReportPlanToolAcceptsStringWrappedPlan(t *testing.T) {
+	cases := []struct {
+		name    string
+		mode    string
+		binding ReportPlanBinding
+		plan    string
+	}{
+		{name: "planned", mode: "planned", binding: testReportPlanBinding(), plan: `{"summary":"summary","sections":[{"title":"section","purpose":"purpose"}]}`},
+		{name: "long form", mode: "long_form", binding: longFormReportPlanBinding(), plan: `{"summary":"summary","parts":[{"title":"part","purpose":"purpose","sections":[{"title":"section","purpose":"purpose"}]}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &reportPlanMCPService{fakeMCPService: &fakeMCPService{}}
+			server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportPlanBinding(tc.binding), WithEnabledTools([]string{ToolReportPlanSubmit}))
+			wrapped, _ := json.Marshal(tc.plan)
+			result := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: reportPlanSubmitArgs(tc.mode, json.RawMessage(wrapped))})
+			if result.Error != nil {
+				t.Fatalf("submit failed: %#v", result.Error)
+			}
+			if len(service.submission.Plan) == 0 || service.submission.Plan[0] != '{' {
+				t.Fatalf("stored plan was not normalized object JSON: %s", service.submission.Plan)
+			}
+		})
+	}
+}
+
+func TestReportPlanToolRejectsInvalidStringWrappedPlan(t *testing.T) {
+	cases := []string{
+		`not json`,
+		`["not","object"]`,
+		`{"summary":"summary","unknown":true}`,
+	}
+	for _, plan := range cases {
+		t.Run(plan, func(t *testing.T) {
+			service := &reportPlanMCPService{fakeMCPService: &fakeMCPService{}}
+			server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportPlanBinding(testReportPlanBinding()), WithEnabledTools([]string{ToolReportPlanSubmit}))
+			wrapped, _ := json.Marshal(plan)
+			result := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: reportPlanSubmitArgs("planned", json.RawMessage(wrapped))})
+			if result.Error == nil || result.Error.ErrorKind != "validation" || !result.Error.Retryable || service.submissions != 0 {
+				t.Fatalf("invalid wrapped plan was accepted: result=%#v submissions=%d", result.Error, service.submissions)
+			}
+		})
+	}
+}
+
+func TestReportPlanToolRequiresWritingContractOnlyWhenBound(t *testing.T) {
+	service := &reportPlanMCPService{fakeMCPService: &fakeMCPService{}}
+	binding := testReportPlanBinding()
+	binding.RequireWritingContract = true
+	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportPlanBinding(binding), WithEnabledTools([]string{ToolReportPlanSubmit}))
+	withoutContract := json.RawMessage(`{"mission_id":"mis_1","session_id":"ses_tool","pending_event_id":"evt_pending","report_mode":"planned","idempotency_key":"key_1","producer":{"type":"agent_session","id":"ses_tool"},"plan":{"summary":"summary"}}`)
+	result := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: withoutContract})
+	if result.Error == nil || result.Error.ErrorKind != "validation" || !result.Error.Retryable {
+		t.Fatalf("missing required contract was not retryable validation: %#v", result.Error)
+	}
+	withContract := json.RawMessage(`{"mission_id":"mis_1","session_id":"ses_tool","pending_event_id":"evt_pending","report_mode":"planned","idempotency_key":"key_1","producer":{"type":"agent_session","id":"ses_tool"},"plan":{"summary":"summary","writing_contract":{"central_question":"question","reader_takeaway":"takeaway","reading_path":["path"],"must_keep":["detail"],"visual_role":"none needed","tone_and_shape":"direct explanation"}}}`)
+	result = server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: withContract})
+	if result.Error != nil {
+		t.Fatalf("complete required contract was rejected: %#v", result.Error)
+	}
+	if !bytes.Contains(service.submission.Plan, []byte(`"writing_contract"`)) {
+		t.Fatalf("submitted plan lost writing contract: %s", service.submission.Plan)
+	}
+}
+
 func TestReportPlanToolValidationBudgetAndBindingFailures(t *testing.T) {
 	service := &reportPlanMCPService{fakeMCPService: &fakeMCPService{}}
 	options := []Option{WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportPlanBinding(testReportPlanBinding()), WithEnabledTools([]string{ToolReportPlanSubmit})}
@@ -138,7 +203,7 @@ func TestReportPlanToolSuccessReplayAndStrictDecodingConsumeParsedBudget(t *test
 
 func TestReportPlanSchemaClosesEveryObjectBoundary(t *testing.T) {
 	text := string(schemaReportPlanSubmit)
-	if strings.Count(text, `"additionalProperties":false`) != 8 || !strings.Contains(text, `"type":"object",
+	if strings.Count(text, `"additionalProperties":false`) != 9 || !strings.Contains(text, `"type":"object",
   "additionalProperties":false`) || !strings.Contains(text, `"const":"planned"`) || !strings.Contains(text, `"const":"long_form"`) {
 		t.Fatalf("report plan schema is not closed and mode-discriminated: %s", text)
 	}
@@ -221,6 +286,16 @@ func sprintf(format, value string) string {
 	encoded, _ := json.Marshal(value)
 	_ = encoded
 	return stringReplaceOnce(format, "%s", value)
+}
+
+func longFormReportPlanBinding() ReportPlanBinding {
+	binding := testReportPlanBinding()
+	binding.ReportMode = "long_form"
+	return binding
+}
+
+func reportPlanSubmitArgs(mode string, plan json.RawMessage) json.RawMessage {
+	return json.RawMessage(`{"mission_id":"mis_1","session_id":"ses_tool","pending_event_id":"evt_pending","report_mode":"` + mode + `","idempotency_key":"key_1","producer":{"type":"agent_session","id":"ses_tool"},"plan":` + string(plan) + `}`)
 }
 
 func stringReplaceOnce(value, old, replacement string) string {

@@ -18,7 +18,8 @@ func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sec
 		IdempotencyKey:    "report-long-form-finalize:" + req.pendingEventID + ":" + state.planEvent.EventID,
 		ProviderSessionID: finalSessionID, PreviousProviderSessionID: finalSessionID,
 		PartArtifactIDs: partArtifactIDs, SectionArtifactIDs: sectionArtifactIDs, SectionWordCount: sectionWordTotal,
-		AgentExecutor: req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: req.agentReasoningEffort, AgentSelectionSource: req.agentSelectionSource,
+		CompositionStrategy: longFormCompositionStrategy(req.generationGuidanceProfile),
+		AgentExecutor:       req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: req.agentReasoningEffort, AgentSelectionSource: req.agentSelectionSource,
 		MCPMode: req.mcpMode, RigorLevel: req.rigor.level, RigorLabel: req.rigor.label,
 		ReportSessionPolicy: state.reportSessionPolicy, ReportSessionPolicySelection: state.reportSessionPolicySelection,
 		PostReportHumanize: req.postReportHumanize, GenerationGuidanceProfile: req.generationGuidanceProfile, GenerationGuidanceSHA256: req.generationGuidanceSHA256,
@@ -37,7 +38,7 @@ func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sec
 			Prompt:   agentLongFormFinalizePrompt(req.title, req.missionID, req.rigor, state.plan, parts, req.generationGuidanceProfile, binding, attempt, canonical, hint),
 			Model:    req.agentModel, ReasoningEffort: req.agentReasoningEffort, MissionID: req.missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: finalSessionID, AgentExecutor: req.executorName, MCPMode: req.mcpMode,
-			ExtraMCPTools: reportFinalizeMCPTools(), ReplaceMCPTools: true, LongFormFinalize: &binding,
+			ExtraMCPTools: reportFinalizeMCPTools(req.generationGuidanceProfile), ReplaceMCPTools: true, LongFormFinalize: &binding,
 		})
 		durationMS := time.Since(attemptStarted).Milliseconds()
 		logLongFormFinalObservation(req.missionID, req.pendingEventID, state.planEvent.EventID, attempt, finalSessionID, result, durationMS)

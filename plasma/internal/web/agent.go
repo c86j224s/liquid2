@@ -52,6 +52,7 @@ type AgentReportPlanContext struct {
 	PreviousProviderSessionID string
 	AgentModel                string
 	AgentReasoningEffort      string
+	RequireWritingContract    bool
 }
 
 type AgentReportPatchContext struct {
@@ -617,6 +618,9 @@ func appendReportPlanMCPArgs(args []string, toolSessionID string, plan AgentRepo
 		if value := strings.TrimSpace(item.value); value != "" {
 			args = append(args, item.flag, value)
 		}
+	}
+	if plan.RequireWritingContract {
+		args = append(args, "-report-plan-require-writing-contract")
 	}
 	return args
 }

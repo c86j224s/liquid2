@@ -75,9 +75,29 @@ func normalizePartAssemblyBinding(value PartAssemblyBinding) PartAssemblyBinding
 	value.PreReportResearchSessionID = strings.TrimSpace(value.PreReportResearchSessionID)
 	value.ReportPlanSessionID = strings.TrimSpace(value.ReportPlanSessionID)
 	value.ForkSourceAgentSessionID = strings.TrimSpace(value.ForkSourceAgentSessionID)
+	value.SectionArtifactIDs = normalizeArtifactIDs(value.SectionArtifactIDs)
 	value.Producer.Type = strings.TrimSpace(value.Producer.Type)
 	value.Producer.ID = strings.TrimSpace(value.Producer.ID)
 	return value
+}
+
+func ValidatePartAssemblySectionReadBinding(value PartAssemblyBinding) error {
+	value = normalizePartAssemblyBinding(value)
+	if err := ValidatePartAssemblyBinding(value); err != nil {
+		return err
+	}
+	if len(value.SectionArtifactIDs) != value.SectionCount || duplicateStrings(value.SectionArtifactIDs) {
+		return fmt.Errorf("%w: part assembly Section artifact binding is incomplete", app.ErrInvalidInput)
+	}
+	return nil
+}
+
+func normalizeArtifactIDs(values []string) []string {
+	out := make([]string, len(values))
+	for index, value := range values {
+		out[index] = strings.TrimSpace(value)
+	}
+	return out
 }
 
 func normalizePartAssembly(value PartAssembly, sectionCount int) PartAssembly {
@@ -98,7 +118,8 @@ func normalizePartAssembly(value PartAssembly, sectionCount int) PartAssembly {
 }
 
 func partAssemblySubmissionMatches(payload partAssemblySubmittedPayload, binding PartAssemblyBinding) bool {
-	return payload.Kind == PartAssemblySubmittedKind &&
+	idsMatch := len(payload.SectionArtifactIDs) == 0 || equalStrings(payload.SectionArtifactIDs, binding.SectionArtifactIDs)
+	return idsMatch && payload.Kind == PartAssemblySubmittedKind &&
 		payload.PendingEventID == binding.PendingEventID &&
 		payload.PlanEventID == binding.PlanEventID &&
 		payload.ToolSessionID == binding.ToolSessionID &&

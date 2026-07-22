@@ -72,6 +72,7 @@ type MarkdownReportArtifactCreatedEventRequest struct {
 	SectionWordCount      int
 	FinalWordCount        int
 	PreservationRatio     float64
+	OmitPreservationRatio bool
 	IncludeLongFormFields bool
 }
 
@@ -181,7 +182,9 @@ func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactC
 		payload["part_artifact_ids"] = req.PartArtifactIDs
 		payload["section_word_count"] = req.SectionWordCount
 		payload["final_word_count"] = req.FinalWordCount
-		payload["preservation_ratio"] = req.PreservationRatio
+		if !req.OmitPreservationRatio {
+			payload["preservation_ratio"] = req.PreservationRatio
+		}
 	}
 	payload["duration_ms"] = base.DurationMS
 	payload["text"] = base.Text

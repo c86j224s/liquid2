@@ -31,7 +31,9 @@ func TestLongFormFinalizationRetriesOnlyFinalStageWithNarrowHint(t *testing.T) {
 	defer server.Close()
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Final retry"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{"title": "Report", "report_mode": "long_form"})
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title": "Report", "report_mode": "long_form", "generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, "report.artifact.created") != 1 || countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.created") != 1 || countEvents(detail, "report.part.created") != 1 {
 		t.Fatalf("final-only retry duplicated durable stages: %#v", detail["events"])

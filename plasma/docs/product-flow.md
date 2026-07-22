@@ -195,13 +195,19 @@ ID는 상세 보기에서만 펼친다.
 ### Report
 
 리포트는 미션 대화, 소스 참조, 저장된 미션 자료를 바탕으로 만든 산출물이다.
-현재 기본 경로에서는 같은 에이전트 세션이 얇은 작성 지침과 MCP 읽기 도구를
-사용해 Markdown을 만들고, Plasma는 그 Markdown을 report artifact로 저장한다.
-채택된 기본 작성 지침은 F4 실험 결과를 따른다. 이전 대화, 조사 답변, controller
-질문은 작업 기억으로만 쓰고 source로 인용하지 않는다. 에이전트는 내부적으로
-원자료 기반 사실, 해석과 함의, 약한 신호, 충돌과 열린 질문, 독자에게 자연스러운
-구조를 정리한 뒤 풍부한 Markdown 리포트를 작성한다. 실험명, 프롬프트명, tool
-session id, 임시 경로 같은 내부 실행 정보는 리포트에 노출하지 않는다.
+현재 기본 경로는 F4 작성 지침과 시각자료 계획을 유지하면서, 계획에 중심 질문,
+독자가 가져갈 결론, 읽는 순서, 반드시 남길 정보, 요약하거나 보조 층으로 옮길
+정보를 담는 얇은 작성 계약을 추가한다. 작성자는 원천을 소화한 뒤 원천을 따로
+읽지 않을 독자에게 주제를 직접 설명한다. 이전 대화, 조사 답변, controller 질문은
+작업 기억으로만 쓰고 source로 인용하지 않는다. 에이전트는 원자료 기반 사실,
+해석과 함의, 약한 신호, 충돌과 열린 질문을 독자에게 자연스러운 구조로 정리한 뒤
+풍부한 Markdown 리포트를 작성한다. 실험명, 프롬프트명, tool session id, 임시
+경로 같은 내부 실행 정보는 리포트에 노출하지 않는다.
+
+이 작성 계약은 별도 글쓰기 선택지가 아니다. 화면의 `시각자료 계획`, `섹션 중심`,
+`섹션 중심 + 풍부하게`는 보고서 구성 방식을 고르고, 세 선택 모두 같은 독자 중심
+작성 계약을 사용한다. 이전 profile 값은 저장된 과거 이벤트와 중단 작업을 같은
+의미로 복구하기 위해서만 유지한다.
 
 리포트 생성은 요청 수명에 묶인 일회성 작업이 아니다. 요청 시
 `report.draft.pending` 이벤트를 먼저 남기고, 장문 리포트는
@@ -220,11 +226,16 @@ pending event에 worker를 다시 붙이고, 이미 생성된 plan/section/part 
 보고서 pending 이벤트는 가시성을 위한 durable at-least-once 경계다. worker의 terminal
 기록이 일시적으로 실패하면 pending은 열린 채 보수적으로 표시한다. 이 상태에서 새
 generation worker를 시작하지 않는다. 별도 terminal-write-pending outbox는 후속 작업이며 현재 구현하지 않는다.
-장문 리포트의 최종 조립은 C4 실험 결과를 따라 섹션 본문을 다시 쓰지 않는다.
-대신 조립 경계에서만 중복 섹션 제목, 번호가 붙은 자기 제목, 프레임/전환 heading,
-인접 반복 heading을 정규화한다. 코드 블록과 실제 섹션 소제목은 보존하며, 생성
-이벤트에는 `assembly_strategy: c4_normalized_section_headings`를 남겨 어떤 조립
-규칙이 적용되었는지 추적할 수 있게 한다.
+장문 리포트의 Section과 Part artifact는 계속 불변이다. Part 편집자는 현재 Part에
+묶인 Section 본문만 제한된 읽기 도구로 끝까지 읽고 intro, transition, closing만
+별도 artifact로 만든다. 최종 편집자는 묶인 Part artifact에서 서버가 만든 임시
+원고를 제한된 읽기·수정 도구로 편집하며, source/research 도구를 받지 않는다.
+제목 중복, 도입, Part 사이 연결, 반복, 결론을 다듬되 계획의 `must_keep` 정보와
+근거 경계를 보존하고, 완성 원고 하나만 원자적으로 report artifact로 저장한다.
+생성 이벤트는 `composition_strategy: sectional_narrative_edit`와
+`assembly_strategy: narrative_contract_final_edit`를 기록한다. 이전 profile로
+저장된 보고서는 C4의 `sectional_preserve_markdown` 의미를 유지하며 새 요청의
+공통 편집 계약으로 재해석하지 않는다.
 
 기본 Markdown report artifact가 저장된 뒤에는 Web과 CLI report runner가 같은 H5
 기반 한국어 말투 보정 pass를 후처리로 실행할 수 있다. 이 pass는 planner, source

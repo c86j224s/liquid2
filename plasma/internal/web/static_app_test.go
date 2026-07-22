@@ -684,8 +684,8 @@ const ReportModelSelection = {payload:() => ({agent_model:"",agent_reasoning_eff
 const currentReportDirectionHint = () => ""; const clearAcceptedReportDirectionHint = () => {};
 const missionListPath = () => "/api/missions";
 const document = {hidden:false}; const window = {clearTimeout(){},setTimeout(){ scheduled++; return scheduled; }};
-const DEFAULT_REPORT_GENERATION_GUIDANCE = "visual-plan";
-const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set(["section-brief","section-brief-cluster-memory","section-brief-visual-plan","section-brief-cluster-memory-visual-plan"]);
+const DEFAULT_REPORT_GENERATION_GUIDANCE = "narrative-contract";
+const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set(["section-brief","section-brief-cluster-memory","section-brief-visual-plan","section-brief-cluster-memory-visual-plan","section-brief-narrative-contract","section-brief-cluster-memory-narrative-contract"]);
 ` + asyncSource("refreshMissionList") + `
 ` + jsFunctionSource(t, script, "missionActivityCursor") + `
 ` + jsFunctionSource(t, script, "detailMissionActivityCursor") + `
@@ -1063,9 +1063,9 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	for _, expected := range []string{
-		`<option value="visual-plan" selected>기본: 시각자료 계획</option>`,
-		`<option value="section-brief-visual-plan">섹션 중심</option>`,
-		`<option value="section-brief-cluster-memory-visual-plan">섹션 중심 + 풍부하게</option>`,
+		`<option value="narrative-contract" selected>기본: 시각자료 계획</option>`,
+		`<option value="section-brief-narrative-contract">섹션 중심</option>`,
+		`<option value="section-brief-cluster-memory-narrative-contract">섹션 중심 + 풍부하게</option>`,
 	} {
 		if !strings.Contains(index, expected) {
 			t.Fatalf("missing report generation option %q", expected)
@@ -1076,6 +1076,9 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 		`<option value="g2">기본 글쓰기</option>`,
 		`<option value="section-brief">섹션 중심</option>`,
 		`<option value="section-brief-cluster-memory">섹션 중심 + 풍부하게</option>`,
+		`<option value="visual-plan">시각자료 계획</option>`,
+		`<option value="section-brief-visual-plan">섹션 중심</option>`,
+		`<option value="section-brief-cluster-memory-visual-plan">섹션 중심 + 풍부하게</option>`,
 	} {
 		if strings.Contains(index, legacy) {
 			t.Fatalf("legacy long-form option remained in the Web UI: %q", legacy)
@@ -1087,20 +1090,22 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	}
 	script := string(mustReadStatic(t, "static/app.js"))
 	fixture := `
-let nodes = {reportGenerationGuidance:{value:"section-brief-visual-plan"}};
+let nodes = {reportGenerationGuidance:{value:"section-brief-narrative-contract"}};
 const $ = (id) => nodes[id] || null;
 ` + jsSourceRange(t, script, "const DEFAULT_REPORT_GENERATION_GUIDANCE", "\nconst AGENT_MODEL_OPTIONS") + `
-nodes.reportGenerationGuidance.value = "section-brief-visual-plan";
-if (selectedReportGenerationGuidance("long_form") !== "section-brief-visual-plan") throw new Error("section brief visual plan did not pass through for long-form");
-if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("section brief visual plan did not fall back for planned reports");
-nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-visual-plan";
-if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-visual-plan") throw new Error("cluster memory visual plan did not pass through for long-form");
-if (selectedReportGenerationGuidance("planned") !== "visual-plan") throw new Error("cluster memory visual plan did not fall back for planned reports");
+nodes.reportGenerationGuidance.value = "section-brief-narrative-contract";
+if (selectedReportGenerationGuidance("long_form") !== "section-brief-narrative-contract") throw new Error("section brief choice did not pass through for long-form");
+if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("section brief choice did not fall back to the default for planned reports");
+nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-narrative-contract";
+if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-narrative-contract") throw new Error("cluster memory choice did not pass through for long-form");
+if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("cluster memory choice did not fall back to the default for planned reports");
+if (reportGenerationGuidanceLabel("narrative-contract") !== "시각자료 계획") throw new Error("default choice label mismatch");
 if (reportGenerationGuidanceLabel("g2") !== "기본 글쓰기") throw new Error("legacy g2 label not retained");
 if (reportGenerationGuidanceLabel("section-brief") !== "섹션 중심 (이전)") throw new Error("legacy section label not distinguished");
 if (reportGenerationGuidanceLabel("part-assembly-edit-tools") !== "파트 조립 다듬기") throw new Error("hidden part assembly label not retained");
-if (reportGenerationGuidanceLabel("section-brief-visual-plan") !== "섹션 중심") throw new Error("section visual label mismatch");
-if (reportGenerationGuidanceLabel("section-brief-cluster-memory-visual-plan") !== "섹션 중심 + 풍부하게") throw new Error("cluster visual label mismatch");
+if (reportGenerationGuidanceLabel("visual-plan") !== "시각자료 계획 (이전)") throw new Error("legacy visual label mismatch");
+if (reportGenerationGuidanceLabel("section-brief-narrative-contract") !== "섹션 중심") throw new Error("section choice label mismatch");
+if (reportGenerationGuidanceLabel("section-brief-cluster-memory-narrative-contract") !== "섹션 중심 + 풍부하게") throw new Error("cluster choice label mismatch");
 `
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("report generation guidance fixture failed: %v: %s", err, out)

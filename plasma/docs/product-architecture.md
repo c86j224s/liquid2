@@ -275,10 +275,14 @@ The implementation slices should share the same ledger and MCP contract:
   recall JSON injection
 - expose both a planned report mode and a slower Part/Section long-form report
   mode over the same Markdown artifact model
-- use the adopted F4 report-writing guidance as the default Markdown report
-  style: reuse prior investigation as working memory, silently synthesize facts,
-  interpretations, weak signals, conflicts, and reader structure, then write a
-  rich report without leaking prompt, run, session, or temporary-path internals
+- use the adopted F4 and visual-planning guidance together with a small writing
+  contract that records the central question, reader takeaway, reading path,
+  must-keep details, and compressible or supporting material. Writers digest the
+  sources and explain the subject directly to a reader who may not read them,
+  without leaking prompt, run, session, or temporary-path internals
+- treat that contract as a common baseline under the existing visual-planning,
+  section-centered, and richer section-centered choices, not as a fourth user
+  option
 - save default reports as Markdown artifacts
 - export self-contained interactive HTML from report artifacts by embedding
   pinned images when policy allows, while keeping audio/video linked or embedded
@@ -401,21 +405,26 @@ session, it falls back to the same-session path and records
 creates a planned Markdown report artifact. CLI `reports draft` uses the same
 planned default; `--mode one_take` remains an explicit same-session compatibility
 path. The slower browser/report API path, labeled `장문 보고서`, creates a
-Part/Section plan, drafts sections as separate Markdown artifacts, and assembles
-part/final artifacts while preserving the section bodies instead of asking a
-final pass to rewrite them. The final assembly applies the C4 experiment's
-limited cleanup only at the wrapper boundary: duplicate section headings,
-numbered self-headings, frame headings, connective headings, and adjacent
-heading repeats are normalized, while fenced code and real section body
-subheadings are preserved. Long-form report events record
-`assembly_strategy: c4_normalized_section_headings` so later debugging can tell
-which assembly rule produced the artifact. CLI
+Part/Section plan and immutable Section Markdown artifacts. Each Part editor can
+bounded-read only its runner-bound Sections and writes intro, transition, and
+closing material without mutating them. The final editor bounded-reads a
+server-owned manuscript assembled from the immutable Part artifacts, receives
+no source or research tools, and uses exact patches to repair the opening,
+heading duplication, cross-Part flow, repetition, and conclusion while
+preserving the plan's must-keep details and evidence boundaries. The edited
+manuscript is atomically saved as a new report artifact with
+`composition_strategy: sectional_narrative_edit` and
+`assembly_strategy: narrative_contract_final_edit`. The existing visible
+writing choices all use this common editorial baseline while retaining their
+own planning behavior. Prior stored profile values keep their C4
+`sectional_preserve_markdown` and `c4_normalized_section_headings` semantics for
+replay and interrupted-work compatibility. CLI
 `--mode long_form` is intentionally rejected until the CLI can call the same
 section runner rather than simulating it with a single Markdown turn. Both paths
 avoid AST repair turns, report versions, and report blocks. A future plan review
 step can be inserted before writing, but reports still remain report artifacts
-rather than sources or legacy AST report versions. The default guidance is the
-F4 experiment carry-forward: prior
+rather than sources or legacy AST report versions. The default guidance carries
+forward F4 and visual planning, then adds the reader-facing writing contract: prior
 conversation, investigation answers, and controller questions are working
 memory, not sources; the writer should privately organize facts,
 interpretations, weak signals, conflicts, and reader-facing structure before

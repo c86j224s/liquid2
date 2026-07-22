@@ -53,6 +53,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	reportPlanPreviousProviderSessionID := fs.String("report-plan-previous-provider-session-id", "", "optional provider session resumed by planning")
 	reportPlanAgentModel := fs.String("report-plan-agent-model", "", "server-bound report planning model")
 	reportPlanAgentReasoningEffort := fs.String("report-plan-agent-reasoning-effort", "", "server-bound report planning reasoning effort")
+	reportPlanRequireWritingContract := fs.Bool("report-plan-require-writing-contract", false, "require a complete report writing contract in the submitted plan")
 	partAssemblyBindingJSON := fs.String("report-part-assembly-binding-json", "", "server-bound long-form part assembly metadata")
 	longFormFinalizeBindingJSON := fs.String("report-long-form-finalize-binding-json", "", "server-bound long-form finalization metadata")
 	if err := fs.Parse(args); err != nil {
@@ -138,7 +139,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}))
 	}
 	if strings.TrimSpace(*reportPlanPendingEventID) != "" || strings.TrimSpace(*reportPlanMode) != "" || strings.TrimSpace(*reportPlanIdempotencyKey) != "" || strings.TrimSpace(*reportPlanToolSessionID) != "" || strings.TrimSpace(*reportPlanPreviousProviderSessionID) != "" || strings.TrimSpace(*reportPlanAgentModel) != "" || strings.TrimSpace(*reportPlanAgentReasoningEffort) != "" {
-		planBinding := mcp.ReportPlanBinding{PendingEventID: *reportPlanPendingEventID, ReportMode: *reportPlanMode, IdempotencyKey: *reportPlanIdempotencyKey, ToolSessionID: *reportPlanToolSessionID, PreviousProviderSessionID: *reportPlanPreviousProviderSessionID, AgentExecutor: binding.AgentExecutor, AgentModel: *reportPlanAgentModel, AgentReasoningEffort: *reportPlanAgentReasoningEffort}
+		planBinding := mcp.ReportPlanBinding{PendingEventID: *reportPlanPendingEventID, ReportMode: *reportPlanMode, IdempotencyKey: *reportPlanIdempotencyKey, ToolSessionID: *reportPlanToolSessionID, PreviousProviderSessionID: *reportPlanPreviousProviderSessionID, AgentExecutor: binding.AgentExecutor, AgentModel: *reportPlanAgentModel, AgentReasoningEffort: *reportPlanAgentReasoningEffort, RequireWritingContract: *reportPlanRequireWritingContract}
 		if err := mcp.ValidateReportPlanBinding(binding, planBinding); err != nil {
 			fmt.Fprintf(stderr, "mcp report plan binding: %v\n", err)
 			return 2

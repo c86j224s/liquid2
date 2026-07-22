@@ -53,6 +53,14 @@ type reportPartAssemblyReadInput struct {
 	DraftID   string `json:"draft_id"`
 }
 
+type reportPartSectionReadInput struct {
+	MissionID    string `json:"mission_id"`
+	SessionID    string `json:"session_id"`
+	SectionIndex int    `json:"section_index"`
+	Offset       int    `json:"offset"`
+	MaxBytes     int    `json:"max_bytes"`
+}
+
 type reportPartAssemblyPatchInput struct {
 	CommonMutatingInput
 	DraftID           string `json:"draft_id"`
@@ -83,8 +91,13 @@ func (server *Server) requirePartAssemblyBinding(common commonMutatingInput) (re
 func (server *Server) anyPartAssemblyToolEnabled() bool {
 	return server.toolEnabled(ToolReportPartAssemblyStart) ||
 		server.toolEnabled(ToolReportPartAssemblyRead) ||
+		server.toolEnabled(ToolReportPartSectionRead) ||
 		server.toolEnabled(ToolReportPartAssemblyPatch) ||
 		server.toolEnabled(ToolReportPartAssemblySubmit)
+}
+
+func (server *Server) partAssemblySectionReadToolEnabled() bool {
+	return server.toolEnabled(ToolReportPartSectionRead) && reporting.ValidatePartAssemblySectionReadBinding(server.partAssemblyBinding) == nil && ValidatePartAssemblyBinding(server.binding, server.partAssemblyBinding) == nil
 }
 
 func (server *Server) partAssemblyToolEnabled(name string) bool {

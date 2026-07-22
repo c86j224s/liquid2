@@ -96,3 +96,38 @@ func TestReportPlanHashIsDeterministicAndIncludesAllRefKinds(t *testing.T) {
 		t.Fatalf("missing refs: %#v", refs)
 	}
 }
+
+func TestNormalizeReportWritingContractIsOptionalButCompleteWhenPresent(t *testing.T) {
+	legacy, err := NormalizeReportPlan(ReportPlan{Summary: "legacy"})
+	if err != nil || legacy.WritingContract != nil {
+		t.Fatalf("legacy plan compatibility changed: plan=%#v err=%v", legacy, err)
+	}
+	plan := ReportPlan{
+		Summary: "summary",
+		WritingContract: &ReportWritingContract{
+			CentralQuestion: "  무엇을 설명하는가?  ", ReaderTakeaway: "  독자가 판단할 수 있다. ",
+			ReadingPath: []string{" 맥락 ", "", " 판단 "}, MustKeep: []string{" 수치 ", " 예외 "},
+			CanSummarize: []string{" 배경 "}, MoveToSupportingLayer: []string{" 세부 로그 "},
+			VisualRole: " 비교를 표로 보조 ", ToneAndShape: " 직접 설명하는 분석문 ",
+		},
+	}
+	normalized, err := NormalizeReportPlan(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := normalized.WritingContract
+	if contract == nil || contract.CentralQuestion != "무엇을 설명하는가?" || !reflect.DeepEqual(contract.ReadingPath, []string{"맥락", "판단"}) || contract.VisualRole != "비교를 표로 보조" {
+		t.Fatalf("unexpected normalized writing contract: %#v", contract)
+	}
+	if err := RequireReportWritingContract(normalized); err != nil {
+		t.Fatalf("complete contract was rejected: %v", err)
+	}
+	if err := RequireReportWritingContract(legacy); err == nil {
+		t.Fatal("required contract accepted a legacy plan without one")
+	}
+	invalid := plan
+	invalid.WritingContract = &ReportWritingContract{CentralQuestion: "question"}
+	if _, err := NormalizeReportPlan(invalid); err == nil {
+		t.Fatal("incomplete writing contract was accepted")
+	}
+}

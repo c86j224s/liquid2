@@ -49,10 +49,11 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 	if input.ReportMode != binding.ReportMode {
 		return errorResult(call.Name, input.MissionID, "binding", "report mode does not match the runner binding", false, nil)
 	}
+	planPayload := unwrapStringWrappedReportPlan(input.Plan)
 	var plan any
 	if input.ReportMode == "planned" {
 		var value reporting.ReportPlan
-		if decodeReportPlanJSON(input.Plan, &value) != nil {
+		if decodeReportPlanJSON(planPayload, &value) != nil {
 			return server.reportPlanValidationError(call.Name, input.MissionID, "planned report plan is invalid")
 		}
 		normalized, err := reporting.NormalizeReportPlan(value)
@@ -62,7 +63,7 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 		plan = normalized
 	} else {
 		var value reporting.SectionalReportPlan
-		if decodeReportPlanJSON(input.Plan, &value) != nil {
+		if decodeReportPlanJSON(planPayload, &value) != nil {
 			return server.reportPlanValidationError(call.Name, input.MissionID, "long-form report plan is invalid")
 		}
 		normalized, err := reporting.NormalizeSectionalReportPlan(value)
@@ -70,6 +71,11 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 			return server.reportPlanValidationError(call.Name, input.MissionID, "long-form report plan is incomplete")
 		}
 		plan = normalized
+	}
+	if binding.RequireWritingContract {
+		if err := reporting.RequireReportWritingContract(plan); err != nil {
+			return server.reportPlanValidationError(call.Name, input.MissionID, "report writing contract is required")
+		}
 	}
 	svc, ok := server.service.(reportPlanService)
 	if !ok {
@@ -100,6 +106,14 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 		return errorResult(call.Name, input.MissionID, kind, "report plan submission was rejected", false, nil)
 	}
 	return ToolResult{ToolName: call.Name, MissionID: input.MissionID, CreatedEventIDs: []string{result.Event.EventID}, Content: map[string]any{"submission_event_id": result.Event.EventID, "plan_hash": planHash, "replay": result.Replay}}
+}
+
+func unwrapStringWrappedReportPlan(payload json.RawMessage) json.RawMessage {
+	var encoded string
+	if decodeReportPlanJSON(payload, &encoded) != nil {
+		return payload
+	}
+	return json.RawMessage(encoded)
 }
 
 func (server *Server) reportPlanValidationError(tool, missionID, message string) ToolResult {

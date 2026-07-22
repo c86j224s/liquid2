@@ -134,6 +134,7 @@ func TestReportPartAssemblySchemasAreClosed(t *testing.T) {
 	for name, schema := range map[string]json.RawMessage{
 		ToolReportPartAssemblyStart:  schemaReportPartAssemblyStart,
 		ToolReportPartAssemblyRead:   schemaReportPartAssemblyRead,
+		ToolReportPartSectionRead:    schemaReportPartSectionRead,
 		ToolReportPartAssemblyPatch:  schemaReportPartAssemblyPatch,
 		ToolReportPartAssemblySubmit: schemaReportPartAssemblySubmit,
 	} {
@@ -146,6 +147,62 @@ func TestReportPartAssemblySchemasAreClosed(t *testing.T) {
 		if value.AdditionalProperties {
 			t.Fatalf("%s schema allows unknown properties", name)
 		}
+	}
+}
+
+func TestReportPartSectionReadUsesOnlyBoundArtifactIndexes(t *testing.T) {
+	binding := testPartAssemblyBinding()
+	binding.SectionArtifactIDs = []string{"art_section_1", "art_section_2", "art_section_3"}
+	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+		"art_section_1": {ArtifactID: "art_section_1", MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Content: []byte("# 첫 섹션\n\n본문을 직접 읽습니다.")},
+		"art_section_2": {ArtifactID: "art_section_2", MissionID: "mis_other", MediaType: "text/markdown; charset=utf-8", Content: []byte("foreign")},
+		"art_section_3": {ArtifactID: "art_section_3", MissionID: binding.MissionID, MediaType: "application/octet-stream", Content: []byte("binary")},
+	}}
+	server := NewServer(
+		service,
+		WithBinding(Binding{MissionID: binding.MissionID, AgentSessionID: binding.ToolSessionID, AgentExecutor: binding.AgentExecutor}),
+		WithPartAssemblyBinding(binding),
+		WithEnabledTools([]string{ToolReportPartSectionRead}),
+	)
+	if !containsString(toolNames(server.ListTools()), ToolReportPartSectionRead) {
+		t.Fatal("bound Part Section read tool was not exposed")
+	}
+	read := server.Call(context.Background(), ToolCall{Name: ToolReportPartSectionRead, Arguments: mustArgs(t, map[string]any{
+		"mission_id": binding.MissionID, "session_id": binding.ToolSessionID, "section_index": 1, "max_bytes": 12,
+	})})
+	if read.Error != nil {
+		t.Fatalf("bound Section read failed: %#v", read.Error)
+	}
+	content, ok := read.Content.(map[string]any)
+	if !ok || content["section_index"] != 1 || content["content"] == "" || content["truncated"] != true {
+		t.Fatalf("unexpected bounded Section read: %#v", read.Content)
+	}
+	for _, index := range []int{0, 4} {
+		result := server.Call(context.Background(), ToolCall{Name: ToolReportPartSectionRead, Arguments: mustArgs(t, map[string]any{
+			"mission_id": binding.MissionID, "session_id": binding.ToolSessionID, "section_index": index,
+		})})
+		if result.Error == nil || result.Error.ErrorKind != "validation" {
+			t.Fatalf("out-of-bound Section index %d was accepted: %#v", index, result)
+		}
+	}
+	foreign := server.Call(context.Background(), ToolCall{Name: ToolReportPartSectionRead, Arguments: mustArgs(t, map[string]any{
+		"mission_id": binding.MissionID, "session_id": binding.ToolSessionID, "section_index": 2,
+	})})
+	if foreign.Error == nil || foreign.Error.ErrorKind != "conflict" {
+		t.Fatalf("foreign bound artifact was readable: %#v", foreign)
+	}
+}
+
+func TestReportPartSectionReadStaysHiddenWithoutCompleteArtifactBinding(t *testing.T) {
+	binding := testPartAssemblyBinding()
+	server := NewServer(
+		&fakeMCPService{},
+		WithBinding(Binding{MissionID: binding.MissionID, AgentSessionID: binding.ToolSessionID, AgentExecutor: binding.AgentExecutor}),
+		WithPartAssemblyBinding(binding),
+		WithEnabledTools([]string{ToolReportPartSectionRead}),
+	)
+	if containsString(toolNames(server.ListTools()), ToolReportPartSectionRead) {
+		t.Fatal("Part Section read tool was exposed without bound Section artifacts")
 	}
 }
 

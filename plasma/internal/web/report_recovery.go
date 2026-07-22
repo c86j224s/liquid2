@@ -91,8 +91,11 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 		ReportSessionPolicy:          firstNonEmpty(payload.ReportSessionPolicy, reportSessionPolicySameSession),
 		ReportSessionPolicySelection: strings.TrimSpace(payload.ReportSessionPolicySelection),
 		PostReportHumanize:           strings.TrimSpace(payload.PostReportHumanize),
-		GenerationGuidanceProfile:    strings.TrimSpace(payload.GenerationGuidanceProfile),
-		GenerationGuidanceSHA256:     strings.TrimSpace(payload.GenerationGuidanceSHA256),
+		// Pending events written before guidance profiles were persisted belong to
+		// the legacy preserve-markdown path. Do not reinterpret an interrupted old
+		// report through a newer default profile during restart recovery.
+		GenerationGuidanceProfile: firstNonEmpty(payload.GenerationGuidanceProfile, reportGenerationGuidanceProfileVisualPlan),
+		GenerationGuidanceSHA256:  strings.TrimSpace(payload.GenerationGuidanceSHA256),
 	}, nil
 }
 

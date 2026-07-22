@@ -190,7 +190,10 @@ func TestWebReportRoutesUseRealPlasmaMCPStdio(t *testing.T) {
 			defer server.Close()
 			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "MCP acceptance"})
 			missionID := nestedString(t, mission, "projection", "mission_id")
-			postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{"title": "Report", "report_mode": test.mode, "agent_executor": test.executorName})
+			postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+				"title": "Report", "report_mode": test.mode, "agent_executor": test.executorName,
+				"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+			})
 			detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 			if countEvents(detail, "report.plan.submitted") != 1 || countEvents(detail, "report.plan.created") != 1 {
 				t.Fatalf("stdio path did not create one submission and canonical: %#v", detail["events"])

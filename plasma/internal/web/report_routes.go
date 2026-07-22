@@ -1858,7 +1858,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 			result, runErr := executor.Run(ctx, AgentRequest{
 				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 				Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-				ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+				ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: requireReportWritingContract(generationGuidanceProfile)},
 			})
 			planDurationMS = time.Since(planStarted).Milliseconds()
 			planResult = result
@@ -2098,7 +2098,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 				result, runErr := executor.Run(ctx, AgentRequest{
 					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort},
+					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: requireReportWritingContract(generationGuidanceProfile)},
 				})
 				planDurationMS = time.Since(planStarted).Milliseconds()
 				planResult = result
@@ -2421,7 +2421,8 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		IdempotencyKey:    "report-long-form-finalize:" + pendingEventID + ":" + planEvent.EventID,
 		ProviderSessionID: previousStageSessionID, PreviousProviderSessionID: previousStageSessionID,
 		PartArtifactIDs: partArtifactIDs, SectionArtifactIDs: sectionArtifactIDs, SectionWordCount: sectionWordTotal,
-		AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, AgentSelectionSource: agentSelectionSource,
+		CompositionStrategy: longFormCompositionStrategy(generationGuidanceProfile),
+		AgentExecutor:       executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, AgentSelectionSource: agentSelectionSource,
 		MCPMode: mcpMode, RigorLevel: rigor.level, RigorLabel: rigor.label,
 		ReportSessionPolicy: reportSessionPolicy, ReportSessionPolicySelection: reportSessionPolicySelection,
 		PostReportHumanize: postReportHumanize, GenerationGuidanceProfile: generationGuidanceProfile, GenerationGuidanceSHA256: generationGuidanceSHA256,
@@ -2441,7 +2442,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Prompt:   agentLongFormFinalizePrompt(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, attempt, canonical, hint),
 			Model:    agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: previousStageSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-			ExtraMCPTools: reportFinalizeMCPTools(), ReplaceMCPTools: true, LongFormFinalize: &binding,
+			ExtraMCPTools: reportFinalizeMCPTools(generationGuidanceProfile), ReplaceMCPTools: true, LongFormFinalize: &binding,
 		})
 		durationMS := time.Since(attemptStarted).Milliseconds()
 		returnedResult := result
@@ -2787,6 +2788,9 @@ Rules:
 }
 
 func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
+	if isReportGenerationGuidanceProfileNarrativeContract(generationGuidanceProfile) {
+		return agentLongFormFinalEditPrompt(title, missionID, rigor, plan, generationGuidanceProfile, binding, attempt, canonical)
+	}
 	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
@@ -2941,7 +2945,7 @@ func normalizeReportRigorProfile(level string) (reportRigorProfile, error) {
 }
 
 func agentReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile, generationGuidanceProfile string) string {
-	experimentalGuidance := strings.TrimSpace(reportVisualAidPlanningGuidance(generationGuidanceProfile))
+	experimentalGuidance := strings.TrimSpace(ReportGenerationPlanningGuidance(generationGuidanceProfile))
 	if experimentalGuidance != "" {
 		experimentalGuidance = "\n" + experimentalGuidance + "\n"
 	}

@@ -89,7 +89,7 @@ const REPORT_EXECUTION_STRATEGY_LABELS = {
   section_fanout: "빠른 병렬"
 };
 
-const DEFAULT_REPORT_GENERATION_GUIDANCE = "visual-plan";
+const DEFAULT_REPORT_GENERATION_GUIDANCE = "narrative-contract";
 // These older long-form profiles remain understood for stored events and API
 // compatibility, but are not offered as selectable UI choices.
 const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
@@ -97,21 +97,26 @@ const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
   "section-brief",
   "section-brief-cluster-memory",
   "section-brief-visual-plan",
-  "section-brief-cluster-memory-visual-plan"
+  "section-brief-cluster-memory-visual-plan",
+  "section-brief-narrative-contract",
+  "section-brief-cluster-memory-narrative-contract"
 ]);
 
 // Labels include active UI choices plus legacy profiles that may appear in
 // historical report events. Do not infer that every label is a current selector
 // option.
 const REPORT_GENERATION_GUIDANCE_LABELS = {
-  "visual-plan": "시각자료 계획",
+  "narrative-contract": "시각자료 계획",
+  "visual-plan": "시각자료 계획 (이전)",
   "visual-supplement": "시각자료 보조",
   "part-assembly-edit-tools": "파트 조립 다듬기",
   g2: "기본 글쓰기",
   "section-brief": "섹션 중심 (이전)",
   "section-brief-cluster-memory": "섹션 중심 + 풍부하게 (이전)",
-  "section-brief-visual-plan": "섹션 중심",
-  "section-brief-cluster-memory-visual-plan": "섹션 중심 + 풍부하게",
+  "section-brief-visual-plan": "섹션 중심 (이전)",
+  "section-brief-cluster-memory-visual-plan": "섹션 중심 + 풍부하게 (이전)",
+  "section-brief-narrative-contract": "섹션 중심",
+  "section-brief-cluster-memory-narrative-contract": "섹션 중심 + 풍부하게",
   none: "없음"
 };
 
