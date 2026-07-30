@@ -69,6 +69,102 @@ void main() {
     expect(find.text('Second document'), findsOneWidget);
   });
 
+  testWidgets('left swipe exposes and dismisses list item actions', (
+    tester,
+  ) async {
+    await setDesktopViewport(tester);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          libraryRepositoryProvider.overrideWithValue(FakeLibraryRepository()),
+        ],
+        child: const Liquid2App(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const Key('document-tile-doc_1')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('document-swipe-read-doc_1')), findsOneWidget);
+    expect(find.byKey(const Key('document-swipe-trash-doc_1')), findsOneWidget);
+
+    await tester.tap(find.text('1 DOCUMENT'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('document-swipe-read-doc_1')), findsNothing);
+    expect(find.byKey(const Key('document-swipe-trash-doc_1')), findsNothing);
+  });
+
+  testWidgets('list swipe read action marks read and removes the row', (
+    tester,
+  ) async {
+    await setDesktopViewport(tester);
+    final repository = FakeLibraryRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [libraryRepositoryProvider.overrideWithValue(repository)],
+        child: const Liquid2App(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const Key('document-tile-doc_1')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('document-swipe-read-doc_1')));
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(repository.read, isTrue);
+    expect(find.text('SQLite notes'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('SQLite notes'), findsNothing);
+    expect(
+      find.text('No documents match the current filters.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('list swipe trash action moves to trash and removes the row', (
+    tester,
+  ) async {
+    await setDesktopViewport(tester);
+    final repository = FakeLibraryRepository();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [libraryRepositoryProvider.overrideWithValue(repository)],
+        child: const Liquid2App(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const Key('document-tile-doc_1')),
+      const Offset(-120, 0),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('document-swipe-trash-doc_1')));
+    await tester.pump(const Duration(milliseconds: 80));
+
+    expect(repository.movedToTrash, isTrue);
+    expect(find.text('SQLite notes'), findsOneWidget);
+
+    await tester.pumpAndSettle();
+
+    expect(find.text('SQLite notes'), findsNothing);
+    expect(
+      find.text('No documents match the current filters.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('shows recursive folder children as a directory tree', (
     tester,
   ) async {

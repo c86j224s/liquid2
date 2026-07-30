@@ -171,6 +171,10 @@ func (server *Server) reportCancelInFlightPendingEventID(missionID string, pendi
 }
 
 func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
+	if len(rest) >= 2 && rest[1] == "redpen" {
+		server.handleReportRedpenRoute(w, r, missionID, rest)
+		return
+	}
 	if len(rest) != 1 && !(len(rest) == 2 && (rest[1] == "download" || rest[1] == "preview" || rest[1] == "html_export" || rest[1] == "designed_html_export" || rest[1] == "humanized_markdown_export")) {
 		http.NotFound(w, r)
 		return
@@ -952,7 +956,7 @@ func (server *Server) isReportArtifact(ctx context.Context, missionID string, ar
 		return false, err
 	}
 	for _, event := range events {
-		if event.EventType != "report.artifact.created" && event.EventType != "report.artifact.exported" {
+		if event.EventType != "report.artifact.created" && event.EventType != "report.artifact.exported" && event.EventType != app.ReportRedpenSavedEvent {
 			continue
 		}
 		var payload struct {
@@ -963,7 +967,7 @@ func (server *Server) isReportArtifact(ctx context.Context, missionID string, ar
 			continue
 		}
 		kind := strings.TrimSpace(payload.Kind)
-		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reporting.ExportKindSelfContainedHTML || kind == reporting.ExportKindDesignedHTML || kind == reporting.ExportKindHumanizedMarkdown) {
+		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reporting.ExportKindSelfContainedHTML || kind == reporting.ExportKindDesignedHTML || kind == reporting.ExportKindHumanizedMarkdown || kind == app.ReportRedpenArtifactKind) {
 			return true, nil
 		}
 	}
@@ -2065,6 +2069,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 	preReportResearchSessionID := strings.TrimSpace(progress.preReportResearchSessionID)
 	forkSourceSessionID := strings.TrimSpace(progress.forkSourceSessionID)
 	reportPlanSessionID := strings.TrimSpace(progress.reportPlanSessionID)
+	partEditEnabled := progress.partEditEnabled
 	if !progress.hasPlan {
 		previousSessionID := server.latestAgentSessionID(ctx, missionID, executorName)
 		preReportResearchSessionID = previousSessionID
@@ -2096,7 +2101,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 				planStarted := time.Now()
 				result, runErr := executor.Run(ctx, AgentRequest{
-					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
+					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), ""),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: requireReportWritingContract(generationGuidanceProfile)},
 				})
@@ -2161,6 +2166,8 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 					ArtifactID:         artifactID,
 					Plan:               valuePlan,
 					AssemblyStrategy:   "c4_normalized_section_headings",
+					PartEditEnabled:    longFormPartEditEnabled(generationGuidanceProfile),
+					FinalEditPipeline:  longFormFinalEditPipelineForPlan(generationGuidanceProfile),
 					PlanReviewRequired: false,
 					PlanReviewState:    "auto_accepted",
 				}), nil
@@ -2173,9 +2180,26 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		planEvent = lifecycle.Event
 		reportPlanSessionID = planResult.SessionID
 		currentSessionID = strings.TrimSpace(planResult.SessionID)
+		partEditEnabled = longFormPartEditEnabled(generationGuidanceProfile)
 	}
 	if currentSessionID == "" {
 		currentSessionID = server.latestAgentSessionID(ctx, missionID, executorName)
+	}
+	requirementMap, requirementMapEvent, err := server.ensureReportRequirementMap(ctx, reportRequirementStageRequest{
+		missionID:       missionID,
+		title:           title,
+		directionHint:   directionHint,
+		executorName:    executorName,
+		agentModel:      agentModel,
+		reasoningEffort: agentReasoningEffort,
+		mcpMode:         mcpMode,
+		pendingEventID:  pendingEventID,
+		planEventID:     planEvent.EventID,
+		planSessionID:   firstNonEmpty(reportPlanSessionID, currentSessionID),
+		plan:            plan,
+	}, progress, executor)
+	if err != nil {
+		return nil, err
 	}
 
 	sectionDraftsByPart := make([][]sectionalReportDraft, 0, len(plan.Parts))
@@ -2215,7 +2239,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			sectionStarted := time.Now()
 			result, err := executor.Run(ctx, AgentRequest{
 				UserText:          fmt.Sprintf("draft section %d.%d for sectional long-form markdown report", partIndex+1, sectionIndex+1),
-				Prompt:            withReportDirection(agentSectionDraftPrompt(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile), directionHint),
+				Prompt:            withReportDirection(agentSectionDraftPromptWithRequirements(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile, reporting.ReportRequirementsForSection(requirementMap, partIndex+1, sectionIndex+1)), ""),
 				Model:             agentModel,
 				ReasoningEffort:   agentReasoningEffort,
 				MissionID:         missionID,
@@ -2412,9 +2436,81 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		}
 		partDrafts = append(partDrafts, sectionalReportPartDraft{Title: part.Title, Markdown: partMarkdown, ArtifactID: artifact.ArtifactID, WordCount: partWordCount})
 	}
+	finalEditContractReasoningEffort := agentReasoningEffort
+	if longFormReaderStyleGatePlanEventEnabled(planEvent) {
+		finalEditContractReasoningEffort = longFormFinalEditContractReasoningEffort(agentReasoningEffort)
+	}
+	if partEditEnabled {
+		forker, ok := executor.(AgentSessionForker)
+		if !ok {
+			return nil, longFormStageFailure("part_edit", planEvent.EventID, 0, 0, fmt.Errorf("%w: Part editor requires an agent session forker", app.ErrInvalidInput))
+		}
+		partDrafts, partArtifactIDs, err = server.editSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
+			missionID:                    missionID,
+			title:                        title,
+			directionHint:                directionHint,
+			executorName:                 executorName,
+			agentModel:                   agentModel,
+			agentReasoningEffort:         finalEditContractReasoningEffort,
+			agentSelectionSource:         agentSelectionSource,
+			mcpMode:                      mcpMode,
+			rigor:                        rigor,
+			reportSessionPolicy:          reportSessionPolicy,
+			reportSessionPolicySelection: reportSessionPolicySelection,
+			postReportHumanize:           postReportHumanize,
+			generationGuidanceProfile:    generationGuidanceProfile,
+			generationGuidanceSHA256:     generationGuidanceSHA256,
+			pendingEventID:               pendingEventID,
+		}, sectionFanoutPlanState{
+			artifactID:                   artifactID,
+			plan:                         plan,
+			planEvent:                    planEvent,
+			reportPlanSessionID:          firstNonEmpty(reportPlanSessionID, currentSessionID),
+			reportSessionPolicy:          reportSessionPolicy,
+			reportSessionPolicySelection: reportSessionPolicySelection,
+			sessionChainKind:             sessionChainKind,
+			preReportResearchSessionID:   preReportResearchSessionID,
+			forkSourceSessionID:          forkSourceSessionID,
+			requirementMap:               requirementMap,
+			requirementMapEvent:          requirementMapEvent,
+			partEditEnabled:              partEditEnabled,
+		}, progress, partDrafts, forker, executor)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if longFormReaderStyleGatePlanEventEnabled(planEvent) {
+		return server.runLongFormReaderStyleGatePipeline(ctx, longFormReaderStyleGatePipelineRequest{
+			missionID: missionID, title: title, executorName: executorName, agentModel: agentModel,
+			agentReasoningEffort: finalEditContractReasoningEffort, agentSelectionSource: agentSelectionSource,
+			mcpMode: mcpMode, rigor: rigor, reportSessionPolicy: reportSessionPolicy,
+			reportSessionPolicySelection: reportSessionPolicySelection, postReportHumanize: postReportHumanize,
+			generationGuidanceProfile: generationGuidanceProfile, generationGuidanceSHA256: generationGuidanceSHA256,
+			pendingEventID: pendingEventID, artifactID: artifactID, planEvent: planEvent, plan: plan,
+			requirementMap: requirementMap, parts: partDrafts, partArtifactIDs: partArtifactIDs,
+			sectionArtifactIDs: sectionArtifactIDs, sectionWordTotal: sectionWordTotal,
+			sessionChainKind: sessionChainKind, preReportResearchSessionID: preReportResearchSessionID,
+			reportPlanSessionID:      firstNonEmpty(reportPlanSessionID, currentSessionID),
+			forkSourceAgentSessionID: forkSourceSessionID, started: started,
+		}, executor)
+	}
 
 	toolSessionID := newID("ses")
 	previousStageSessionID := currentSessionID
+	finalForkSourceSessionID := forkSourceSessionID
+	if partEditEnabled {
+		forker, ok := executor.(AgentSessionForker)
+		if !ok {
+			return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, fmt.Errorf("%w: final editor requires an agent session forker", app.ErrInvalidInput))
+		}
+		finalSessionID, forkSourceID, err := forkSectionFanoutSession(ctx, forker, firstNonEmpty(reportPlanSessionID, currentSessionID))
+		if err != nil {
+			return nil, longFormStageFailure("final", planEvent.EventID, 0, 0, err)
+		}
+		previousStageSessionID = finalSessionID
+		finalForkSourceSessionID = firstNonEmpty(forkSourceID, reportPlanSessionID, currentSessionID)
+	}
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: missionID, PendingEventID: pendingEventID, PlanEventID: planEvent.EventID, ArtifactID: artifactID,
 		Filename: safeFilename(title, ".md"), Title: title, ToolSessionID: toolSessionID,
@@ -2427,7 +2523,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		ReportSessionPolicy: reportSessionPolicy, ReportSessionPolicySelection: reportSessionPolicySelection,
 		PostReportHumanize: postReportHumanize, GenerationGuidanceProfile: generationGuidanceProfile, GenerationGuidanceSHA256: generationGuidanceSHA256,
 		SessionChainKind: sessionChainKind, PreReportResearchSessionID: preReportResearchSessionID, ReportPlanSessionID: reportPlanSessionID,
-		ForkSourceAgentSessionID: forkSourceSessionID, PlanToolSessionID: reportEventString(planEvent, "tool_session_id"), StartedAt: started,
+		ForkSourceAgentSessionID: finalForkSourceSessionID, PlanToolSessionID: reportEventString(planEvent, "tool_session_id"), StartedAt: started,
 		Producer: app.Producer{Type: "agent_session", ID: previousStageSessionID},
 	}
 	var finalResult AgentResult
@@ -2439,7 +2535,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		attemptPreviousSessionID := previousStageSessionID
 		result, runErr := executor.Run(ctx, AgentRequest{
 			UserText: "finalize sectional long-form markdown report",
-			Prompt:   agentLongFormFinalizePrompt(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, attempt, canonical, hint),
+			Prompt:   agentLongFormFinalizePromptWithRequirements(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, requirementMap, attempt, canonical, hint),
 			Model:    agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: previousStageSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 			ExtraMCPTools: reportFinalizeMCPTools(generationGuidanceProfile), ReplaceMCPTools: true, LongFormFinalize: &binding,
@@ -2677,6 +2773,8 @@ Report rigor:
 Planning rules:
 - First call plasma.research.outline for the mission overview.
 - Use plasma.research.list, plasma.research.grep, plasma.research.read, and plasma.research.references to find the source-backed clusters the report should cover.
+- Do not read or incorporate turn.user or report.draft.pending events. A separate post-plan stage maps user output requirements onto this fixed outline.
+- Treat pending_event_id only as a submission binding. Do not let its direction_hint change Part or Section structure.
 - Plan for long-form richness, not a short summary. Include concrete episodes, mechanisms, comparisons, tensions, caveats, weak signals, code/formulas/benchmarks when relevant.
 - Group the report into Parts and Sections. A normal mission should usually have 2-5 Parts and 6-14 Sections total. Use fewer only when the mission material is genuinely small.
 - Each Section must be specific enough to be drafted independently.
@@ -2700,7 +2798,7 @@ Submit one accepted plan with this plan shape. If the tool returns a retryable v
       ]
     }
   ],
-  "coverage_notes": ["source clusters and mission turns inspected"],
+  "coverage_notes": ["source-backed clusters inspected"],
   "planned_omissions": ["known gaps or intentionally omitted areas"]
 }
 
@@ -2708,7 +2806,11 @@ After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final res
 }
 
 func agentSectionDraftPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, section agentReportSection, partIndex int, sectionIndex int, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(strings.Join([]string{
+		LongFormReportGenerationGuidance(generationGuidanceProfile),
+		reportSectionDirectWritingGuidance(generationGuidanceProfile),
+		reportSubjectDirectSynthesisSectionGuidance(generationGuidanceProfile),
+	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2745,7 +2847,10 @@ Rules:
 }
 
 func agentPartAssemblyPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, drafts []sectionalReportDraft, partIndex int, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(strings.Join([]string{
+		LongFormReportGenerationGuidance(generationGuidanceProfile),
+		reportPartConnectiveEconomyGuidance(generationGuidanceProfile),
+	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2788,8 +2893,12 @@ Rules:
 }
 
 func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
+	return agentLongFormFinalizePromptWithRequirements(title, missionID, rigor, plan, parts, generationGuidanceProfile, binding, reporting.ReportRequirementMap{}, attempt, canonical, hint)
+}
+
+func agentLongFormFinalizePromptWithRequirements(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, requirementMap reporting.ReportRequirementMap, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
 	if isReportGenerationGuidanceProfileNarrativeContract(generationGuidanceProfile) {
-		return agentLongFormFinalEditPrompt(title, missionID, rigor, plan, generationGuidanceProfile, binding, attempt, canonical)
+		return agentLongFormFinalEditPrompt(title, missionID, rigor, plan, generationGuidanceProfile, binding, requirementMap, attempt, canonical)
 	}
 	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {

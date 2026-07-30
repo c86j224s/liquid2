@@ -26,13 +26,14 @@
 .pipeline-current { justify-content: flex-end; flex-wrap: wrap; }
 .pipeline-current-step { color: var(--ink2); font-weight: 600; }
 .pipeline-current-status { color: var(--muted); }
-.pipeline-attempt-meta { margin: 8px 0 0; color: var(--muted); font-size: 12px; }
-.pipeline-attempt-meta div { display: flex; gap: 6px; }
-.pipeline-attempt-meta dt,
-.pipeline-attempt-meta dd { margin: 0; }
-.pipeline-attempt-meta dt { font-weight: 600; }
+.pipeline-request-details,
 .pipeline-details { margin-top: 10px; }
+.pipeline-request-details > summary,
 .pipeline-details > summary { color: var(--ink2); cursor: pointer; font-size: 13px; font-weight: 600; }
+.pipeline-request-details .report-generation-summary { margin-bottom: 0; }
+.pipeline-request-details .report-generation-item { max-width: 100%; }
+.pipeline-request-details .report-generation-item strong,
+.pipeline-request-details .report-generation-item:not(.report-direction-line) span:last-child { white-space: nowrap; }
 .pipeline-visual { width: 100%; min-width: 0; max-width: 100%; margin: 10px 0 4px; overflow-x: auto; overscroll-behavior-inline: contain; }
 .pipeline-graph { display: block; width: max(100%, var(--pipeline-width)); height: var(--pipeline-height, 136px); }
 .pipeline-connector { fill: none; stroke: var(--line2); stroke-width: 2; }

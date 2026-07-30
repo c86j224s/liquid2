@@ -1,27 +1,8 @@
 package reporting
 
 import (
-	"context"
-	"fmt"
-
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
-
-func replayLongFormFinalize(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding, event app.LedgerEvent, req LongFormFinalizeRequest) (LongFormFinalizeResult, error) {
-	payload := eventPayload(event)
-	artifact, err := store.GetRawArtifact(ctx, binding.ArtifactID)
-	if err != nil {
-		return LongFormFinalizeResult{}, fmt.Errorf("%w: canonical final artifact is missing", app.ErrConflict)
-	}
-	expected, err := longFormMarkdownForRequest(ctx, store, binding, req)
-	if err != nil {
-		return LongFormFinalizeResult{}, err
-	}
-	if artifact.MissionID != binding.MissionID || artifact.MediaType != "text/markdown; charset=utf-8" || artifact.Filename != binding.Filename || artifact.SHA256 != contentSHA256([]byte(expected)) || artifact.Producer != binding.Producer || event.CorrelationID != binding.IdempotencyKey || !canonicalMatchesBinding(event, payload, binding) {
-		return LongFormFinalizeResult{}, fmt.Errorf("%w: canonical long-form finalization binding differs", app.ErrConflict)
-	}
-	return LongFormFinalizeResult{Artifact: artifact, Event: event, Replay: true}, nil
-}
 
 func canonicalMatchesBinding(event app.LedgerEvent, payload map[string]any, binding LongFormFinalizeBinding) bool {
 	return event.Producer == binding.Producer &&

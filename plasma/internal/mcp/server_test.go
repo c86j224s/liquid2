@@ -3407,6 +3407,25 @@ func (f *fakeMCPService) CreateRawArtifactWithEventConditionally(
 	return artifact, event, true, nil
 }
 
+func (f *fakeMCPService) AppendEventConditionally(
+	ctx context.Context,
+	missionID string,
+	build func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error),
+) (app.LedgerEvent, bool, error) {
+	eventReq, existing, create, err := build(f.ledgerEvents)
+	if err != nil {
+		return app.LedgerEvent{}, false, err
+	}
+	if !create {
+		return existing, false, nil
+	}
+	if strings.TrimSpace(eventReq.MissionID) != strings.TrimSpace(missionID) {
+		return app.LedgerEvent{}, false, app.ErrInvalidInput
+	}
+	event, err := f.AppendEvent(ctx, eventReq)
+	return event, err == nil, err
+}
+
 func (f *fakeMCPService) ListLocalPathRoots(_ context.Context) ([]localpath.RootView, error) {
 	return append([]localpath.RootView(nil), f.localRoots...), nil
 }
@@ -3554,6 +3573,15 @@ func (f *fakeMCPService) ListEvidenceRecords(_ context.Context, missionID string
 		}
 	}
 	return records, nil
+}
+
+func (f *fakeMCPService) GetEvidenceRecord(_ context.Context, evidenceID string) (app.EvidenceRecord, error) {
+	for _, record := range f.evidence {
+		if record.EvidenceID == evidenceID {
+			return record, nil
+		}
+	}
+	return app.EvidenceRecord{}, errors.New("missing evidence")
 }
 
 func (f *fakeMCPService) ListClaimRecords(_ context.Context, missionID string) ([]app.ClaimRecord, error) {

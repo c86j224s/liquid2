@@ -160,7 +160,12 @@ func TestReportPlanToolValidationBudgetAndBindingFailures(t *testing.T) {
 	options := []Option{WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportPlanBinding(testReportPlanBinding()), WithEnabledTools([]string{ToolReportPlanSubmit})}
 	server := NewServer(service, options...)
 	base := `{"mission_id":"mis_1","session_id":"ses_tool","pending_event_id":"evt_pending","report_mode":"%s","idempotency_key":"key_1","producer":{"type":"agent_session","id":"ses_tool"},"plan":{"summary":"summary","sections":[]}}`
-	bindingFailure := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: json.RawMessage(`{"mission_id":"mis_other"}`)})
+	missingBinding := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: json.RawMessage(`{"report_mode":"planned","plan":{"summary":"summary"}}`)})
+	if missingBinding.Error == nil || missingBinding.Error.ErrorKind != "validation" || !missingBinding.Error.Retryable {
+		t.Fatalf("unexpected missing binding failure: %#v", missingBinding.Error)
+	}
+	server = NewServer(service, options...)
+	bindingFailure := server.Call(context.Background(), ToolCall{Name: ToolReportPlanSubmit, Arguments: json.RawMessage(`{"mission_id":"mis_other","session_id":"ses_tool","pending_event_id":"evt_pending","report_mode":"planned","idempotency_key":"key_1","producer":{"type":"agent_session","id":"ses_tool"},"plan":{"summary":"summary"}}`)})
 	if bindingFailure.Error == nil || bindingFailure.Error.ErrorKind != "binding" || bindingFailure.Error.Retryable {
 		t.Fatalf("unexpected binding failure: %#v", bindingFailure.Error)
 	}
@@ -201,11 +206,18 @@ func TestReportPlanToolSuccessReplayAndStrictDecodingConsumeParsedBudget(t *test
 	}
 }
 
-func TestReportPlanSchemaClosesEveryObjectBoundary(t *testing.T) {
+func TestReportPlanSchemaKeepsBindingFieldsAtTopLevel(t *testing.T) {
 	text := string(schemaReportPlanSubmit)
 	if strings.Count(text, `"additionalProperties":false`) != 9 || !strings.Contains(text, `"type":"object",
-  "additionalProperties":false`) || !strings.Contains(text, `"const":"planned"`) || !strings.Contains(text, `"const":"long_form"`) {
-		t.Fatalf("report plan schema is not closed and mode-discriminated: %s", text)
+  "additionalProperties":false`) || !strings.Contains(text, `"report_mode":{"enum":["planned","long_form"]}`) || !strings.Contains(text, `"plan":{"oneOf":[{"$ref":"#/$defs/planned_plan"},{"$ref":"#/$defs/long_form_plan"}]}`) {
+		t.Fatalf("report plan schema is not closed with nested plan alternatives: %s", text)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(schemaReportPlanSubmit, &schema); err != nil {
+		t.Fatalf("decode report plan schema: %v", err)
+	}
+	if _, exists := schema["oneOf"]; exists {
+		t.Fatal("report plan alternatives must not hide top-level binding fields")
 	}
 }
 

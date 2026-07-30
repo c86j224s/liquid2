@@ -40,6 +40,9 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 	if err := decodeReportPlanJSON(call.Arguments, &input); err != nil {
 		return server.reportPlanValidationError(call.Name, server.binding.MissionID, "report plan arguments are invalid")
 	}
+	if !reportPlanBindingFieldsComplete(input) {
+		return server.reportPlanValidationError(call.Name, server.binding.MissionID, "report plan arguments are missing required binding fields")
+	}
 	if input.MissionID != server.binding.MissionID || input.SessionID != binding.ToolSessionID || input.PendingEventID != binding.PendingEventID || input.IdempotencyKey != binding.IdempotencyKey || strings.TrimSpace(input.Producer.Type) != "agent_session" || strings.TrimSpace(input.Producer.ID) != binding.ToolSessionID {
 		return errorResult(call.Name, input.MissionID, "binding", "report plan call does not match the runner binding", false, nil)
 	}
@@ -106,6 +109,15 @@ func (server *Server) callReportPlanSubmit(ctx context.Context, call ToolCall) T
 		return errorResult(call.Name, input.MissionID, kind, "report plan submission was rejected", false, nil)
 	}
 	return ToolResult{ToolName: call.Name, MissionID: input.MissionID, CreatedEventIDs: []string{result.Event.EventID}, Content: map[string]any{"submission_event_id": result.Event.EventID, "plan_hash": planHash, "replay": result.Replay}}
+}
+
+func reportPlanBindingFieldsComplete(input reportPlanSubmitInput) bool {
+	return strings.TrimSpace(input.MissionID) != "" &&
+		strings.TrimSpace(input.SessionID) != "" &&
+		strings.TrimSpace(input.PendingEventID) != "" &&
+		strings.TrimSpace(input.IdempotencyKey) != "" &&
+		strings.TrimSpace(input.Producer.Type) != "" &&
+		strings.TrimSpace(input.Producer.ID) != ""
 }
 
 func unwrapStringWrappedReportPlan(payload json.RawMessage) json.RawMessage {

@@ -36,6 +36,7 @@ Keep these in Git:
 - reusable experiment harness code
 - experiment protocols, summaries, decision memos, and small fixture manifests
 - redacted aggregate metrics that are needed to understand a product decision
+- reading-order indexes and small redacted contracts for blind reading packs
 
 Keep these outside Git under the archive root:
 
@@ -44,6 +45,8 @@ Keep these outside Git under the archive root:
 - raw run directories, prompt packets, judge packets, scorer packets, and logs
 - copied external repositories or local source snapshots
 - session ids, unredacted ledgers, and local agent state
+- issue #190 fixed-input Part artifacts, raw v1/v2 report bodies, blind pack
+  Markdown, private A/B mappings, and machine-check payloads for experiment 55
 
 ## Current Archive Layout
 
@@ -57,6 +60,7 @@ Keep these outside Git under the archive root:
     06-workflow-step-instruction-2026-06-30/
     07-token-diet-measurement-2026-07-01/
     09-design-skill-rendering-2026-07-05/
+    55-final-writer-v2-2026-07-29/
   local-sources/
     fleet-harness/
   runtime/
@@ -79,3 +83,14 @@ when needed.
 If an experiment needs committed fixtures, commit the smallest redacted fixture
 that reproduces the behavior. Do not commit whole run directories just because
 they are convenient to inspect locally.
+
+Issue #190 final-writer v2 experiment preparation uses the public protocol under
+`plasma/docs/experiments/55-final-writer-v2-2026-07-29/` and the reusable
+script `plasma/scripts/experiments/report_final_writer_v2_experiment.py`.
+Generated manifests, frozen Part artifacts, raw outputs, blind reading packs,
+private arm mappings, machine checks, provider traces, and run databases stay
+under:
+
+```text
+~/research-artifacts/liquid2/plasma/experiments/55-final-writer-v2-2026-07-29/
+```

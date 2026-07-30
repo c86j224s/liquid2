@@ -330,8 +330,9 @@ POST /documents/{id}/notes
 POST /documents/bookmark
   -> validate URL
   -> normalize canonical URL
+  -> if title is blank, best-effort fetch page title metadata
+  -> fall back to URL-derived title when metadata fetch fails or has no title
   -> create document with source_url
-  -> optional metadata fetch
   -> return document
 ```
 

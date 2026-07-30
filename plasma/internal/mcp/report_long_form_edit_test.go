@@ -120,6 +120,42 @@ func TestReportLongFormEditToolsFinalizeEditedBoundManuscript(t *testing.T) {
 	}
 }
 
+func TestReportLongFormEditSubmitAcceptsUnchangedDraft(t *testing.T) {
+	binding := testNarrativeLongFormFinalizeBinding()
+	service := seededLongFormEditService(binding)
+	server := NewServer(service,
+		WithBinding(Binding{MissionID: binding.MissionID, AgentSessionID: binding.ToolSessionID, AgentExecutor: binding.AgentExecutor}),
+		WithLongFormFinalizeBinding(binding),
+		WithEnabledTools([]string{ToolReportLongFormEditStart, ToolReportLongFormEditRead, ToolReportLongFormEditSubmit}),
+	)
+	common := map[string]any{
+		"mission_id": binding.MissionID,
+		"session_id": binding.ToolSessionID,
+		"producer":   map[string]any{"type": "agent_session", "id": binding.ToolSessionID},
+	}
+	startArgs := cloneMap(common)
+	startArgs["idempotency_key"] = "edit-start"
+	startArgs["draft_id"] = "rfe_test"
+	startArgs["pending_event_id"] = binding.PendingEventID
+	startArgs["plan_event_id"] = binding.PlanEventID
+	if start := server.Call(context.Background(), ToolCall{Name: ToolReportLongFormEditStart, Arguments: mustArgs(t, startArgs)}); start.Error != nil {
+		t.Fatalf("start failed: %#v", start.Error)
+	}
+	submitArgs := cloneMap(common)
+	submitArgs["idempotency_key"] = "edit-submit"
+	submitArgs["draft_id"] = "rfe_test"
+	submitArgs["pending_event_id"] = binding.PendingEventID
+	submitArgs["plan_event_id"] = binding.PlanEventID
+	submit := server.Call(context.Background(), ToolCall{Name: ToolReportLongFormEditSubmit, Arguments: mustArgs(t, submitArgs)})
+	if submit.Error != nil || len(submit.CreatedEventIDs) != 1 {
+		t.Fatalf("unchanged submit failed: %#v", submit)
+	}
+	artifact := service.artifacts[binding.ArtifactID]
+	if !strings.Contains(string(artifact.Content), "Preserved body.") {
+		t.Fatalf("unchanged final edit lost bound Part manuscript: %q", artifact.Content)
+	}
+}
+
 func TestReportLongFormEditSchemasAreClosed(t *testing.T) {
 	for name, schema := range map[string]json.RawMessage{
 		ToolReportLongFormEditStart: schemaReportLongFormEditStart, ToolReportLongFormEditRead: schemaReportLongFormEditRead,

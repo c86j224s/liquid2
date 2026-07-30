@@ -48,11 +48,16 @@ type LongFormFinalizeBinding struct {
 }
 
 type LongFormFinalizeRequest struct {
-	Binding            LongFormFinalizeBinding
-	EventID            string
-	OpeningMarkdown    string
-	ClosingMarkdown    string
-	ManuscriptMarkdown string
+	Binding                   LongFormFinalizeBinding
+	EventID                   string
+	OpeningMarkdown           string
+	ClosingMarkdown           string
+	ManuscriptMarkdown        string
+	FinalEditPipeline         string
+	GateFindings              []StoredFinalEditGateFinding
+	FinalEditActualArtifactID string
+	FinalEditGateEventID      string
+	FinalEditGateChanged      bool
 }
 
 type LongFormFinalizeResult struct {

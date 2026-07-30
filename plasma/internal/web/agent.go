@@ -25,24 +25,27 @@ type AgentExecutor interface {
 }
 
 type AgentRequest struct {
-	UserText          string
-	Prompt            string
-	Model             string
-	ReasoningEffort   string
-	MissionID         string
-	ToolSessionID     string
-	UserEventID       string
-	PreviousSessionID string
-	AgentExecutor     string
-	MCPMode           string
-	Compaction        bool
-	DisableTools      bool
-	ExtraMCPTools     []string
-	ReplaceMCPTools   bool
-	ReportPatch       *AgentReportPatchContext
-	ReportPlan        *AgentReportPlanContext
-	PartAssembly      *reporting.PartAssemblyBinding
-	LongFormFinalize  *reporting.LongFormFinalizeBinding
+	UserText           string
+	Prompt             string
+	Model              string
+	ReasoningEffort    string
+	MissionID          string
+	ToolSessionID      string
+	UserEventID        string
+	PreviousSessionID  string
+	AgentExecutor      string
+	MCPMode            string
+	Compaction         bool
+	DisableTools       bool
+	ExtraMCPTools      []string
+	ReplaceMCPTools    bool
+	ReportPatch        *AgentReportPatchContext
+	ReportPlan         *AgentReportPlanContext
+	ReportRequirements *reporting.ReportRequirementMapBinding
+	PartAssembly       *reporting.PartAssemblyBinding
+	PartEdit           *reporting.PartEditBinding
+	LongFormFinalize   *reporting.LongFormFinalizeBinding
+	FinalEditStage     *reporting.FinalEditStageBinding
 }
 
 type AgentReportPlanContext struct {
@@ -534,14 +537,29 @@ func codexMCPArgsForRequest(base []string, req AgentRequest) []string {
 	if req.ReportPlan != nil {
 		args = appendReportPlanMCPArgs(args, req.ToolSessionID, *req.ReportPlan)
 	}
+	if req.ReportRequirements != nil {
+		if encoded, err := json.Marshal(req.ReportRequirements); err == nil {
+			args = append(args, "-report-requirements-binding-json", string(encoded))
+		}
+	}
 	if req.PartAssembly != nil {
 		if encoded, err := json.Marshal(req.PartAssembly); err == nil {
 			args = append(args, "-report-part-assembly-binding-json", string(encoded))
 		}
 	}
+	if req.PartEdit != nil {
+		if encoded, err := json.Marshal(req.PartEdit); err == nil {
+			args = append(args, "-report-part-edit-binding-json", string(encoded))
+		}
+	}
 	if req.LongFormFinalize != nil {
 		if encoded, err := json.Marshal(req.LongFormFinalize); err == nil {
 			args = append(args, "-report-long-form-finalize-binding-json", string(encoded))
+		}
+	}
+	if req.FinalEditStage != nil {
+		if encoded, err := json.Marshal(req.FinalEditStage); err == nil {
+			args = append(args, "-report-final-edit-stage-binding-json", string(encoded))
 		}
 	}
 	if req.ReportPatch != nil {

@@ -63,6 +63,8 @@ create a separate hidden research product.
 - Markdown reports, long-form part/section reports, and HTML exports.
 - MCP-backed Markdown report patching that creates a new report artifact from a
   prior report session instead of editing the old artifact in place.
+- In-place browser redpen editing that saves and updates a separate Markdown
+  workcopy while keeping the selected report artifact unchanged.
 
 Some areas are still experimental or future work: mixed-provider missions,
 background autonomous workers, richer media inspection, external publishing

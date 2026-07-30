@@ -36,15 +36,18 @@ func TestStaticMissionMetadataAndReportDirectionContracts(t *testing.T) {
 func TestReportPipelineStaticGraphAndRetryContracts(t *testing.T) {
 	script := string(mustReadStatic(t, "static/report_pipeline.js"))
 	styles := string(mustReadStatic(t, "static/report_pipeline.css"))
-	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "--pipeline-height:", "pipeline-graph-fanout", "pipeline-visual-phase-fanout", "pathConnector", "pipelineLiveTimingTimer", "syncLiveTiming", "data-pipeline-live-timing", "data-pipeline-started-at", "data-pipeline-title-prefix", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-phase", "섹션 작성", "파트 조립", "섹션 ${runningSections.length}개 병렬 작성", "phaseSummary(nodes)", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
+	for _, expected := range []string{"<svg class=\"pipeline-graph", "--pipeline-width:", "--pipeline-height:", "pipeline-graph-fanout", "pipeline-visual-phase-fanout", "pathConnector", "pipelineLiveTimingTimer", "syncLiveTiming", "data-pipeline-live-timing", "data-pipeline-started-at", "data-pipeline-title-prefix", "최신 리포트 생성 파이프라인", "currentReportAttemptEvent(progress.attempt_id)", "<details class=\"pipeline-request-details\"", "생성 요청 상세", "<details class=\"pipeline-details\"", "role=\"img\"", "<ol class=\"pipeline-flow sr-only\"", "<li class=\"pipeline-node", "pipeline-phase", "요구 연결", "파트 계획", "섹션 작성", "파트 조립", "파트 편집", "파트 최종 작성", "최종 조립", "최종 작성", "독자 편집", "말투 편집", "근거·요구 교정", "finalEditClosingNodes(nodes)", "섹션 ${runningSections.length}개 병렬 작성", "파트 ${runningPartPlans.length}개 병렬 계획", "파트 ${runningPartAuthors.length}개 최종 작성", "phaseSummary(nodes)", "aria-current=\\\"step\\\"", "currentStage(graphNodes)", "hasPlannedContent(nodes)", "captureMissionSelection()", "isStaleMissionOperation(error)", "resume_failed", "restart", "started_at", "duration_ms", "visualNodeWidth(node)", "data-pipeline-node-width", "visualScrollLeft", "renderedVisual.scrollLeft"} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("missing report pipeline contract %q", expected)
 		}
 	}
-	for _, expected := range []string{".pipeline-details", ".pipeline-attempt-meta", ".pipeline-visual", "max-width: 100%", "overflow-x: auto", "min-width: 0", "width: max(100%, var(--pipeline-width))", "height: var(--pipeline-height, 136px)", ".pipeline-visual-dot", ".pipeline-visual-time", "font-variant-numeric: tabular-nums", "pipeline-node-pulse", "prefers-reduced-motion: reduce", "pipeline-graph-revealing"} {
+	for _, expected := range []string{".pipeline-request-details", ".pipeline-details", ".report-generation-summary", ".report-generation-item", ".report-direction-line", "white-space: nowrap", ".pipeline-visual", "max-width: 100%", "overflow-x: auto", "min-width: 0", "width: max(100%, var(--pipeline-width))", "height: var(--pipeline-height, 136px)", ".pipeline-visual-dot", ".pipeline-visual-time", "font-variant-numeric: tabular-nums", "pipeline-node-pulse", "prefers-reduced-motion: reduce", "pipeline-graph-revealing"} {
 		if !strings.Contains(styles, expected) {
 			t.Fatalf("missing report pipeline style contract %q", expected)
 		}
+	}
+	if strings.Contains(styles, ".pipeline-attempt-meta") {
+		t.Fatal("legacy pipeline attempt metadata grid should not be used")
 	}
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required")
@@ -56,7 +59,7 @@ const fs=require("fs"), vm=require("vm");
   const requests=[];
   const button=(strategy)=>({dataset:{reportRetry:strategy},disabled:false,addEventListener(_event,listener){this.listener=listener;}});
   const resume=button("resume_failed"), restart=button("restart");
-  let pipelineVisual={scrollLeft:73};
+  let pipelineVisual={scrollLeft:73}, pipelineDetails={open:false}, requestDetails={open:false};
   const host={_innerHTML:"",get innerHTML(){return this._innerHTML;},set innerHTML(value){this._innerHTML=value;pipelineVisual={scrollLeft:0};},querySelector(selector){return selector===".pipeline-visual"?pipelineVisual:null;},querySelectorAll(selector){
     if(selector==="[data-report-retry]") return [resume,restart];
     return [];
@@ -66,13 +69,20 @@ const fs=require("fs"), vm=require("vm");
     missionFetch(_owner,_path,options){requests.push(JSON.parse(options.body));return Promise.resolve({ok:true});},
     ownsMissionSelection(){return current;},reloadMission(){reloads++;},isStaleMissionOperation(){return false}};
   vm.createContext(context);vm.runInContext(fs.readFileSync("static/report_pipeline.js","utf8"),context);
-  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"running",started_at:"2026-07-13T01:02:15Z"},{id:"part-1",kind:"part",part_index:1,state:"pending"},{id:"part-2",kind:"part",part_index:2,state:"failed",error:"safe",started_at:"2026-07-13T01:02:03Z",duration_ms:360000000},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}],retry:{resume_failed:true,restart:true}});
+  host.querySelector=(selector)=>selector===".pipeline-visual"?pipelineVisual:selector===".pipeline-details"?pipelineDetails:selector===".pipeline-request-details"?requestDetails:null;
+  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed",started_at:"2026-07-13T01:02:03Z",duration_ms:12000},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"running",started_at:"2026-07-13T01:02:15Z"},{id:"part-1",kind:"part",part_index:1,state:"pending"},{id:"part-2",kind:"part",part_index:2,state:"failed",error:"safe",started_at:"2026-07-13T01:02:03Z",duration_ms:360000000},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}],retry:{resume_failed:true,restart:true}},{mode:"<일반>",strategy:"",guidance:"문장 중심",rigor:"균형",model:"gpt-safe",effort:"low",direction:"<방향>",startedAt:"2026. 7. 13. 10:02:03",startedAtDateTime:"2026-07-13T01:02:03Z"});
   const html=host.innerHTML;
-  if(!html.includes("<h3 id=\"reportPipelineTitle\">최신 리포트 생성 파이프라인</h3>")||!html.includes("&lt;안전한 제목&gt;")||!html.includes("전체 생성 시작")||!html.includes("<time datetime=\"2026-07-13T01:02:03Z\">")||!html.includes("시도 1")||!html.includes("시작")||!html.includes("소요 12초")||!html.includes("경과")||!html.includes("<details class=\"pipeline-details\">")||html.includes("<details class=\"pipeline-details\" open")||!html.includes("<svg class=\"pipeline-graph\"")||!html.includes("--pipeline-width:")||!html.includes("<ol class=\"pipeline-flow sr-only\"")||!html.includes("<li class=\"pipeline-phase\"")||!html.includes("섹션 작성")||!html.includes("파트 조립"))process.exit(1);
+  if(!html.includes("<h3 id=\"reportPipelineTitle\">최신 리포트 생성 파이프라인</h3>")||!html.includes("&lt;안전한 제목&gt;")||!html.includes("<summary>생성 요청 상세</summary>")||!html.includes("class=\"report-generation-summary\" aria-label=\"생성 요청 설정\"")||!html.includes("class=\"report-generation-item\"><strong>방식</strong><span>&lt;일반&gt;</span>")||!html.includes("class=\"report-generation-item report-direction-line\"><strong>방향</strong><span>&lt;방향&gt;</span>")||!html.includes("글쓰기")||!html.includes("엄격도")||!html.includes("모델")||!html.includes("추론")||!html.includes("전체 생성 시작")||!html.includes("<time datetime=\"2026-07-13T01:02:03Z\">2026. 7. 13. 10:02:03</time>")||html.includes("pipeline-attempt-meta")||!html.includes("시도 1")||!html.includes("시작")||!html.includes("소요 12초")||!html.includes("경과")||!html.includes("<details class=\"pipeline-request-details\">")||!html.includes("<details class=\"pipeline-details\">")||html.includes("<details class=\"pipeline-details\" open")||html.includes("<details class=\"pipeline-request-details\" open")||!html.includes("<svg class=\"pipeline-graph\"")||!html.includes("--pipeline-width:")||!html.includes("<ol class=\"pipeline-flow sr-only\"")||!html.includes("<li class=\"pipeline-phase\"")||!html.includes("섹션 작성")||!html.includes("파트 조립"))process.exit(1);
   if(pipelineVisual.scrollLeft!==73)process.exit(10);
+  requestDetails.open=true; pipelineDetails.open=false;
+  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"running"}]},{mode:"일반",rigor:"균형",model:"gpt-safe",effort:"low",direction:"지정 없음",startedAt:"2026-07-13T01:02:03Z",startedAtDateTime:"2026-07-13T01:02:03Z"});
+  if(!host.innerHTML.includes("<details class=\"pipeline-request-details\" open>")||host.innerHTML.includes("<details class=\"pipeline-details\" open>"))process.exit(25);
+  requestDetails.open=false; pipelineDetails.open=true;
+  context.window.renderReportPipeline({attempt_id:"evt_failed",attempt_number:1,state:"failed",nodes:[{id:"plan",kind:"plan",state:"running"}]},{mode:"일반",rigor:"균형",model:"gpt-safe",effort:"low",direction:"지정 없음",startedAt:"2026-07-13T01:02:03Z",startedAtDateTime:"2026-07-13T01:02:03Z"});
+  if(host.innerHTML.includes("<details class=\"pipeline-request-details\" open>")||!host.innerHTML.includes("<details class=\"pipeline-details\" open>"))process.exit(26);
   const graphNodes=[...html.matchAll(/data-pipeline-node-width="(\d+)" transform="translate\((\d+) 62\)"/g)].map(([,width,x])=>({width:Number(width),x:Number(x)}));
   if(graphNodes.length!==7||graphNodes.some((node,index)=>index>0&&node.x-graphNodes[index-1].x<(node.width+graphNodes[index-1].width)/2+32))process.exit(11);
-  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("data-pipeline-live-timing=\"1\"")||!html.includes("data-pipeline-started-at=\"2026-07-13T01:02:15Z\"")||!html.includes("data-pipeline-title-prefix=\"section 2.1\"")||!html.includes("aria-label=\"part 2 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
+  if(!html.includes("role=\"img\"")||!html.includes("aria-current=\"step\"")||!html.includes("data-pipeline-live-timing=\"1\"")||!html.includes("data-pipeline-started-at=\"2026-07-13T01:02:15Z\"")||!html.includes("data-pipeline-title-prefix=\"섹션 2.1\"")||!html.includes("aria-label=\"파트 조립 2 실패, 시작")||!html.includes("safe\"")||!html.includes("tabindex=\"0\""))process.exit(2);
   if(!(html.indexOf("pipeline-plan") < html.indexOf("pipeline-section-1-1") && html.indexOf("pipeline-section-1-1") < html.indexOf("pipeline-section-2-1") && html.indexOf("pipeline-section-2-1") < html.indexOf("pipeline-part-1") && html.indexOf("pipeline-part-1") < html.indexOf("pipeline-part-2") && html.indexOf("pipeline-part-2") < html.indexOf("pipeline-final") && html.indexOf("pipeline-final") < html.indexOf("pipeline-artifact")))process.exit(7);
   if(typeof resume.listener!=="function"||typeof restart.listener!=="function")process.exit(3);
   await resume.listener();
@@ -80,19 +90,44 @@ const fs=require("fs"), vm=require("vm");
   await restart.listener();
   if(requests.length!==2||requests[0].strategy!=="resume_failed"||requests[1].strategy!=="restart")process.exit(4);
   if(reloads!==1)process.exit(5);
+  context.state.detail.events=[{EventID:"evt_part_edit",Payload:{title:"파트 편집 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}},{EventID:"evt_staged",Payload:{title:"단계별 편집 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}},{EventID:"evt_legacy",Payload:{title:"레거시 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}}];
+  context.window.renderReportPipeline({attempt_id:"evt_part_edit",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"part-edit-1",kind:"part_edit",part_index:1,state:"running",started_at:"2026-07-13T01:02:20Z"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const partEditHtml=host.innerHTML;
+  if(!partEditHtml.includes("파트 편집")||!partEditHtml.includes("파트 편집 1")||!partEditHtml.includes("pipeline-part-edit-1")||!partEditHtml.includes("data-pipeline-title-prefix=\"파트 편집 1\""))process.exit(14);
+  context.window.renderReportPipeline({attempt_id:"evt_staged",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"part-author-1",kind:"part_author",part_index:1,state:"completed"},{id:"reader-edit",kind:"reader_edit",state:"completed"},{id:"style-edit",kind:"style_edit",state:"running",started_at:"2026-07-13T01:02:20Z"},{id:"corrective-gate",kind:"corrective_gate",state:"pending"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const stagedHtml=host.innerHTML;
+  if(!stagedHtml.includes("독자 편집")||!stagedHtml.includes("말투 편집")||!stagedHtml.includes("근거·요구 교정")||!stagedHtml.includes("pipeline-reader-edit")||!stagedHtml.includes("pipeline-style-edit")||!stagedHtml.includes("pipeline-corrective-gate")||stagedHtml.includes("pipeline-final"))process.exit(18);
+  if(!(stagedHtml.indexOf("pipeline-part-author-1") < stagedHtml.indexOf("pipeline-reader-edit") && stagedHtml.indexOf("pipeline-reader-edit") < stagedHtml.indexOf("pipeline-style-edit") && stagedHtml.indexOf("pipeline-style-edit") < stagedHtml.indexOf("pipeline-corrective-gate") && stagedHtml.indexOf("pipeline-corrective-gate") < stagedHtml.indexOf("pipeline-artifact")))process.exit(19);
+  if(!stagedHtml.includes("data-pipeline-title-prefix=\"말투 편집\"")||!stagedHtml.includes("pipeline-current-step\">말투 편집<"))process.exit(20);
+  context.window.renderReportPipeline({attempt_id:"evt_staged",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"reader-edit",kind:"reader_edit",state:"completed"},{id:"corrective-gate",kind:"corrective_gate",state:"running"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const noStyleHtml=host.innerHTML;
+  if(noStyleHtml.includes("말투 편집")||noStyleHtml.includes("pipeline-style-edit")||noStyleHtml.includes("pipeline-final")||!noStyleHtml.includes("pipeline-reader-edit")||!noStyleHtml.includes("pipeline-corrective-gate"))process.exit(21);
+  context.state.detail.events=[{EventID:"evt_v2",Payload:{title:"v2 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}}];
+  context.window.renderReportPipeline({attempt_id:"evt_v2",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"part-author-1",kind:"part_author",part_index:1,state:"completed"},{id:"final-assembly",kind:"final_assembly",state:"completed"},{id:"final-write",kind:"final_write",state:"running",started_at:"2026-07-13T01:02:20Z"},{id:"reader-edit",kind:"reader_edit",state:"pending"},{id:"corrective-gate",kind:"corrective_gate",state:"pending"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const v2Html=host.innerHTML;
+  if(!v2Html.includes("최종 조립")||!v2Html.includes("최종 작성")||!v2Html.includes("pipeline-final-assembly")||!v2Html.includes("pipeline-final-write")||v2Html.includes("id=\"pipeline-final\""))process.exit(22);
+  if(!(v2Html.indexOf("pipeline-part-author-1") < v2Html.indexOf("pipeline-final-assembly") && v2Html.indexOf("pipeline-final-assembly") < v2Html.indexOf("pipeline-final-write") && v2Html.indexOf("pipeline-final-write") < v2Html.indexOf("pipeline-reader-edit") && v2Html.indexOf("pipeline-reader-edit") < v2Html.indexOf("pipeline-corrective-gate") && v2Html.indexOf("pipeline-corrective-gate") < v2Html.indexOf("pipeline-artifact")))process.exit(23);
+  if(!v2Html.includes("data-pipeline-title-prefix=\"최종 작성\"")||!v2Html.includes("pipeline-current-step\">최종 작성<"))process.exit(24);
+  context.window.renderReportPipeline({attempt_id:"evt_legacy",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"running"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const legacyHtml=host.innerHTML;
+  if(legacyHtml.includes("파트 편집")||legacyHtml.includes("pipeline-part-edit-1")||!legacyHtml.includes("pipeline-final")||!legacyHtml.includes("최종 편집·확정"))process.exit(15);
   context.state.detail.events=[{EventID:"evt_missing",Payload:{}}];
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
   if(!host.innerHTML.includes("제목 없는 리포트")||!host.innerHTML.includes("생성 시작 시각 알 수 없음")||!host.innerHTML.includes("시도 번호 알 수 없음")||!host.innerHTML.includes("계획 수립")||!host.innerHTML.includes("진행 중")||!host.innerHTML.includes("pipeline-plan")||host.innerHTML.includes("pipeline-final")||host.innerHTML.includes("pipeline-artifact")||host.innerHTML.includes("pipeline-phase"))process.exit(8);
   host.dataset={};
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[]});
   context.window.renderReportPipeline({attempt_id:"evt_missing",state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"running"}]});
-  if(!host.innerHTML.includes("pipeline-graph-revealing")||!host.innerHTML.includes("파트 1 작성")||!host.innerHTML.includes("진행 중")||pipelineVisual.scrollLeft!==73)process.exit(9);
+  if(!host.innerHTML.includes("pipeline-graph-revealing")||!host.innerHTML.includes("파트 1 조립")||!host.innerHTML.includes("진행 중")||pipelineVisual.scrollLeft!==73)process.exit(9);
   context.state.detail.events=[{EventID:"evt_fanout",Payload:{title:"병렬 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form",execution_strategy:"section_fanout"}}];
   context.window.renderReportPipeline({attempt_id:"evt_fanout",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"running"},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"running"},{id:"part-1",kind:"part",part_index:1,state:"pending"},{id:"part-2",kind:"part",part_index:2,state:"pending"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
   const fanoutHtml=host.innerHTML;
   if(!fanoutHtml.includes("장문 · 빠른 병렬")||!fanoutHtml.includes("섹션 2개 병렬 작성")||!fanoutHtml.includes("진행 2")||!fanoutHtml.includes("pipeline-graph pipeline-graph-fanout")||!fanoutHtml.includes("계획에서 여러 섹션 작성으로 갈라지고")||!fanoutHtml.includes("pipeline-visual-phase-fanout"))process.exit(12);
   const fanoutRows=new Set([...fanoutHtml.matchAll(/transform="translate\((?:[\d.]+) ([\d.]+)\)"/g)].map(([,y])=>Number(y)));
   if(!fanoutRows.has(62)||!fanoutRows.has(146)||fanoutRows.size<2)process.exit(13);
+  context.window.renderReportPipeline({attempt_id:"evt_fanout",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"requirements",kind:"requirements",state:"completed"},{id:"part-plan-1",kind:"part_plan",part_index:1,state:"completed"},{id:"part-plan-2",kind:"part_plan",part_index:2,state:"running"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"pending"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"part-2",kind:"part",part_index:2,state:"pending"},{id:"part-author-1",kind:"part_author",part_index:1,state:"completed"},{id:"part-author-2",kind:"part_author",part_index:2,state:"pending"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const w4FanoutHtml=host.innerHTML;
+  if(!w4FanoutHtml.includes("파트 계획")||!w4FanoutHtml.includes("파트 최종 작성")||!w4FanoutHtml.includes("파트 2 읽기 흐름 계획")||!w4FanoutHtml.includes("pipeline-part-plan-1")||!w4FanoutHtml.includes("pipeline-part-author-1")||!w4FanoutHtml.includes("파트 계획과 여러 섹션 작성"))process.exit(16);
+  if(!(w4FanoutHtml.indexOf("pipeline-requirements") < w4FanoutHtml.indexOf("pipeline-part-plan-1") && w4FanoutHtml.indexOf("pipeline-part-plan-1") < w4FanoutHtml.indexOf("pipeline-section-1-1") && w4FanoutHtml.indexOf("pipeline-part-1") < w4FanoutHtml.indexOf("pipeline-part-author-1") && w4FanoutHtml.indexOf("pipeline-part-author-1") < w4FanoutHtml.indexOf("pipeline-final")))process.exit(17);
 })().catch((error)=>{console.error(error);process.exit(6);});`
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("pipeline DOM fixture: %v: %s", err, out)
@@ -100,16 +135,74 @@ const fs=require("fs"), vm=require("vm");
 }
 
 func TestStaticMissionScopedActiveWorkContracts(t *testing.T) {
-	combined := string(mustReadStatic(t, "static/index.html")) + string(mustReadStatic(t, "static/app.js")) + string(mustReadStatic(t, "static/app.css"))
+	index := string(mustReadStatic(t, "static/index.html"))
+	script := string(mustReadStatic(t, "static/app.js"))
+	styles := string(mustReadStatic(t, "static/app.css"))
+	combined := index + script + styles
 	for _, expected := range []string{
 		"active_work", "resetMissionTransientState", "ownsMissionSelection",
 		"conversationActiveWork", "reportActiveWork", "report_generation_running",
 		"workflow_running", "agent_turn_running", "data-active-work-action",
-		".active-work-notice", "flex-wrap: wrap",
+		".active-work-notice", "flex-wrap: wrap", "displayActiveWorkItems",
+		`kind: "agent_turn"`, `reason_code: "agent_turn_running"`, `action: "cancel_turn"`,
+		"리포트 생성 중입니다.", "자율 진행 중입니다.", "에이전트가 응답 중입니다.",
 	} {
 		if !strings.Contains(combined, expected) {
 			t.Fatalf("missing mission-scoped active-work contract %q", expected)
 		}
+	}
+	for _, removed := range []string{`id="turnStatus"`, `id="cancelTurnButton"`, "$(\"cancelTurnButton\")"} {
+		if strings.Contains(index+script, removed) {
+			t.Fatalf("conversation header pending-turn UI contract should be absent: %q", removed)
+		}
+	}
+	for _, expected := range []string{
+		"width: fit-content;", "max-width: 100%;", "margin: 0 0 8px;", "padding: 5px 6px 5px 8px;",
+		"gap: 6px;", "border-radius: 8px;", "font-size: 12px;", "line-height: 1.3;",
+		"flex: 0 1 auto;", "margin-left: 2px;", "min-height: 28px;", "padding: 4px 8px;",
+		"@media (max-width: 560px)", ".active-work-notice { width: 100%; }", ".active-work-item { flex: 1 1 100%; }",
+		".active-work-notice button { margin-left: 0; }",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing compact active-work CSS contract %q", expected)
+		}
+	}
+}
+
+func TestRenderActiveWorkSynthesizesLocalPendingTurnOnce(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the active-work DOM fixture")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+const nodes = {
+  conversationActiveWork: {classList:{hidden:true,toggle(_name, value){this.hidden = value;}}, innerHTML:""},
+  reportActiveWork: {classList:{hidden:true,toggle(_name, value){this.hidden = value;}}, innerHTML:""}
+};
+const $ = (id) => nodes[id] || null;
+const state = {turnPending:true};
+const escapeHTML = ` + jsFunctionSource(t, script, "escapeHTML") + `;
+const escapeAttr = ` + jsFunctionSource(t, script, "escapeAttr") + `;
+let appliedActiveWork = null;
+function applyActiveWorkDescriptions(activeWork) { appliedActiveWork = activeWork; }
+` + jsFunctionSource(t, script, "displayActiveWorkItems") + `
+` + jsFunctionSource(t, script, "activeWorkMessage") + `
+` + jsFunctionSource(t, script, "activeWorkActionHTML") + `
+` + jsFunctionSource(t, script, "renderActiveWork") + `
+const backend = {items:[], blocked_controls:[]};
+renderActiveWork(backend);
+const localHTML = nodes.conversationActiveWork.innerHTML;
+if (nodes.conversationActiveWork.classList.hidden) throw new Error("local pending active work is hidden");
+if ((localHTML.match(/에이전트가 응답 중입니다\./g) || []).length !== 1) throw new Error("local pending message did not appear exactly once: " + localHTML);
+if ((localHTML.match(/data-active-work-action="cancel_turn"/g) || []).length !== 1) throw new Error("local pending cancel action did not appear exactly once: " + localHTML);
+if (backend.items.length !== 0 || appliedActiveWork !== backend) throw new Error("synthetic active work mutated backend detail");
+renderActiveWork({items:[{kind:"agent_turn", reason_code:"agent_turn_running", action:"cancel_turn"}], blocked_controls:[]});
+const backendHTML = nodes.conversationActiveWork.innerHTML;
+if ((backendHTML.match(/에이전트가 응답 중입니다\./g) || []).length !== 1) throw new Error("backend active work was duplicated: " + backendHTML);
+if ((backendHTML.match(/data-active-work-action="cancel_turn"/g) || []).length !== 1) throw new Error("backend cancel action was duplicated: " + backendHTML);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("active-work local pending fixture failed: %v: %s", err, out)
 	}
 }
 
@@ -145,6 +238,52 @@ func TestStaticMissionLifecycleContracts(t *testing.T) {
 	for _, forbidden := range []string{"missionMetadataForm", "missionMetadataEdit", "missionArchiveButton", "missionRestoreButton"} {
 		if strings.Contains(banner, forbidden) {
 			t.Fatalf("mission banner must not expose mission management control %q", forbidden)
+		}
+	}
+}
+
+func TestStaticDesktopMissionRailCollapseContracts(t *testing.T) {
+	html := string(mustReadStatic(t, "static/index.html"))
+	script := string(mustReadStatic(t, "static/app.js"))
+	styles := string(mustReadStatic(t, "static/app.css"))
+	combined := html + script + styles
+	for _, expected := range []string{
+		"missionRailToggle",
+		"mission-rail-toggle",
+		"MISSION_RAIL_COLLAPSED_STORAGE_KEY",
+		"plasma.missionRailCollapsed.v1",
+		"initMissionRailToggle",
+		"setMissionRailCollapsed",
+		"readMissionRailCollapsed",
+		"mission-rail-collapsed",
+		"grid-template-columns: 18px minmax(360px, 1fr)",
+		"right: -12px",
+		"미션 목록 접기",
+		"미션 목록 펼치기",
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing desktop mission rail collapse contract %q", expected)
+		}
+	}
+	railButton := htmlSection(t, html, `id="missionRailToggle"`, `</button>`)
+	for _, expected := range []string{`type="button"`, `aria-pressed="false"`, `aria-label="미션 목록 접기"`} {
+		if !strings.Contains(railButton, expected) {
+			t.Fatalf("mission rail toggle must be an accessible button; missing %q in %s", expected, railButton)
+		}
+	}
+	mobileBlock := regexp.MustCompile(`(?s)@media \(max-width: 760px\)\s*\{(.+)$`).FindStringSubmatch(styles)
+	if len(mobileBlock) != 2 {
+		t.Fatal("missing mobile responsive block")
+	}
+	for _, expected := range []string{
+		"body.mission-rail-collapsed .workspace",
+		"grid-template-columns: 1fr",
+		".mission-rail-toggle",
+		"display: none",
+		"body.mission-picker-open .rail",
+	} {
+		if !strings.Contains(mobileBlock[1], expected) {
+			t.Fatalf("mobile block must preserve picker flow while hiding desktop rail toggle; missing %q", expected)
 		}
 	}
 }
@@ -685,7 +824,8 @@ const currentReportDirectionHint = () => ""; const clearAcceptedReportDirectionH
 const missionListPath = () => "/api/missions";
 const document = {hidden:false}; const window = {clearTimeout(){},setTimeout(){ scheduled++; return scheduled; }};
 const DEFAULT_REPORT_GENERATION_GUIDANCE = "narrative-contract";
-const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set(["section-brief","section-brief-cluster-memory","section-brief-visual-plan","section-brief-cluster-memory-visual-plan","section-brief-narrative-contract","section-brief-cluster-memory-narrative-contract"]);
+const DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE = "part-connective-economy-voice";
+const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set(["part-connective-economy-voice","section-brief","section-brief-cluster-memory","section-brief-visual-plan","section-brief-cluster-memory-visual-plan","section-brief-narrative-contract","section-brief-cluster-memory-narrative-contract"]);
 ` + asyncSource("refreshMissionList") + `
 ` + jsFunctionSource(t, script, "missionActivityCursor") + `
 ` + jsFunctionSource(t, script, "detailMissionActivityCursor") + `
@@ -1063,7 +1203,7 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	for _, expected := range []string{
-		`<option value="narrative-contract" selected>기본: 시각자료 계획</option>`,
+		`<option value="part-connective-economy-voice" selected>기본: 시각자료 계획</option>`,
 		`<option value="section-brief-narrative-contract">섹션 중심</option>`,
 		`<option value="section-brief-cluster-memory-narrative-contract">섹션 중심 + 풍부하게</option>`,
 	} {
@@ -1099,7 +1239,11 @@ if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw 
 nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-narrative-contract";
 if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-narrative-contract") throw new Error("cluster memory choice did not pass through for long-form");
 if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("cluster memory choice did not fall back to the default for planned reports");
+nodes.reportGenerationGuidance.value = "part-connective-economy-voice";
+if (selectedReportGenerationGuidance("long_form") !== "part-connective-economy-voice") throw new Error("productized long-form default did not pass through");
+if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("long-form default did not fall back for planned reports");
 if (reportGenerationGuidanceLabel("narrative-contract") !== "시각자료 계획") throw new Error("default choice label mismatch");
+if (reportGenerationGuidanceLabel("part-connective-economy-voice") !== "시각자료 계획") throw new Error("long-form default label mismatch");
 if (reportGenerationGuidanceLabel("g2") !== "기본 글쓰기") throw new Error("legacy g2 label not retained");
 if (reportGenerationGuidanceLabel("section-brief") !== "섹션 중심 (이전)") throw new Error("legacy section label not distinguished");
 if (reportGenerationGuidanceLabel("part-assembly-edit-tools") !== "파트 조립 다듬기") throw new Error("hidden part assembly label not retained");
@@ -1179,7 +1323,7 @@ func TestStaticButtonDesignSystemDefinesSharedRoles(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		`id="focusToggle" class="quiet"`,
+		`id="focusToggle" class="focus-mode-handle"`,
 		`id="themeToggle" class="icon-button quiet"`,
 		`id="refreshMissions" class="icon-button quiet"`,
 		`id="missionArchiveButton" class="mission-lifecycle-button hidden"`,
@@ -1188,6 +1332,165 @@ func TestStaticButtonDesignSystemDefinesSharedRoles(t *testing.T) {
 		if !strings.Contains(index, expected) {
 			t.Fatalf("utility button is not assigned to quiet role: %q", expected)
 		}
+	}
+}
+
+func TestStaticFocusModeHandleContracts(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	script := string(mustReadStatic(t, "static/app.js"))
+	styles := string(mustReadStatic(t, "static/app.css"))
+	focusSource := jsSourceRange(t, script, "// ── Focus mode:", "// ── Wave 6b:")
+	topbar := htmlSection(t, index, `<header class="topbar">`, `</header>`)
+	runtime := htmlSection(t, topbar, `<div class="runtime">`, `</div>`)
+	if strings.Contains(topbar, `id="focusToggle"`) {
+		t.Fatal("focusToggle must not remain inside header.topbar")
+	}
+	if strings.Contains(runtime, `id="focusToggle"`) {
+		t.Fatal("focusToggle must not remain inside .runtime")
+	}
+	mainColumn := htmlSection(t, index, `<section class="main-column">`, `<nav id="tabBar"`)
+	if !strings.HasPrefix(strings.TrimSpace(mainColumn), `<section class="main-column">
+          <div class="mission-banner-shell">`) {
+		t.Fatal("mission-banner-shell must be the first direct child of section.main-column")
+	}
+	shell := htmlSection(t, mainColumn, `<div class="mission-banner-shell">`, `</div>
+
+          `)
+	for _, expected := range []string{
+		`<section class="panel mission-banner">`,
+		`<button id="focusToggle" class="focus-mode-handle" type="button" aria-pressed="false" aria-label="상단 정보 접기" title="상단 정보 접기"><span aria-hidden="true">⌃</span></button>`,
+	} {
+		if !strings.Contains(shell, expected) {
+			t.Fatalf("missing mission banner shell markup contract %q", expected)
+		}
+	}
+	if strings.Index(shell, `<section class="panel mission-banner">`) > strings.Index(shell, `<button id="focusToggle"`) {
+		t.Fatal("mission-banner-shell must contain mission-banner before focusToggle")
+	}
+	if strings.TrimSpace(shell[strings.LastIndex(shell, `<button id="focusToggle"`):]) != `<button id="focusToggle" class="focus-mode-handle" type="button" aria-pressed="false" aria-label="상단 정보 접기" title="상단 정보 접기"><span aria-hidden="true">⌃</span></button>` {
+		t.Fatal("focusToggle must be the final direct child of mission-banner-shell")
+	}
+	for _, expected := range []string{
+		`const STORAGE_KEY = "plasma.chatFocus";`,
+		`btn.querySelector("span")`,
+		`const label = on ? "상단 정보 펼치기" : "상단 정보 접기";`,
+		`btn.setAttribute("aria-pressed", on ? "true" : "false");`,
+		`btn.setAttribute("aria-label", label);`,
+		`btn.setAttribute("title", label);`,
+		`glyph.textContent = on ? "⌄" : "⌃";`,
+		`localStorage.setItem(STORAGE_KEY, on ? "1" : "0");`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("missing focus toggle script contract %q", expected)
+		}
+	}
+	if strings.Contains(focusSource, "btn.textContent") {
+		t.Fatal("focus toggle must preserve its child span instead of replacing button textContent")
+	}
+	if regexp.MustCompile(`(?s)body\.chat-focus \.mission-banner\s*,\s*body\.chat-focus #agentControlsDetails`).MatchString(styles) {
+		t.Fatal("mission banner must not share the immediate display:none focus rule")
+	}
+	if regexp.MustCompile(`(?s)body\.chat-focus \.mission-banner\s*\{[^}]*display:\s*none`).MatchString(styles) {
+		t.Fatal("mission banner must fold instead of using display:none")
+	}
+	if strings.Contains(styles, "#focusToggle.active") {
+		t.Fatal("focus handle pressed state must not use a separate active fill rule")
+	}
+	focusHandleBlock := regexp.MustCompile(`(?s)\.focus-mode-handle\s*\{(.+?)\n\}`).FindStringSubmatch(styles)
+	if len(focusHandleBlock) != 2 {
+		t.Fatal("missing focus handle CSS block")
+	}
+	if strings.Contains(focusHandleBlock[1], "border-top") {
+		t.Fatal("focus handle must not remove border-top or use a flat-topped shape")
+	}
+	for _, expected := range []string{
+		"body.chat-focus #agentControlsDetails,\nbody.chat-focus #workflowControlDetails {\n  display: none;",
+		".mission-banner-shell {\n  position: relative;\n  flex: 0 0 auto;\n  min-height: 0;\n  display: grid;\n  grid-template-rows: minmax(0, 1fr);\n  transition: grid-template-rows 0.2s ease;",
+		".mission-banner-shell > .mission-banner {\n  min-height: 0;\n  overflow: hidden;\n  opacity: 1;\n  pointer-events: auto;\n  transform: translateY(0) scale(1);\n  transition:\n    opacity 0.18s ease,\n    transform 0.18s ease;",
+		"body.chat-focus .mission-banner-shell {\n  grid-template-rows: minmax(0, 0fr);",
+		"body.chat-focus .mission-banner {\n  opacity: 0;\n  pointer-events: none;\n  transform: translateY(-18px) scale(0.98);",
+		".focus-mode-handle {\n  position: absolute;\n  left: 50%;\n  bottom: -12px;\n  z-index: 12;",
+		"width: 68px;\n  height: 24px;\n  min-height: 24px;\n  padding: 0;",
+		"border-radius: 999px;",
+		"border-color: color-mix(in srgb, var(--line2) 82%, transparent);",
+		"linear-gradient(180deg, color-mix(in srgb, var(--surface2) 94%, var(--amber) 6%), var(--surface));",
+		"color: var(--muted);",
+		"box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);",
+		"transform: translateX(-50%);",
+		"background 0.16s ease,\n    border-color 0.16s ease,\n    color 0.16s ease,\n    transform 0.16s ease;",
+		".focus-mode-handle:hover:not(:disabled),\n.focus-mode-handle:focus-visible {\n  border-color: color-mix(in srgb, var(--amber) 45%, var(--line2));",
+		"linear-gradient(180deg, color-mix(in srgb, var(--surface2) 86%, var(--amber) 14%), var(--surface));",
+		"color: var(--text);",
+		".focus-mode-handle span {\n  display: block;\n  font-size: 20px;\n  line-height: 1;",
+		".mission-banner-shell,\n  .mission-banner-shell > .mission-banner,\n  .focus-mode-handle {\n    transition: none;",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing focus handle CSS contract %q", expected)
+		}
+	}
+	mobile760Start := strings.LastIndex(styles, "@media (max-width: 760px)")
+	mobile480Start := strings.LastIndex(styles, "@media (max-width: 480px)")
+	if mobile760Start < 0 || mobile480Start < 0 || mobile480Start <= mobile760Start {
+		t.Fatal("missing max-width 760px block")
+	}
+	mobile760 := styles[mobile760Start:mobile480Start]
+	for _, expected := range []string{
+		"padding: 10px;",
+		"body.chat-focus .workspace {\n    padding-top: 20px;",
+		".focus-mode-handle {\n    bottom: -16px;\n    width: 76px;\n    height: 32px;\n    min-height: 32px;",
+	} {
+		if !strings.Contains(mobile760, expected) {
+			t.Fatalf("missing mobile focus handle contract %q", expected)
+		}
+	}
+	mobile480 := regexp.MustCompile(`(?s)@media \(max-width: 480px\)\s*\{(.+?)\n\}`).FindStringSubmatch(styles)
+	if len(mobile480) != 2 {
+		t.Fatal("missing max-width 480px block")
+	}
+	if !strings.Contains(mobile480[1], "padding: 8px;") {
+		t.Fatal("max-width 480px workspace padding must restore normal mobile padding")
+	}
+}
+
+func TestFocusModeHandleNodeBehavior(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the focus mode DOM fixture")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	source := jsSourceRange(t, script, "// ── Focus mode:", "// ── Wave 6b:")
+	fixture := `
+const attrs = {};
+let active = false;
+let chatFocus = false;
+let listener = null;
+const glyph = {textContent:"⌃"};
+const btn = {
+  classList:{toggle(name,on){ if(name==="active") active=on; }},
+  setAttribute(name,value){ attrs[name]=value; },
+  querySelector(selector){ return selector==="span" ? glyph : null; },
+  addEventListener(event,fn){ if(event==="click") listener=fn; },
+};
+const body = {classList:{
+  toggle(name,on){ if(name==="chat-focus") chatFocus=on; },
+  contains(name){ return name==="chat-focus" && chatFocus; },
+}};
+const store = {"plasma.chatFocus":"0"};
+const localStorage = {
+  getItem(key){ return Object.prototype.hasOwnProperty.call(store,key) ? store[key] : null; },
+  setItem(key,value){ store[key]=value; },
+};
+const document = {body};
+const $ = (id) => id==="focusToggle" ? btn : null;
+` + source + `
+if (attrs["aria-pressed"] !== "false" || attrs["aria-label"] !== "상단 정보 접기" || attrs.title !== "상단 정보 접기" || glyph.textContent !== "⌃" || active || chatFocus) throw new Error("initial collapsed state mismatch");
+if (typeof listener !== "function") throw new Error("missing click listener");
+listener();
+if (store["plasma.chatFocus"] !== "1" || attrs["aria-pressed"] !== "true" || attrs["aria-label"] !== "상단 정보 펼치기" || attrs.title !== "상단 정보 펼치기" || glyph.textContent !== "⌄" || !active || !chatFocus) throw new Error("focused state mismatch");
+listener();
+if (store["plasma.chatFocus"] !== "0" || attrs["aria-pressed"] !== "false" || attrs["aria-label"] !== "상단 정보 접기" || attrs.title !== "상단 정보 접기" || glyph.textContent !== "⌃" || active || chatFocus) throw new Error("restored state mismatch");
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("focus handle DOM fixture failed: %v: %s", err, output)
 	}
 }
 
@@ -1230,6 +1533,10 @@ func TestStaticReportGenerationContextIsVisibleWhilePendingAndOnArtifacts(t *tes
 	for _, expected := range []string{
 		"reportGenerationContext",
 		"reportGenerationSummaryHTML",
+		"reportPipelineRequestSummary",
+		"timeShort(startedAt)",
+		"shouldHideDraftPendingNotice",
+		"renderReportPipeline(progress, reportPipelineRequestSummary(progress))",
 		"report-generation-summary",
 		"pending_event_id",
 		"rigor_label",
@@ -1242,6 +1549,47 @@ func TestStaticReportGenerationContextIsVisibleWhilePendingAndOnArtifacts(t *tes
 		if !strings.Contains(script, expected) {
 			t.Fatalf("missing report generation context contract %q", expected)
 		}
+	}
+}
+
+func TestStaticReportDraftPendingNoticeMergesWithMatchingPipelineOnly(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+const REPORT_RIGOR_LABELS = {balanced:"균형"};
+const REPORT_MODE_LABELS = {planned:"일반",long_form:"장문"};
+const REPORT_EXECUTION_STRATEGY_LABELS = {serial:"순차",section_fanout:"빠른 병렬"};
+const state = {detail:{report_progress:{attempt_id:"evt_pending",state:"running"},events:[{EventID:"evt_pending",EventType:"report.draft.pending",Payload:{title:"<제목>",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form",execution_strategy:"section_fanout",generation_guidance_profile:"g2",rigor_level:"balanced",agent_model:"gpt-safe",agent_reasoning_effort:"medium",direction_hint:"<방향>"}}]}};
+let notices=[], busy=[];
+const setReportBusy = (value) => busy.push(value);
+const setReportNotice = (text, kind) => notices.push({text, kind});
+const reportPendingMessage = (event) => "pending:" + (event && event.EventID || "");
+const reportTimingDetails = () => "";
+const reportGenerationGuidanceLabel = (value) => value === "g2" ? "G2" : value;
+const timeShort = (value) => "LOCAL:" + value;
+` + jsFunctionSource(t, script, "eventByID") + `
+` + jsSourceRange(t, script, "function reportGenerationContext", "function reportSourceContext") + `
+` + jsFunctionSource(t, script, "renderReportDraftStatus") + `
+const summary = reportPipelineRequestSummary(state.detail.report_progress);
+if(summary.mode!=="장문"||summary.strategy!=="빠른 병렬"||summary.guidance!=="G2"||summary.rigor!=="균형"||summary.model!=="gpt-safe"||summary.effort!=="medium"||summary.direction!=="<방향>"||summary.startedAt!=="LOCAL:2026-07-13T01:02:03Z"||summary.startedAtDateTime!=="2026-07-13T01:02:03Z")throw new Error("request summary mismatch");
+renderReportDraftStatus({state:"pending",event:{EventID:"evt_pending",EventType:"report.draft.pending",Payload:{}}},false);
+if(notices.length!==1||notices[0].text!=="")throw new Error("matching draft pending notice was not hidden");
+state.detail.report_progress = null;
+renderReportDraftStatus({state:"pending",event:{EventID:"evt_pending",EventType:"report.draft.pending",Payload:{}}},false);
+if(notices.at(-1).text!=="pending:evt_pending")throw new Error("missing progress should keep pending notice");
+state.detail.report_progress = {attempt_id:"evt_other",state:"running"};
+renderReportDraftStatus({state:"pending",event:{EventID:"evt_pending",EventType:"report.draft.pending",Payload:{}}},false);
+if(notices.at(-1).text!=="pending:evt_pending")throw new Error("mismatched attempt should keep pending notice");
+state.detail.report_progress = {attempt_id:"evt_pending",state:"running"};
+renderReportDraftStatus({state:"pending",event:{EventID:"evt_design",EventType:"report.design.pending",Payload:{}}},false);
+if(notices.at(-1).text!=="pending:evt_design")throw new Error("design pending should keep existing notice");
+renderReportDraftStatus({state:"failed",event:{EventType:"report.draft.failed",Payload:{error:"실패"}}},true);
+if(!notices.at(-1).text.includes("리포트 초안 생성 실패")||notices.at(-1).kind!=="error")throw new Error("failure notice changed");
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("report draft pending merge fixture: %v: %s", err, out)
 	}
 }
 
@@ -2549,6 +2897,85 @@ if((log.innerHTML.match(/badge danger/g)||[]).length!==1)throw new Error("failur
 `
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("agent terminal turn fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticAppRenderTurnsGroupsMatchedSteeringMetadata(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/app.js"))
+	fixture := `
+const state={pendingTurn:null,turnPending:false,missionId:"mis_1",turnScrollMission:"mis_1"};
+const log={scrollHeight:0,scrollTop:0,clientHeight:0,innerHTML:""};
+const window={renderPlasmaMath(){},renderPlasmaMermaid(){},enhancePlasmaImageViewing(){}};
+const $=()=>log;
+const completedUserEventIDs=()=>new Set();
+const timeShort=()=>"12:00";
+const shortID=(value)=>String(value);
+const renderMarkdown=(value)=>String(value);
+const empty=(value)=>String(value);
+const updateTurnNavVisibility=()=>{};
+` + jsFunctionSource(t, script, "escapeHTML") + `
+` + jsFunctionSource(t, script, "escapeAttr") + `
+` + jsFunctionSource(t, script, "renderTurns") + `
+renderTurns([
+  {EventID:"user-1",EventType:"turn.user",CreatedAt:"now",Payload:{text:"첫 요청"}},
+  {EventID:"steer-1",EventType:"controller.strategy.selected",CreatedAt:"now",Payload:{user_event_id:"user-1",strategy_label:"V2 conservative",strategy_id:"v2_conservative",reason:"English selection reason"}},
+  {EventID:"steer-2",EventType:"controller.strategy.selected",CreatedAt:"now",Payload:{user_event_id:"missing-user",strategy_label:"단독 표시",strategy_id:"standalone_v3",reason:"연결 없음"}},
+  {EventID:"steer-3",EventType:"controller.strategy.selected",CreatedAt:"now",Payload:{user_event_id:"user-1",strategy_label:"V3 broadening",strategy_id:"v3_broadening",reason:"Do not show this"}},
+  {EventID:"steer-4",EventType:"controller.strategy.selected",CreatedAt:"now",Payload:{user_event_id:"user-1",strategy_id:"sid\"<x>",reason:"두 번째 & <이유>"}},
+  {EventID:"agent-1",EventType:"turn.agent.response",CreatedAt:"now",Payload:{kind:"agent_response",text:"응답",agent_executor:"codex"}},
+]);
+const html=log.innerHTML;
+const count=(needle)=>(html.match(new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g,"\\$&"),"g"))||[]).length;
+if(count("turn-steering-meta")!==3)throw new Error("matched steering metadata count is wrong: "+html);
+if(count("class=\"turn controller\"")!==1)throw new Error("standalone controller count is wrong: "+html);
+const userStart=html.indexOf("class=\"turn user");
+const userEnd=html.indexOf("class=\"turn controller\"");
+if(userStart<0||userEnd<0||html.indexOf("turn-steering-meta",userStart)>userEnd)throw new Error("matched steering did not render inside owning user card: "+html);
+const userHTML=html.slice(userStart,userEnd);
+if(count("자동 조향")!==3)throw new Error("matched steering labels were dropped or duplicated: "+html);
+if(!userHTML.includes("V2 conservative")||!userHTML.includes("V3 broadening"))throw new Error("matched steering labels are missing: "+html);
+if(userHTML.includes("v2_conservative")||userHTML.includes("v3_broadening")||userHTML.includes("English selection reason")||userHTML.includes("Do not show this"))throw new Error("matched steering rendered hidden ID or reason: "+html);
+if(!html.includes("standalone_v3")||!html.includes("연결 없음"))throw new Error("unmatched steering lost standalone content: "+html);
+if(!userHTML.includes("sid&quot;&lt;x&gt;"))throw new Error("matched fallback strategy ID was not rendered escaped: "+html);
+if(userHTML.includes("sid\"<x>")||userHTML.includes("두 번째 & <이유>")||userHTML.includes("두 번째 &amp; &lt;이유&gt;"))throw new Error("matched fallback leaked raw string or reason: "+html);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("steering metadata fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticAppSteeringMetadataCSSContract(t *testing.T) {
+	styles := string(mustReadStatic(t, "static/app.css"))
+	for _, expected := range []string{
+		".turn-steering-meta",
+		"display: flex;",
+		"align-items: baseline;",
+		"gap: 6px;",
+		"flex-wrap: nowrap;",
+		"min-width: 0;",
+		"margin-top: 8px;",
+		"padding-top: 7px;",
+		"border-top: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);",
+		"font-size: 11.5px;",
+		"line-height: 1.45;",
+		"color: var(--muted);",
+		".turn-steering-label",
+		"color: var(--amber);",
+		"font-weight: 700;",
+		".turn-steering-text strong",
+		"color: var(--ink2);",
+		"font-weight: 600;",
+		".turn-steering-text",
+		"overflow: hidden;",
+		"text-overflow: ellipsis;",
+		"white-space: nowrap;",
+	} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("missing steering metadata CSS contract %q", expected)
+		}
 	}
 }
 

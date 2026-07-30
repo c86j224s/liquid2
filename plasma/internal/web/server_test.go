@@ -3204,8 +3204,8 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	if len(agent.forkSources) != 1 || agent.forkSources[0] != "research-session-1" {
 		t.Fatalf("expected one fork from research session, got %#v", agent.forkSources)
 	}
-	if len(agent.requests) != 5 {
-		t.Fatalf("expected answer, plan, section, part, and frame requests, got %d", len(agent.requests))
+	if len(agent.requests) != 6 {
+		t.Fatalf("expected answer, plan, requirements, section, part, and frame requests, got %d", len(agent.requests))
 	}
 	for index := 1; index < len(agent.requests); index++ {
 		if got := agent.requests[index].PreviousSessionID; got != "report-fork-1" {
@@ -3283,9 +3283,13 @@ func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
 	if countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.started") != 1 || countEvents(detail, "report.section.created") != 1 || countEvents(detail, "report.part.created") != 1 {
 		t.Fatalf("expected plan, section start, section, and part events, got %#v", detail["events"])
 	}
-	if len(agent.requests) != 5 {
-		t.Fatalf("expected answer, plan, section, part, and frame requests, got %d", len(agent.requests))
+	if len(agent.requests) != 6 {
+		t.Fatalf("expected answer, plan, requirements, section, part, and frame requests, got %d", len(agent.requests))
 	}
+	if agent.requests[2].ReportRequirements == nil || agent.requests[2].ReportPlan != nil {
+		t.Fatalf("expected dedicated requirement mapper request, got %#v", agent.requests[2])
+	}
+	assertReportMCPToolSurface(t, agent.requests[2], plasmamcp.ToolReportRequirementsSubmit)
 	for index := 1; index < len(agent.requests); index++ {
 		if got := agent.requests[index].PreviousSessionID; got != "report-fork-1" {
 			t.Fatalf("expected fanout report request %d to resume a forked session, got %q", index, got)
@@ -4262,8 +4266,8 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	if countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.created") != 2 || countEvents(detail, "report.part.created") != 1 {
 		t.Fatalf("expected plan, section, and part events, got %#v", detail["events"])
 	}
-	if len(agent.requests) != 5 {
-		t.Fatalf("expected plan, two sections, part assembly, and frame requests, got %d", len(agent.requests))
+	if len(agent.requests) != 6 {
+		t.Fatalf("expected plan, requirements, two sections, part assembly, and frame requests, got %d", len(agent.requests))
 	}
 	for _, request := range agent.requests {
 		if request.Model != "gpt-5.5" || request.ReasoningEffort != "high" {
@@ -4271,15 +4275,16 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 		}
 	}
 	assertReportMCPToolSurface(t, agent.requests[0], plasmamcp.ToolReportPlanSubmit, plasmamcp.ToolSourcesRead)
-	assertReportMCPToolSurface(t, agent.requests[1], plasmamcp.ToolSourcesRead)
+	assertReportMCPToolSurface(t, agent.requests[1], plasmamcp.ToolReportRequirementsSubmit)
 	assertReportMCPToolSurface(t, agent.requests[2], plasmamcp.ToolSourcesRead)
-	assertReportMCPToolSurface(t, agent.requests[3],
+	assertReportMCPToolSurface(t, agent.requests[3], plasmamcp.ToolSourcesRead)
+	assertReportMCPToolSurface(t, agent.requests[4],
 		plasmamcp.ToolReportPartAssemblyStart,
 		plasmamcp.ToolReportPartAssemblyRead,
 		plasmamcp.ToolReportPartAssemblyPatch,
 		plasmamcp.ToolReportPartAssemblySubmit,
 	)
-	assertReportMCPToolSurface(t, agent.requests[4], plasmamcp.ToolReportLongFormFinalize)
+	assertReportMCPToolSurface(t, agent.requests[5], plasmamcp.ToolReportLongFormFinalize)
 	for _, eventType := range []string{"report.plan.created", "report.section.created", "report.part.created", "report.artifact.created"} {
 		selectionPayload := lastEventPayload(t, detail, eventType)
 		if selectionPayload["agent_model"] != "gpt-5.5" || selectionPayload["agent_reasoning_effort"] != "high" || selectionPayload["agent_selection_source"] != reporting.AgentSelectionSourceExplicitRequest {
@@ -4292,7 +4297,7 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	if strings.Contains(agent.requests[0].Prompt, "Long-form human-writer guidance:") {
 		t.Fatalf("report planning prompt must not include long-form writing guidance:\n%s", agent.requests[0].Prompt)
 	}
-	for index := 1; index < len(agent.requests); index++ {
+	for index := 2; index < len(agent.requests); index++ {
 		if !strings.Contains(agent.requests[index].Prompt, "Report writing guidance:") ||
 			!strings.Contains(agent.requests[index].Prompt, "use only \\(...\\) for inline math and \\[...\\] for display math") ||
 			!strings.Contains(agent.requests[index].Prompt, "Long-form human-writer guidance:") ||
@@ -4300,8 +4305,8 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 			t.Fatalf("expected writing request %d to include generation guidance:\n%s", index, agent.requests[index].Prompt)
 		}
 	}
-	if !strings.Contains(agent.requests[3].Prompt, "Section bodies are immutable") || !strings.Contains(agent.requests[4].Prompt, "will be mechanically preserved") {
-		t.Fatalf("expected preservation prompts, got part prompt:\n%s\nframe prompt:\n%s", agent.requests[3].Prompt, agent.requests[4].Prompt)
+	if !strings.Contains(agent.requests[4].Prompt, "Section bodies are immutable") || !strings.Contains(agent.requests[5].Prompt, "will be mechanically preserved") {
+		t.Fatalf("expected preservation prompts, got part prompt:\n%s\nframe prompt:\n%s", agent.requests[4].Prompt, agent.requests[5].Prompt)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModeLongForm ||
@@ -10691,6 +10696,9 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 	if err != nil {
 		return result, err
 	}
+	if req.ReportRequirements != nil {
+		return executor.submitEmptyReportRequirementMap(ctx, req, result)
+	}
 	if req.PartAssembly != nil {
 		var assembly reporting.PartAssembly
 		if parseErr := json.Unmarshal([]byte(result.Text), &assembly); parseErr != nil {
@@ -10706,6 +10714,25 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 		}
 		result.Text = reporting.PartAssemblySubmittedSentinel
 		return result, nil
+	}
+	if req.PartEdit != nil {
+		markdown := strings.TrimSpace(result.Text)
+		if markdown == "" || markdown == reporting.PartEditSubmittedSentinel {
+			source, sourceErr := executor.service.GetRawArtifact(ctx, req.PartEdit.SourceArtifactID)
+			if sourceErr != nil {
+				return result, sourceErr
+			}
+			markdown = string(source.Content)
+		}
+		_, submitErr := reporting.FinalizePartEdit(ctx, executor.service, *req.PartEdit, fmt.Sprintf("evt_part_edit_fixture_%d", executor.sequence.Add(1)), markdown, 0)
+		if submitErr != nil {
+			return result, submitErr
+		}
+		result.Text = reporting.PartEditSubmittedSentinel
+		return result, nil
+	}
+	if req.FinalEditStage != nil {
+		return executor.submitFinalEditStage(ctx, req, result)
 	}
 	if req.LongFormFinalize != nil {
 		if req.LongFormFinalize.CompositionStrategy == reporting.LongFormCompositionNarrativeEdit {
@@ -10774,6 +10801,106 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 	return result, nil
 }
 
+func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Context, req AgentRequest, result AgentResult) (AgentResult, error) {
+	binding := *req.FinalEditStage
+	if _, _, err := reporting.StartFinalEditStage(ctx, executor.service, fmt.Sprintf("evt_final_edit_start_fixture_%d", executor.sequence.Add(1)), binding); err != nil {
+		return result, err
+	}
+	source, err := executor.service.GetRawArtifact(ctx, binding.SourceArtifactID)
+	if err != nil {
+		return result, err
+	}
+	markdown := result.Text
+	if strings.TrimSpace(markdown) == "" || strings.TrimSpace(markdown) == finalEditStageSubmittedSentinel || strings.TrimSpace(markdown) == finalEditGateSubmittedSentinel {
+		markdown = string(source.Content)
+	}
+	operationCount := 0
+	if markdown != string(source.Content) {
+		operationCount = 1
+	}
+	if binding.Stage == reporting.FinalEditStageGate {
+		if req.LongFormFinalize == nil {
+			return result, fmt.Errorf("final edit gate fixture requires final binding")
+		}
+		_, err = reporting.SubmitFinalEditGate(ctx, executor.service, reporting.FinalEditGateSubmitRequest{
+			StageBinding:       binding,
+			FinalBinding:       *req.LongFormFinalize,
+			StageEventID:       fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)),
+			CanonicalEventID:   fmt.Sprintf("evt_final_fixture_%d", executor.sequence.Add(1)),
+			ManuscriptMarkdown: markdown,
+			OperationCount:     operationCount,
+			Findings:           nil,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.Text = finalEditGateSubmittedSentinel
+		return result, nil
+	}
+	_, err = reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)), markdown, operationCount)
+	if err != nil {
+		return result, err
+	}
+	result.Text = finalEditStageSubmittedSentinel
+	return result, nil
+}
+
+func (executor *reportPlanFixtureExecutor) submitEmptyReportRequirementMap(ctx context.Context, req AgentRequest, result AgentResult) (AgentResult, error) {
+	events, err := executor.service.ListEvents(ctx, req.MissionID)
+	if err != nil {
+		return result, err
+	}
+	reviewedEventIDs, err := app.ReportRequirementReviewEventIDs(events, req.ReportRequirements.PendingEventID)
+	if err != nil {
+		return result, err
+	}
+	plan, err := reportPlanFixtureSectionalPlan(events, *req.ReportRequirements)
+	if err != nil {
+		return result, err
+	}
+	requirementMap, err := reporting.NormalizeReportRequirementMap(reporting.ReportRequirementMap{ReviewedEventIDs: reviewedEventIDs}, plan)
+	if err != nil {
+		return result, err
+	}
+	hash, encoded, err := reporting.ReportRequirementMapHash(requirementMap)
+	if err != nil {
+		return result, err
+	}
+	_, err = executor.service.SubmitReportRequirementMap(ctx, app.ReportRequirementMapSubmissionRequest{
+		EventID: fmt.Sprintf("evt_requirement_fixture_%d", executor.sequence.Add(1)), MissionID: req.MissionID, PendingEventID: req.ReportRequirements.PendingEventID,
+		PlanEventID: req.ReportRequirements.PlanEventID, ToolSessionID: req.ReportRequirements.ToolSessionID,
+		PreviousProviderSessionID: req.ReportRequirements.PreviousProviderSessionID, AgentExecutor: req.ReportRequirements.AgentExecutor,
+		AgentModel: req.ReportRequirements.AgentModel, AgentReasoningEffort: req.ReportRequirements.AgentReasoningEffort,
+		IdempotencyKey: req.ReportRequirements.IdempotencyKey, ArgumentsHash: "fixture-requirements", RequirementMapHash: hash,
+		RequirementMap: encoded, ReviewedEventIDs: requirementMap.ReviewedEventIDs, Attempt: 1, ToolProducer: req.ReportRequirements.Producer,
+	})
+	if err != nil {
+		return result, err
+	}
+	result.Text = reporting.ReportRequirementsMappedSentinel
+	if strings.TrimSpace(result.SessionID) == "" {
+		result.SessionID = req.PreviousSessionID
+	}
+	return result, nil
+}
+
+func reportPlanFixtureSectionalPlan(events []app.LedgerEvent, binding reporting.ReportRequirementMapBinding) (reporting.SectionalReportPlan, error) {
+	for _, event := range events {
+		if event.EventID != binding.PlanEventID || event.EventType != "report.plan.created" {
+			continue
+		}
+		var payload struct {
+			PendingEventID string                        `json:"pending_event_id"`
+			Plan           reporting.SectionalReportPlan `json:"plan"`
+		}
+		if json.Unmarshal(event.Payload, &payload) != nil || payload.PendingEventID != binding.PendingEventID {
+			break
+		}
+		return reporting.NormalizeSectionalReportPlan(payload.Plan)
+	}
+	return reporting.SectionalReportPlan{}, fmt.Errorf("report requirement fixture plan is missing")
+}
+
 type fixtureSectionalFrame struct {
 	FrontMatter string `json:"front_matter"`
 	Closing     string `json:"closing"`
@@ -10830,6 +10957,13 @@ func (executor *fakeAgentExecutor) Run(ctx context.Context, req AgentRequest) (A
 		err = executor.errors[0]
 		executor.errors = executor.errors[1:]
 	}
+	if req.ReportRequirements != nil {
+		sessionID := strings.TrimSpace(req.PreviousSessionID)
+		if sessionID == "" {
+			sessionID = req.ToolSessionID
+		}
+		return AgentResult{Text: "fake requirements mapped", SessionID: sessionID}, err
+	}
 	if len(executor.responses) == 0 {
 		return AgentResult{Text: "fake answer", SessionID: "fake-session"}, err
 	}
@@ -10840,9 +10974,11 @@ func (executor *fakeAgentExecutor) Run(ctx context.Context, req AgentRequest) (A
 
 type fakeForkingAgentExecutor struct {
 	fakeAgentExecutor
-	forkSessionID string
-	forkSources   []string
-	forkErr       error
+	forkSessionID  string
+	forkSessionIDs []string
+	forkSources    []string
+	forkSessions   []string
+	forkErr        error
 }
 
 func (executor *fakeForkingAgentExecutor) ForkSession(_ context.Context, sourceSessionID string) (AgentSessionForkResult, error) {
@@ -10851,9 +10987,14 @@ func (executor *fakeForkingAgentExecutor) ForkSession(_ context.Context, sourceS
 		return AgentSessionForkResult{}, executor.forkErr
 	}
 	sessionID := strings.TrimSpace(executor.forkSessionID)
+	if len(executor.forkSessionIDs) > 0 {
+		sessionID = strings.TrimSpace(executor.forkSessionIDs[0])
+		executor.forkSessionIDs = executor.forkSessionIDs[1:]
+	}
 	if sessionID == "" {
 		sessionID = "forked-session"
 	}
+	executor.forkSessions = append(executor.forkSessions, sessionID)
 	return AgentSessionForkResult{
 		SessionID:       sessionID,
 		SourceSessionID: sourceSessionID,

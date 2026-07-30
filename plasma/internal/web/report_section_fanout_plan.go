@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -25,11 +26,21 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 			plan:                         progress.plan,
 			planEvent:                    progress.planEvent,
 			reportPlanSessionID:          firstNonEmpty(progress.reportPlanSessionID, progress.currentSessionID),
+			agentExecutor:                progress.agentExecutor,
+			agentModel:                   progress.agentModel,
+			agentReasoningEffort:         progress.agentReasoningEffort,
+			agentSelectionSource:         progress.agentSelectionSource,
 			reportSessionPolicy:          reportSessionPolicy,
 			reportSessionPolicySelection: reportSessionPolicySelection,
 			sessionChainKind:             firstNonEmpty(progress.sessionChainKind, "section_fanout_report"),
 			preReportResearchSessionID:   strings.TrimSpace(progress.preReportResearchSessionID),
 			forkSourceSessionID:          strings.TrimSpace(progress.forkSourceSessionID),
+			generationGuidanceProfile:    progress.generationGuidanceProfile,
+			generationGuidanceSHA256:     progress.generationGuidanceSHA256,
+			requirementMap:               progress.requirementMap,
+			requirementMapEvent:          progress.requirementMapEvent,
+			partEditEnabled:              progress.partEditEnabled,
+			partPlanningEnabled:          progress.partPlanningEnabled,
 		}, nil
 	}
 
@@ -68,7 +79,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 			planStarted := time.Now()
 			result, runErr := executor.Run(ctx, AgentRequest{
 				UserText:          "plan section-fanout long-form markdown report",
-				Prompt:            withReportDirection(agentSectionalReportPlanPrompt(req.title, req.missionID, binding.ToolSessionID, req.pendingEventID, binding.IdempotencyKey, req.rigor, req.generationGuidanceProfile), req.directionHint),
+				Prompt:            agentSectionalReportPlanPrompt(req.title, req.missionID, binding.ToolSessionID, req.pendingEventID, binding.IdempotencyKey, req.rigor, req.generationGuidanceProfile),
 				Model:             req.agentModel,
 				ReasoningEffort:   req.agentReasoningEffort,
 				MissionID:         req.missionID,
@@ -144,26 +155,88 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 					AgentResumed:                 planResult.Resumed,
 					Producer:                     app.Producer{Type: "agent_session", ID: fallbackSessionID(planResult.SessionID, binding.ToolSessionID)},
 				},
-				ArtifactID:         artifactID,
-				Plan:               valuePlan,
-				AssemblyStrategy:   "c4_normalized_section_headings",
-				PlanReviewRequired: false,
-				PlanReviewState:    "auto_accepted",
+				ArtifactID:          artifactID,
+				Plan:                valuePlan,
+				AssemblyStrategy:    "c4_normalized_section_headings",
+				PartEditEnabled:     longFormPartEditEnabled(req.generationGuidanceProfile),
+				PartPlanningEnabled: longFormPartPlanningEnabled(req.generationGuidanceProfile),
+				FinalEditPipeline:   longFormFinalEditPipelineForPlan(req.generationGuidanceProfile),
+				PlanReviewRequired:  false,
+				PlanReviewState:     "auto_accepted",
 			}), nil
 		},
 	})
 	if err != nil {
 		return sectionFanoutPlanState{}, err
 	}
+	partEditEnabled, partPlanningEnabled, err := sectionFanoutPlanActivationFlags(lifecycle.Event)
+	if err != nil {
+		return sectionFanoutPlanState{}, err
+	}
+	parent := reporting.PartPlanParentState{
+		AgentExecutor:                req.executorName,
+		AgentModel:                   req.agentModel,
+		AgentReasoningEffort:         req.agentReasoningEffort,
+		AgentSelectionSource:         req.agentSelectionSource,
+		ReportSessionPolicy:          reportSessionPolicy,
+		ReportSessionPolicySelection: reportSessionPolicySelection,
+		SessionChainKind:             "section_fanout_report",
+		ReportPlanSessionID:          planResult.SessionID,
+		GenerationGuidanceProfile:    req.generationGuidanceProfile,
+		GenerationGuidanceSHA256:     req.generationGuidanceSHA256,
+	}
+	if partPlanningEnabled {
+		parent, err = sectionFanoutPartPlanningParent(lifecycle.Event, req.pendingEventID)
+		if err != nil {
+			return sectionFanoutPlanState{}, err
+		}
+	}
 	return sectionFanoutPlanState{
 		artifactID:                   artifactID,
 		plan:                         lifecycle.Plan.(reporting.SectionalReportPlan),
 		planEvent:                    lifecycle.Event,
-		reportPlanSessionID:          planResult.SessionID,
-		reportSessionPolicy:          reportSessionPolicy,
-		reportSessionPolicySelection: reportSessionPolicySelection,
-		sessionChainKind:             "section_fanout_report",
+		reportPlanSessionID:          parent.ReportPlanSessionID,
+		agentExecutor:                parent.AgentExecutor,
+		agentModel:                   parent.AgentModel,
+		agentReasoningEffort:         parent.AgentReasoningEffort,
+		agentSelectionSource:         parent.AgentSelectionSource,
+		reportSessionPolicy:          parent.ReportSessionPolicy,
+		reportSessionPolicySelection: parent.ReportSessionPolicySelection,
+		sessionChainKind:             parent.SessionChainKind,
 		preReportResearchSessionID:   preReportResearchSessionID,
 		forkSourceSessionID:          forkSourceSessionID,
+		generationGuidanceProfile:    parent.GenerationGuidanceProfile,
+		generationGuidanceSHA256:     parent.GenerationGuidanceSHA256,
+		partEditEnabled:              partEditEnabled,
+		partPlanningEnabled:          partPlanningEnabled,
 	}, nil
+}
+
+func sectionFanoutPartPlanningParent(event app.LedgerEvent, pendingEventID string) (reporting.PartPlanParentState, error) {
+	parent, ok, err := reporting.DecodePartPlanParent(event, pendingEventID, event.EventID)
+	if err != nil {
+		return reporting.PartPlanParentState{}, err
+	}
+	if !ok {
+		return reporting.PartPlanParentState{}, fmt.Errorf("%w: Part planning parent is missing", app.ErrConflict)
+	}
+	return parent, nil
+}
+
+func sectionFanoutPlanActivationFlags(event app.LedgerEvent) (bool, bool, error) {
+	var payload struct {
+		PartEditEnabled     bool   `json:"part_edit_enabled"`
+		PartPlanningEnabled bool   `json:"part_planning_enabled"`
+		SessionChainKind    string `json:"session_chain_kind"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return false, false, fmt.Errorf("%w: report plan payload is invalid", app.ErrConflict)
+	}
+	if payload.PartPlanningEnabled && !payload.PartEditEnabled {
+		return false, false, fmt.Errorf("%w: Part planning requires Part edit", app.ErrConflict)
+	}
+	if payload.PartPlanningEnabled && strings.TrimSpace(payload.SessionChainKind) != "section_fanout_report" {
+		return false, false, fmt.Errorf("%w: Part planning requires section_fanout lineage", app.ErrConflict)
+	}
+	return payload.PartEditEnabled, payload.PartPlanningEnabled, nil
 }

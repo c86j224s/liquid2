@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
     <link rel="stylesheet" href="/static/report_math.css">
     <link rel="stylesheet" href="/static/report_mermaid.css">
+    <link rel="stylesheet" href="/static/report_redpen.css">
   </head>
   <body>
     <div class="app-shell">
@@ -26,13 +27,15 @@
           <span id="healthBadge" class="badge muted">상태 확인 중</span>
           <span class="badge">대화 중심 흐름</span>
           <button id="missionPickerOpen" class="secondary mobile-only" type="button" aria-label="미션 선택" title="미션 선택">📋 미션</button>
-          <button id="focusToggle" class="quiet" type="button" aria-label="넓게 보기" title="넓게 보기 — 헤더 접고 대화 최대화" aria-pressed="false">⤢</button>
           <button id="themeToggle" class="icon-button quiet" type="button" aria-label="테마 전환" title="테마 전환">🌙</button>
         </div>
       </header>
 
       <main class="workspace">
         <aside class="rail">
+          <button id="missionRailToggle" class="mission-rail-toggle" type="button" aria-label="미션 목록 접기" aria-pressed="false" title="미션 목록 접기">
+            <span aria-hidden="true">‹</span>
+          </button>
           <section class="panel">
             <div class="panel-head">
               <h2>미션 <span id="missionListCount" class="count-chip"></span></h2>
@@ -59,22 +62,25 @@
         </aside>
 
         <section class="main-column">
-          <section class="panel mission-banner">
-            <div class="mission-banner-head">
-              <div class="mission-title-row">
-                <h1 id="missionName">선택된 미션 없음</h1>
-                <span id="missionLifecycleBadge" class="badge muted hidden">보관됨</span>
-                <button id="missionRecallButton" class="quiet mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
+          <div class="mission-banner-shell">
+            <section class="panel mission-banner">
+              <div class="mission-banner-head">
+                <div class="mission-title-row">
+                  <h1 id="missionName">선택된 미션 없음</h1>
+                  <span id="missionLifecycleBadge" class="badge muted hidden">보관됨</span>
+                  <button id="missionRecallButton" class="quiet mission-recall-button" type="button" title="현재 미션 상태 미리보기">상태 미리보기</button>
+                </div>
+                <p id="missionObjectiveText">미션을 만들거나 선택하세요.</p>
+                <p id="missionLifecycleNotice" class="mission-lifecycle-notice hidden">보관된 미션입니다. 기존 자료는 볼 수 있고, 새 작업은 복원 후 가능합니다.</p>
               </div>
-              <p id="missionObjectiveText">미션을 만들거나 선택하세요.</p>
-              <p id="missionLifecycleNotice" class="mission-lifecycle-notice hidden">보관된 미션입니다. 기존 자료는 볼 수 있고, 새 작업은 복원 후 가능합니다.</p>
-            </div>
-            <div class="metric-row">
-              <span id="sourceCount" class="metric">소스 0개</span>
-              <span id="candidateCount" class="metric hidden">후보 0개</span>
-              <span id="savedCount" class="metric hidden">저장 0개</span>
-            </div>
-          </section>
+              <div class="metric-row">
+                <span id="sourceCount" class="metric">소스 0개</span>
+                <span id="candidateCount" class="metric hidden">후보 0개</span>
+                <span id="savedCount" class="metric hidden">저장 0개</span>
+              </div>
+            </section>
+            <button id="focusToggle" class="focus-mode-handle" type="button" aria-pressed="false" aria-label="상단 정보 접기" title="상단 정보 접기"><span aria-hidden="true">⌃</span></button>
+          </div>
 
           <nav id="tabBar" class="tabbar" aria-label="작업 탭">
             <button type="button" class="tab active" data-tab="conversation">대화</button>
@@ -89,10 +95,6 @@
             <section class="panel conversation-panel">
               <div class="panel-head">
                 <h2>대화</h2>
-                <div class="panel-actions">
-                  <span id="turnStatus" class="turn-status hidden"><span class="spinner"></span>에이전트 응답 대기 중</span>
-                  <button id="cancelTurnButton" class="secondary hidden" type="button">응답 취소</button>
-                </div>
               </div>
               <div id="conversationActiveWork" class="active-work-notice hidden" role="status" aria-live="polite"></div>
               <details id="agentControlsDetails">
@@ -505,7 +507,7 @@
 					<label class="inline-control segmented-select-control report-select-generation-guidance" for="reportGenerationGuidance">
 					  <span class="segmented-select-label">글쓰기</span>
 					  <select id="reportGenerationGuidance" title="보고서와 장문 보고서 생성에 적용됩니다. 일부 옵션은 장문 보고서에만 적용됩니다">
-						<option value="narrative-contract" selected>기본: 시각자료 계획</option>
+						<option value="part-connective-economy-voice" selected>기본: 시각자료 계획</option>
 						<option value="section-brief-narrative-contract">섹션 중심</option>
 						<option value="section-brief-cluster-memory-narrative-contract">섹션 중심 + 풍부하게</option>
 					  </select>
@@ -681,6 +683,10 @@
           <h2 id="detailTitle">상세 보기</h2>
           <div class="panel-actions">
             <span id="detailPositionRatio" class="detail-scroll-ratio hidden" aria-live="polite"></span>
+            <span id="reportRedpenStatus" class="report-redpen-status hidden" aria-live="polite"></span>
+            <button id="reportRedpenStart" class="icon-button quiet hidden" type="button" title="빨간펜 편집 시작" aria-label="빨간펜 편집 시작">✎</button>
+            <button id="reportRedpenSave" class="icon-button quiet hidden" type="button" title="빨간펜 작업본 저장" aria-label="빨간펜 작업본 저장">✓</button>
+            <button id="reportRedpenCancel" class="icon-button quiet hidden" type="button" title="빨간펜 편집 취소" aria-label="빨간펜 편집 취소">↶</button>
             <button id="copyDetail" class="icon-button quiet" type="button" title="상세 내용 복사">⧉</button>
             <button id="closeDetail" class="icon-button quiet" type="button" title="닫기">×</button>
           </div>
@@ -700,6 +706,8 @@
 	<script src="/static/report_model_selection.js"></script>
 	<script src="/static/model_settings.js"></script>
     <script src="/static/image_viewer.js"></script>
+    <script src="/static/report_redpen_markdown.js"></script>
+    <script src="/static/report_redpen.js"></script>
     <script src="/static/app.js"></script>
 	<script src="/static/mission_metadata.js"></script>
 	<script src="/static/report_direction.js"></script>

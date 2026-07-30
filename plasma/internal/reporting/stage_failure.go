@@ -59,10 +59,16 @@ func stageFailureID(kind string, part, section int) string {
 	switch kind {
 	case "plan":
 		return "plan"
+	case "requirements":
+		return "requirements"
 	case "section":
 		return "section-" + strconv.Itoa(part) + "-" + strconv.Itoa(section)
 	case "part":
 		return "part-" + strconv.Itoa(part)
+	case "part_plan":
+		return "part-plan-" + strconv.Itoa(part)
+	case "part_edit":
+		return "part-edit-" + strconv.Itoa(part)
 	case "artifact", "export":
 		return "artifact"
 	default:

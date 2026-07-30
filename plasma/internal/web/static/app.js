@@ -90,9 +90,11 @@ const REPORT_EXECUTION_STRATEGY_LABELS = {
 };
 
 const DEFAULT_REPORT_GENERATION_GUIDANCE = "narrative-contract";
-// These older long-form profiles remain understood for stored events and API
-// compatibility, but are not offered as selectable UI choices.
+const DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE = "part-connective-economy-voice";
+// This includes the active long-form default plus older profiles retained for
+// stored events and API compatibility. Only index.html controls visible choices.
 const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
+  "part-connective-economy-voice",
   "part-assembly-edit-tools",
   "section-brief",
   "section-brief-cluster-memory",
@@ -107,6 +109,7 @@ const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
 // option.
 const REPORT_GENERATION_GUIDANCE_LABELS = {
   "narrative-contract": "시각자료 계획",
+  "part-connective-economy-voice": "시각자료 계획",
   "visual-plan": "시각자료 계획 (이전)",
   "visual-supplement": "시각자료 보조",
   "part-assembly-edit-tools": "파트 조립 다듬기",
@@ -129,7 +132,10 @@ function reportGenerationGuidanceLabel(value) {
 }
 
 function selectedReportGenerationGuidance(reportMode) {
-  const selected = String($("reportGenerationGuidance")?.value || DEFAULT_REPORT_GENERATION_GUIDANCE).trim() || DEFAULT_REPORT_GENERATION_GUIDANCE;
+  const modeDefault = reportMode === "long_form"
+    ? DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE
+    : DEFAULT_REPORT_GENERATION_GUIDANCE;
+  const selected = String($("reportGenerationGuidance")?.value || modeDefault).trim() || modeDefault;
   if (reportMode !== "long_form" && LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE.has(selected)) {
     return DEFAULT_REPORT_GENERATION_GUIDANCE;
   }
@@ -156,6 +162,7 @@ const DESIGNED_REPORT_RENDERER_VERSION = "dh31-source-markdown-visuals-20260721"
 const $ = (id) => document.getElementById(id);
 const MISSION_STORAGE_KEY = "plasma.activeMissionId";
 const MISSION_ACTIVITY_SEEN_STORAGE_KEY = "plasma.missionActivitySeen.v1";
+const MISSION_RAIL_COLLAPSED_STORAGE_KEY = "plasma.missionRailCollapsed.v1";
 
 const markdownRenderer = window.markdownit ? window.markdownit({
   html: false,
@@ -163,6 +170,7 @@ const markdownRenderer = window.markdownit ? window.markdownit({
   breaks: true,
   typographer: false
 }) : null;
+let reportRedpenController = null;
 
 window.installMarkdownItMath?.(markdownRenderer);
 
@@ -188,6 +196,7 @@ if (markdownRenderer) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initMissionRailToggle();
   $("refreshMissions").addEventListener("click", loadMissions);
   $("includeArchivedMissions").addEventListener("change", onIncludeArchivedMissionsChange);
   $("missionArchiveButton").addEventListener("click", () => changeMissionLifecycle("archive"));
@@ -196,7 +205,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("tabBar").addEventListener("click", onTabBarClick);
   $("missionForm").addEventListener("submit", createMission);
   $("turnForm").addEventListener("submit", sendTurn);
-  $("cancelTurnButton").addEventListener("click", cancelTurn);
   $("workflowInstruction").addEventListener("input", onWorkflowRawInput);
   $("turnText").addEventListener("input", onWorkflowRawInput);
   $("workflowStepInstructionMode").addEventListener("change", updateWorkflowStepInstructionMode);
@@ -291,6 +299,30 @@ document.addEventListener("DOMContentLoaded", () => {
   $("detailBody").addEventListener("scroll", updateDetailScrollRatio);
   window.addEventListener("resize", updateDetailScrollRatio);
   $("detailModal").addEventListener("click", onDetailModalClick);
+  reportRedpenController = window.createReportRedpenController?.({
+    body: $("detailBody"),
+    container: $("detailModal"),
+    status: $("reportRedpenStatus"),
+    startButton: $("reportRedpenStart"),
+    saveButton: $("reportRedpenSave"),
+    cancelButton: $("reportRedpenCancel"),
+    render: (content, editable) => `<div class="report-modal-body turn-markdown">${renderMarkdown(content, { redpenBlocks: editable })}</div>`,
+    enhance: (root) => {
+      window.renderPlasmaMath?.(root);
+      window.renderPlasmaMermaid?.(root);
+      window.enhancePlasmaImageViewing?.(root);
+    },
+    load: (sourceArtifactID) => missionApi(captureMissionSelection(), `/artifacts/${encodeURIComponent(sourceArtifactID)}/redpen`),
+    save: (sourceArtifactID, content, expectedCurrentArtifactID) => missionApi(captureMissionSelection(), `/artifacts/${encodeURIComponent(sourceArtifactID)}/redpen`, {
+      method: "POST",
+      body: { content, expected_current_artifact_id: expectedCurrentArtifactID }
+    }),
+    saved: () => refreshSelectedMissionDetail(),
+    error: (error) => { if (!isStaleMissionOperation(error)) showError(error); },
+    notify: setReportNotice,
+    confirm: (message) => window.confirm(message),
+    onDraftChange: (content) => { state.detailText = String(content ?? ""); }
+  }) || null;
   $("missionList").addEventListener("click", onMissionListClick);
   $("missionRecallButton").addEventListener("click", showMissionRecall);
   $("turnLog").addEventListener("click", onTurnLogClick);
@@ -388,12 +420,16 @@ document.addEventListener("DOMContentLoaded", () => {
   (function initFocusToggle() {
     const STORAGE_KEY = "plasma.chatFocus";
     const btn = $("focusToggle");
+    const glyph = btn ? btn.querySelector("span") : null;
     const apply = (on) => {
       document.body.classList.toggle("chat-focus", on);
       if (btn) {
+        const label = on ? "상단 정보 펼치기" : "상단 정보 접기";
         btn.classList.toggle("active", on);
         btn.setAttribute("aria-pressed", on ? "true" : "false");
-        btn.textContent = on ? "⤡" : "⤢";
+        btn.setAttribute("aria-label", label);
+        btn.setAttribute("title", label);
+        if (glyph) glyph.textContent = on ? "⌄" : "⌃";
       }
     };
     apply(localStorage.getItem(STORAGE_KEY) === "1");
@@ -482,6 +518,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   boot();
 });
+
+function initMissionRailToggle() {
+  const button = $("missionRailToggle");
+  if (!button) return;
+  setMissionRailCollapsed(readMissionRailCollapsed(), false);
+  button.addEventListener("click", () => {
+    const collapsed = !document.body.classList.contains("mission-rail-collapsed");
+    setMissionRailCollapsed(collapsed, true);
+  });
+}
+
+function readMissionRailCollapsed() {
+  try {
+    return localStorage.getItem(MISSION_RAIL_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function setMissionRailCollapsed(collapsed, persist) {
+  document.body.classList.toggle("mission-rail-collapsed", collapsed);
+  const button = $("missionRailToggle");
+  if (button) {
+    button.setAttribute("aria-pressed", collapsed ? "true" : "false");
+    button.setAttribute("aria-label", collapsed ? "미션 목록 펼치기" : "미션 목록 접기");
+    button.title = collapsed ? "미션 목록 펼치기" : "미션 목록 접기";
+    const glyph = button.querySelector("[aria-hidden='true']");
+    if (glyph) glyph.textContent = collapsed ? "›" : "‹";
+  }
+  if (!persist) return;
+  try {
+    localStorage.setItem(MISSION_RAIL_COLLAPSED_STORAGE_KEY, collapsed ? "true" : "false");
+  } catch {
+    // The rail preference is local UI state. Losing it must not block the app.
+  }
+}
 
 async function boot() {
   try {
@@ -744,6 +816,7 @@ function clearMissionSelection() {
 
 async function selectMission(missionId) {
   if (!missionId) return;
+  if (state.missionId && state.missionId !== missionId && reportRedpenController && !reportRedpenController.beforeLeave()) return;
   const owner = beginMissionSelection(missionId);
   try {
     const detail = await api(`/api/missions/${encodeURIComponent(missionId)}`);
@@ -1880,10 +1953,31 @@ async function viewReportArtifact(artifactID) {
   try {
     const result = await missionApi(owner, `/artifacts/${artifactID}`);
     const content = result.content || "";
-    applyReportPreview(key, "markdown", reportArtifactPreviewHeader(artifactID, result), content);
+    applyReportPreview(key, "markdown", reportArtifactPreviewHeader(artifactID, result), content, {
+      sourceArtifactID: artifactID
+    });
   } catch (err) {
     if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
     if (state.reportPreview && state.reportPreview.key === key) clearReportPreview();
+    showError(err);
+  }
+}
+
+async function viewReportRedpenWorkcopy(sourceArtifactID) {
+  if (!state.missionId || !sourceArtifactID) return;
+  const owner = captureMissionSelection();
+  const key = `artifact:${sourceArtifactID}`;
+  setReportPreviewLoading(key);
+  try {
+    const result = await missionApi(owner, `/artifacts/${sourceArtifactID}/redpen`);
+    if (!result.exists) throw new Error("저장된 빨간펜 작업본이 없습니다.");
+    const revision = Number(result.workcopy?.revision || 0);
+    applyReportPreview(key, "markdown", `빨간펜 작업본${revision ? ` v${revision}` : ""}`, result.content || "", {
+      sourceArtifactID
+    });
+  } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
+    clearReportPreview();
     showError(err);
   }
 }
@@ -1900,6 +1994,22 @@ async function downloadReportArtifact(artifactID) {
     }
     const blob = await response.blob();
     const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${artifactID}.md`;
+    downloadBlob(blob, filename);
+  } catch (err) {
+    if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
+  }
+}
+
+async function downloadReportRedpenWorkcopy(sourceArtifactID) {
+  if (!state.missionId || !sourceArtifactID) return;
+  const owner = captureMissionSelection();
+  try {
+    const response = await missionFetch(owner, `/artifacts/${sourceArtifactID}/redpen/download`, {
+      headers: { "Accept": "text/markdown, text/plain, */*" }
+    });
+    if (!response.ok) throw await responseError(response);
+    const blob = await response.blob();
+    const filename = filenameFromContentDisposition(response.headers.get("Content-Disposition")) || `${sourceArtifactID}-redpen.md`;
     downloadBlob(blob, filename);
   } catch (err) {
     if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
@@ -2464,22 +2574,34 @@ function renderDetail() {
 }
 
 function renderActiveWork(activeWork) {
-  const items = activeWork.items || [];
-  const message = items.map(activeWorkMessage).filter(Boolean);
+  const items = displayActiveWorkItems(activeWork);
+  const message = items
+    .map((item) => ({ item, text: activeWorkMessage(item) }))
+    .filter((entry) => entry.text);
   for (const id of ["conversationActiveWork", "reportActiveWork"]) {
     const el = $(id);
     if (!el) continue;
     el.classList.toggle("hidden", message.length === 0);
-    el.innerHTML = message.map((text, index) => `<div class="active-work-item">${escapeHTML(text)}${activeWorkActionHTML(items[index])}</div>`).join("");
+    el.innerHTML = message.map((entry) => `<div class="active-work-item">${escapeHTML(entry.text)}${activeWorkActionHTML(entry.item)}</div>`).join("");
   }
   applyActiveWorkDescriptions(activeWork);
 }
 
+function displayActiveWorkItems(activeWork) {
+  const items = activeWork.items || [];
+  const hasAgentTurn = items.some((item) => item?.kind === "agent_turn" || item?.reason_code === "agent_turn_running");
+  if (!state.turnPending || hasAgentTurn) return items;
+  return [
+    ...items,
+    { kind: "agent_turn", reason_code: "agent_turn_running", action: "cancel_turn" }
+  ];
+}
+
 function activeWorkMessage(work) {
   switch (work?.reason_code) {
-    case "report_generation_running": return "리포트 생성 중이라 대화와 자율 진행, 새 리포트 요청을 시작할 수 없습니다.";
-    case "workflow_running": return "자율 진행 중이라 대화와 새 자율 진행, 리포트 요청을 시작할 수 없습니다.";
-    case "agent_turn_running": return "에이전트가 응답 중이라 새 대화와 리포트 요청을 시작할 수 없습니다.";
+    case "report_generation_running": return "리포트 생성 중입니다.";
+    case "workflow_running": return "자율 진행 중입니다.";
+    case "agent_turn_running": return "에이전트가 응답 중입니다.";
     default: return "";
   }
 }
@@ -2747,6 +2869,31 @@ function renderTurns(events) {
     event.EventType === "turn.agent.pending" ||
     event.EventType === "agent.session.reset"
   );
+  const userEventIDs = new Set(
+    turns
+      .filter((event) => event.EventType === "turn.user" && event.EventID)
+      .map((event) => String(event.EventID))
+  );
+  const steeringEventsByUserEventID = new Map();
+  turns.forEach((event) => {
+    if (event.EventType !== "controller.strategy.selected") return;
+    const payload = event.Payload || {};
+    const userEventID = payload.user_event_id ? String(payload.user_event_id) : "";
+    if (!userEventID || !userEventIDs.has(userEventID)) return;
+    const eventsForUser = steeringEventsByUserEventID.get(userEventID) || [];
+    eventsForUser.push(event);
+    steeringEventsByUserEventID.set(userEventID, eventsForUser);
+  });
+  const renderSteeringMeta = (event) => {
+    const payload = event.Payload || {};
+    const label = payload.strategy_label || payload.strategy_id || "조향 전략";
+    return `
+      <div class="turn-steering-meta">
+        <span class="turn-steering-label">자동 조향</span>
+        <span class="turn-steering-text"><strong>${escapeHTML(label)}</strong></span>
+      </div>
+    `;
+  };
   const completed = completedUserEventIDs(events);
   const html = turns.map((event) => {
     const payload = event.Payload || {};
@@ -2778,6 +2925,8 @@ function renderTurns(events) {
       `;
     }
     if (event.EventType === "controller.strategy.selected") {
+      const userEventID = payload.user_event_id ? String(payload.user_event_id) : "";
+      if (userEventID && userEventIDs.has(userEventID)) return "";
       const label = payload.strategy_label || payload.strategy_id || "조향 전략";
       const reason = payload.reason || "";
       const strategyID = payload.strategy_id ? `<span class="badge muted">${escapeHTML(payload.strategy_id)}</span>` : "";
@@ -2805,7 +2954,7 @@ function renderTurns(events) {
     const body = isPending
       ? `<div class="turn-text"><span class="spinner"></span> ${escapeHTML("에이전트 응답을 기다리는 중...")}</div>`
       : isUser
-        ? `<div class="turn-text">${escapeHTML(text)}</div>`
+        ? `<div class="turn-text">${escapeHTML(text)}</div>${(steeringEventsByUserEventID.get(String(event.EventID || "")) || []).map(renderSteeringMeta).join("")}`
         : `<div class="turn-text turn-markdown">${renderMarkdown(text)}</div>`;
     const copyButton = isPending
       ? ""
@@ -4061,6 +4210,26 @@ function reportGenerationSummaryHTML(payload = {}) {
     </div>`;
 }
 
+function reportPipelineRequestSummary(progress = {}) {
+  if (!progress || !progress.attempt_id) return null;
+  const event = eventByID(progress.attempt_id);
+  const payload = event?.Payload || {};
+  const summary = reportGenerationSummary(payload);
+  const startedAt = String(payload.started_at || "").trim();
+  return {
+    ...summary,
+    startedAt: startedAt ? timeShort(startedAt) : "생성 시작 시각 알 수 없음",
+    startedAtDateTime: startedAt && !Number.isNaN(new Date(startedAt).getTime()) ? startedAt : ""
+  };
+}
+
+function shouldHideDraftPendingNotice(status) {
+  if (status.state !== "pending" || status.event?.EventType !== "report.draft.pending") return false;
+  const progress = state.detail?.report_progress;
+  if (!progress || progress.state === "unknown") return false;
+  return String(progress.attempt_id || "") === String(status.event?.EventID || "");
+}
+
 function reportSourceContext(payload = {}) {
   return reportGenerationContext(payload).source_context || null;
 }
@@ -4110,7 +4279,10 @@ function reportSourceCheckText(check = {}) {
 }
 
 function renderReports(versions) {
-	if (window.renderReportPipeline) window.renderReportPipeline(state.detail?.report_progress);
+  if (window.renderReportPipeline) {
+    const progress = state.detail?.report_progress;
+    window.renderReportPipeline(progress, reportPipelineRequestSummary(progress));
+  }
   const conversationExports = conversationExportPayloads();
   const artifactReports = reportArtifactPayloads();
   const reports = versions.map((version, index) => reportViewModel(version, index));
@@ -4193,6 +4365,10 @@ function renderReports(versions) {
         const trace = mcpTraceSummary(payload.tool_session_id || payload.plan_tool_session_id || "");
         const designed = reportArtifactDesignedExportState(payload.artifact_id || "");
         const humanized = reportArtifactHumanizedExportState(payload.artifact_id || "");
+        const redpen = reportArtifactRedpenState(payload.artifact_id || "");
+        const humanizedRedpen = humanized.state === "completed"
+          ? reportArtifactRedpenState(humanized.payload.artifact_id || "")
+          : { state: "idle", payload: {} };
         const humanizedLabel = humanized.state === "completed"
           ? "생성 완료"
           : humanized.state === "failed"
@@ -4206,12 +4382,28 @@ function renderReports(versions) {
           ? `
                 <button type="button" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="view-artifact">보정 Markdown 보기</button>
                 <button type="button" class="secondary" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="download-artifact">보정 MD 받기</button>
+                ${humanizedRedpen.state === "completed" ? `<button type="button" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="view-redpen-artifact">보정본 빨간펜 보기</button>` : ""}
               `
           : humanized.state === "pending"
             ? `<button type="button" class="secondary" disabled>말투 보정 중</button>`
             : `<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="start-humanized-markdown-artifact" ${state.reportPending ? "disabled" : ""}>${humanized.state === "failed" ? "H5 말투 보정 다시 생성" : "H5 말투 보정 생성"}</button>`;
         const humanizedFailureLine = humanized.state === "failed"
           ? `<div class="report-plan-line report-error-line"><span class="badge warn">실패 사유</span><span>${escapeHTML(humanized.payload.error || humanized.payload.text || "실패 사유 없음")}</span></div>`
+          : "";
+        const humanizedRedpenLine = humanizedRedpen.state === "completed"
+          ? `<div class="report-plan-line"><span class="badge muted">보정본 빨간펜</span><span>${escapeHTML(`작업본 v${humanizedRedpen.payload.revision || "?"} 저장됨`)}</span></div>`
+          : "";
+        const redpenLabel = redpen.state === "completed"
+          ? `작업본 v${redpen.payload.revision || "?"} 저장됨`
+          : "아직 없음";
+        const redpenViewAction = redpen.state === "completed"
+          ? `<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-redpen-artifact">빨간펜 작업본 보기</button>`
+          : "";
+        const redpenDownloadAction = redpen.state === "completed"
+          ? `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-redpen-artifact">빨간펜 MD 받기</button>`
+          : "";
+        const humanizedRedpenDownloadAction = humanizedRedpen.state === "completed"
+          ? `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="download-redpen-artifact">보정본 빨간펜 받기</button>`
           : "";
         const designedLabel = designed.state === "completed"
           ? "생성 완료"
@@ -4254,7 +4446,12 @@ function renderReports(versions) {
                 <span class="badge muted">H5 말투 보정</span>
                 <span>${escapeHTML(humanizedLabel)}</span>
               </div>
+              <div class="report-plan-line">
+                <span class="badge muted">빨간펜 작업본</span>
+                <span>${escapeHTML(redpenLabel)}</span>
+              </div>
               ${humanizedFailureLine}
+              ${humanizedRedpenLine}
               <div class="report-trace">
                 <div class="report-trace-head">
                   <span class="badge muted">MCP 추적</span>
@@ -4265,12 +4462,13 @@ function renderReports(versions) {
               ${reportSourceContextHTML(payload)}
               <div class="item-actions">
                 <button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-artifact">Markdown 보기</button>
+                ${redpenViewAction}
                 <button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-html-artifact">기본 HTML 보기</button>
                 <button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-report-title="${escapeAttr(payload.title || "Markdown report")}" data-action="patch-artifact" ${state.reportPending ? "disabled" : ""}>MCP 패치</button>
                 ${humanizedActions}
                 ${designedActions}
                 ${reportActionMenu("도구 ▾", `<button type="button" class="secondary" data-detail-title="리포트 artifact 상세" data-detail-json="${escapeAttr(JSON.stringify(payload))}">자세히</button>${planButton}`)}
-                ${reportActionMenu("받기 ▾", `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-artifact">MD 받기</button><button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-html-artifact">기본 HTML 받기</button>`)}
+                ${reportActionMenu("받기 ▾", `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-artifact">MD 받기</button>${redpenDownloadAction}${humanizedRedpenDownloadAction}<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-html-artifact">기본 HTML 받기</button>`)}
               </div>
               ${reportPreviewInlineHTML(key)}
             </div>
@@ -4335,27 +4533,43 @@ function reportPreviewInlineHTML(key) {
 
 // Report viewing opens a large, screen-fitting modal (the in-card preview was
 // too small). markdown → rendered, html → sandboxed iframe, else → <pre>.
-function openReportModal(header, kind, content) {
+function openReportModal(header, kind, content, options = {}) {
   $("detailTitle").textContent = header || "리포트 보기";
   state.detailText = String(content ?? "");
   let body;
+  let redpenManaged = false;
   if (kind === "markdown") {
-    body = `<div class="report-modal-body turn-markdown">${renderMarkdown(content)}</div>`;
+    if (options.sourceArtifactID && reportRedpenController) {
+      $("detailBody").innerHTML = `<div class="report-modal-body turn-markdown"></div>`;
+      reportRedpenController.open({
+        sourceArtifactID: options.sourceArtifactID,
+        content: String(content ?? "")
+      });
+      redpenManaged = true;
+    } else {
+      reportRedpenController?.reset();
+      body = `<div class="report-modal-body turn-markdown">${renderMarkdown(content)}</div>`;
+    }
   } else if (kind === "html") {
+    reportRedpenController?.reset();
     const previewContent = window.preparePlasmaHTMLPreview ? window.preparePlasmaHTMLPreview(content) : content;
     body = `<div class="report-modal-frame"><iframe class="plasma-html-preview-frame" title="HTML 리포트" sandbox="allow-scripts" srcdoc="${escapeAttr(previewContent)}"></iframe></div>`;
   } else {
+    reportRedpenController?.reset();
     body = `<pre class="report-modal-pre">${escapeHTML(content)}</pre>`;
   }
-  $("detailBody").innerHTML = body;
-  window.renderPlasmaMath?.($("detailBody"));
-  if (kind === "markdown") window.renderPlasmaMermaid?.($("detailBody"));
-  if (kind === "markdown") window.enhancePlasmaImageViewing?.($("detailBody"));
+  if (!redpenManaged) {
+    $("detailBody").innerHTML = body;
+    window.renderPlasmaMath?.($("detailBody"));
+    if (kind === "markdown") window.renderPlasmaMermaid?.($("detailBody"));
+    if (kind === "markdown") window.enhancePlasmaImageViewing?.($("detailBody"));
+  }
   openDetailModal(true);
   enableDetailScrollRatio();
 }
 
 function openReportModalLoading(header) {
+  reportRedpenController?.reset();
   $("detailTitle").textContent = header || "리포트 불러오는 중";
   $("detailBody").innerHTML = `<div class="report-preview-loading"><span class="spinner"></span>불러오는 중…</div>`;
   openDetailModal(true);
@@ -4374,10 +4588,10 @@ function setReportPreviewLoading(key) {
   openReportModalLoading("리포트 불러오는 중");
 }
 
-function applyReportPreview(key, kind, header, content) {
+function applyReportPreview(key, kind, header, content, options = {}) {
   state.selectedReportKey = key;
   renderReportsFromState();
-  openReportModal(header, kind, content);
+  openReportModal(header, kind, content, options);
 }
 
 function clearReportPreview() {
@@ -4506,6 +4720,20 @@ function reportArtifactHumanizedExportState(sourceArtifactID) {
     }
   }
   if (failed) return { state: "failed", payload: failed };
+  return { state: "idle", payload: {} };
+}
+
+function reportArtifactRedpenState(sourceArtifactID) {
+  const events = state.detail?.events || [];
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    const payload = event.Payload || {};
+    if (event.EventType === "report.redpen.saved" &&
+      payload.kind === "redpen_markdown_report_artifact" &&
+      payload.source_artifact_id === sourceArtifactID) {
+      return { state: "completed", payload: { ...payload, event_id: event.EventID, created_at: event.CreatedAt } };
+    }
+  }
   return { state: "idle", payload: {} };
 }
 
@@ -4787,6 +5015,10 @@ function detailList(items, emptyText) {
 function renderReportDraftStatus(status, wasPending) {
   if (status.state === "pending") {
     setReportBusy(true);
+    if (shouldHideDraftPendingNotice(status)) {
+      setReportNotice("");
+      return;
+    }
     setReportNotice(reportPendingMessage(status.event));
     return;
   }
@@ -5007,8 +5239,7 @@ function setFormsEnabled(enabled) {
 }
 
 function setTurnBusy(busy) {
-  $("turnStatus").classList.toggle("hidden", !busy);
-  $("cancelTurnButton").classList.toggle("hidden", !busy);
+  renderActiveWork(state.detail?.active_work || {});
   const blocked = busy || activeWorkBlocksControl("turn_submit") || state.workflowGoalDraftPending || missionLifecycleWriteBlocked() || !state.detail;
   $("turnText").disabled = blocked;
   $("agentExecutor").disabled = agentExecutorSelectionDisabled(blocked);
@@ -5320,6 +5551,10 @@ function onReportListClick(event) {
     const artifactID = artifactButton.dataset.reportArtifactId;
     if (artifactButton.dataset.action === "download-artifact") {
       downloadReportArtifact(artifactID);
+    } else if (artifactButton.dataset.action === "view-redpen-artifact") {
+      viewReportRedpenWorkcopy(artifactID);
+    } else if (artifactButton.dataset.action === "download-redpen-artifact") {
+      downloadReportRedpenWorkcopy(artifactID);
     } else if (artifactButton.dataset.action === "view-html-artifact") {
       exportReportArtifactHTML(artifactID);
     } else if (artifactButton.dataset.action === "download-html-artifact") {
@@ -5501,17 +5736,19 @@ function detailChips(values) {
 
 async function copyDetail() {
   try {
-    await copyText(state.detailText || $("detailBody").textContent);
+    await copyText(reportRedpenController?.copyContent() || state.detailText || $("detailBody").textContent);
   } catch (err) {
     showError(err);
   }
 }
 
 function hideDetail() {
+  if (reportRedpenController && !reportRedpenController.beforeLeave()) return false;
   $("detailModal").classList.add("hidden");
   const card = $("detailModal").querySelector(".modal-card");
   if (card) card.classList.remove("modal-card--wide");
   disableDetailScrollRatio();
+  return true;
 }
 
 function enableDetailScrollRatio() {
@@ -5593,15 +5830,20 @@ function escapeAttr(value) {
   return escapeHTML(value).replaceAll("`", "&#096;");
 }
 
-function renderMarkdown(value) {
+function renderMarkdown(value, options = {}) {
   const text = String(value ?? "");
   if (!markdownRenderer || !window.DOMPurify) {
     return escapeHTML(text);
   }
-  const rendered = markdownRenderer.render(text);
+  const rendered = options.redpenBlocks && window.ReportRedpenMarkdown
+    ? window.ReportRedpenMarkdown.render(markdownRenderer, text)
+    : markdownRenderer.render(text);
   return window.DOMPurify.sanitize(rendered, {
     USE_PROFILES: { html: true },
-    ADD_ATTR: ["target", "rel", "data-tex", "data-display"]
+    ADD_ATTR: [
+      "target", "rel", "data-tex", "data-display",
+      "data-redpen-start-line", "data-redpen-end-line", "data-redpen-block-kind"
+    ]
   });
 }
 

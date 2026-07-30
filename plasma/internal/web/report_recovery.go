@@ -18,12 +18,28 @@ type sectionalReportProgress struct {
 	currentSessionID             string
 	reportSessionPolicy          string
 	reportSessionPolicySelection string
+	agentExecutor                string
+	agentModel                   string
+	agentReasoningEffort         string
+	agentSelectionSource         string
+	mcpMode                      string
 	sessionChainKind             string
 	preReportResearchSessionID   string
 	reportPlanSessionID          string
 	forkSourceSessionID          string
+	generationGuidanceProfile    string
+	generationGuidanceSHA256     string
+	partEditEnabled              bool
+	partPlanningEnabled          bool
+	hasRequirementMap            bool
+	hasRequirementStage          bool
+	hasPostPlanSectionStarted    bool
+	requirementMapEvent          app.LedgerEvent
+	requirementMap               reporting.ReportRequirementMap
+	partPlans                    map[int]sectionFanoutPartPlan
 	sections                     map[sectionalReportIndex]sectionalReportDraft
 	parts                        map[int]sectionalReportPartDraft
+	editedParts                  map[int]sectionalReportPartDraft
 }
 
 type sectionalReportIndex struct {
@@ -32,6 +48,9 @@ type sectionalReportIndex struct {
 }
 
 func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID string, pending app.LedgerEvent) error {
+	if !reportDraftPendingHasRecoveryContract(pending) {
+		return nil
+	}
 	req, err := reportDraftRequestFromPendingEvent(pending)
 	if err != nil {
 		_, failErr := server.reportRunner().AppendDraftFailed(ctx, missionID, pending.EventID, reportDraftPendingExecutor(pending), reportDraftPendingMode(pending), err)
@@ -54,6 +73,28 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 		GenerationGuidanceProfile:    req.GenerationGuidanceProfile,
 		GenerationGuidanceSHA256:     req.GenerationGuidanceSHA256,
 	}, pending.EventID)
+}
+
+func reportDraftPendingHasRecoveryContract(event app.LedgerEvent) bool {
+	if event.EventType != "report.draft.pending" {
+		return false
+	}
+	var payload struct {
+		Kind              string `json:"kind"`
+		AgentExecutor     string `json:"agent_executor"`
+		ReportMode        string `json:"report_mode"`
+		MCPMode           string `json:"mcp_mode"`
+		ExecutionStrategy string `json:"execution_strategy"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return false
+	}
+	switch strings.TrimSpace(payload.Kind) {
+	case "markdown_report_artifact_pending", "report_draft_pending":
+		return true
+	}
+	return strings.TrimSpace(payload.AgentExecutor) != "" &&
+		strings.TrimSpace(payload.ReportMode) != ""
 }
 
 func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftRequest, error) {
@@ -105,8 +146,10 @@ func (server *Server) loadSectionalReportProgress(ctx context.Context, missionID
 		return sectionalReportProgress{}, err
 	}
 	progress := sectionalReportProgress{
-		sections: map[sectionalReportIndex]sectionalReportDraft{},
-		parts:    map[int]sectionalReportPartDraft{},
+		partPlans:   map[int]sectionFanoutPartPlan{},
+		sections:    map[sectionalReportIndex]sectionalReportDraft{},
+		parts:       map[int]sectionalReportPartDraft{},
+		editedParts: map[int]sectionalReportPartDraft{},
 	}
 	lineage, err := reportRecoveryLineage(events, pendingEventID)
 	if err != nil {
@@ -127,12 +170,40 @@ func (server *Server) loadSectionalReportProgress(ctx context.Context, missionID
 	for _, attemptID := range lineage {
 		for _, event := range events {
 			switch event.EventType {
+			case reporting.ReportRequirementsStartedEventType:
+				if reportRequirementStageMatches(attemptID, progress.planEvent.EventID, event) {
+					progress.hasRequirementStage = true
+				}
+			case reporting.ReportRequirementsMappedEventType:
+				if err := applyReportRequirementMapProgress(attemptID, progress.planEvent.EventID, event, &progress); err != nil {
+					return sectionalReportProgress{}, err
+				}
+			case "report.section.started":
+				if reportSectionStartedMatches(attemptID, progress.planEvent.EventID, event) {
+					progress.hasPostPlanSectionStarted = true
+				}
+			}
+		}
+	}
+	for _, attemptID := range lineage {
+		for _, event := range events {
+			switch event.EventType {
+			case reporting.PartPlanCreatedEventType:
+				if progress.partPlanningEnabled {
+					if err := applyPartPlanProgress(missionID, attemptID, progress.planEvent.EventID, len(progress.plan.Parts), event, &progress); err != nil {
+						return sectionalReportProgress{}, err
+					}
+				}
 			case "report.section.created":
 				if err := server.applySectionProgress(ctx, attemptID, progress.planEvent.EventID, event, &progress); err != nil {
 					return sectionalReportProgress{}, err
 				}
 			case "report.part.created":
 				if err := server.applyPartProgress(ctx, attemptID, progress.planEvent.EventID, event, &progress); err != nil {
+					return sectionalReportProgress{}, err
+				}
+			case reporting.PartEditedEventType:
+				if err := server.applyPartEditProgress(ctx, attemptID, progress.planEvent.EventID, event, &progress); err != nil {
 					return sectionalReportProgress{}, err
 				}
 			}
@@ -211,18 +282,65 @@ func (server *Server) applySectionalPlanProgress(ctx context.Context, pendingEve
 		ArtifactID                   string                   `json:"artifact_id"`
 		AgentSessionID               string                   `json:"agent_session_id"`
 		PreviousAgentSessionID       string                   `json:"previous_agent_session_id"`
+		AgentExecutor                string                   `json:"agent_executor"`
+		AgentModel                   string                   `json:"agent_model"`
+		AgentReasoningEffort         string                   `json:"agent_reasoning_effort"`
+		AgentSelectionSource         string                   `json:"agent_selection_source"`
+		MCPMode                      string                   `json:"mcp_mode"`
 		ReportSessionPolicy          string                   `json:"report_session_policy"`
 		ReportSessionPolicySelection string                   `json:"report_session_policy_selection"`
 		SessionChainKind             string                   `json:"session_chain_kind"`
 		PreReportResearchSessionID   string                   `json:"pre_report_research_session_id"`
 		ReportPlanSessionID          string                   `json:"report_plan_session_id"`
 		ForkSourceSessionID          string                   `json:"fork_source_agent_session_id"`
+		GenerationGuidanceProfile    string                   `json:"generation_guidance_profile"`
+		GenerationGuidanceSHA256     string                   `json:"generation_guidance_sha256"`
+		PartEditEnabled              bool                     `json:"part_edit_enabled"`
+		PartPlanningEnabled          bool                     `json:"part_planning_enabled"`
 		Plan                         agentSectionalReportPlan `json:"plan"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return nil
 	}
-	if strings.TrimSpace(payload.PendingEventID) != pendingEventID || strings.TrimSpace(payload.ReportMode) != reportModeLongForm {
+	if strings.TrimSpace(payload.PendingEventID) != pendingEventID {
+		return nil
+	}
+	if payload.PartPlanningEnabled {
+		parent, err := sectionFanoutPartPlanningParent(event, pendingEventID)
+		if err != nil {
+			return err
+		}
+		if parent.ReportMode != reportModeLongForm {
+			return fmt.Errorf("%w: Part planning parent report mode is invalid", app.ErrConflict)
+		}
+		normalized, err := normalizeRecoveredSectionalPlan(payload.Plan)
+		if err != nil {
+			return err
+		}
+		progress.hasPlan = true
+		progress.planEvent = event
+		progress.plan = normalized
+		progress.artifactID = strings.TrimSpace(payload.ArtifactID)
+		progress.currentSessionID = strings.TrimSpace(payload.AgentSessionID)
+		progress.reportSessionPolicy = parent.ReportSessionPolicy
+		progress.reportSessionPolicySelection = parent.ReportSessionPolicySelection
+		progress.agentExecutor = parent.AgentExecutor
+		progress.agentModel = parent.AgentModel
+		progress.agentReasoningEffort = parent.AgentReasoningEffort
+		progress.agentSelectionSource = parent.AgentSelectionSource
+		progress.mcpMode = strings.TrimSpace(payload.MCPMode)
+		progress.sessionChainKind = parent.SessionChainKind
+		progress.preReportResearchSessionID = strings.TrimSpace(payload.PreReportResearchSessionID)
+		progress.reportPlanSessionID = parent.ReportPlanSessionID
+		progress.forkSourceSessionID = strings.TrimSpace(payload.ForkSourceSessionID)
+		progress.generationGuidanceProfile = parent.GenerationGuidanceProfile
+		progress.generationGuidanceSHA256 = parent.GenerationGuidanceSHA256
+		progress.partEditEnabled = parent.PartEditEnabled
+		progress.partPlanningEnabled = parent.PartPlanningEnabled
+		_ = ctx
+		return nil
+	}
+	if strings.TrimSpace(payload.ReportMode) != reportModeLongForm {
 		return nil
 	}
 	normalized, err := normalizeRecoveredSectionalPlan(payload.Plan)
@@ -238,11 +356,62 @@ func (server *Server) applySectionalPlanProgress(ctx context.Context, pendingEve
 	}
 	progress.reportSessionPolicy = firstNonEmpty(payload.ReportSessionPolicy, reportSessionPolicySameSession)
 	progress.reportSessionPolicySelection = strings.TrimSpace(payload.ReportSessionPolicySelection)
+	progress.agentExecutor = strings.TrimSpace(strings.ToLower(payload.AgentExecutor))
+	progress.agentModel = strings.TrimSpace(payload.AgentModel)
+	progress.agentReasoningEffort = strings.TrimSpace(payload.AgentReasoningEffort)
+	progress.agentSelectionSource = strings.TrimSpace(payload.AgentSelectionSource)
+	progress.mcpMode = strings.TrimSpace(payload.MCPMode)
 	progress.sessionChainKind = firstNonEmpty(payload.SessionChainKind, "same_session_report")
 	progress.preReportResearchSessionID = firstNonEmpty(payload.PreReportResearchSessionID, payload.PreviousAgentSessionID)
 	progress.reportPlanSessionID = firstNonEmpty(payload.ReportPlanSessionID, payload.AgentSessionID)
 	progress.forkSourceSessionID = strings.TrimSpace(payload.ForkSourceSessionID)
+	progress.generationGuidanceProfile = strings.TrimSpace(payload.GenerationGuidanceProfile)
+	progress.generationGuidanceSHA256 = strings.TrimSpace(payload.GenerationGuidanceSHA256)
+	progress.partEditEnabled = payload.PartEditEnabled
+	progress.partPlanningEnabled = payload.PartPlanningEnabled
 	_ = ctx
+	return nil
+}
+
+func reportSectionStartedMatches(pendingEventID, planEventID string, event app.LedgerEvent) bool {
+	var payload struct {
+		PendingEventID string `json:"pending_event_id"`
+		PlanEventID    string `json:"plan_event_id"`
+		PartIndex      int    `json:"part_index"`
+		SectionIndex   int    `json:"section_index"`
+	}
+	return json.Unmarshal(event.Payload, &payload) == nil &&
+		strings.TrimSpace(payload.PendingEventID) == pendingEventID &&
+		strings.TrimSpace(payload.PlanEventID) == planEventID &&
+		payload.PartIndex > 0 &&
+		payload.SectionIndex > 0
+}
+
+func applyPartPlanProgress(missionID string, pendingEventID string, planEventID string, partCount int, event app.LedgerEvent, progress *sectionalReportProgress) error {
+	plan, ok, err := reporting.DecodeStoredPartPlan(event, reporting.StoredPartPlanExpectation{
+		MissionID: missionID, PendingEventID: pendingEventID, PlanEventID: planEventID,
+		PartCount: partCount, AgentExecutor: progress.agentExecutor, AgentModel: progress.agentModel,
+		AgentReasoningEffort: progress.agentReasoningEffort, AgentSelectionSource: progress.agentSelectionSource,
+		ReportMode: reportModeLongForm, ReportSessionPolicy: progress.reportSessionPolicy,
+		ReportSessionPolicySelection: progress.reportSessionPolicySelection,
+		GenerationGuidanceProfile:    progress.generationGuidanceProfile,
+		GenerationGuidanceSHA256:     progress.generationGuidanceSHA256,
+		SessionChainKind:             progress.sessionChainKind,
+		ReportPlanSessionID:          progress.reportPlanSessionID,
+	})
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	index := plan.PartIndex - 1
+	if _, exists := progress.partPlans[index]; exists {
+		return fmt.Errorf("%w: multiple recovered Part plans match one Part", app.ErrConflict)
+	}
+	progress.partPlans[index] = sectionFanoutPartPlan{
+		brief: plan.Brief, providerSessionID: plan.ProviderSessionID, event: plan.Event,
+	}
 	return nil
 }
 
@@ -313,6 +482,59 @@ func (server *Server) applyPartProgress(ctx context.Context, pendingEventID stri
 	}
 	if sessionID := strings.TrimSpace(payload.AgentSessionID); sessionID != "" {
 		progress.currentSessionID = sessionID
+	}
+	return nil
+}
+
+func (server *Server) applyPartEditProgress(ctx context.Context, pendingEventID string, planEventID string, event app.LedgerEvent, progress *sectionalReportProgress) error {
+	var payload struct {
+		PendingEventID string `json:"pending_event_id"`
+		PlanEventID    string `json:"plan_event_id"`
+		PartIndex      int    `json:"part_index"`
+		WordCount      int    `json:"edited_word_count"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return nil
+	}
+	if !progress.partEditEnabled || strings.TrimSpace(payload.PendingEventID) != pendingEventID || payload.PartIndex <= 0 {
+		return nil
+	}
+	if strings.TrimSpace(payload.PlanEventID) != planEventID {
+		return nil
+	}
+	source, exists := progress.parts[payload.PartIndex-1]
+	if !exists || strings.TrimSpace(source.ArtifactID) == "" {
+		return nil
+	}
+	sourcePartEventID, err := server.reportPartCreatedEventID(ctx, event.MissionID, planEventID, payload.PartIndex, source.ArtifactID)
+	if err != nil {
+		return err
+	}
+	outcome, ok, err := reporting.LoadPartEditOutcome(ctx, server.service, reporting.PartEditOutcomeContract{
+		MissionID: event.MissionID, CurrentPendingEventID: pendingEventID, PlanEventID: planEventID,
+		SourcePartEventID: sourcePartEventID, SourceArtifactID: source.ArtifactID, PartIndex: payload.PartIndex,
+		AgentExecutor: progress.agentExecutor, AgentModel: progress.agentModel, AgentReasoningEffort: progress.agentReasoningEffort,
+		AgentSelectionSource: progress.agentSelectionSource, MCPMode: progress.mcpMode,
+		ReportSessionPolicy: progress.reportSessionPolicy, ReportSessionPolicySelection: progress.reportSessionPolicySelection,
+		GenerationGuidanceProfile: progress.generationGuidanceProfile, GenerationGuidanceSHA256: progress.generationGuidanceSHA256,
+		SessionChainKind: progress.sessionChainKind, ReportPlanSessionID: progress.reportPlanSessionID,
+	})
+	if err != nil || !ok || outcome.Event.EventID != event.EventID {
+		return err
+	}
+	markdown := strings.TrimSpace(string(outcome.Artifact.Content))
+	if markdown == "" {
+		return nil
+	}
+	title := ""
+	if source, exists := progress.parts[payload.PartIndex-1]; exists {
+		title = source.Title
+	}
+	progress.editedParts[payload.PartIndex-1] = sectionalReportPartDraft{
+		Title:      title,
+		Markdown:   markdown,
+		ArtifactID: outcome.Artifact.ArtifactID,
+		WordCount:  fallbackWordCount(payload.WordCount, markdown),
 	}
 	return nil
 }

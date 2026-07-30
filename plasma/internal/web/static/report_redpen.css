@@ -1,0 +1,144 @@
+.report-redpen-active .report-redpen-block {
+  position: relative;
+  transition: background 0.12s, outline-color 0.12s;
+}
+
+.report-redpen-active .report-redpen-block:hover {
+  background: var(--red-dim);
+  outline: 1px solid color-mix(in oklab, var(--red) 38%, transparent);
+  outline-offset: 4px;
+}
+
+.report-redpen-active .report-redpen-block-selected {
+  background: var(--red-dim);
+  outline: 2px solid var(--red);
+  outline-offset: 4px;
+}
+
+.report-redpen-inline-editor {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 10px 0;
+  padding: var(--space-3);
+  border: 1px solid var(--red);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--focus-ring);
+}
+
+.report-redpen-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 132px;
+  max-height: min(52vh, 520px);
+  resize: vertical;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  color: var(--code-fg);
+  background: var(--code-bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: 1.62;
+  letter-spacing: 0;
+  tab-size: 2;
+}
+
+.report-redpen-textarea:focus {
+  outline: none;
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-dim);
+}
+
+.report-redpen-inline-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+#reportRedpenStart:not(.hidden) {
+  color: var(--red);
+}
+
+#reportRedpenStart[aria-pressed="true"] {
+  position: relative;
+  color: #fff;
+  background: var(--red);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-dim);
+}
+
+#reportRedpenStart[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.report-redpen-status {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid color-mix(in oklab, var(--red) 45%, var(--line2));
+  border-radius: 999px;
+  color: var(--red);
+  background: var(--red-dim);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.report-redpen-status.hidden {
+  display: none;
+}
+
+#detailModal .modal-card > .panel-head,
+#detailModal .panel-actions {
+  flex-wrap: nowrap;
+}
+
+#detailTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#detailModal .panel-actions {
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+@media (max-width: 560px) {
+  #detailModal.report-redpen-mode #detailPositionRatio,
+  #detailModal.report-redpen-mode #copyDetail {
+    display: none;
+  }
+
+  #detailModal.report-redpen-mode .panel-actions {
+    gap: var(--space-1);
+  }
+
+  .report-redpen-inline-editor {
+    margin: 8px 0;
+    padding: var(--space-2);
+  }
+
+  .report-redpen-textarea {
+    min-height: 160px;
+    max-height: 58vh;
+    font-size: 16px;
+  }
+
+  .report-redpen-inline-actions {
+    position: sticky;
+    bottom: 0;
+    padding-top: var(--space-1);
+    background: var(--surface);
+  }
+}

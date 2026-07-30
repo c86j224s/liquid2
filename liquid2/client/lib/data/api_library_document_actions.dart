@@ -51,6 +51,16 @@ mixin ApiLibraryDocumentActions {
     return _required(response.data, 'Document detail response was empty.');
   }
 
+  Future<DocumentDetail> renameDocument(String documentId, String title) async {
+    final response = await api.getDocumentsApi().updateDocument(
+      id: documentId,
+      updateDocumentInputBody: UpdateDocumentInputBody(
+        (b) => b.title = title.trim(),
+      ),
+    );
+    return _required(response.data, 'Document detail response was empty.');
+  }
+
   Future<DocumentDetail> rescrapeDocument(String documentId) async {
     final response = await api.getIngestionApi().rescrapeDocument(
       id: documentId,

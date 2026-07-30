@@ -19,7 +19,12 @@ func ingestionTestRouterWithTranslator(service *app.Service, translator Document
 	guard := ingest.NewURLGuard(ingest.WithResolver(testResolver{
 		"example.com": {net.ParseIP("93.184.216.34")},
 	}))
-	ingestion := ingest.NewService(service, ingest.WithGuard(guard), ingest.WithFetcher(fakeFetcher{}))
+	ingestion := ingest.NewService(
+		service,
+		ingest.WithGuard(guard),
+		ingest.WithFetcher(fakeFetcher{}),
+		ingest.WithTitleFetcher(fakeTitleFetcher{}),
+	)
 	if translator == nil {
 		return NewRouter(service, WithIngestion(ingestion))
 	}
@@ -32,6 +37,12 @@ func (fakeFetcher) Fetch(_ context.Context, rawURL string) (ingest.FetchedPage, 
 	return ingest.FetchedPage{
 		URL: rawURL, Title: "Fetched title", Content: "Readable body", Format: ingest.FormatText,
 	}, nil
+}
+
+type fakeTitleFetcher struct{}
+
+func (fakeTitleFetcher) FetchTitle(_ context.Context, _ string) (string, error) {
+	return "Fetched title", nil
 }
 
 type failingFetcher struct{}

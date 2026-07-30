@@ -4,57 +4,75 @@ import (
 	"encoding/json"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 const (
-	ToolMissionGet               = "plasma.mission.get"
-	ToolMissionUpdate            = "plasma.mission.update"
-	ToolSourcesList              = "plasma.sources.list"
-	ToolSourcesRead              = "plasma.sources.read"
-	ToolSourcesTree              = "plasma.sources.tree"
-	ToolSourcesGrep              = "plasma.sources.grep"
-	ToolSourcesSearch            = "plasma.sources.search"
-	ToolSourceCandidatesPropose  = "plasma.sources.candidates.propose"
-	ToolSourceCandidatesRead     = "plasma.sources.candidates.read"
-	ToolLocalPathRoots           = "plasma.local_path.roots"
-	ToolLocalPathTree            = "plasma.local_path.tree"
-	ToolLocalPathAttach          = "plasma.local_path.attach"
-	ToolSourcesRemove            = "plasma.sources.remove"
-	ToolSourcesRestore           = "plasma.sources.restore"
-	ToolResearchOutline          = "plasma.research.outline"
-	ToolResearchList             = "plasma.research.list"
-	ToolResearchRead             = "plasma.research.read"
-	ToolResearchGrep             = "plasma.research.grep"
-	ToolResearchRefs             = "plasma.research.references"
-	ToolMermaidValidate          = "plasma.mermaid.validate"
-	ToolWorkflowStart            = "plasma.workflow.start"
-	ToolWorkflowStatus           = "plasma.workflow.status"
-	ToolWorkflowStop             = "plasma.workflow.stop"
-	ToolReportPatchStart         = "plasma.report.patch.start"
-	ToolReportPatchRead          = "plasma.report.patch.read"
-	ToolReportPatchApply         = "plasma.report.patch.apply"
-	ToolReportPatchFinalize      = "plasma.report.patch.finalize"
-	ToolReportPlanSubmit         = "plasma.report.plan.submit"
-	ToolReportPartAssemblyStart  = "plasma.report.part_assembly.start"
-	ToolReportPartAssemblyRead   = "plasma.report.part_assembly.read"
-	ToolReportPartSectionRead    = "plasma.report.part_assembly.section.read"
-	ToolReportPartAssemblyPatch  = "plasma.report.part_assembly.patch"
-	ToolReportPartAssemblySubmit = "plasma.report.part_assembly.submit"
-	ToolReportLongFormFinalize   = "plasma.report.long_form.finalize"
-	ToolReportLongFormEditStart  = "plasma.report.long_form.final_edit.start"
-	ToolReportLongFormEditRead   = "plasma.report.long_form.final_edit.read"
-	ToolReportLongFormEditPatch  = "plasma.report.long_form.final_edit.patch"
-	ToolReportLongFormEditSubmit = "plasma.report.long_form.final_edit.submit"
-	ToolExperimentReportCreate   = "plasma.experiment.report.create"
-	ToolExperimentReportAppend   = "plasma.experiment.report.append"
-	ToolExperimentReportRead     = "plasma.experiment.report.read"
-	ToolExperimentReportFinalize = "plasma.experiment.report.finalize"
-	ToolSourcesSnapshot          = "plasma.sources.snapshot"
-	ToolEvidencePropose          = "plasma.evidence.propose"
-	ToolQuestionsPropose         = "plasma.questions.propose"
-	ToolClaimsPropose            = "plasma.claims.propose"
-	ToolClaimConfidence          = "plasma.claims.confidence.update"
-	ToolProposalsSubmit          = "plasma.proposals.submit"
+	ToolMissionGet                     = "plasma.mission.get"
+	ToolMissionUpdate                  = "plasma.mission.update"
+	ToolSourcesList                    = "plasma.sources.list"
+	ToolSourcesRead                    = "plasma.sources.read"
+	ToolSourcesTree                    = "plasma.sources.tree"
+	ToolSourcesGrep                    = "plasma.sources.grep"
+	ToolSourcesSearch                  = "plasma.sources.search"
+	ToolSourceCandidatesPropose        = "plasma.sources.candidates.propose"
+	ToolSourceCandidatesRead           = "plasma.sources.candidates.read"
+	ToolLocalPathRoots                 = "plasma.local_path.roots"
+	ToolLocalPathTree                  = "plasma.local_path.tree"
+	ToolLocalPathAttach                = "plasma.local_path.attach"
+	ToolSourcesRemove                  = "plasma.sources.remove"
+	ToolSourcesRestore                 = "plasma.sources.restore"
+	ToolResearchOutline                = "plasma.research.outline"
+	ToolResearchList                   = "plasma.research.list"
+	ToolResearchRead                   = "plasma.research.read"
+	ToolResearchGrep                   = "plasma.research.grep"
+	ToolResearchRefs                   = "plasma.research.references"
+	ToolMermaidValidate                = "plasma.mermaid.validate"
+	ToolWorkflowStart                  = "plasma.workflow.start"
+	ToolWorkflowStatus                 = "plasma.workflow.status"
+	ToolWorkflowStop                   = "plasma.workflow.stop"
+	ToolReportPatchStart               = "plasma.report.patch.start"
+	ToolReportPatchRead                = "plasma.report.patch.read"
+	ToolReportPatchApply               = "plasma.report.patch.apply"
+	ToolReportPatchFinalize            = "plasma.report.patch.finalize"
+	ToolReportPlanSubmit               = "plasma.report.plan.submit"
+	ToolReportRequirementsSubmit       = "plasma.report.requirements.submit"
+	ToolReportPartAssemblyStart        = "plasma.report.part_assembly.start"
+	ToolReportPartAssemblyRead         = "plasma.report.part_assembly.read"
+	ToolReportPartSectionRead          = "plasma.report.part_assembly.section.read"
+	ToolReportPartAssemblyPatch        = "plasma.report.part_assembly.patch"
+	ToolReportPartAssemblySubmit       = "plasma.report.part_assembly.submit"
+	ToolReportPartEditStart            = "plasma.report.part_edit.start"
+	ToolReportPartEditRead             = "plasma.report.part_edit.read"
+	ToolReportPartEditPatch            = "plasma.report.part_edit.patch"
+	ToolReportPartEditSubmit           = "plasma.report.part_edit.submit"
+	ToolReportLongFormFinalize         = "plasma.report.long_form.finalize"
+	ToolReportLongFormFinalWriteStart  = "plasma.report.long_form.final_write.start"
+	ToolReportLongFormFinalWriteRead   = "plasma.report.long_form.final_write.read"
+	ToolReportLongFormFinalWritePatch  = "plasma.report.long_form.final_write.patch"
+	ToolReportLongFormFinalWriteSubmit = "plasma.report.long_form.final_write.submit"
+	ToolReportLongFormReaderEditStart  = "plasma.report.long_form.reader_edit.start"
+	ToolReportLongFormReaderEditRead   = "plasma.report.long_form.reader_edit.read"
+	ToolReportLongFormReaderEditPatch  = "plasma.report.long_form.reader_edit.patch"
+	ToolReportLongFormReaderEditSubmit = "plasma.report.long_form.reader_edit.submit"
+	ToolReportLongFormStyleEditStart   = "plasma.report.long_form.style_edit.start"
+	ToolReportLongFormStyleEditRead    = "plasma.report.long_form.style_edit.read"
+	ToolReportLongFormStyleEditPatch   = "plasma.report.long_form.style_edit.patch"
+	ToolReportLongFormStyleEditSubmit  = "plasma.report.long_form.style_edit.submit"
+	ToolReportLongFormEditStart        = "plasma.report.long_form.final_edit.start"
+	ToolReportLongFormEditRead         = "plasma.report.long_form.final_edit.read"
+	ToolReportLongFormEditPatch        = "plasma.report.long_form.final_edit.patch"
+	ToolReportLongFormEditSubmit       = "plasma.report.long_form.final_edit.submit"
+	ToolExperimentReportCreate         = "plasma.experiment.report.create"
+	ToolExperimentReportAppend         = "plasma.experiment.report.append"
+	ToolExperimentReportRead           = "plasma.experiment.report.read"
+	ToolExperimentReportFinalize       = "plasma.experiment.report.finalize"
+	ToolSourcesSnapshot                = "plasma.sources.snapshot"
+	ToolEvidencePropose                = "plasma.evidence.propose"
+	ToolQuestionsPropose               = "plasma.questions.propose"
+	ToolClaimsPropose                  = "plasma.claims.propose"
+	ToolClaimConfidence                = "plasma.claims.confidence.update"
+	ToolProposalsSubmit                = "plasma.proposals.submit"
 )
 
 type ToolDefinition struct {
@@ -139,6 +157,9 @@ func (server *Server) ListTools() []ToolDefinition {
 	if server.reportPlanBinding.complete() && server.toolEnabled(ToolReportPlanSubmit) {
 		tools = append(tools, ToolDefinition{Name: ToolReportPlanSubmit, Description: "Report-planning session only: validate and durably submit one planned or long-form report plan for runner promotion.", InputSchema: schemaReportPlanSubmit})
 	}
+	if server.reportRequirementToolAvailable() {
+		tools = append(tools, ToolDefinition{Name: ToolReportRequirementsSubmit, Description: "Long-form requirement mapping session only: attach explicit user output requirements to the fixed report outline without changing it.", InputSchema: schemaReportRequirementsSubmit})
+	}
 	if ValidatePartAssemblyBinding(server.binding, server.partAssemblyBinding) == nil && server.anyPartAssemblyToolEnabled() {
 		tools = append(tools,
 			ToolDefinition{Name: ToolReportPartAssemblyStart, Description: "Long-form part assembly session only: start a bounded draft for connective Markdown around immutable Section bodies.", InputSchema: schemaReportPartAssemblyStart},
@@ -150,10 +171,67 @@ func (server *Server) ListTools() []ToolDefinition {
 			tools = append(tools, ToolDefinition{Name: ToolReportPartSectionRead, Description: "Long-form part assembly session only: read a bounded slice of one runner-bound immutable Section artifact by its Part-local index.", InputSchema: schemaReportPartSectionRead})
 		}
 	}
-	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil && server.toolEnabled(ToolReportLongFormFinalize) {
+	if ValidatePartEditBinding(server.binding, server.partEditBinding) == nil {
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportPartEditStart, Description: "Long-form Part editor only: open one runner-bound assembled Part as an isolated editable draft.", InputSchema: schemaReportPartEditStart},
+			{Name: ToolReportPartEditRead, Description: "Long-form Part editor only: read a bounded slice of the isolated Part draft.", InputSchema: schemaReportPartEditRead},
+			{Name: ToolReportPartEditPatch, Description: "Long-form Part editor only: apply an exact bounded edit inside one Part without research access or source Part mutation.", InputSchema: schemaReportPartEditPatch},
+			{Name: ToolReportPartEditSubmit, Description: "Long-form Part editor only: atomically record the reviewed Part; changed content creates a separate artifact and unchanged content reuses the bound source artifact.", InputSchema: schemaReportPartEditSubmit},
+		} {
+			if server.partEditToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	}
+	if !server.finalEditStageBindingSet && server.finalEditConfigErr == nil && ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil && server.toolEnabled(ToolReportLongFormFinalize) {
 		tools = append(tools, ToolDefinition{Name: ToolReportLongFormFinalize, Description: "Long-form final session only: atomically assemble and finalize the bound durable report parts.", InputSchema: schemaReportLongFormFinalize})
 	}
-	if ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding) == nil {
+	switch server.finalEditStageMode() {
+	case reporting.FinalEditStageWriter:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormFinalWriteStart, Description: "Long-form final writer only: open the deterministic final assembly for bounded writing of the report opening, conclusion, Part transitions, and whole-report logic; no research, external facts, or complete Part/Section redesign.", InputSchema: schemaReportLongFormStageEditStart},
+			{Name: ToolReportLongFormFinalWriteRead, Description: "Long-form final writer only: read a bounded slice of the in-process final writer draft for report-level connective logic only; no research, external facts, or Part/Section redesign.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormFinalWritePatch, Description: "Long-form final writer only: apply an exact bounded writer edit to the opening, conclusion, Part transitions, or whole-report logic; no research, external facts, or complete Part/Section redesign.", InputSchema: schemaReportLongFormStageEditPatch},
+			{Name: ToolReportLongFormFinalWriteSubmit, Description: "Long-form final writer only: durably submit the written final artifact for downstream reader review without canonical finalization; no research, external facts, or complete Part/Section redesign.", InputSchema: schemaReportLongFormStageEditSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case reporting.FinalEditStageReader:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormReaderEditStart, Description: "Long-form reader editor only: open the durable reader-source manuscript for bounded MCP editing.", InputSchema: schemaReportLongFormStageEditStart},
+			{Name: ToolReportLongFormReaderEditRead, Description: "Long-form reader editor only: read a bounded slice of the in-process reader edit draft.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormReaderEditPatch, Description: "Long-form reader editor only: apply an exact bounded edit without mutating Part or Section artifacts.", InputSchema: schemaReportLongFormStageEditPatch},
+			{Name: ToolReportLongFormReaderEditSubmit, Description: "Long-form reader editor only: durably submit the reviewed reader edit artifact without canonical finalization.", InputSchema: schemaReportLongFormStageEditSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case reporting.FinalEditStageStyle:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormStyleEditStart, Description: "Long-form style editor only: open the reader-reviewed manuscript for bounded style editing.", InputSchema: schemaReportLongFormStageEditStart},
+			{Name: ToolReportLongFormStyleEditRead, Description: "Long-form style editor only: read a bounded slice of the in-process style edit draft.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormStyleEditPatch, Description: "Long-form style editor only: apply an exact bounded style edit without canonical finalization.", InputSchema: schemaReportLongFormStageEditPatch},
+			{Name: ToolReportLongFormStyleEditSubmit, Description: "Long-form style editor only: durably submit the reviewed style edit artifact without canonical finalization.", InputSchema: schemaReportLongFormStageEditSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case reporting.FinalEditStageGate:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormEditStart, Description: "Long-form corrective gate only: open the reviewed final edit manuscript for bounded MCP correction.", InputSchema: schemaReportLongFormStageEditStart},
+			{Name: ToolReportLongFormEditRead, Description: "Long-form corrective gate only: read a bounded slice of the in-process corrective gate draft.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormEditPatch, Description: "Long-form corrective gate only: apply an exact bounded correction before canonical finalization.", InputSchema: schemaReportLongFormStageEditPatch},
+			{Name: ToolReportLongFormEditSubmit, Description: "Long-form corrective gate only: submit corrective gate findings and canonicalize the final artifact.", InputSchema: schemaReportLongFormGateEditSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case "":
 		for _, tool := range []ToolDefinition{
 			ToolDefinition{Name: ToolReportLongFormEditStart, Description: "Long-form final editor only: create an in-process manuscript from the runner-bound durable Part artifacts.", InputSchema: schemaReportLongFormEditStart},
 			ToolDefinition{Name: ToolReportLongFormEditRead, Description: "Long-form final editor only: read a bounded slice of the in-process manuscript.", InputSchema: schemaReportLongFormEditRead},

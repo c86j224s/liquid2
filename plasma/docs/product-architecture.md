@@ -368,7 +368,12 @@ H5 Korean tone pass disabled unless the user or caller explicitly requests a
 humanized Markdown export. When requested, browser and CLI report runners run H5
 as a shared post-report Markdown transformation. It does not replace the
 original artifact and does not participate in planning, source selection, AST
-shaping, content-model generation, or Designed HTML rendering. The H5 pass
+shaping, content-model generation, or Designed HTML rendering. Staged long-form
+final-edit pipelines are the exception to the post-canonical placement only:
+the existing `post_report_humanize` setting controls an optional pre-canonical
+style edit before the corrective gate, and the old post-canonical H5 export is
+suppressed for those stored pipelines.
+Manual or legacy humanized Markdown export keeps the post-report H5 meaning. The H5 pass
 resumes the report session and exposes only the bounded
 `plasma.report.patch.*` MCP tools, so it reads the saved Markdown artifact in
 slices and applies targeted patch operations instead of pasting the whole report
@@ -399,26 +404,98 @@ session lineage, and report-session policy selection so later UI/CLI/MCP
 surfaces can show the version chain without reclassifying the prior report as a
 source.
 
+Browser redpen editing is a separate user-owned path, not provider-backed
+report patching. The Markdown preview lets the user replace one supported
+rendered block in place while the surrounding report remains visible; complex
+containers such as code fences and tables remain read-only. Saving never
+mutates the selected base or humanized Markdown report artifact. Instead it
+advances one logical workcopy, stores each changed body as a raw Markdown
+artifact, and appends `report.redpen.saved` with artifact IDs, revision, hash,
+media type, and filename only. Repeated saves update that workcopy, identical
+content is a no-op, stale browser tabs receive a conflict, and the browser view
+and download actions resolve the latest saved revision.
+
 If the executor cannot fork sessions or the mission has no pre-report research
 session, it falls back to the same-session path and records
 `report_session_policy_selection`. The default browser path, labeled `보고서`,
 creates a planned Markdown report artifact. CLI `reports draft` uses the same
 planned default; `--mode one_take` remains an explicit same-session compatibility
 path. The slower browser/report API path, labeled `장문 보고서`, creates a
-Part/Section plan and immutable Section Markdown artifacts. Each Part editor can
-bounded-read only its runner-bound Sections and writes intro, transition, and
-closing material without mutating them. The final editor bounded-reads a
-server-owned manuscript assembled from the immutable Part artifacts, receives
-no source or research tools, and uses exact patches to repair the opening,
-heading duplication, cross-Part flow, repetition, and conclusion while
-preserving the plan's must-keep details and evidence boundaries. The edited
-manuscript is atomically saved as a new report artifact with
-`composition_strategy: sectional_narrative_edit` and
-`assembly_strategy: narrative_contract_final_edit`. The existing visible
-writing choices all use this common editorial baseline while retaining their
-own planning behavior. Prior stored profile values keep their C4
-`sectional_preserve_markdown` and `c4_normalized_section_headings` semantics for
-replay and interrupted-work compatibility. CLI
+Part/Section plan and immutable Section Markdown artifacts. The Section-reading
+Part assembler is not a Part editor: it can bounded-read only its runner-bound
+Sections and writes intro, transition, and closing material without mutating
+them. Active narrative-contract profiles persist `part_edit_enabled: true` on
+the plan event through the same profile contract used by writing guidance;
+legacy plans that lack the field are interpreted as false, new non-narrative
+plans persist false, and the browser projection does not synthesize a Part edit
+phase for legacy plans. For explicit `section_fanout` requests using the
+Part-connective narrative profiles, the same plan event is also the only source
+of truth for `part_planning_enabled: true`; there is no separate capability
+event or projection path. When enabled, the runner creates one validated
+`report.part_plan.created` event per Part, forks Section writers and the Part
+assembler from that Part-owner session, then resumes the same session as the
+final Part author through the existing closed Part-edit tools. Part-plan replay
+validates the stored event's envelope and provenance and returns the stored
+canonical brief; it does not compare a retry request's newly generated brief to
+that canonical brief.
+
+New planned narrative long-form plans carry
+`final_edit_pipeline: assembly_writer_reader_style_gate_v2`. After reviewed
+Part outputs exist, the runner creates a deterministic final assembly in product
+code with no agent session, then forks a final writer from the report-plan
+provider session. The writer receives only
+`plasma.report.long_form.final_write.*` tools and may work on the whole-report
+opening, conclusion, Part transitions, and global connective logic without
+adding research, external facts, or whole Part/Section reorders. The reader
+editor is an independent sibling fork from the same report-plan session and
+consumes the writer artifact without inheriting the writer session. If
+normalized `post_report_humanize` is enabled, a pre-canonical style stage forks
+from the reader provider session with style-edit tools only and may make small
+tone/fluency patches without changing claims, citations, structure, or
+requirement coverage. The corrective gate is another sibling fork from the
+report-plan session, receives approved read tools plus the existing
+`plasma.report.long_form.final_edit.*` tool surface, and is the only canonical
+producer. The gate is not a mandatory shrink or censorship pass; it fixes only
+source/evidence boundary failures, owner-bound requirement failures, and
+unsupported claims that need an approved repair. It records hashed gate findings
+without raw statement text, submits the gate stage, and creates exactly one
+canonical `report.artifact.created` event. A no-op gate canonicalizes the prior
+durable artifact, while a changed gate creates the planned final artifact.
+
+This v2 path is the adopted default finalization path for new planned narrative
+long-form reports. The Web progress view shows the actual sequence as
+`최종 조립`, `최종 작성`, `독자 편집`, optional `말투 편집`, and `근거·요구 교정`.
+When `post_report_humanize` is disabled, only the `말투 편집` node is omitted.
+
+Stored plans with `final_edit_pipeline: reader_style_gate_v1` keep their
+existing replay semantics: reviewed Parts are assembled into an immutable
+reader-source Markdown artifact, then reader edit, optional style edit, and the
+same corrective gate run without deterministic final assembly or final writer
+stages.
+
+Recovery derives Part planning only from the stored plan payload, rejects
+missing, duplicate, malformed, wrong-Part, wrong-plan, wrong-session, or stale
+Part plans, locks executor consistency on `report.part_plan.created`, and uses
+`part-plan-N` failure IDs with `report.part_plan.failed` terminal companions.
+`resume_failed` may reuse validated ancestor plan, section, Part, Part-plan,
+and Part-edit outcomes; `restart` starts a new lineage and does not reuse
+ancestor Part output. Open Part-edit start recovery is scoped to the exact
+current pending: the W3 Part editor and W4 final Part author adopt a stored full
+binding only when exactly one valid `report.part_edit.started` event exists for
+that current pending, and `FinalizePartEdit` requires one matching start before
+accepting an outcome. Direct MCP `plasma.report.part_edit.start` calls and Web
+pre-starts share the same `StartPartEdit` transaction, so replay creates no
+duplicate start and no MCP-specific policy event. Writer, reader, style, and
+gate restart recovery reuse stored starts or submissions and do not re-run completed
+providers. Each provider-backed stage gets one technical retry; completed intermediate
+artifacts remain durable, and a second failure before successful submission
+blocks canonical completion with the existing report failure events.
+
+Stored long-form plans that lack `final_edit_pipeline` keep the previous
+finalization path and do not run staged final-edit stages. Prior stored profile
+values also keep their C4 `sectional_preserve_markdown` and
+`c4_normalized_section_headings` semantics for replay and interrupted-work
+compatibility. CLI
 `--mode long_form` is intentionally rejected until the CLI can call the same
 section runner rather than simulating it with a single Markdown turn. Both paths
 avoid AST repair turns, report versions, and report blocks. A future plan review

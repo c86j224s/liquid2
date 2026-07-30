@@ -55,6 +55,7 @@ Automatic investigation은 같은 mission workflow의 확장입니다. 사용자
 - Markdown report, long-form part/section report, HTML export.
 - 기존 artifact를 in-place edit하지 않고 prior report session에서 새 report artifact version을 만드는
   MCP-backed Markdown report patching.
+- 선택한 report artifact를 바꾸지 않고 별도 Markdown 작업본을 생성·갱신하는 브라우저 제자리 빨간펜 편집.
 
 아직 experimental/future work인 영역도 있습니다. Mixed-provider mission, background autonomous worker,
 richer media inspection, external publishing adapter, stronger source discovery, more polished designed HTML

@@ -78,6 +78,12 @@
 - A result is an agent-produced summary, comparison, answer, intermediate conclusion, or draft.
 - Saved knowledge is a result or claim that Plasma deliberately stores for a mission.
 - A report is an output assembled from saved knowledge and evidence.
+- Treat Plasma's user-facing report as a processed reading artifact, not an annotation
+  layer over sources or a transcript of the investigation. It should help the user
+  learn, connect information, find insight, and keep reading.
+- Keep evidence discipline internal to the product. Do not let source coverage,
+  caveat preservation, or process traceability make the user-facing artifact read
+  like a source inventory or investigation log.
 - Do not describe agent-produced results as sources. Results may refer back to sources and evidence, but they must not be reclassified as source material.
 
 ## Plasma Workflow Guardrail

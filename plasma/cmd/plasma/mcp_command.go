@@ -54,8 +54,11 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	reportPlanAgentModel := fs.String("report-plan-agent-model", "", "server-bound report planning model")
 	reportPlanAgentReasoningEffort := fs.String("report-plan-agent-reasoning-effort", "", "server-bound report planning reasoning effort")
 	reportPlanRequireWritingContract := fs.Bool("report-plan-require-writing-contract", false, "require a complete report writing contract in the submitted plan")
+	reportRequirementsBindingJSON := fs.String("report-requirements-binding-json", "", "server-bound long-form requirement mapping metadata")
 	partAssemblyBindingJSON := fs.String("report-part-assembly-binding-json", "", "server-bound long-form part assembly metadata")
+	partEditBindingJSON := fs.String("report-part-edit-binding-json", "", "server-bound long-form Part editing metadata")
 	longFormFinalizeBindingJSON := fs.String("report-long-form-finalize-binding-json", "", "server-bound long-form finalization metadata")
+	finalEditStageBindingJSON := fs.String("report-final-edit-stage-binding-json", "", "server-bound long-form final edit stage metadata")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -146,6 +149,25 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		options = append(options, mcp.WithReportPlanBinding(planBinding))
 	}
+	if strings.TrimSpace(*reportRequirementsBindingJSON) != "" {
+		var requirementBinding reporting.ReportRequirementMapBinding
+		decoder := json.NewDecoder(strings.NewReader(*reportRequirementsBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&requirementBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp report requirement binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp report requirement binding: multiple JSON values")
+			return 2
+		}
+		if err := mcp.ValidateReportRequirementMapBinding(binding, requirementBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp report requirement binding: %v\n", err)
+			return 2
+		}
+		options = append(options, mcp.WithReportRequirementMapBinding(requirementBinding))
+	}
 	if strings.TrimSpace(*partAssemblyBindingJSON) != "" {
 		var partBinding reporting.PartAssemblyBinding
 		decoder := json.NewDecoder(strings.NewReader(*partAssemblyBindingJSON))
@@ -165,8 +187,28 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		options = append(options, mcp.WithPartAssemblyBinding(partBinding))
 	}
-	if strings.TrimSpace(*longFormFinalizeBindingJSON) != "" {
-		var finalBinding reporting.LongFormFinalizeBinding
+	if strings.TrimSpace(*partEditBindingJSON) != "" {
+		var partBinding reporting.PartEditBinding
+		decoder := json.NewDecoder(strings.NewReader(*partEditBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&partBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp part edit binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp part edit binding: multiple JSON values")
+			return 2
+		}
+		if err := mcp.ValidatePartEditBinding(binding, partBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp part edit binding: %v\n", err)
+			return 2
+		}
+		options = append(options, mcp.WithPartEditBinding(partBinding))
+	}
+	var finalBinding reporting.LongFormFinalizeBinding
+	finalBindingProvided := strings.TrimSpace(*longFormFinalizeBindingJSON) != ""
+	if finalBindingProvided {
 		decoder := json.NewDecoder(strings.NewReader(*longFormFinalizeBindingJSON))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&finalBinding); err != nil {
@@ -183,6 +225,41 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			return 2
 		}
 		options = append(options, mcp.WithLongFormFinalizeBinding(finalBinding))
+	}
+	if strings.TrimSpace(*finalEditStageBindingJSON) != "" {
+		var stageBinding reporting.FinalEditStageBinding
+		decoder := json.NewDecoder(strings.NewReader(*finalEditStageBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&stageBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp final edit stage binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp final edit stage binding: multiple JSON values")
+			return 2
+		}
+		if err := mcp.ValidateFinalEditStageBinding(binding, stageBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp final edit stage binding: %v\n", err)
+			return 2
+		}
+		switch strings.TrimSpace(stageBinding.Stage) {
+		case reporting.FinalEditStageReader, reporting.FinalEditStageStyle:
+			if finalBindingProvided {
+				fmt.Fprintln(stderr, "mcp final edit stage binding: reader/style stages must not include a long-form finalization binding")
+				return 2
+			}
+		case reporting.FinalEditStageGate:
+			if !finalBindingProvided {
+				fmt.Fprintln(stderr, "mcp final edit stage binding: corrective gate requires a long-form finalization binding")
+				return 2
+			}
+			if err := reporting.ValidateFinalEditGateBindingsCompatible(stageBinding, finalBinding); err != nil {
+				fmt.Fprintf(stderr, "mcp final edit stage binding: %v\n", err)
+				return 2
+			}
+		}
+		options = append(options, mcp.WithFinalEditStageBinding(stageBinding))
 	}
 	if len(enabledTools) > 0 {
 		options = append(options, mcp.WithEnabledTools([]string(enabledTools)))

@@ -563,6 +563,251 @@ func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
 	}
 }
 
+func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "direct_explanation_contract")
+		if err != nil || profile != reportGenerationGuidanceProfileReaderParagraphContract || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected reader paragraph contract profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	if !requireReportWritingContract(reportGenerationGuidanceProfileReaderParagraphContract) ||
+		longFormCompositionStrategy(reportGenerationGuidanceProfileReaderParagraphContract) != reporting.LongFormCompositionNarrativeEdit {
+		t.Fatalf("reader paragraph contract must share the narrative contract writing and final-edit path")
+	}
+
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileReaderParagraphContract)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileReaderParagraphContract)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Reader-facing writing-contract guidance:", "Reader paragraph-contract planning guidance:", "Keep the submitted plan schema unchanged", "compact claim-source memory"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s reader paragraph plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{`"reader_brief"`, `"paragraph_plan"`, `"paragraph_quality_pass"`} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("%s reader paragraph plan prompt should not add custom schema field %q:\n%s", name, forbidden, prompt)
+			}
+		}
+	}
+
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"path"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileReaderParagraphContract)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "opening promise, controlling idea, evidence path"}, 0, 0, reportGenerationGuidanceProfileReaderParagraphContract)
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileReaderParagraphContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
+		for _, expected := range []string{"Reader-facing explanation guidance:", "Reader paragraph-contract writing guidance:", "paragraph_quality_pass", "Do not mention reader_brief"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s reader paragraph writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+
+	if slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileReaderParagraphContract), plasmamcp.ToolReportPartSectionRead) != true ||
+		slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileReaderParagraphContract), plasmamcp.ToolReportLongFormEditStart) != true {
+		t.Fatalf("reader paragraph contract lost narrative Part/final editor tools")
+	}
+}
+
+func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "processed_reading_artifact")
+		if err != nil || profile != reportGenerationGuidanceProfileCuriosityLedExplanation || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected curiosity-led explanation profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityLedExplanation) ||
+		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityLedExplanation) != reporting.LongFormCompositionNarrativeEdit {
+		t.Fatalf("curiosity-led explanation must share the narrative contract writing and final-edit path")
+	}
+
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityLedExplanation)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityLedExplanation)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "processed reading artifact", "curiosity path", "source-detail memory"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity-led plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{`"curiosity_map"`, `"information_gap"`, `"tension_map"`, `"payoff_map"`} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("%s curiosity-led plan prompt should not add custom schema field %q:\n%s", name, forbidden, prompt)
+			}
+		}
+	}
+
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityLedExplanation)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityLedExplanation)
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityLedExplanation, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
+		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "reader's reason to care", "Do not organize the surface as", "Do not mention curiosity-led explanation"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity-led writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+
+	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityLedExplanation), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityLedExplanation), plasmamcp.ToolReportLongFormEditStart) {
+		t.Fatalf("curiosity-led explanation lost narrative Part/final editor tools")
+	}
+}
+
+func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "natural_curiosity")
+		if err != nil || profile != reportGenerationGuidanceProfileCuriosityNaturalVoice || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected curiosity natural voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityNaturalVoice) ||
+		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityNaturalVoice) != reporting.LongFormCompositionNarrativeEdit {
+		t.Fatalf("curiosity natural voice must share the narrative contract writing and final-edit path")
+	}
+
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "fewer visible signposts", "Keep the submitted plan schema unchanged"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity natural voice plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{`"curiosity_map"`, `"voice_pass"`, `"style_pass"`, `"caveat_budget"`, `"signpost_map"`} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("%s curiosity natural voice plan prompt should not add custom schema field %q:\n%s", name, forbidden, prompt)
+			}
+		}
+	}
+
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityNaturalVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
+		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "stock emphasis frames", "Do not include horizontal-rule separators", "Do not mention natural curiosity voice"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity natural voice writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+
+	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityNaturalVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityNaturalVoice), plasmamcp.ToolReportLongFormEditStart) {
+		t.Fatalf("curiosity natural voice lost narrative Part/final editor tools")
+	}
+}
+
+func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "compact_curiosity")
+		if err != nil || profile != reportGenerationGuidanceProfileCuriosityTightVoice || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected curiosity tight voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityTightVoice) ||
+		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityTightVoice) != reporting.LongFormCompositionNarrativeEdit {
+		t.Fatalf("curiosity tight voice must share the narrative contract writing and final-edit path")
+	}
+
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityTightVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityTightVoice)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "Tight curiosity-voice planning guidance:", "Use writing_contract.can_summarize"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity tight voice plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{`"curiosity_map"`, `"voice_pass"`, `"compactness_pass"`, `"paragraph_budget"`, `"caveat_ledger"`, `"compression_pass"`} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("%s curiosity tight voice plan prompt should not add custom schema field %q:\n%s", name, forbidden, prompt)
+			}
+		}
+	}
+
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityTightVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityTightVoice)
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityTightVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
+		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Tight curiosity-voice writing guidance:", "Natural voice means less framing", "Do not mention tight curiosity voice"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s curiosity tight voice writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+
+	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityTightVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityTightVoice), plasmamcp.ToolReportLongFormEditStart) {
+		t.Fatalf("curiosity tight voice lost narrative Part/final editor tools")
+	}
+}
+
+func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
+	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
+		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "reading_editor")
+		if err != nil || profile != reportGenerationGuidanceProfileEditedReadingVoice || strings.TrimSpace(sha) == "" {
+			t.Fatalf("mode %s rejected edited reading voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
+		}
+	}
+	if !requireReportWritingContract(reportGenerationGuidanceProfileEditedReadingVoice) ||
+		longFormCompositionStrategy(reportGenerationGuidanceProfileEditedReadingVoice) != reporting.LongFormCompositionNarrativeEdit {
+		t.Fatalf("edited reading voice must share the narrative contract writing and final-edit path")
+	}
+
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileEditedReadingVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileEditedReadingVoice)
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "Edited reading-voice planning guidance:", "plan the artifact as edited reading material"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s edited reading voice plan prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{`"curiosity_map"`, `"voice_pass"`, `"editor_pass"`, `"title_language"`, `"prose_rhythm"`, `"self_framing_check"`} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("%s edited reading voice plan prompt should not add custom schema field %q:\n%s", name, forbidden, prompt)
+			}
+		}
+	}
+
+	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileEditedReadingVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileEditedReadingVoice)
+	binding := reporting.LongFormFinalizeBinding{
+		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
+		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+	}
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileEditedReadingVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
+		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Edited reading-voice writing guidance:", "Avoid self-framing sentences", "Do not mention edited reading voice"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s edited reading voice writing prompt missing %q:\n%s", name, expected, prompt)
+			}
+		}
+	}
+
+	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileEditedReadingVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileEditedReadingVoice), plasmamcp.ToolReportLongFormEditStart) {
+		t.Fatalf("edited reading voice lost narrative Part/final editor tools")
+	}
+}
+
 func TestNarrativeContractPartEditorMustReadBoundSections(t *testing.T) {
 	request := reportPartAssemblyAgentRequest{
 		title: "Report", missionID: "mis_1", toolSessionID: "ses_1", rigor: reportRigorProfiles["balanced"],
@@ -909,7 +1154,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form default",
 			mode:       reportModeLongForm,
 			input:      "",
-			profile:    reportGenerationGuidanceProfileNarrativeContract,
+			profile:    reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
 			hasPlan:    true,
 			hasWriting: true,
 		},

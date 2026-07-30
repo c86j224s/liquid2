@@ -11,6 +11,7 @@ import 'document_actions_bar.dart';
 import 'document_content_view.dart';
 import 'document_scroll_actions.dart';
 import 'document_tag_editor.dart';
+import 'document_title_editor.dart';
 import 'document_translation_panel.dart';
 import 'note_section.dart';
 
@@ -99,11 +100,7 @@ class _DocumentDetailBody extends StatelessWidget {
             vertical: AppSpacing.x2l,
           ),
           children: [
-            // Title + meta header
-            Text(
-              document.title,
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
+            DocumentTitleHeader(document: document),
             const SizedBox(height: AppSpacing.sm),
             _MetaLine(document: document, folderPath: folderPath),
             const SizedBox(height: AppSpacing.x2l),

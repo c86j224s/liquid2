@@ -78,12 +78,15 @@ func (server *Server) requireLongFormEditBinding(common commonMutatingInput) (re
 }
 
 func (server *Server) longFormEditToolEnabled(name string) bool {
+	if server.finalEditConfigErr != nil || server.finalEditStageBindingSet {
+		return false
+	}
 	binding := server.longFormFinalizeBinding
 	return server.toolEnabled(name) && binding.CompositionStrategy == reporting.LongFormCompositionNarrativeEdit && ValidateLongFormFinalizeBinding(server.binding, binding) == nil
 }
 
 func longFormEditDisabledResult(call ToolCall) ToolResult {
-	return errorResult(call.Name, missionIDFromArguments(call.Arguments), "binding", "long-form final editor tools are only enabled for a bound narrative-edit session", false, nil)
+	return errorResult(call.Name, missionIDFromArguments(call.Arguments), "binding", "long-form final editor tools are only enabled for a bound narrative-edit legacy session or corrective gate stage; invalid stage/final binding configurations are closed", false, nil)
 }
 
 func validateLongFormEditAccess(draft *longFormEditDraft, missionID string, sessionID string) error {

@@ -73,6 +73,20 @@ void main() {
     expect(detail.document.id, 'doc_1');
   });
 
+  test('renameDocument patches document title', () async {
+    final adapter = RecordingAdapter();
+    final repository = ApiLibraryRepository(_api(adapter));
+
+    final detail = await repository.renameDocument('doc_1', ' Renamed note ');
+
+    final request = adapter.requests.singleWhere(
+      (request) => request.path == '/api/v1/documents/doc_1',
+    );
+    expect(request.method, 'PATCH');
+    expect(adapter.bodies[request], '{"title":"Renamed note"}');
+    expect(detail.document.id, 'doc_1');
+  });
+
   test('rescrapeDocument posts to document re-scrape endpoint', () async {
     final adapter = RecordingAdapter();
     final repository = ApiLibraryRepository(_api(adapter));
@@ -142,6 +156,7 @@ class RecordingAdapter implements HttpClientAdapter {
       },
       '/api/v1/documents/doc_1/rating' => _documentDetail(rating: null),
       '/api/v1/documents/doc_1/move-to-trash' => _documentDetail(rating: 4),
+      '/api/v1/documents/doc_1' => _documentDetail(rating: 4),
       '/api/v1/documents/doc_1/rescrape' => _documentDetail(rating: 4),
       _ => throw StateError('Unexpected request: ${options.path}'),
     };

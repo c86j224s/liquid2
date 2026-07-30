@@ -28,6 +28,7 @@ type Service interface {
 	SearchLiquid2Sources(context.Context, app.Liquid2SourceConnector, app.Liquid2SourceSearchRequest) (app.Liquid2SourceSearchResult, error)
 	SearchConfluenceSources(context.Context, app.ConfluenceSourceConnector, app.ConfluenceSourceSearchRequest) (app.ConfluenceSourceSearchResult, error)
 	GetMissionConnectorAccess(context.Context, string, string) (app.ConnectorAccessProjection, error)
+	GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error)
 	ListEvidenceRecords(context.Context, string) ([]app.EvidenceRecord, error)
 	ListClaimRecords(context.Context, string) ([]app.ClaimRecord, error)
 	ListQuestionRecords(context.Context, string) ([]app.QuestionRecord, error)
@@ -43,6 +44,7 @@ type Service interface {
 	CreateRawArtifact(context.Context, app.CreateRawArtifactRequest) (app.RawArtifact, error)
 	CreateRawArtifactWithEvent(context.Context, app.CreateRawArtifactRequest, func(app.RawArtifact) app.AppendEventRequest) (app.RawArtifact, app.LedgerEvent, error)
 	CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error)
+	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
 	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
 	CreateEvidenceProposal(context.Context, app.CreateEvidenceProposalRequest) (app.EvidenceProposalResult, error)
 	CreateQuestionProposal(context.Context, app.CreateQuestionProposalRequest) (app.QuestionProposalResult, error)
@@ -69,32 +71,44 @@ type Server struct {
 	reportPatch                   bool
 	reportPatchBinding            ReportPatchBinding
 	reportPlanBinding             ReportPlanBinding
+	reportRequirementMapBinding   reporting.ReportRequirementMapBinding
 	partAssemblyBinding           reporting.PartAssemblyBinding
+	partEditBinding               reporting.PartEditBinding
 	longFormFinalizeBinding       reporting.LongFormFinalizeBinding
+	longFormFinalizeBindingSet    bool
+	finalEditStageBinding         reporting.FinalEditStageBinding
+	finalEditStageBindingSet      bool
+	finalEditConfigErr            error
 	enabledTools                  map[string]struct{}
 	sourceCandidateFetcher        SourceCandidateFetcher
 
-	mu                    sync.Mutex
-	idempotency           map[string]idempotencyEntry
-	reportDrafts          map[string]*experimentReportDraft
-	reportPatches         map[string]*reportPatchDraft
-	partAssemblyDrafts    map[string]*partAssemblyDraft
-	longFormEditDrafts    map[string]*longFormEditDraft
-	reportPlanParsedCalls int
+	mu                           sync.Mutex
+	idempotency                  map[string]idempotencyEntry
+	reportDrafts                 map[string]*experimentReportDraft
+	reportPatches                map[string]*reportPatchDraft
+	partAssemblyDrafts           map[string]*partAssemblyDraft
+	partEditDrafts               map[string]*partEditDraft
+	longFormEditDrafts           map[string]*longFormEditDraft
+	longFormStageEditDrafts      map[string]*longFormStageEditDraft
+	reportPlanParsedCalls        int
+	reportRequirementParsedCalls int
 }
 
 func NewServer(service Service, options ...Option) *Server {
 	server := &Server{
-		service:            service,
-		connectors:         map[string]app.Liquid2SourceConnector{},
-		idempotency:        map[string]idempotencyEntry{},
-		reportDrafts:       map[string]*experimentReportDraft{},
-		reportPatches:      map[string]*reportPatchDraft{},
-		partAssemblyDrafts: map[string]*partAssemblyDraft{},
-		longFormEditDrafts: map[string]*longFormEditDraft{},
+		service:                 service,
+		connectors:              map[string]app.Liquid2SourceConnector{},
+		idempotency:             map[string]idempotencyEntry{},
+		reportDrafts:            map[string]*experimentReportDraft{},
+		reportPatches:           map[string]*reportPatchDraft{},
+		partAssemblyDrafts:      map[string]*partAssemblyDraft{},
+		partEditDrafts:          map[string]*partEditDraft{},
+		longFormEditDrafts:      map[string]*longFormEditDraft{},
+		longFormStageEditDrafts: map[string]*longFormStageEditDraft{},
 	}
 	for _, option := range options {
 		option(server)
 	}
+	server.finalEditConfigErr = server.validateFinalEditConfiguration()
 	return server
 }

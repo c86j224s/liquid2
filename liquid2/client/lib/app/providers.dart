@@ -137,6 +137,12 @@ class LibrarySnapshotController extends AsyncNotifier<LibrarySnapshot> {
       }
     }
   }
+
+  void removeDocument(String documentId) {
+    final current = state.value;
+    if (current == null) return;
+    state = AsyncData(current.removeDocument(documentId));
+  }
 }
 
 final documentDetailProvider = FutureProvider.family<DocumentDetail, String>((

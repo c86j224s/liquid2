@@ -37,12 +37,16 @@ func (server *Server) draftSectionFanoutSections(ctx context.Context, req sectio
 		}
 
 		sectionDraftsByPart[partIndex] = make([]sectionalReportDraft, len(part.Sections))
+		partSourceSessionID, err := sectionFanoutPartSourceSession(state, partIndex)
+		if err != nil {
+			return nil, nil, 0, err
+		}
 		for sectionIndex, section := range part.Sections {
 			if draft, ok := progress.sections[sectionalReportIndex{part: partIndex, section: sectionIndex}]; ok {
 				sectionDraftsByPart[partIndex][sectionIndex] = draft
 				continue
 			}
-			previousSessionID, sourceSessionID, err := forkSectionFanoutSession(ctx, forker, state.reportPlanSessionID)
+			previousSessionID, sourceSessionID, err := forkSectionFanoutSession(ctx, forker, partSourceSessionID)
 			if err != nil {
 				return nil, nil, 0, longFormStageFailure("section", state.planEvent.EventID, partIndex+1, sectionIndex+1, err)
 			}
@@ -52,7 +56,7 @@ func (server *Server) draftSectionFanoutSections(ctx context.Context, req sectio
 				part:            part,
 				section:         section,
 				previousSession: previousSessionID,
-				sourceSessionID: firstNonEmpty(sourceSessionID, state.reportPlanSessionID),
+				sourceSessionID: firstNonEmpty(sourceSessionID, partSourceSessionID),
 				toolSessionID:   newID("ses"),
 			})
 		}

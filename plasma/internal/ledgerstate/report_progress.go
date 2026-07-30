@@ -41,25 +41,34 @@ type ReportRetryCapability struct {
 }
 
 type reportPayload struct {
-	PendingID     string `json:"pending_event_id"`
-	OriginID      string `json:"origin_pending_event_id"`
-	RetryOf       string `json:"retry_of_pending_event_id"`
-	RetryStrategy string `json:"retry_strategy"`
-	Attempt       int    `json:"attempt_number"`
-	ReportMode    string `json:"report_mode"`
-	Part          int    `json:"part_index"`
-	Section       int    `json:"section_index"`
-	FailedStage   string `json:"failed_stage_kind"`
-	FailedStageID string `json:"failed_stage_id"`
-	Error         string `json:"safe_error_message"`
-	Retryable     bool   `json:"retryable"`
-	Kind          string `json:"kind"`
-	Plan          struct {
+	PendingID          string `json:"pending_event_id"`
+	OriginID           string `json:"origin_pending_event_id"`
+	RetryOf            string `json:"retry_of_pending_event_id"`
+	RetryStrategy      string `json:"retry_strategy"`
+	Attempt            int    `json:"attempt_number"`
+	ReportMode         string `json:"report_mode"`
+	Part               int    `json:"part_index"`
+	Section            int    `json:"section_index"`
+	FailedStage        string `json:"failed_stage_kind"`
+	FailedStageID      string `json:"failed_stage_id"`
+	Error              string `json:"safe_error_message"`
+	Retryable          bool   `json:"retryable"`
+	Kind               string `json:"kind"`
+	PartEdit           bool   `json:"part_edit_enabled"`
+	PartPlanning       bool   `json:"part_planning_enabled"`
+	FinalEditPipeline  string `json:"final_edit_pipeline"`
+	PostReportHumanize string `json:"post_report_humanize"`
+	Plan               struct {
 		Parts []struct {
 			Sections []json.RawMessage `json:"sections"`
 		} `json:"parts"`
 	} `json:"plan"`
 }
+
+const (
+	finalEditPipelineReaderStyleGateV1               = "reader_style_gate_v1"
+	finalEditPipelineAssemblyWriterReaderStyleGateV2 = "assembly_writer_reader_style_gate_v2"
+)
 
 // ProjectReportProgress normalizes legacy report events and never infers a
 // completed stage without its corresponding ledger event.
@@ -182,6 +191,15 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	if !lineageValid {
 		return unknownReportProgress()
 	}
+	partPlanningEnabled := false
+	for _, event := range events {
+		var payload reportPayload
+		_ = json.Unmarshal(event.Payload, &payload)
+		if lineage[payload.PendingID] && event.EventType == "report.plan.created" && payload.PartPlanning {
+			partPlanningEnabled = true
+			break
+		}
+	}
 	partCount := 0
 	for _, e := range events {
 		var q reportPayload
@@ -193,6 +211,11 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			nodes[0].State = "completed"
 			nodes[0].AttemptID = q.PendingID
 			partCount = len(q.Plan.Parts)
+			if partPlanningEnabled {
+				for i := range q.Plan.Parts {
+					nodes = append(nodes, ReportProgressNode{ID: stageID("part_plan", i+1, 0), Kind: "part_plan", Part: i + 1, State: "pending"})
+				}
+			}
 			for i, part := range q.Plan.Parts {
 				for j := range part.Sections {
 					nodes = append(nodes, ReportProgressNode{ID: stageID("section", i+1, j+1), Kind: "section", Part: i + 1, Section: j + 1, State: "pending"})
@@ -200,6 +223,31 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			}
 			for i := range q.Plan.Parts {
 				nodes = append(nodes, ReportProgressNode{ID: stageID("part", i+1, 0), Kind: "part", Part: i + 1, State: "pending"})
+			}
+			if q.PartEdit {
+				for i := range q.Plan.Parts {
+					kind := "part_edit"
+					if partPlanningEnabled {
+						kind = "part_author"
+					}
+					nodes = append(nodes, ReportProgressNode{ID: stageID(kind, i+1, 0), Kind: kind, Part: i + 1, State: "pending"})
+				}
+			}
+			switch q.FinalEditPipeline {
+			case finalEditPipelineReaderStyleGateV1:
+				nodes = append(nodes, ReportProgressNode{ID: stageID("reader_edit", 0, 0), Kind: "reader_edit", State: "pending"})
+				if strings.TrimSpace(q.PostReportHumanize) == "enabled" {
+					nodes = append(nodes, ReportProgressNode{ID: stageID("style_edit", 0, 0), Kind: "style_edit", State: "pending"})
+				}
+				nodes = append(nodes, ReportProgressNode{ID: stageID("corrective_gate", 0, 0), Kind: "corrective_gate", State: "pending"})
+			case finalEditPipelineAssemblyWriterReaderStyleGateV2:
+				nodes = append(nodes, ReportProgressNode{ID: stageID("final_assembly", 0, 0), Kind: "final_assembly", State: "pending"})
+				nodes = append(nodes, ReportProgressNode{ID: stageID("final_write", 0, 0), Kind: "final_write", State: "pending"})
+				nodes = append(nodes, ReportProgressNode{ID: stageID("reader_edit", 0, 0), Kind: "reader_edit", State: "pending"})
+				if strings.TrimSpace(q.PostReportHumanize) == "enabled" {
+					nodes = append(nodes, ReportProgressNode{ID: stageID("style_edit", 0, 0), Kind: "style_edit", State: "pending"})
+				}
+				nodes = append(nodes, ReportProgressNode{ID: stageID("corrective_gate", 0, 0), Kind: "corrective_gate", State: "pending"})
 			}
 		}
 	}
@@ -223,6 +271,8 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		}
 		id := ""
 		switch e.EventType {
+		case "report.part_plan.created":
+			id = stageID("part_plan", q.Part, 0)
 		case "report.section.started":
 			id = stageID("section", q.Part, q.Section)
 			if i, ok := index[id]; ok && nodes[i].State == "pending" {
@@ -234,6 +284,53 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			id = stageID("section", q.Part, q.Section)
 		case "report.part.created":
 			id = stageID("part", q.Part, 0)
+		case "report.part_edit.started":
+			id = stageID(reportPartEditProgressKind(partPlanningEnabled), q.Part, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.part.edited":
+			id = stageID(reportPartEditProgressKind(partPlanningEnabled), q.Part, 0)
+		case "report.final_assembly.created":
+			id = stageID("final_assembly", 0, 0)
+		case "report.final_edit.writer.started":
+			id = stageID("final_write", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.writer.submitted":
+			id = stageID("final_write", 0, 0)
+		case "report.final_edit.reader.started":
+			id = stageID("reader_edit", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.reader.submitted":
+			id = stageID("reader_edit", 0, 0)
+		case "report.final_edit.style.started":
+			id = stageID("style_edit", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.style.submitted":
+			id = stageID("style_edit", 0, 0)
+		case "report.final_edit.gate.started":
+			id = stageID("corrective_gate", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.gate.submitted":
+			id = stageID("corrective_gate", 0, 0)
 		case "report.artifact.created", "report.artifact.exported":
 			if q.PendingID != selected {
 				continue
@@ -251,6 +348,16 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			id = stageID("section", q.Part, q.Section)
 		case "report.part.failed":
 			id = stageID("part", q.Part, 0)
+		case "report.part_edit.failed":
+			id = stageID(reportPartEditProgressKind(partPlanningEnabled), q.Part, 0)
+		case "report.part_plan.failed":
+			id = stageID("part_plan", q.Part, 0)
+		case "report.final.failed":
+			if mapped, ok := finalEditProgressStageID(q.FailedStage); ok {
+				id = mapped
+			} else {
+				id = "final"
+			}
 		}
 		if i, ok := index[id]; ok {
 			nodes[i].AttemptID = q.PendingID
@@ -265,6 +372,15 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	if failure, failed := terminal[selected]; failed && result.State != "completed" && result.State != "skipped" {
 		result.State = "failed"
 		id := failure.FailedStageID
+		if failure.FailedStage == "part_plan" {
+			id = stageID("part_plan", failure.Part, 0)
+		}
+		if failure.FailedStage == "part_edit" && partPlanningEnabled {
+			id = stageID("part_author", failure.Part, 0)
+		}
+		if mapped, ok := finalEditProgressStageID(failure.FailedStage); ok {
+			id = mapped
+		}
 		if id == "" {
 			id = failure.FailedStage
 		}
@@ -309,6 +425,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Time, attemptTerminal Event, events []Event, lineage map[string]bool) {
 	starts := map[string]time.Time{}
 	terminals := map[string]time.Time{}
+	partPlanningEnabled := reportLineageHasPartPlanning(events, lineage)
 	for _, event := range events {
 		var payload reportPayload
 		_ = json.Unmarshal(event.Payload, &payload)
@@ -320,10 +437,40 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 			starts[stageID("section", payload.Part, payload.Section)] = event.CreatedAt
 		case "report.plan.created":
 			terminals["plan"] = event.CreatedAt
+		case "report.part_plan.created", "report.part_plan.failed":
+			terminals[stageID("part_plan", payload.Part, 0)] = event.CreatedAt
 		case "report.section.created", "report.section.failed":
 			terminals[stageID("section", payload.Part, payload.Section)] = event.CreatedAt
 		case "report.part.created", "report.part.failed":
 			terminals[stageID("part", payload.Part, 0)] = event.CreatedAt
+		case "report.part_edit.started":
+			starts[stageID(reportPartEditProgressKind(partPlanningEnabled), payload.Part, 0)] = event.CreatedAt
+		case "report.part.edited", "report.part_edit.failed":
+			terminals[stageID(reportPartEditProgressKind(partPlanningEnabled), payload.Part, 0)] = event.CreatedAt
+		case "report.final_assembly.created":
+			terminals[stageID("final_assembly", 0, 0)] = event.CreatedAt
+		case "report.final_edit.writer.started":
+			starts[stageID("final_write", 0, 0)] = event.CreatedAt
+		case "report.final_edit.writer.submitted":
+			terminals[stageID("final_write", 0, 0)] = event.CreatedAt
+		case "report.final_edit.reader.started":
+			starts[stageID("reader_edit", 0, 0)] = event.CreatedAt
+		case "report.final_edit.reader.submitted":
+			terminals[stageID("reader_edit", 0, 0)] = event.CreatedAt
+		case "report.final_edit.style.started":
+			starts[stageID("style_edit", 0, 0)] = event.CreatedAt
+		case "report.final_edit.style.submitted":
+			terminals[stageID("style_edit", 0, 0)] = event.CreatedAt
+		case "report.final_edit.gate.started":
+			starts[stageID("corrective_gate", 0, 0)] = event.CreatedAt
+		case "report.final_edit.gate.submitted":
+			terminals[stageID("corrective_gate", 0, 0)] = event.CreatedAt
+		case "report.final.failed":
+			if mapped, ok := finalEditProgressStageID(payload.FailedStage); ok {
+				terminals[mapped] = event.CreatedAt
+			} else {
+				terminals["final"] = event.CreatedAt
+			}
 		case "report.artifact.created", "report.artifact.exported":
 			terminals["final"] = event.CreatedAt
 			terminals["artifact"] = event.CreatedAt
@@ -334,6 +481,9 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 		_ = json.Unmarshal(attemptTerminal.Payload, &payload)
 		if strings.HasSuffix(attemptTerminal.EventType, ".failed") {
 			id := payload.FailedStageID
+			if mapped, ok := finalEditProgressStageID(payload.FailedStage); ok {
+				id = mapped
+			}
 			if id == "" {
 				id = payload.FailedStage
 			}
@@ -385,7 +535,66 @@ func stageID(kind string, part, section int) string {
 	if kind == "section" {
 		return "section-" + itoa(part) + "-" + itoa(section)
 	}
+	if kind == "part_plan" {
+		return "part-plan-" + itoa(part)
+	}
+	if kind == "part_edit" {
+		return "part-edit-" + itoa(part)
+	}
+	if kind == "part_author" {
+		return "part-author-" + itoa(part)
+	}
+	if kind == "final_assembly" {
+		return "final-assembly"
+	}
+	if kind == "final_write" {
+		return "final-write"
+	}
+	if kind == "reader_edit" {
+		return "reader-edit"
+	}
+	if kind == "style_edit" {
+		return "style-edit"
+	}
+	if kind == "corrective_gate" {
+		return "corrective-gate"
+	}
 	return "part-" + itoa(part)
+}
+
+func reportPartEditProgressKind(partPlanningEnabled bool) string {
+	if partPlanningEnabled {
+		return "part_author"
+	}
+	return "part_edit"
+}
+
+func finalEditProgressStageID(kind string) (string, bool) {
+	switch strings.TrimSpace(kind) {
+	case "final_assembly":
+		return stageID("final_assembly", 0, 0), true
+	case "final_write":
+		return stageID("final_write", 0, 0), true
+	case "reader_edit":
+		return stageID("reader_edit", 0, 0), true
+	case "style_edit":
+		return stageID("style_edit", 0, 0), true
+	case "corrective_gate":
+		return stageID("corrective_gate", 0, 0), true
+	default:
+		return "", false
+	}
+}
+
+func reportLineageHasPartPlanning(events []Event, lineage map[string]bool) bool {
+	for _, event := range events {
+		var payload reportPayload
+		_ = json.Unmarshal(event.Payload, &payload)
+		if lineage[payload.PendingID] && event.EventType == "report.plan.created" && payload.PartPlanning {
+			return true
+		}
+	}
+	return false
 }
 func itoa(v int) string { b, _ := json.Marshal(v); return string(b) }
 func safeText(value string) string {

@@ -128,6 +128,76 @@ large artifacts live outside the repository under `research-artifacts/`.
       run preserved the required details without shortening and reduced
       source-management language. The contract became a common baseline beneath
       the existing Web writing choices rather than a separate visible option.
+33. [`33-report-direct-explanation-writing-2026-07-24/`](33-report-direct-explanation-writing-2026-07-24/README.md)
+    - Prepared issue #179 experiment redefining report quality around
+      source-grounded processed reading artifacts. It compares the current
+      narrative-contract baseline, a paragraph-contract supporting candidate,
+      and a curiosity-led explanation primary candidate without changing plan
+      schema, UI choices, storage, or report assembly.
+34. [`34-report-curiosity-natural-voice-2026-07-25/`](34-report-curiosity-natural-voice-2026-07-25/README.md)
+    - Completed a small issue #179 follow-up testing whether the curiosity-led
+      explanation candidate can keep its reading momentum while reducing
+      AI-like signposting, repeated caveats, and mechanical paragraph endings.
+      The candidate reduced visible signposting but expanded some reports, so it
+      remains a follow-up signal rather than an adoption result.
+35. [`35-report-curiosity-tight-voice-2026-07-25/`](35-report-curiosity-tight-voice-2026-07-25/README.md)
+    - Completed an issue #179 follow-up testing whether the natural-voice signal
+      can be kept while controlling length expansion, repeated caveats, repeated
+      examples, and repeated paragraph machinery. The tight candidate clearly
+      reduced length, but the result stayed mixed because some outputs still
+      exposed report-framing language, title-language drift, or over-compressed
+      prose. It was not adopted as a product default.
+36. [`36-report-edited-reading-voice-2026-07-25/`](36-report-edited-reading-voice-2026-07-25/README.md)
+    - Completed an issue #179 follow-up across three topics and four long-form
+      arms. The edited candidate kept more detail than the tight candidate,
+      avoided the natural candidate's length expansion, aligned Korean titles,
+      and removed direct report self-framing in the samples. It is the leading
+      candidate for a broader run, not a product default, because outline-like
+      Part and Section narration still remained. The candidate kept the
+      existing plan schema and `section_fanout` assembly path.
+37. [`37-report-section-direct-reading-2026-07-25/`](37-report-section-direct-reading-2026-07-25/README.md)
+    - Completed an issue #179 follow-up after stage attribution found most
+      remaining outline narration already present in immutable Section drafts.
+      The Section-only candidate won four of six blinded comparisons and
+      reduced normalized outline narration in four topics and in aggregate.
+      It advances as a controlled experiment baseline, not a product default,
+      because Part assembly restored much of the narration and candidate length
+      still varied from 0.92x to 1.32x of baseline.
+38. [`38-report-part-connective-economy-2026-07-26/`](38-report-part-connective-economy-2026-07-26/README.md)
+    - Completed an issue #179 follow-up that kept experiment 37's direct,
+      immutable Sections and changed only Part connective writing. The
+      candidate reduced Part overhead from 16.2% to 3.2%, reduced newly added
+      document-position phrases from 38 to 2, and won all six blinded readings.
+      After end-to-end reading and explicit user approval, the cumulative
+      candidate became the default for new long-form reports. Section-level
+      repetition and evidence-relative length remain tracked in issue #189.
+39. [`39-report-subject-direct-synthesis-2026-07-27/`](39-report-subject-direct-synthesis-2026-07-27/README.md)
+    - Wave 1 found that the candidate reduced source-as-narrator prose but did
+      not control evidence-relative length consistently, so the default was not
+      changed. The profile remains available for Wave 2 with Korean original,
+      multi-source conflict, market research, and source-sparse archived
+      fixtures.
+40. [`40-reader-style-gate-2026-07-28.md`](40-reader-style-gate-2026-07-28.md)
+    - Bounded fixed-draft test of reader/style/gate sequencing. The candidate
+      did not pass as-is, but it identified the reader-orientation prompt
+      boundary refined in later #190 work.
+53. [`53-reader-orientation-boundary-prompt-2026-07-29.md`](53-reader-orientation-boundary-prompt-2026-07-29.md)
+    - Corrected reader prompt boundary accepted after blind review and
+      re-reading; established that helpful report-level orientation must not be
+      removed as generic meta-signposting.
+54. [`54-reader-full-pipeline-acceptance-2026-07-29.md`](54-reader-full-pipeline-acceptance-2026-07-29.md)
+    - Candidate-only product-path acceptance showing the corrected reader
+      prompt survived Part editing, reader editing, style editing, integrity
+      gate, and canonical finalization in one exploratory and one strict run.
+55. [`55-final-writer-v2-2026-07-29/`](55-final-writer-v2-2026-07-29/README.md)
+    - Generated the corrected W6-B fixed-input product-path comparison of
+      current v1 against final-writer v2 using Korean reviewed Parts. Provenance
+      replay passed; two sealed model readings remained mixed/inconclusive, and
+      a separate host direct reread found two v2 wins and two ties with no
+      observed regression. The user approved product adoption to separate
+      finalization responsibilities and preserve room for later improvement,
+      without claiming immediate quality superiority or completed blind human
+      adjudication.
 
 ## Controller Experiment Sequence
 

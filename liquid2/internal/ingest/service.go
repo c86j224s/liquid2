@@ -4,17 +4,20 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/internal/app"
 )
 
+const maxFetchedTitleRunes = 300
+
 type Service struct {
-	documents *app.Service
-	guard     URLGuard
-	fetcher   Fetcher
-	logger    *slog.Logger
+	documents    *app.Service
+	guard        URLGuard
+	fetcher      Fetcher
+	titleFetcher TitleFetcher
+	logger       *slog.Logger
 }
 
 type ServiceOption func(*Service)
@@ -31,6 +34,9 @@ func NewService(documents *app.Service, options ...ServiceOption) *Service {
 	if service.fetcher == nil {
 		service.fetcher = NewHTTPFetcher(WithURLGuard(service.guard))
 	}
+	if service.titleFetcher == nil {
+		service.titleFetcher = NewHTTPTitleFetcher(WithTitleURLGuard(service.guard))
+	}
 	return service
 }
 
@@ -38,6 +44,14 @@ func WithFetcher(fetcher Fetcher) ServiceOption {
 	return func(service *Service) {
 		if fetcher != nil {
 			service.fetcher = fetcher
+		}
+	}
+}
+
+func WithTitleFetcher(fetcher TitleFetcher) ServiceOption {
+	return func(service *Service) {
+		if fetcher != nil {
+			service.titleFetcher = fetcher
 		}
 	}
 }
@@ -86,7 +100,20 @@ func (service *Service) Bookmark(ctx context.Context, input BookmarkInput) (app.
 	}
 	title := strings.TrimSpace(input.Title)
 	if title == "" {
-		title = titleFromURL(normalized)
+		fetchedTitle, err := service.titleFetcher.FetchTitle(ctx, normalized)
+		if err != nil {
+			service.logger.DebugContext(ctx, "bookmark title fetch failed",
+				slog.String("operation", "ingest_bookmark"),
+				slog.String("error_kind", ingestErrorKind(err)),
+			)
+		}
+		title = strings.TrimSpace(fetchedTitle)
+		if utf8.RuneCountInString(title) > maxFetchedTitleRunes {
+			title = ""
+		}
+		if title == "" {
+			title = titleFromURL(normalized)
+		}
 	}
 	detail, err := service.documents.CreateBookmarkDocument(ctx, app.BookmarkDocumentInput{
 		URL: normalized, SourceURL: input.URL, Title: title,
@@ -160,17 +187,4 @@ func ingestErrorKind(err error) string {
 	default:
 		return "unknown"
 	}
-}
-
-func titleFromURL(raw string) string {
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Hostname() == "" {
-		return "Untitled document"
-	}
-	path := strings.Trim(strings.TrimSpace(parsed.Path), "/")
-	if path == "" {
-		return parsed.Hostname()
-	}
-	parts := strings.Split(path, "/")
-	return parts[len(parts)-1]
 }

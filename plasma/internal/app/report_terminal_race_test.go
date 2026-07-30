@@ -113,6 +113,69 @@ func TestAppendReportTerminalIfOpenRejectsWrongPendingTypeAndCorrelation(t *test
 	}
 }
 
+func TestAppendReportTerminalIfOpenAcceptsRequirementsAndPartEditCompanions(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, stageID string
+		partIndex           int
+	}{
+		{name: "requirements", kind: "requirements", stageID: "requirements"},
+		{name: "part plan", kind: "part_plan", stageID: "part-plan-1", partIndex: 1},
+		{name: "part edit", kind: "part_edit", stageID: "part-edit-1", partIndex: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			svc := app.NewService(store)
+			const missionID = "mis_terminal_companion"
+			if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "terminal companion"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{
+				EventID:   "evt_pending",
+				MissionID: missionID,
+				EventType: "report.draft.pending",
+				Producer:  app.Producer{Type: "agent", ID: "codex"},
+				Payload:   jsonPayload(map[string]any{"report_mode": "long_form"}),
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			stageEventType := "report." + tc.kind + ".failed"
+			stage := app.AppendEventRequest{
+				EventID:       "evt_stage",
+				MissionID:     missionID,
+				EventType:     stageEventType,
+				Producer:      app.Producer{Type: "agent", ID: "codex"},
+				CorrelationID: "evt_terminal",
+				Payload: jsonPayload(map[string]any{
+					"pending_event_id": "evt_pending", "stage_kind": tc.kind, "stage_id": tc.stageID,
+					"part_index": tc.partIndex, "terminal_event_id": "evt_terminal",
+				}),
+			}
+			terminal := app.AppendEventRequest{
+				EventID:   "evt_terminal",
+				MissionID: missionID,
+				EventType: "report.draft.failed",
+				Producer:  app.Producer{Type: "agent", ID: "codex"},
+				Payload: jsonPayload(map[string]any{
+					"pending_event_id": "evt_pending", "kind": "report_draft_failed",
+					"failed_stage_kind": tc.kind, "failed_stage_id": tc.stageID, "stage_failure_event_id": "evt_stage",
+				}),
+			}
+			appended, ok, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []app.AppendEventRequest{stage, terminal})
+			if err != nil || !ok {
+				t.Fatalf("expected companion terminal append to succeed, ok=%t err=%v", ok, err)
+			}
+			if len(appended) != 2 || appended[0].EventType != stageEventType || appended[1].EventType != "report.draft.failed" {
+				t.Fatalf("unexpected companion append result: %#v", appended)
+			}
+		})
+	}
+}
+
 func jsonPayload(value map[string]any) json.RawMessage {
 	data, _ := json.Marshal(value)
 	return data

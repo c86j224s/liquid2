@@ -8,12 +8,13 @@ import 'package:liquid2_api/liquid2_api.dart';
 import '../../app/providers.dart';
 import '../../data/folder_tree.dart';
 import '../../data/library_repository.dart';
+import 'ingest_app_bar.dart';
 import 'ingest_filters.dart';
 import 'ingest_mode.dart';
 import 'ingest_mode_selector.dart';
-import 'ingest_text_fields.dart';
+import 'ingest_source_fields.dart';
+import 'ingest_submit_button.dart';
 import 'ingest_upload_file.dart';
-import 'ingest_upload_picker.dart';
 
 class IngestPage extends ConsumerStatefulWidget {
   const IngestPage({super.key});
@@ -26,7 +27,8 @@ class _IngestPageState extends ConsumerState<IngestPage> {
   final _urlController = TextEditingController();
   final _titleController = TextEditingController();
   final _selectedTagIds = <String>{};
-  IngestMode _mode = IngestMode.bookmark;
+  IngestSource _source = IngestSource.url;
+  UrlSaveMode _urlSaveMode = UrlSaveMode.linkOnly;
   String? _folderId;
   String? _filename;
   Uint8List? _fileBytes;
@@ -47,30 +49,25 @@ class _IngestPageState extends ConsumerState<IngestPage> {
     );
     final tags = snapshot?.tags ?? const <Tag>[];
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: () => context.go('/'),
-          icon: const Icon(Icons.arrow_back),
-        ),
-        title: const Text('Ingest'),
-      ),
+      appBar: const IngestAppBar(),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           IngestModeSelector(
-            mode: _mode,
-            onChanged: (value) => setState(() => _mode = value),
+            source: _source,
+            onChanged: (value) => setState(() => _source = value),
           ),
           const SizedBox(height: 20),
-          if (_mode == IngestMode.upload)
-            IngestUploadPicker(fileName: _filename, onPick: _pickFile)
-          else
-            IngestUrlField(controller: _urlController),
-          if (_mode != IngestMode.scrape) ...[
-            const SizedBox(height: 12),
-            IngestTitleField(controller: _titleController),
-          ],
+          IngestSourceFields(
+            source: _source,
+            urlSaveMode: _urlSaveMode,
+            urlController: _urlController,
+            titleController: _titleController,
+            fileName: _filename,
+            onUrlSaveModeChanged: (value) =>
+                setState(() => _urlSaveMode = value),
+            onPickFile: _pickFile,
+          ),
           const SizedBox(height: 16),
           IngestFolderSelect(
             folders: folders,
@@ -88,15 +85,10 @@ class _IngestPageState extends ConsumerState<IngestPage> {
             ),
           ),
           const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: _saving ? null : _submit,
-            icon: _saving
-                ? const SizedBox.square(
-                    dimension: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.add),
-            label: Text(_saving ? 'Creating' : 'Create'),
+          IngestSubmitButton(
+            saving: _saving,
+            label: _submitLabel,
+            onPressed: _submit,
           ),
         ],
       ),
@@ -114,7 +106,13 @@ class _IngestPageState extends ConsumerState<IngestPage> {
         _fileBytes = file.bytes;
       });
     } on IngestUploadPickException catch (error) {
-      _clearFile();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _filename = null;
+        _fileBytes = null;
+      });
       _showSnackBar(error.message);
     }
   }
@@ -123,38 +121,13 @@ class _IngestPageState extends ConsumerState<IngestPage> {
     setState(() => _saving = true);
     try {
       final repository = ref.read(libraryRepositoryProvider);
-      final detail = switch (_mode) {
-        IngestMode.bookmark => await repository.bookmarkUrl(
-          url: _requiredUrl(),
-          title: _titleController.text,
-          folderId: _folderId,
-          tagIds: _selectedTagIds.toList(),
-        ),
-        IngestMode.scrape => await repository.scrapeUrl(
-          url: _requiredUrl(),
-          folderId: _folderId,
-          tagIds: _selectedTagIds.toList(),
-        ),
-        IngestMode.upload => await repository.uploadFile(
-          UploadFileInput(
-            filename: _filename ?? 'upload.bin',
-            bytes: _requiredFileBytes(),
-            title: _titleController.text,
-            folderId: _folderId,
-            tagIds: _selectedTagIds.toList(),
-          ),
-        ),
-      };
+      final detail = await _createDocument(repository);
       ref.invalidate(librarySnapshotProvider);
       if (mounted) {
         context.go('/documents/${detail.document.id}');
       }
     } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error.toString())));
-      }
+      _showSnackBar(error.toString());
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -162,30 +135,54 @@ class _IngestPageState extends ConsumerState<IngestPage> {
     }
   }
 
+  Future<DocumentDetail> _createDocument(LibraryRepository repository) {
+    if (_source == IngestSource.file) {
+      return repository.uploadFile(
+        UploadFileInput(
+          filename: _filename ?? 'upload.bin',
+          bytes: _requiredFileBytes(),
+          title: _titleController.text,
+          folderId: _folderId,
+          tagIds: _selectedTagIds.toList(),
+        ),
+      );
+    }
+    if (_urlSaveMode == UrlSaveMode.pageCopy) {
+      return repository.scrapeUrl(
+        url: _requiredUrl(),
+        folderId: _folderId,
+        tagIds: _selectedTagIds.toList(),
+      );
+    }
+    return repository.bookmarkUrl(
+      url: _requiredUrl(),
+      title: _titleController.text,
+      folderId: _folderId,
+      tagIds: _selectedTagIds.toList(),
+    );
+  }
+
+  String get _submitLabel {
+    if (_source == IngestSource.file) {
+      return 'Upload file';
+    }
+    return _urlSaveMode == UrlSaveMode.pageCopy ? 'Save page' : 'Save link';
+  }
+
   String _requiredUrl() {
     final url = _urlController.text.trim();
-    if (url.isEmpty) {
-      throw StateError('URL is required.');
+    if (url.isNotEmpty) {
+      return url;
     }
-    return url;
+    throw StateError('URL is required.');
   }
 
   Uint8List _requiredFileBytes() {
     final bytes = _fileBytes;
-    if (bytes == null) {
-      throw StateError('File is required.');
+    if (bytes != null) {
+      return bytes;
     }
-    return bytes;
-  }
-
-  void _clearFile() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _filename = null;
-      _fileBytes = null;
-    });
+    throw StateError('File is required.');
   }
 
   void _showSnackBar(String message) {

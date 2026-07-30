@@ -20,7 +20,9 @@
 | Claim | evidence가 뒷받침할 수 있는 주장이나 해석입니다. claim record는 legacy 또는 future design 영역이며, 현재 기본 workflow state가 아닙니다. |
 | Result | agent가 만든 답변, 비교, 요약, 중간 결론, 초안 같은 출력입니다. result는 source를 참조할 수 있지만 source 자체는 아닙니다. |
 | Saved knowledge | 미션에 의도적으로 남기는 지식입니다. 현재 C1은 이를 가볍게 유지하며, 예전 claim/evidence gate를 기본값으로 되살리지 않습니다. |
-| Report | 미션 작업을 바탕으로 조립한 Plasma 소유 output artifact입니다. Markdown이 기본 보고서 artifact이고, HTML은 렌더링/내보내기 결과입니다. |
+| Report | 미션 작업을 바탕으로 조립한 Plasma 소유 output artifact입니다. 내부 이름은 report이지만 사용자 가치는 원자료 주석이나 조사 로그가 아니라, 새 정보를 이해하고 여러 자료를 연결하며 계속 읽을 수 있게 만든 가공본입니다. Markdown이 기본 보고서 artifact이고, HTML은 렌더링/내보내기 결과입니다. |
+| Final assembly | 검토된 장문 Part들을 하나의 immutable Markdown artifact로 조립하는 서버 소유 deterministic 단계입니다. | Provider session이나 MCP tool 없이 실행되며, v2는 final writer 전에 `report.final_assembly.created`를 기록합니다. |
+| Final writer | Deterministic final assembly 뒤에 실행되는 v2의 첫 provider-backed final-edit 단계입니다. | `plasma.report.long_form.final_write.*` tool만 사용하며 opening, conclusion, Part transition, whole-report connective logic을 개선할 수 있습니다. Research 추가나 전체 Part/Section reorder는 할 수 없습니다. |
 | Designed HTML | Markdown 보고서에서 JSON content model과 deterministic renderer를 거쳐 만드는 self-contained interactive HTML 보고서입니다. |
 | MCP research surface | Agent가 거대한 prompt pack 없이 미션 상태를 보고, source를 검색/읽고, reference를 따라갈 수 있게 하는 UI 없는 도구 표면입니다. |
 
@@ -33,9 +35,9 @@
 | PAL2 | C0, NAV와 비교한 rhythm-aware question controller 변형입니다. | 결론이 충분하지 않아 기본값으로 쓰지 않습니다. |
 | NAV | 상태, 다음 턴 의도, 방향을 더 강하게 제시한 investigation navigator 변형입니다. | 실험 뒤 기본값에서 제외했습니다. |
 | G2 | 보고서 작성 시점에 적용한 한국어 말투 guidance입니다. | 기본 보고서 guidance 방향으로 제품화했습니다. 장문 보고서 작성에는 후속 검증에서 얻은 human-writer guidance도 함께 적용합니다. |
-| H5 | 기존 Markdown 보고서를 bounded MCP patch 도구로 수정하는 한국어 humanization 후처리입니다. | 선택적/보조 후처리입니다. planning이나 source selection에는 참여하지 않습니다. |
+| H5 | 한국어 humanization 단계입니다. Manual 또는 legacy export에서는 canonical Markdown 보고서 뒤에 bounded MCP patch 도구로 실행하고, staged long-form final-edit pipeline은 기존 `post_report_humanize` 설정을 optional pre-canonical style edit에만 재사용합니다. | 선택적/보조 말투 작업입니다. planning이나 source selection에는 참여하지 않으며 새 장문 사용자 옵션이 아닙니다. |
 | DH23 | agent-authored JSON content model과 deterministic renderer를 사용하고, 첫 화면의 강한 visual unit을 강조한 designed HTML 실험 경로입니다. | 현재 designed HTML 후보입니다. 한계는 남아 있습니다. |
-| C4 | 장문 보고서 조립 전략입니다. section body를 보존하고 전체 재작성 대신 제한적인 heading normalization만 수행합니다. | 장문 보고서 조립 방식으로 제품화했습니다. |
+| C4 | 장문 보고서 조립 전략입니다. section body를 보존하고 전체 재작성 대신 제한적인 heading normalization만 수행합니다. | 저장된 legacy 조립과 replay 의미로 제품화했습니다. 새 narrative-contract 장문 보고서는 검토된 Part output을 보존한 뒤 v2 final assembly, final writer, reader, optional style, corrective gate로 진행합니다. 저장된 v1 계획은 reader/style/gate replay 동작을 유지합니다. |
 | F4 | 실험에서 이어받은 보고서 작성 guidance입니다. 이전 조사 결과를 working memory로 쓰되 내부 run detail을 노출하지 않고 풍부한 Markdown 보고서를 쓰는 방향입니다. | 기본 Markdown 보고서 스타일 guidance입니다. |
 | R-series | 보고서 생성 실험 변형입니다. 정확한 의미는 각 실험 문서 안에서 정의됩니다. | 과거 실험 기록입니다. 적용 전 local protocol을 읽어야 합니다. |
 | M-series | controller와 workflow 실험에 쓰인 mission/corpus 변형입니다. | 과거 실험 기록입니다. 적용 전 local protocol을 읽어야 합니다. |

@@ -19,9 +19,14 @@ class IngestUrlField extends StatelessWidget {
 }
 
 class IngestTitleField extends StatelessWidget {
-  const IngestTitleField({required this.controller, super.key});
+  const IngestTitleField({
+    required this.controller,
+    this.label = 'Title (optional)',
+    super.key,
+  });
 
   final TextEditingController controller;
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -29,8 +34,7 @@ class IngestTitleField extends StatelessWidget {
       controller: controller,
       decoration: const InputDecoration(
         border: OutlineInputBorder(),
-        labelText: 'Title',
-      ),
+      ).copyWith(labelText: label),
     );
   }
 }

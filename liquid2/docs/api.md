@@ -531,6 +531,12 @@ When `folderId` is omitted, created documents use the default root `Inbox`.
 ### `POST /documents/bookmark`
 
 Creates a document from a URL without scraping full content.
+If `title` is omitted or blank, the server makes a best-effort request for page
+metadata with the same URL safety checks used by scraping. The request is capped
+at 5 seconds and 256 KiB, prefers `og:title`, and falls back to the HTML
+`title` element. Fetch failures, non-HTML responses, and missing titles do not
+fail bookmark creation; the stored title falls back to a URL-derived title.
+Caller-provided titles always take precedence and skip the metadata request.
 
 Request:
 

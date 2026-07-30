@@ -128,7 +128,10 @@ func usePartAssemblyEditTools(profile string) bool {
 }
 
 func agentPartAssemblyEditToolsPrompt(req reportPartAssemblyAgentRequest, binding reporting.PartAssemblyBinding, draftID string) string {
-	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(req.generationGuidanceProfile))
+	guidance := strings.TrimSpace(strings.Join([]string{
+		LongFormReportGenerationGuidance(req.generationGuidanceProfile),
+		reportPartConnectiveEconomyGuidance(req.generationGuidanceProfile),
+	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}

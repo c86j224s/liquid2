@@ -288,7 +288,11 @@ provider session을 fork하여 report-only session에서 실행합니다.
 기본 보고서 경로는 G2 generation-time guidance를 사용합니다. H5 Korean tone pass는 기본적으로 꺼져 있습니다.
 사용자가 humanized Markdown export를 명시적으로 요청한 경우에만, 보고서 생성이 끝난 뒤 실행되는 shared
 Markdown transformation으로 동작합니다. H5는 original artifact를 대체하지 않습니다. 또한 planning, source
-selection, AST shaping, content-model generation, Designed HTML rendering에도 참여하지 않습니다.
+selection, AST shaping, content-model generation, Designed HTML rendering에도 참여하지 않습니다. Staged
+long-form final-edit pipeline은 post-canonical 위치만 예외입니다. 기존 `post_report_humanize` 설정은
+corrective gate 전 optional pre-canonical style edit을 제어하고, 이 저장된 pipeline에서는 예전 post-canonical
+H5 export를 억제합니다. Manual 또는 legacy humanized Markdown export는 기존 post-report H5 의미를 그대로
+유지합니다.
 
 H5 단계는 report session을 resume하고 bounded `plasma.report.patch.*` MCP tool만 노출합니다. Agent는 저장된
 Markdown artifact를 slice 단위로 읽고 targeted patch operation을 적용합니다. 전체 Markdown을 prompt에 붙이거나,
@@ -314,6 +318,14 @@ Normal conversation turn에는 이 patch tool을 주지 않습니다. Patch arti
 request id, operation summary, provider session lineage, report-session policy selection을 기록합니다. 그래야
 이후 UI/CLI/MCP surface가 이전 report를 source로 재분류하지 않고 version chain을 보여줄 수 있습니다.
 
+브라우저의 빨간펜 편집은 provider-backed 보고서 패치와 별개인 사용자 직접 편집 경로입니다. Markdown 미리보기에서
+주변 보고서를 계속 보면서 지원되는 렌더링 블록 하나만 제자리에서 바꿀 수 있고, code fence나 table 같은 복합
+컨테이너는 읽기 전용으로 둡니다. 저장할 때 선택한 기본 또는 말투 보정 Markdown report artifact를 덮어쓰지
+않습니다. 대신 하나의 논리 작업본을 갱신하고, 바뀐 본문은 raw Markdown artifact로 저장하며,
+`report.redpen.saved`에는 artifact ID, revision, hash, media type, filename만 기록합니다. 같은 내용을 다시 저장하면
+새 revision을 만들지 않고, 오래 열린 브라우저 탭의 저장은 conflict로 거부하며, 보기와 다운로드는 최신 저장
+revision을 가리킵니다.
+
 Executor가 fork를 지원하지 않거나 미션에 pre-report research session이 없으면 같은 session으로 fallback하고
 `report_session_policy_selection`을 기록합니다. 기본 browser path인 `보고서`는 planned Markdown report
 artifact를 만듭니다. CLI `reports draft`도 같은 planned default를 사용합니다. `--mode one_take`는 명시적인
@@ -321,20 +333,64 @@ same-session compatibility path로 남깁니다.
 
 기본 browser 보고서는 계획에 중심 질문, 독자 결론, 읽는 순서, 보존할 정보와 압축·보조 층 후보를 담는 얇은 작성
 계약을 만들고, 원천을 따로 읽지 않을 독자에게 직접 설명하는 writer 지침을 사용합니다. 느린 경로인 `장문 보고서`는
-Part/Section plan을 만들고 section을 별도 Markdown artifact로 작성합니다. Part editor는 현재 Part에 바인딩된
-Section 본문만 bounded read한 뒤 intro, transition, closing을 만들며 Section artifact를 수정하지 않습니다.
+Part/Section plan을 만들고 section을 별도 Markdown artifact로 작성합니다. Section을 읽는 Part assembler는
+Part editor가 아닙니다. 이 assembler는 현재 Part에 바인딩된 Section 본문만 bounded read한 뒤 intro,
+transition, closing을 만들며 Section artifact를 수정하지 않습니다. 활성 narrative-contract profile은 writing
+guidance가 쓰는 같은 profile contract에 따라 계획 event에 `part_edit_enabled: true`를 저장합니다. 필드가 없는
+legacy 계획은 false로 해석하고, 새 non-narrative 계획만 false를 저장하며, browser projection은 legacy 계획에
+Part edit 단계를 합성하지 않습니다.
+Part-connective narrative profile을 쓰는 명시적 `section_fanout` 요청은 같은 계획 event만
+`part_planning_enabled: true`의 source of truth로 사용합니다. 별도 capability event나 projection path는
+없습니다. 활성화된 경우 실행기는 Part마다 검증된 `report.part_plan.created` event를 하나 만들고, Section
+writer와 Part assembler를 그 Part-owner session에서 fork한 뒤, 기계적 조립 이후 같은 session을 최종 Part
+author로 resume해 기존 closed Part-edit tool을 사용합니다. Part-plan replay는 저장된 event의 envelope와
+provenance를 검증하고 저장된 canonical brief를 반환합니다. Retry 요청이 새 brief를 만들었더라도 그 값을
+canonical brief와 비교하지 않습니다.
 
 이 작성 계약은 별도 글쓰기 선택지가 아닙니다. 화면의 `시각자료 계획`, `섹션 중심`, `섹션 중심 + 풍부하게`는
 구성 방식을 선택하며, 세 경로 모두 같은 독자 중심 계약과 편집 경계를 사용합니다.
 
-Final editor는 바인딩된 Part artifact를 서버 소유 임시 원고로 조립해 끝까지 읽고, 제한된 exact patch로 제목 중복,
-도입, Part 사이 연결, 반복, 결론을 편집합니다. 이 단계에는 source/research tool을 주지 않으며 Section과 Part
-artifact는 계속 불변입니다. 완성 원고는 원자적으로 새 report artifact가 되고, event는
-`composition_strategy: sectional_narrative_edit`와 `assembly_strategy: narrative_contract_final_edit`를
-기록합니다. 이전 `visual-plan` profile은 C4의 `sectional_preserve_markdown`과
-`c4_normalized_section_headings` 의미를 저장 이벤트 replay와 중단 작업 복구에만 유지합니다. 이전 값을 새 공통
-계약으로 재해석하지 않습니다. CLI `--mode long_form`은 CLI가 같은 section runner를 호출할 수 있을 때까지
-거부하며, 단일 Markdown turn으로 흉내 내지 않습니다.
+새 planned narrative 장문 계획은 저장된 plan에
+`final_edit_pipeline: assembly_writer_reader_style_gate_v2`를 기록합니다. 검토된 Part output이 있으면 실행기는
+agent session 없는 deterministic final assembly를 제품 코드에서 만들고, report-plan provider session에서 final
+writer를 fork합니다. Writer는 `plasma.report.long_form.final_write.*` tool만 받고 whole-report opening, conclusion,
+Part transition, 전역 connective logic을 다룰 수 있지만 research, external fact 추가, 전체 Part/Section reorder는
+할 수 없습니다. Reader editor는 같은 report-plan session에서 fork된 독립 sibling이며 writer session을 상속하지 않고
+writer artifact를 입력으로 받습니다. 정규화된 `post_report_humanize`가 enabled이면 pre-canonical style stage가
+reader provider session에서 fork되고, style-edit tool만 받아 claim, citation, structure, requirement coverage를
+바꾸지 않는 작은 말투와 유창성 patch만 할 수 있습니다. Corrective gate는 report-plan session에서 fork된 또 다른
+sibling이며 approved read tool과 기존 `plasma.report.long_form.final_edit.*` tool surface를 받고 유일한 canonical
+producer입니다. Gate는 보고서를 무조건 줄이거나 검열하는 단계가 아닙니다. Source/evidence 경계 위반, owner-bound
+requirement 위반, approved repair가 필요한 unsupported claim만 교정합니다. Gate는 raw statement text 없이 hash된
+finding만 기록하고, gate stage를 submit한 뒤 정확히 하나의 canonical `report.artifact.created` event를 만듭니다.
+No-op gate는 이전 durable artifact를 canonical로 채택하고, changed gate만 예정 final artifact를 만듭니다.
+
+이 v2 경로는 새 planned narrative 장문 보고서의 채택된 기본 최종화 경로입니다. Web 진행 화면은 실제 실행
+순서대로 `최종 조립`, `최종 작성`, `독자 편집`, 선택적 `말투 편집`, `근거·요구 교정`을 표시합니다.
+`post_report_humanize`가 disabled이면 `말투 편집` 노드만 생략합니다.
+
+`final_edit_pipeline: reader_style_gate_v1`가 저장된 계획은 기존 replay 의미를 유지합니다. 검토된 Part를 immutable
+reader-source Markdown artifact로 조립한 뒤 reader edit, optional style edit, 같은 corrective gate만 실행하고
+deterministic final assembly와 final writer 단계는 두지 않습니다.
+
+복구는 저장된 계획 payload에서만 Part planning을 도출하고, 누락, 중복, malformed, wrong-Part, wrong-plan,
+wrong-session, stale Part plan을 거부합니다. `report.part_plan.created`는 executor consistency lock 대상이며,
+Part-plan terminal companion은 `part-plan-N` failure ID와 `report.part_plan.failed`를 사용합니다.
+`resume_failed`는 검증된 조상 plan, section, Part, Part-plan, Part-edit outcome을 재사용할 수 있지만,
+`restart`는 새 lineage에서 시작하며 조상 Part 출력을 재사용하지 않습니다. 열린 Part-edit start 복구는
+exact-current-pending에만 적용됩니다. W3 Part editor와 W4 final Part author는 현재 pending에 대해 정확히 하나의
+유효한 `report.part_edit.started` event가 있을 때만 저장된 전체 binding을 채택하며, `FinalizePartEdit`는 matching
+start 하나가 없으면 outcome을 받지 않습니다. Direct MCP `plasma.report.part_edit.start` 호출과 Web pre-start는 같은
+`StartPartEdit` transaction을 공유하므로 replay가 중복 start를 만들지 않고 MCP 전용 policy event도 추가하지 않습니다.
+Writer, reader, style, gate restart recovery는 저장된 start나 submission을 재사용하고 완료된 provider를 다시 실행하지 않습니다.
+각 provider-backed stage에는 기술 재시도가 한 번만 허용됩니다. 완료된 중간 artifact는 durable하게 남고, 성공한 submission 전에 두 번째
+실패가 발생하면 기존 보고서 실패 event로 canonical completion을 차단합니다.
+
+`final_edit_pipeline`이 없는 저장된 long-form 계획은 이전 finalization path를 유지하며 staged final-edit 단계를
+실행하지 않습니다. 이전 `visual-plan` profile은 C4의 `sectional_preserve_markdown`과 `c4_normalized_section_headings`
+의미를 저장 이벤트 replay와 중단 작업 복구에만 유지합니다. 이전 값을 새 공통 계약으로 재해석하지 않습니다.
+CLI `--mode long_form`은 CLI가 같은 section runner를 호출할 수 있을 때까지 거부하며, 단일 Markdown turn으로 흉내 내지
+않습니다.
 
 두 보고서 경로 모두 AST repair turn, report version, report block을 피합니다. 나중에 plan review 단계를 넣을 수
 있지만, 보고서는 여전히 report artifact로 남아야 하며 source나 legacy AST report version이 되면 안 됩니다. 기본

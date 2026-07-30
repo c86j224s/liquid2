@@ -18,7 +18,11 @@ func (server *Server) assembleSectionFanoutParts(ctx context.Context, req sectio
 			partArtifactIDs = append(partArtifactIDs, draft.ArtifactID)
 			continue
 		}
-		previousSessionID, sourceSessionID, err := forkSectionFanoutSession(ctx, forker, state.reportPlanSessionID)
+		partSourceSessionID, err := sectionFanoutPartSourceSession(state, partIndex)
+		if err != nil {
+			return nil, nil, err
+		}
+		previousSessionID, sourceSessionID, err := forkSectionFanoutSession(ctx, forker, partSourceSessionID)
 		if err != nil {
 			return nil, nil, longFormStageFailure("part", state.planEvent.EventID, partIndex+1, 0, err)
 		}
@@ -49,7 +53,7 @@ func (server *Server) assembleSectionFanoutParts(ctx context.Context, req sectio
 			sessionChainKind:             state.sessionChainKind,
 			preReportResearchSessionID:   state.preReportResearchSessionID,
 			reportPlanSessionID:          state.reportPlanSessionID,
-			forkSourceAgentSessionID:     firstNonEmpty(sourceSessionID, state.reportPlanSessionID),
+			forkSourceAgentSessionID:     firstNonEmpty(sourceSessionID, partSourceSessionID),
 		}, executor)
 		partDurationMS := time.Since(partStarted).Milliseconds()
 		if err != nil {
@@ -96,7 +100,7 @@ func (server *Server) assembleSectionFanoutParts(ctx context.Context, req sectio
 				PreReportResearchSessionID:   state.preReportResearchSessionID,
 				ReportPlanSessionID:          state.reportPlanSessionID,
 				ReportSessionID:              result.SessionID,
-				ForkSourceAgentSessionID:     firstNonEmpty(sourceSessionID, state.reportPlanSessionID),
+				ForkSourceAgentSessionID:     firstNonEmpty(sourceSessionID, partSourceSessionID),
 				CompositionStrategy:          "sectional_preserve_markdown",
 				AssemblyStrategy:             "c4_normalized_section_headings",
 				DurationMS:                   partDurationMS,

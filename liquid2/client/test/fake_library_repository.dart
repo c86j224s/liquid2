@@ -26,6 +26,7 @@ class FakeLibraryRepository
   var movedToTrash = false;
   String? movedToFolderId;
   var rescraped = false;
+  var documentTitle = 'SQLite notes';
   var tagIds = <String>{'tag_go'};
   final requestedCursors = <String?>[];
   final requestedFilters = <LibraryFilters>[];
@@ -89,6 +90,12 @@ class FakeLibraryRepository
   }
 
   @override
+  Future<DocumentDetail> renameDocument(String documentId, String title) async {
+    documentTitle = title.trim();
+    return _detail();
+  }
+
+  @override
   Future<DocumentDetail> rescrapeDocument(String documentId) async {
     rescraped = true;
     return _detail();
@@ -121,7 +128,7 @@ class FakeLibraryRepository
     return DocumentSummary(
       (b) => b
         ..id = id
-        ..title = id == 'doc_1' ? 'SQLite notes' : 'Second document'
+        ..title = id == 'doc_1' ? documentTitle : 'Second document'
         ..kind = 'bookmark'
         ..status = read ? 'read' : 'unread'
         ..rating = rating
@@ -145,7 +152,7 @@ class FakeLibraryRepository
     return DocumentMetadata(
       (m) => m
         ..id = 'doc_1'
-        ..title = 'SQLite notes'
+        ..title = documentTitle
         ..kind = 'bookmark'
         ..status = read ? 'read' : 'unread'
         ..rating = rating

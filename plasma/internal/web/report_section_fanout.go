@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 const sectionFanoutWorkerLimit = 8
@@ -33,11 +34,28 @@ type sectionFanoutPlanState struct {
 	plan                         agentSectionalReportPlan
 	planEvent                    app.LedgerEvent
 	reportPlanSessionID          string
+	agentExecutor                string
+	agentModel                   string
+	agentReasoningEffort         string
+	agentSelectionSource         string
 	reportSessionPolicy          string
 	reportSessionPolicySelection string
 	sessionChainKind             string
 	preReportResearchSessionID   string
 	forkSourceSessionID          string
+	generationGuidanceProfile    string
+	generationGuidanceSHA256     string
+	requirementMap               reporting.ReportRequirementMap
+	requirementMapEvent          app.LedgerEvent
+	partEditEnabled              bool
+	partPlanningEnabled          bool
+	partPlans                    map[int]sectionFanoutPartPlan
+}
+
+type sectionFanoutPartPlan struct {
+	brief             string
+	providerSessionID string
+	event             app.LedgerEvent
 }
 
 type sectionFanoutTask struct {
@@ -94,6 +112,28 @@ func (server *Server) runSectionFanoutLongFormReport(ctx context.Context, req se
 	if err != nil {
 		return nil, err
 	}
+	state.requirementMap, state.requirementMapEvent, err = server.ensureReportRequirementMap(ctx, reportRequirementStageRequest{
+		missionID:       req.missionID,
+		title:           req.title,
+		directionHint:   req.directionHint,
+		executorName:    req.executorName,
+		agentModel:      req.agentModel,
+		reasoningEffort: req.agentReasoningEffort,
+		mcpMode:         req.mcpMode,
+		pendingEventID:  req.pendingEventID,
+		planEventID:     state.planEvent.EventID,
+		planSessionID:   state.reportPlanSessionID,
+		plan:            state.plan,
+	}, progress, executor)
+	if err != nil {
+		return nil, err
+	}
+	if state.partPlanningEnabled {
+		state.partPlans, err = server.ensureSectionFanoutPartPlans(ctx, req, state, progress, forker, executor)
+		if err != nil {
+			return nil, err
+		}
+	}
 	sections, sectionArtifactIDs, sectionWordTotal, err := server.draftSectionFanoutSections(ctx, req, state, progress, forker, executor)
 	if err != nil {
 		return nil, err
@@ -101,6 +141,40 @@ func (server *Server) runSectionFanoutLongFormReport(ctx context.Context, req se
 	parts, partArtifactIDs, err := server.assembleSectionFanoutParts(ctx, req, state, progress, sections, forker, executor)
 	if err != nil {
 		return nil, err
+	}
+	if longFormReaderStyleGatePlanEventEnabled(state.planEvent) {
+		req.agentReasoningEffort = longFormFinalEditContractReasoningEffort(req.agentReasoningEffort)
+		state.agentReasoningEffort = longFormFinalEditContractReasoningEffort(firstNonEmpty(state.agentReasoningEffort, req.agentReasoningEffort))
+	}
+	if state.partEditEnabled {
+		if state.partPlanningEnabled {
+			parts, partArtifactIDs, err = server.authorSectionFanoutParts(ctx, req, state, progress, parts, executor)
+		} else {
+			parts, partArtifactIDs, err = server.editSectionFanoutParts(ctx, req, state, progress, parts, forker, executor)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	if longFormReaderStyleGatePlanEventEnabled(state.planEvent) {
+		return server.runLongFormReaderStyleGatePipeline(ctx, longFormReaderStyleGatePipelineRequest{
+			missionID: req.missionID, title: req.title, executorName: req.executorName,
+			agentModel: req.agentModel, agentReasoningEffort: req.agentReasoningEffort,
+			agentSelectionSource: req.agentSelectionSource, mcpMode: req.mcpMode, rigor: req.rigor,
+			reportSessionPolicy:          firstNonEmpty(state.reportSessionPolicy, req.reportSessionPolicy),
+			reportSessionPolicySelection: firstNonEmpty(state.reportSessionPolicySelection, req.reportSessionPolicySelection),
+			postReportHumanize:           req.postReportHumanize,
+			generationGuidanceProfile:    firstNonEmpty(state.generationGuidanceProfile, req.generationGuidanceProfile),
+			generationGuidanceSHA256:     firstNonEmpty(state.generationGuidanceSHA256, req.generationGuidanceSHA256),
+			pendingEventID:               req.pendingEventID, artifactID: state.artifactID, planEvent: state.planEvent,
+			plan: state.plan, requirementMap: state.requirementMap, parts: parts, partArtifactIDs: partArtifactIDs,
+			sectionArtifactIDs: sectionArtifactIDs, sectionWordTotal: sectionWordTotal,
+			sessionChainKind:           firstNonEmpty(state.sessionChainKind, "section_fanout_report"),
+			preReportResearchSessionID: state.preReportResearchSessionID,
+			reportPlanSessionID:        state.reportPlanSessionID,
+			forkSourceAgentSessionID:   state.forkSourceSessionID,
+			started:                    started,
+		}, executor)
 	}
 	finalSessionID, finalForkSourceID, err := forkSectionFanoutSession(ctx, forker, state.reportPlanSessionID)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
@@ -22,29 +21,36 @@ func LoadLongFormFinalization(ctx context.Context, store LongFormFinalizationSto
 	if count != 1 {
 		return LongFormFinalizeResult{}, false, fmt.Errorf("%w: multiple canonical long-form finalizations", app.ErrConflict)
 	}
-	payload := eventPayload(event)
-	if event.CorrelationID != binding.IdempotencyKey || !canonicalMatchesBinding(event, payload, binding) {
-		return LongFormFinalizeResult{}, false, fmt.Errorf("%w: canonical long-form finalization binding differs", app.ErrConflict)
-	}
-	artifact, err := store.GetRawArtifact(ctx, binding.ArtifactID)
+	result, err := loadLongFormCanonicalResult(ctx, store, binding, event)
 	if err != nil {
 		return LongFormFinalizeResult{}, false, err
 	}
-	if artifact.MissionID != binding.MissionID || artifact.MediaType != "text/markdown; charset=utf-8" || artifact.Filename != binding.Filename || artifact.Producer != binding.Producer {
-		return LongFormFinalizeResult{}, false, fmt.Errorf("%w: canonical long-form final artifact differs", app.ErrConflict)
-	}
-	return LongFormFinalizeResult{Artifact: artifact, Event: event, Replay: true}, true, nil
+	return result, true, nil
 }
 
 func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req LongFormFinalizeRequest) (LongFormFinalizeResult, error) {
+	return finalizeLongForm(ctx, store, req, false)
+}
+
+func finalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req LongFormFinalizeRequest, allowReaderStyleGate bool) (LongFormFinalizeResult, error) {
 	binding := normalizeLongFormFinalizeBinding(req.Binding)
 	if err := validateLongFormFinalizeBinding(binding); err != nil {
+		return LongFormFinalizeResult{}, err
+	}
+	if strings.TrimSpace(req.FinalEditPipeline) != "" && (!allowReaderStyleGate || !isSupportedFinalEditPipeline(strings.TrimSpace(req.FinalEditPipeline))) {
+		return LongFormFinalizeResult{}, fmt.Errorf("%w: final edit pipeline can only be set by corrective gate finalization", app.ErrInvalidInput)
+	}
+	events, err := store.ListEvents(ctx, binding.MissionID)
+	if err != nil {
+		return LongFormFinalizeResult{}, err
+	}
+	if err := validateLongFormFinalPipeline(events, binding, allowReaderStyleGate); err != nil {
 		return LongFormFinalizeResult{}, err
 	}
 	if existing, ok, err := LoadLongFormFinalization(ctx, store, binding); err != nil {
 		return LongFormFinalizeResult{}, err
 	} else if ok {
-		return replayLongFormFinalize(ctx, store, binding, existing.Event, req)
+		return replayLongFormFinalizeForRequest(ctx, store, binding, existing.Event, req)
 	}
 	markdown, err := longFormMarkdownForRequest(ctx, store, binding, req)
 	if err != nil {
@@ -52,6 +58,17 @@ func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	}
 	if strings.TrimSpace(markdown) == "" {
 		return LongFormFinalizeResult{}, fmt.Errorf("%w: assembled long-form report is empty", app.ErrInvalidInput)
+	}
+	actualArtifactID := canonicalArtifactIDForFinalizeRequest(binding, req)
+	if actualArtifactID != binding.ArtifactID {
+		existingArtifact, err := store.GetRawArtifact(ctx, actualArtifactID)
+		if err != nil {
+			return LongFormFinalizeResult{}, err
+		}
+		return appendLongFormCanonicalForExistingArtifact(ctx, store, req, binding, existingArtifact, markdown, allowReaderStyleGate)
+	}
+	if existingArtifact, err := store.GetRawArtifact(ctx, binding.ArtifactID); err == nil {
+		return appendLongFormCanonicalForExistingArtifact(ctx, store, req, binding, existingArtifact, markdown, allowReaderStyleGate)
 	}
 	artifactReq := app.CreateRawArtifactRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
@@ -67,12 +84,18 @@ func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 			if existing.CorrelationID != binding.IdempotencyKey || !canonicalMatchesBinding(existing, eventPayload(existing), binding) {
 				return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: canonical long-form finalization binding differs", app.ErrConflict)
 			}
+			if err := validateLongFormCanonicalReplayRequest(ctx, store, events, binding, existing, req); err != nil {
+				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			}
 			return app.AppendEventRequest{}, existing, false, nil
 		}
-		if err := validateLongFormLineage(events, binding); err != nil {
+		if err := validateLongFormLineage(ctx, store, events, binding); err != nil {
 			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
 		}
-		return longFormCanonicalRequest(strings.TrimSpace(req.EventID), binding, artifact, len(strings.Fields(markdown))), app.LedgerEvent{}, true, nil
+		if err := validateLongFormFinalPipeline(events, binding, allowReaderStyleGate); err != nil {
+			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+		}
+		return longFormCanonicalRequestForFinalEdit(strings.TrimSpace(req.EventID), binding, artifact, len(strings.Fields(markdown)), req), app.LedgerEvent{}, true, nil
 	})
 	if err != nil {
 		return LongFormFinalizeResult{}, err
@@ -80,7 +103,7 @@ func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	if created {
 		return LongFormFinalizeResult{Artifact: artifact, Event: event}, nil
 	}
-	return replayLongFormFinalize(ctx, store, binding, event, req)
+	return replayLongFormFinalizeForRequest(ctx, store, binding, event, req)
 }
 
 func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding) (string, error) {
@@ -95,7 +118,7 @@ func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalization
 	if err != nil {
 		return "", err
 	}
-	if err := validateLongFormLineage(events, binding); err != nil {
+	if err := validateLongFormLineage(ctx, store, events, binding); err != nil {
 		return "", err
 	}
 	parts, err := loadLongFormParts(ctx, store, binding)
@@ -163,40 +186,4 @@ func validateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 
 func ValidateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 	return validateLongFormFinalizeBinding(normalizeLongFormFinalizeBinding(value))
-}
-
-func longFormCanonicalRequest(eventID string, binding LongFormFinalizeBinding, artifact app.RawArtifact, finalWords int) app.AppendEventRequest {
-	duration := time.Since(binding.StartedAt).Milliseconds()
-	if binding.StartedAt.IsZero() || duration < 0 {
-		duration = 0
-	}
-	assemblyStrategy := "c4_normalized_section_headings"
-	text := "섹션별 보존 조립 방식으로 장문 Markdown 리포트 artifact를 생성했습니다."
-	if binding.CompositionStrategy == LongFormCompositionNarrativeEdit {
-		assemblyStrategy = "narrative_contract_final_edit"
-		text = "바인딩된 파트 원고를 최종 편집해 장문 Markdown 리포트 artifact를 생성했습니다."
-	}
-	request := BuildMarkdownReportArtifactCreatedAppendRequest(MarkdownReportArtifactCreatedEventRequest{
-		MarkdownReportEventBase: MarkdownReportEventBase{
-			EventID: eventID, MissionID: binding.MissionID, PendingEventID: binding.PendingEventID, Title: binding.Title,
-			AgentExecutor: binding.AgentExecutor, AgentModel: binding.AgentModel, AgentReasoningEffort: binding.AgentReasoningEffort, AgentSelectionSource: binding.AgentSelectionSource,
-			AgentSessionID: binding.ProviderSessionID, PreviousAgentSessionID: binding.PreviousProviderSessionID,
-			ToolSessionID: binding.ToolSessionID, MCPMode: binding.MCPMode, RigorLevel: binding.RigorLevel, RigorLabel: binding.RigorLabel,
-			ReportMode: ModeLongForm, ReportModeLabel: ModeLabel(ModeLongForm), ReportSessionPolicy: binding.ReportSessionPolicy, ReportSessionPolicySelection: binding.ReportSessionPolicySelection,
-			PostReportHumanize: binding.PostReportHumanize, HumanizeEnabled: binding.PostReportHumanize != "disabled",
-			GenerationGuidanceProfile: binding.GenerationGuidanceProfile, GenerationGuidanceSHA256: binding.GenerationGuidanceSHA256,
-			SessionChainKind: binding.SessionChainKind, PreReportResearchSessionID: binding.PreReportResearchSessionID, ReportPlanSessionID: binding.ReportPlanSessionID,
-			ReportSessionID: binding.ProviderSessionID, ForkSourceAgentSessionID: binding.ForkSourceAgentSessionID,
-			CompositionStrategy: binding.CompositionStrategy, DurationMS: duration,
-			Text: text, Producer: binding.Producer,
-		},
-		Artifact: artifact, PlanEventID: binding.PlanEventID, PlanToolSessionID: binding.PlanToolSessionID,
-		IncludePlanReview: true, PlanReviewState: "auto_accepted", AssemblyStrategy: assemblyStrategy,
-		SectionCount: len(binding.SectionArtifactIDs), PartCount: len(binding.PartArtifactIDs), SectionArtifactIDs: binding.SectionArtifactIDs,
-		PartArtifactIDs: binding.PartArtifactIDs, SectionWordCount: binding.SectionWordCount, FinalWordCount: finalWords,
-		PreservationRatio:     float64(finalWords) / float64(maxReportingInt(1, binding.SectionWordCount)),
-		OmitPreservationRatio: binding.CompositionStrategy == LongFormCompositionNarrativeEdit, IncludeLongFormFields: true,
-	})
-	request.CorrelationID = binding.IdempotencyKey
-	return request
 }

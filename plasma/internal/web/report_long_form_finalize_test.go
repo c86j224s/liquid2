@@ -38,10 +38,10 @@ func TestLongFormFinalizationRetriesOnlyFinalStageWithNarrowHint(t *testing.T) {
 	if countEvents(detail, "report.artifact.created") != 1 || countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.created") != 1 || countEvents(detail, "report.part.created") != 1 {
 		t.Fatalf("final-only retry duplicated durable stages: %#v", detail["events"])
 	}
-	if len(agent.requests) != 5 {
-		t.Fatalf("request count=%d, want plan+section+part+two final", len(agent.requests))
+	if len(agent.requests) != 6 {
+		t.Fatalf("request count=%d, want plan+requirements+section+part+two final", len(agent.requests))
 	}
-	first, second := agent.requests[3], agent.requests[4]
+	first, second := agent.requests[4], agent.requests[5]
 	if first.ToolSessionID != second.ToolSessionID || first.LongFormFinalize == nil || second.LongFormFinalize == nil || first.LongFormFinalize.IdempotencyKey != second.LongFormFinalize.IdempotencyKey {
 		t.Fatalf("final retry changed logical binding: %#v %#v", first, second)
 	}

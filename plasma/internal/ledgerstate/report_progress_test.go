@@ -158,6 +158,304 @@ func TestProjectReportProgressTimesPartAssemblyAfterEverySection(t *testing.T) {
 	}
 }
 
+func TestProjectReportProgressIncludesPartEditStageWhenPlanEnablesIt(t *testing.T) {
+	base := time.Date(2026, 7, 18, 1, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "part_edit_enabled": true,
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_part_edit_start", EventType: "report.part_edit.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_part_edit", EventType: "report.part.edited", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(50 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	wantOrder := []string{"plan", "section-1-1", "part-1", "part-edit-1", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("unexpected nodes: %#v", progress.Nodes)
+	}
+	nodes := map[string]ReportProgressNode{}
+	for index, want := range wantOrder {
+		if progress.Nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, want, progress.Nodes)
+		}
+		nodes[progress.Nodes[index].ID] = progress.Nodes[index]
+	}
+	if nodes["part-edit-1"].Kind != "part_edit" || nodes["part-edit-1"].State != "completed" {
+		t.Fatalf("Part edit node not completed: %#v", nodes["part-edit-1"])
+	}
+	assertNodeTiming(t, nodes["part-edit-1"], base.Add(35*time.Second), 15_000)
+	if nodes["final"].State != "running" {
+		t.Fatalf("final should be the next running node: %#v", progress.Nodes)
+	}
+}
+
+func TestProjectReportProgressIncludesReaderStyleGatePipelineStages(t *testing.T) {
+	base := time.Date(2026, 7, 28, 1, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "reader_style_gate_v1", "post_report_humanize": "enabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_reader_start", EventType: "report.final_edit.reader.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(45 * time.Second)},
+		{EventID: "evt_style_start", EventType: "report.final_edit.style.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(50 * time.Second)},
+		{EventID: "evt_style", EventType: "report.final_edit.style.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(65 * time.Second)},
+		{EventID: "evt_gate_start", EventType: "report.final_edit.gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(70 * time.Second)},
+		{EventID: "evt_gate", EventType: "report.final_edit.gate.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(80 * time.Second)},
+		{EventID: "evt_artifact", EventType: "report.artifact.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(90 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	if progress.State != "completed" {
+		t.Fatalf("progress state=%q, want completed: %#v", progress.State, progress)
+	}
+	wantOrder := []string{"plan", "section-1-1", "part-1", "reader-edit", "style-edit", "corrective-gate", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("unexpected node count: %#v", progress.Nodes)
+	}
+	nodes := map[string]ReportProgressNode{}
+	for index, want := range wantOrder {
+		if progress.Nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, want, progress.Nodes)
+		}
+		nodes[want] = progress.Nodes[index]
+	}
+	for _, id := range wantOrder {
+		if nodes[id].State != "completed" {
+			t.Fatalf("%s state=%q, want completed: %#v", id, nodes[id].State, progress.Nodes)
+		}
+	}
+	if reportNodeState(progress.Nodes, "final-assembly") != "" || reportNodeState(progress.Nodes, "final-write") != "" {
+		t.Fatalf("legacy v1 progress synthesized v2 stages: %#v", progress.Nodes)
+	}
+	assertNodeTiming(t, nodes["reader-edit"], base.Add(35*time.Second), 10_000)
+	assertNodeTiming(t, nodes["style-edit"], base.Add(50*time.Second), 15_000)
+	assertNodeTiming(t, nodes["corrective-gate"], base.Add(70*time.Second), 10_000)
+
+	disabled := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "reader_style_gate_v1", "post_report_humanize": "disabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(45 * time.Second)},
+		{EventID: "evt_gate_start", EventType: "report.final_edit.gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(70 * time.Second)},
+	})
+	if reportNodeState(disabled.Nodes, "style-edit") != "" {
+		t.Fatalf("disabled style should omit style node: %#v", disabled.Nodes)
+	}
+	if got := reportNodeState(disabled.Nodes, "corrective-gate"); got != "running" {
+		t.Fatalf("gate state=%q, want running: %#v", got, disabled.Nodes)
+	}
+	if reportNodeState(disabled.Nodes, "final-assembly") != "" || reportNodeState(disabled.Nodes, "final-write") != "" {
+		t.Fatalf("disabled legacy v1 progress synthesized v2 stages: %#v", disabled.Nodes)
+	}
+}
+
+func TestProjectReportProgressIncludesAssemblyWriterReaderStyleGateV2Stages(t *testing.T) {
+	base := time.Date(2026, 7, 28, 3, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "assembly_writer_reader_style_gate_v2", "post_report_humanize": "enabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_assembly", EventType: "report.final_assembly.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_writer_start", EventType: "report.final_edit.writer.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(40 * time.Second)},
+		{EventID: "evt_writer", EventType: "report.final_edit.writer.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(55 * time.Second)},
+		{EventID: "evt_reader_start", EventType: "report.final_edit.reader.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(60 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(75 * time.Second)},
+		{EventID: "evt_style_start", EventType: "report.final_edit.style.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(80 * time.Second)},
+		{EventID: "evt_style", EventType: "report.final_edit.style.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(90 * time.Second)},
+		{EventID: "evt_gate_start", EventType: "report.final_edit.gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(95 * time.Second)},
+		{EventID: "evt_gate", EventType: "report.final_edit.gate.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(105 * time.Second)},
+		{EventID: "evt_artifact", EventType: "report.artifact.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(110 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	if progress.State != "completed" {
+		t.Fatalf("progress state=%q, want completed: %#v", progress.State, progress)
+	}
+	nodes := assertReportNodeOrder(t, progress.Nodes, []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "style-edit", "corrective-gate", "final", "artifact"})
+	for _, id := range []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "style-edit", "corrective-gate", "final", "artifact"} {
+		if nodes[id].State != "completed" {
+			t.Fatalf("%s state=%q, want completed: %#v", id, nodes[id].State, progress.Nodes)
+		}
+	}
+	if nodes["final-assembly"].Kind != "final_assembly" || nodes["final-write"].Kind != "final_write" {
+		t.Fatalf("v2 final stage kinds differ from UI label contract: %#v %#v", nodes["final-assembly"], nodes["final-write"])
+	}
+	assertNodeTiming(t, nodes["final-assembly"], base.Add(30*time.Second), 5_000)
+	assertNodeTiming(t, nodes["final-write"], base.Add(40*time.Second), 15_000)
+	assertNodeTiming(t, nodes["reader-edit"], base.Add(60*time.Second), 15_000)
+	assertNodeTiming(t, nodes["style-edit"], base.Add(80*time.Second), 10_000)
+	assertNodeTiming(t, nodes["corrective-gate"], base.Add(95*time.Second), 10_000)
+
+	disabled := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "assembly_writer_reader_style_gate_v2", "post_report_humanize": "disabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_assembly", EventType: "report.final_assembly.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_writer", EventType: "report.final_edit.writer.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(55 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(75 * time.Second)},
+		{EventID: "evt_gate_start", EventType: "report.final_edit.gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(95 * time.Second)},
+	})
+	assertReportNodeOrder(t, disabled.Nodes, []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "corrective-gate", "final", "artifact"})
+	if reportNodeState(disabled.Nodes, "style-edit") != "" {
+		t.Fatalf("disabled v2 style should omit style node: %#v", disabled.Nodes)
+	}
+	if got := reportNodeState(disabled.Nodes, "corrective-gate"); got != "running" {
+		t.Fatalf("disabled v2 gate state=%q, want running: %#v", got, disabled.Nodes)
+	}
+}
+
+func TestProjectReportProgressMapsV2FinalWriteFailure(t *testing.T) {
+	base := time.Date(2026, 7, 28, 4, 0, 0, 0, time.UTC)
+	progress := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "assembly_writer_reader_style_gate_v2", "post_report_humanize": "disabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_assembly", EventType: "report.final_assembly.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_writer_start", EventType: "report.final_edit.writer.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(40 * time.Second)},
+		{EventID: "evt_failed", EventType: "report.final.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "failed_stage_kind": "final_write", "safe_error_message": "writer provider unavailable"}), CreatedAt: base.Add(55 * time.Second)},
+		{EventID: "evt_terminal", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "failed_stage_kind": "final_write", "safe_error_message": "writer provider unavailable"}), CreatedAt: base.Add(55 * time.Second)},
+	})
+	if progress.State != "failed" || !progress.Retry.ResumeFailed {
+		t.Fatalf("v2 writer draft failure not retryable: %#v", progress)
+	}
+	nodes := assertReportNodeOrder(t, progress.Nodes, []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "corrective-gate", "final", "artifact"})
+	if nodes["final-write"].State != "failed" || nodes["final-write"].Error != "writer provider unavailable" {
+		t.Fatalf("writer failure not mapped: %#v", progress.Nodes)
+	}
+	if nodes["reader-edit"].State != "pending" || nodes["final"].State != "pending" {
+		t.Fatalf("downstream/final nodes absorbed writer failure: %#v", progress.Nodes)
+	}
+	assertNodeTiming(t, nodes["final-write"], base.Add(40*time.Second), 15_000)
+}
+
+func TestProjectReportProgressMapsFinalEditFailedStageCompanionToDraftFailure(t *testing.T) {
+	base := time.Date(2026, 7, 28, 2, 0, 0, 0, time.UTC)
+	progress := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "reader_style_gate_v1", "post_report_humanize": "enabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(40 * time.Second)},
+		{EventID: "evt_style_start", EventType: "report.final_edit.style.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(50 * time.Second)},
+		{EventID: "evt_failed", EventType: "report.final.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "failed_stage_kind": "style_edit", "safe_error_message": "style provider unavailable"}), CreatedAt: base.Add(70 * time.Second)},
+		{EventID: "evt_terminal", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "failed_stage_kind": "style_edit", "safe_error_message": "style provider unavailable"}), CreatedAt: base.Add(70 * time.Second)},
+	})
+	if progress.State != "failed" || !progress.Retry.ResumeFailed {
+		t.Fatalf("draft failure not projected as retryable long-form failure: %#v", progress)
+	}
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	if nodes["style-edit"].State != "failed" || nodes["style-edit"].Error != "style provider unavailable" {
+		t.Fatalf("style edit failure not mapped: %#v", progress.Nodes)
+	}
+	assertNodeTiming(t, nodes["style-edit"], base.Add(50*time.Second), 20_000)
+	if nodes["final"].State != "pending" {
+		t.Fatalf("final node should not absorb style failure: %#v", progress.Nodes)
+	}
+}
+
+func TestProjectReportProgressDoesNotTreatFinalFailedAsTerminal(t *testing.T) {
+	base := time.Date(2026, 7, 28, 2, 30, 0, 0, time.UTC)
+	progress := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "reader_style_gate_v1", "post_report_humanize": "disabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(40 * time.Second)},
+		{EventID: "evt_gate_start", EventType: "report.final_edit.gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(50 * time.Second)},
+		{EventID: "evt_failed", EventType: "report.final.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "failed_stage_kind": "corrective_gate", "safe_error_message": "gate unavailable"}), CreatedAt: base.Add(70 * time.Second)},
+	})
+	if progress.State == "failed" || progress.Retry.ResumeFailed || progress.Retry.Restart {
+		t.Fatalf("final.failed companion must not close attempt: %#v", progress)
+	}
+	if got := reportNodeState(progress.Nodes, "corrective-gate"); got != "failed" {
+		t.Fatalf("gate companion stage state=%q, nodes=%#v", got, progress.Nodes)
+	}
+}
+
+func TestProjectReportProgressShowsPartPlanningAndAuthorOnlyWithPlanPayload(t *testing.T) {
+	base := time.Date(2026, 7, 27, 1, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_edit_enabled": true, "part_planning_enabled": true, "plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}}}), CreatedAt: base.Add(time.Second)},
+		{EventID: "evt_part_plan", EventType: "report.part_plan.created", Payload: mustReportPayload(t, map[string]any{"kind": "sectional_markdown_report_part_plan", "pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "part_index": 1}), CreatedAt: base.Add(4 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(6 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(8 * time.Second)},
+		{EventID: "evt_part_edit_start", EventType: "report.part_edit.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(9 * time.Second)},
+		{EventID: "evt_part_edited", EventType: "report.part.edited", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(12 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	if got := reportNodeState(progress.Nodes, "part-plan-1"); got != "completed" {
+		t.Fatalf("part plan state = %q, nodes = %#v", got, progress.Nodes)
+	}
+	if got := reportNodeState(progress.Nodes, "part-author-1"); got != "completed" {
+		t.Fatalf("part author state = %q, nodes = %#v", got, progress.Nodes)
+	}
+	if got := reportNodeState(progress.Nodes, "part-edit-1"); got != "" {
+		t.Fatalf("part edit should be renamed to author under capability, got %q: %#v", got, progress.Nodes)
+	}
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	assertNodeTiming(t, nodes["part-plan-1"], base.Add(time.Second), 3000)
+	assertNodeTiming(t, nodes["part-author-1"], base.Add(9*time.Second), 3000)
+	wantOrder := []string{"plan", "part-plan-1", "section-1-1", "part-1", "part-author-1", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("unexpected node count: %#v", progress.Nodes)
+	}
+	for index, want := range wantOrder {
+		if progress.Nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, want, progress.Nodes)
+		}
+	}
+
+	legacy := ProjectReportProgress([]Event{
+		events[0],
+		{EventID: "evt_legacy_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_edit_enabled": true, "plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}}}), CreatedAt: base.Add(time.Second)},
+		events[3], events[4], events[5], events[6],
+	})
+	if got := reportNodeState(legacy.Nodes, "part-edit-1"); got != "completed" {
+		t.Fatalf("legacy Part edit state = %q, nodes = %#v", got, legacy.Nodes)
+	}
+	if reportNodeState(legacy.Nodes, "part-plan-1") != "" || reportNodeState(legacy.Nodes, "part-author-1") != "" {
+		t.Fatalf("legacy progress synthesized W4 nodes: %#v", legacy.Nodes)
+	}
+}
+
 func reportNodeState(nodes []ReportProgressNode, id string) string {
 	for _, node := range nodes {
 		if node.ID == id {
@@ -165,6 +463,21 @@ func reportNodeState(nodes []ReportProgressNode, id string) string {
 		}
 	}
 	return ""
+}
+
+func assertReportNodeOrder(t *testing.T, nodes []ReportProgressNode, wantOrder []string) map[string]ReportProgressNode {
+	t.Helper()
+	if len(nodes) != len(wantOrder) {
+		t.Fatalf("unexpected node count: %#v", nodes)
+	}
+	out := map[string]ReportProgressNode{}
+	for index, want := range wantOrder {
+		if nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, nodes[index].ID, want, nodes)
+		}
+		out[want] = nodes[index]
+	}
+	return out
 }
 
 func mustReportPayload(t *testing.T, payload map[string]any) json.RawMessage {

@@ -29,6 +29,8 @@ abstract class LibraryRepository {
     String folderId,
   );
 
+  Future<DocumentDetail> renameDocument(String documentId, String title);
+
   Future<DocumentDetail> setRating(String documentId, int? rating);
 
   Future<DocumentDetail> replaceTags(String documentId, List<String> tagIds);

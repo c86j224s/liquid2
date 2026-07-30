@@ -13,12 +13,8 @@ var schemaReportPlanSubmit = json.RawMessage(`{
     "report_mode":{"enum":["planned","long_form"]},
     "idempotency_key":{"type":"string"},
     "producer":{"$ref":"#/$defs/producer"},
-    "plan":{}
+    "plan":{"oneOf":[{"$ref":"#/$defs/planned_plan"},{"$ref":"#/$defs/long_form_plan"}]}
   },
-  "oneOf":[
-    {"properties":{"report_mode":{"const":"planned"},"plan":{"$ref":"#/$defs/planned_plan"}}},
-    {"properties":{"report_mode":{"const":"long_form"},"plan":{"$ref":"#/$defs/long_form_plan"}}}
-  ],
   "$defs":{
     "producer":{"type":"object","additionalProperties":false,"required":["type","id"],"properties":{"type":{"const":"agent_session"},"id":{"type":"string"}}},
     "target_refs":{"type":"object","additionalProperties":false,"properties":{"claim_ids":{"type":"array","items":{"type":"string"}},"evidence_ids":{"type":"array","items":{"type":"string"}},"snapshot_ids":{"type":"array","items":{"type":"string"}},"question_ids":{"type":"array","items":{"type":"string"}},"option_ids":{"type":"array","items":{"type":"string"}}}},
@@ -30,6 +26,27 @@ var schemaReportPlanSubmit = json.RawMessage(`{
     "long_form_plan":{"type":"object","additionalProperties":false,"required":["parts"],"properties":{"summary":{"type":"string"},"parts":{"type":"array","items":{"$ref":"#/$defs/part"}},"coverage_notes":{"type":"array","items":{"type":"string"}},"planned_omissions":{"type":"array","items":{"type":"string"}},"writing_contract":{"$ref":"#/$defs/writing_contract"}}}
   }
 }`)
+
+var schemaReportRequirementsSubmit = objectSchema(
+	[]string{"mission_id", "session_id", "pending_event_id", "plan_event_id", "idempotency_key", "producer", "requirement_map"},
+	mergeProperties(commonMutatingProperties(), map[string]any{
+		"pending_event_id": prefixedStringSchema("evt_"),
+		"plan_event_id":    prefixedStringSchema("evt_"),
+		"requirement_map": objectSchemaValue([]string{"reviewed_event_ids", "requirements"}, map[string]any{
+			"reviewed_event_ids": arraySchema(prefixedStringSchema("evt_")),
+			"requirements": arraySchema(objectSchemaValue([]string{"requirement_id", "instruction", "source_event_ids"}, map[string]any{
+				"requirement_id":   prefixedStringSchema("req_"),
+				"instruction":      stringSchema(),
+				"source_event_ids": arraySchema(prefixedStringSchema("evt_")),
+				"owner": objectSchemaValue([]string{"part_index", "section_index"}, map[string]any{
+					"part_index":    map[string]any{"type": "integer", "minimum": 1},
+					"section_index": map[string]any{"type": "integer", "minimum": 1},
+				}),
+				"unmapped_reason": stringSchema(),
+			})),
+		}),
+	}),
+)
 
 var schemaReportLongFormFinalize = json.RawMessage(`{
   "type":"object",
@@ -82,6 +99,46 @@ var (
 		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id"},
 		mergeProperties(commonMutatingProperties(), map[string]any{
 			"draft_id":         prefixedStringSchema("rfe_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+		}),
+	)
+	schemaReportPartEditStart = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "pending_event_id", "plan_event_id", "part_index", "source_artifact_id"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":           prefixedStringSchema("rpe_"),
+			"pending_event_id":   prefixedStringSchema("evt_"),
+			"plan_event_id":      prefixedStringSchema("evt_"),
+			"part_index":         map[string]any{"type": "integer", "minimum": 1},
+			"source_artifact_id": prefixedStringSchema("art_"),
+		}),
+	)
+	schemaReportPartEditRead = objectSchema(
+		[]string{"mission_id", "session_id", "draft_id"},
+		map[string]any{
+			"mission_id": prefixedStringSchema("mis_"),
+			"session_id": prefixedStringSchema("ses_"),
+			"draft_id":   prefixedStringSchema("rpe_"),
+			"offset":     map[string]any{"type": "integer", "minimum": 0},
+			"max_bytes":  map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
+		},
+	)
+	schemaReportPartEditPatch = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "operation", "replacement"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":    prefixedStringSchema("rpe_"),
+			"operation":   enumSchema("replace", "insert_after", "append"),
+			"match_text":  stringSchema(),
+			"replacement": stringSchema(),
+			"occurrence":  map[string]any{"type": "integer", "minimum": 0},
+			"replace_all": map[string]any{"type": "boolean"},
+			"summary":     stringSchema(),
+		}),
+	)
+	schemaReportPartEditSubmit = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rpe_"),
 			"pending_event_id": prefixedStringSchema("evt_"),
 			"plan_event_id":    prefixedStringSchema("evt_"),
 		}),

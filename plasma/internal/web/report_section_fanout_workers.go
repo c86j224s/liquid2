@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 type sectionFanoutTaskOutcome struct {
@@ -42,7 +43,7 @@ func (server *Server) runSectionFanoutTasks(ctx context.Context, req sectionFano
 			started := time.Now()
 			result, err := executor.Run(ctx, AgentRequest{
 				UserText:          fmt.Sprintf("draft section %d.%d for section-fanout long-form markdown report", task.partIndex+1, task.sectionIndex+1),
-				Prompt:            withReportDirection(agentSectionDraftPrompt(req.title, req.missionID, task.toolSessionID, req.rigor, state.plan, task.part, task.section, task.partIndex, task.sectionIndex, req.generationGuidanceProfile), req.directionHint),
+				Prompt:            agentSectionDraftPromptWithRequirements(req.title, req.missionID, task.toolSessionID, req.rigor, state.plan, task.part, task.section, task.partIndex, task.sectionIndex, req.generationGuidanceProfile, reporting.ReportRequirementsForSection(state.requirementMap, task.partIndex+1, task.sectionIndex+1)),
 				Model:             req.agentModel,
 				ReasoningEffort:   req.agentReasoningEffort,
 				MissionID:         req.missionID,

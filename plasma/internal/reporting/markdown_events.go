@@ -49,11 +49,14 @@ type MarkdownReportEventBase struct {
 
 type MarkdownReportPlanCreatedEventRequest struct {
 	MarkdownReportEventBase
-	ArtifactID         string
-	Plan               any
-	AssemblyStrategy   string
-	PlanReviewRequired bool
-	PlanReviewState    string
+	ArtifactID          string
+	Plan                any
+	AssemblyStrategy    string
+	FinalEditPipeline   string
+	PartEditEnabled     bool
+	PartPlanningEnabled bool
+	PlanReviewRequired  bool
+	PlanReviewState     string
 }
 
 type MarkdownReportArtifactCreatedEventRequest struct {
@@ -144,10 +147,13 @@ func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEv
 	payload["kind"] = reportPlanKind(base.ReportMode)
 	payload["artifact_id"] = req.ArtifactID
 	putReportNonEmpty(payload, "assembly_strategy", req.AssemblyStrategy)
+	putReportNonEmpty(payload, "final_edit_pipeline", req.FinalEditPipeline)
 	payload["plan_review_required"] = req.PlanReviewRequired
 	payload["plan_review_state"] = req.PlanReviewState
 	payload["duration_ms"] = base.DurationMS
 	payload["plan"] = req.Plan
+	payload["part_edit_enabled"] = req.PartEditEnabled
+	payload["part_planning_enabled"] = req.PartPlanningEnabled
 	payload["text"] = base.Text
 	addReportAgentUsage(payload, base)
 	return app.AppendEventRequest{

@@ -7,7 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
-func agentLongFormFinalEditPrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool) string {
+func agentLongFormFinalEditPrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, requirementMap reporting.ReportRequirementMap, attempt int, canonical bool) string {
 	if canonical {
 		return `The canonical long-form report already exists. Return exactly REPORT_FINALIZED as the entire response. Do not call a tool and do not add text or fences.`
 	}
@@ -16,6 +16,7 @@ func agentLongFormFinalEditPrompt(title string, missionID string, rigor reportRi
 	if attempt > 1 {
 		retry = "\nThis is the one allowed final-stage retry. Start a new bound draft and repeat the editorial pass from the durable Part artifacts."
 	}
+	ownerBoundRequirements := reporting.ReportOwnerBoundRequirements(requirementMap)
 	return fmt.Sprintf(`Edit and atomically finalize a Korean long-form Plasma report through the dedicated MCP tools.
 
 Report title: %s
@@ -31,6 +32,9 @@ Bound tool inputs:
 Overall plan and writing contract:
 %s
 
+Global requirement preservation checks:
+%s
+
 Report rigor:
 - Level: %s (%s)
 - Meaning: %s
@@ -41,8 +45,8 @@ Report rigor:
 Workflow:
 1. Call plasma.report.long_form.final_edit.start. Use the bound identities above and a unique idempotency_key ending in ":start". Keep the returned draft_id.
 2. Read the entire manuscript with plasma.report.long_form.final_edit.read. Continue only from the returned next_offset until truncated is false. Do not edit from a partial read.
-3. Act as an editor, not a new researcher. Call plasma.report.long_form.final_edit.patch with exact replace, insert_after, or append operations to improve the manuscript. Give every patch a different idempotency_key ending in ":patch-N".
-4. Read the affected passages again. Edits can shift UTF-8 byte offsets, so restart at offset 0 and follow only returned next_offset values instead of guessing an offset. Then call plasma.report.long_form.final_edit.submit with the bound pending_event_id and plan_event_id and a unique idempotency_key ending in ":submit".
+3. Act as an editor, not a new researcher. Call plasma.report.long_form.final_edit.patch with exact replace, insert_after, or append operations only when a material manuscript edit is justified. Give every patch a different idempotency_key ending in ":patch-N".
+4. If you patched, read the affected passages again. Edits can shift UTF-8 byte offsets, so restart at offset 0 and follow only returned next_offset values instead of guessing an offset. If no material edit is justified after the full read, submit the unchanged draft. Then call plasma.report.long_form.final_edit.submit with the bound pending_event_id and plan_event_id and a unique idempotency_key ending in ":submit".
 5. After submit succeeds or durably replays, return exactly REPORT_FINALIZED as the entire response.
 
 Editorial responsibilities:
@@ -54,5 +58,5 @@ Editorial responsibilities:
 - Do not add new researched facts, call source/research tools, mutate Part or Section artifacts, or expose artifact IDs in the report.
 - Keep valid Mermaid blocks intact unless an exact edit is necessary; any edited or added Mermaid block must follow this rule: %s
 - Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.
-- Return no report body in the response.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, agentReportAnyJSON(binding.ToolSessionID), agentReportAnyJSON(binding.IdempotencyKey), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportMermaidValidationRule)
+- Return no report body in the response.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, agentReportAnyJSON(binding.ToolSessionID), agentReportAnyJSON(binding.IdempotencyKey), agentReportAnyJSON(plan), agentReportAnyJSON(ownerBoundRequirements), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportMermaidValidationRule)
 }

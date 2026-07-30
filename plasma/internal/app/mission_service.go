@@ -81,7 +81,7 @@ func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pen
 			return nil, fmt.Errorf("%w: report closure requires exactly one terminal event", ErrInvalidInput)
 		}
 		for _, event := range built {
-			if event.EventType != "report.plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" {
+			if event.EventType != "report.plan.failed" && event.EventType != "report.requirements.failed" && event.EventType != "report.part_plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.part_edit.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" {
 				continue
 			}
 			var payload struct {
@@ -142,7 +142,7 @@ func validateReportTerminalAppend(pending, terminal LedgerEvent) (bool, error) {
 	}
 	if strings.HasPrefix(terminal.EventType, "report.") && strings.HasSuffix(terminal.EventType, ".failed") && terminal.EventType != "report.draft.failed" && terminal.EventType != "report.patch.failed" && terminal.EventType != "report.design.failed" && terminal.EventType != "report.humanize.failed" {
 		kind := strings.TrimPrefix(strings.TrimSuffix(terminal.EventType, ".failed"), "report.")
-		validKind := map[string]bool{"plan": true, "section": true, "part": true, "final": true, "artifact": true}[kind]
+		validKind := map[string]bool{"plan": true, "requirements": true, "part_plan": true, "section": true, "part": true, "part_edit": true, "final": true, "artifact": true}[kind]
 		if pending.EventType != "report.draft.pending" || !validKind || payload.StageKind != kind || payload.StageID == "" {
 			return false, fmt.Errorf("%w: invalid report stage companion", ErrInvalidInput)
 		}

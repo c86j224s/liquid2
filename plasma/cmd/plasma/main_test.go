@@ -207,6 +207,59 @@ func TestRunMCPRequiresMissionAndAgentSessionBinding(t *testing.T) {
 	}
 }
 
+func TestRunMCPFinalEditStageBindingRejectsReaderFinalFallback(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	final := testCLIFinalEditFinalBinding("ses_reader", "provider-reader")
+	stage := testCLIFinalEditStageBinding(final, reporting.FinalEditStageReader, "art_source", "art_reader")
+	finalJSON, err := json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageJSON, err := json.Marshal(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runMCP(context.Background(), []string{
+		"-db", dbPath, "-mission-id", final.MissionID, "-agent-session-id", stage.ToolSessionID, "-agent-executor", final.AgentExecutor,
+		"-report-long-form-finalize-binding-json", string(finalJSON),
+		"-report-final-edit-stage-binding-json", string(stageJSON),
+	}, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`), &out, &errOut)
+	if code != 2 {
+		t.Fatalf("runMCP returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "reader/style stages must not include") {
+		t.Fatalf("expected pre-ServeStdio stage/final validation failure, stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
+func TestRunMCPFinalEditStageBindingRejectsIncompatibleGateFinalBeforeServe(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	final := testCLIFinalEditFinalBinding("ses_gate", "provider-gate")
+	stage := testCLIFinalEditStageBinding(final, reporting.FinalEditStageGate, "art_source", final.ArtifactID)
+	stage.AgentModel = "other-model"
+	finalJSON, err := json.Marshal(final)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageJSON, err := json.Marshal(stage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := runMCP(context.Background(), []string{
+		"-db", dbPath, "-mission-id", final.MissionID, "-agent-session-id", stage.ToolSessionID, "-agent-executor", final.AgentExecutor,
+		"-report-long-form-finalize-binding-json", string(finalJSON),
+		"-report-final-edit-stage-binding-json", string(stageJSON),
+	}, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`), &out, &errOut)
+	if code != 2 {
+		t.Fatalf("runMCP returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if out.Len() != 0 || !strings.Contains(errOut.String(), "corrective gate binding differs") {
+		t.Fatalf("expected pre-ServeStdio gate compatibility failure, stdout=%q stderr=%q", out.String(), errOut.String())
+	}
+}
+
 func TestRunServeCodexRequiresFileBackedDB(t *testing.T) {
 	var out, errOut bytes.Buffer
 	code := run(context.Background(), []string{"serve", "-agent", "codex", "-db", ":memory:"}, &out, &errOut)
@@ -215,6 +268,36 @@ func TestRunServeCodexRequiresFileBackedDB(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "file-backed Plasma database") {
 		t.Fatalf("expected file-backed database error, got %q", errOut.String())
+	}
+}
+
+func testCLIFinalEditFinalBinding(toolSessionID string, providerSessionID string) reporting.LongFormFinalizeBinding {
+	return reporting.LongFormFinalizeBinding{
+		MissionID: "mis_cli", PendingEventID: "evt_pending_cli", PlanEventID: "evt_plan_cli", ArtifactID: "art_final", Filename: "report.md", Title: "Report",
+		ToolSessionID: toolSessionID, IdempotencyKey: "final-key", ProviderSessionID: providerSessionID, PreviousProviderSessionID: "provider-plan",
+		PartArtifactIDs: []string{"art_part"}, CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+		AgentExecutor: "codex", AgentModel: "gpt-5", AgentReasoningEffort: "medium", AgentSelectionSource: "system", MCPMode: "locked",
+		RigorLevel: "standard", RigorLabel: "Standard", ReportSessionPolicy: "reuse", ReportSessionPolicySelection: "auto",
+		PostReportHumanize: reporting.FinalEditHumanizeDisabled, GenerationGuidanceProfile: "reader-style-gate",
+		GenerationGuidanceSHA256: strings.Repeat("a", 64), SessionChainKind: "report_final_edit",
+		ReportPlanSessionID: "provider-plan", ForkSourceAgentSessionID: "provider-plan",
+		Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+	}
+}
+
+func testCLIFinalEditStageBinding(final reporting.LongFormFinalizeBinding, stage string, sourceID string, editedID string) reporting.FinalEditStageBinding {
+	return reporting.FinalEditStageBinding{
+		MissionID: final.MissionID, PendingEventID: final.PendingEventID, PlanEventID: final.PlanEventID, Title: final.Title,
+		Stage: stage, SourceArtifactID: sourceID, EditedArtifactID: editedID, Filename: final.Filename,
+		ToolSessionID: final.ToolSessionID, ProviderSessionID: final.ProviderSessionID, PreviousProviderSessionID: final.PreviousProviderSessionID,
+		IdempotencyKey: reporting.FinalEditStageIdempotencyKey(stage, final.PendingEventID, final.PlanEventID),
+		AgentExecutor:  final.AgentExecutor, AgentModel: final.AgentModel, AgentReasoningEffort: final.AgentReasoningEffort,
+		AgentSelectionSource: final.AgentSelectionSource, MCPMode: final.MCPMode, RigorLevel: final.RigorLevel, RigorLabel: final.RigorLabel,
+		ReportSessionPolicy: final.ReportSessionPolicy, ReportSessionPolicySelection: final.ReportSessionPolicySelection,
+		PostReportHumanize: final.PostReportHumanize, GenerationGuidanceProfile: final.GenerationGuidanceProfile,
+		GenerationGuidanceSHA256: final.GenerationGuidanceSHA256, SessionChainKind: final.SessionChainKind,
+		ReportPlanSessionID: final.ReportPlanSessionID, ForkSourceAgentSessionID: final.ForkSourceAgentSessionID,
+		Producer: final.Producer,
 	}
 }
 

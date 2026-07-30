@@ -47,6 +47,34 @@ func ValidateHumanizedMarkdown(original string, humanized string) error {
 	return nil
 }
 
+func ValidateFinalEditStyleMarkdown(reader string, style string) error {
+	var failures []string
+	checkEqual := func(label string, a []string, b []string) {
+		if !sameStringSlice(a, b) {
+			failures = append(failures, label)
+		}
+	}
+	checkEqual("heading_order", markdownHeadings(reader), markdownHeadings(style))
+	checkEqual("table_lines", markdownTableLines(reader), markdownTableLines(style))
+	checkEqual("code_fences", markdownCodeFenceBlocks(reader), markdownCodeFenceBlocks(style))
+	checkEqual("blockquote_lines", markdownBlockquoteLines(reader), markdownBlockquoteLines(style))
+	checkEqual("source_bearing_lines", markdownSourceBearingLines(reader), markdownSourceBearingLines(style))
+	checkEqual("list_markers", markdownListMarkers(reader), markdownListMarkers(style))
+	checkEqual("links", regexpFindAll(`!?\[[^\]]*\]\([^)]+\)|https?://[^\s)<]+`, reader), regexpFindAll(`!?\[[^\]]*\]\([^)]+\)|https?://[^\s)<]+`, style))
+	checkEqual("footnotes", regexpFindAll(`\[\^[^\]]+\](?::[^\n]*)?`, reader), regexpFindAll(`\[\^[^\]]+\](?::[^\n]*)?`, style))
+	checkEqual("inline_code", regexpFindAll("`[^`\n]+`", reader), regexpFindAll("`[^`\n]+`", style))
+	checkEqual("quoted_text", regexpFindAll(`"[^"\n]+"|'[^'\n]+'|“[^”\n]+”|‘[^’\n]+’`, reader), regexpFindAll(`"[^"\n]+"|'[^'\n]+'|“[^”\n]+”|‘[^’\n]+’`, style))
+	checkEqual("numbers", regexpFindAll(`[-+]?\d+(?:[.,:/-]\d+)*(?:%|[A-Za-z가-힣]+)?`, reader), regexpFindAll(`[-+]?\d+(?:[.,:/-]\d+)*(?:%|[A-Za-z가-힣]+)?`, style))
+	checkEqual("latin_technical_tokens", regexpFindAll(`[A-Za-z][A-Za-z0-9._:+/#-]*[A-Za-z0-9]`, reader), regexpFindAll(`[A-Za-z][A-Za-z0-9._:+/#-]*[A-Za-z0-9]`, style))
+	if len(markdownNonEmptyBlocks(reader)) != len(markdownNonEmptyBlocks(style)) {
+		failures = append(failures, "nonempty_block_count")
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%w: final edit style Markdown failed fidelity guard: %s", app.ErrInvalidInput, strings.Join(failures, ", "))
+	}
+	return nil
+}
+
 func markdownMeaningMarkers(pattern *regexp.Regexp, text string) []string {
 	return pattern.FindAllString(markdownWithoutFenceBlocks(text), -1)
 }

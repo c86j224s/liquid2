@@ -21,6 +21,7 @@ type stdioReportPlanExecutor struct {
 	binary                         string
 	database                       string
 	delegate                       *fakeAgentExecutor
+	service                        *app.Service
 	malformedFirstLongFormFinalize bool
 	longFormFinalizeCalls          int
 }
@@ -110,6 +111,53 @@ func (executor *stdioReportPlanExecutor) Run(ctx context.Context, req AgentReque
 		result.Text = reporting.PartAssemblySubmittedSentinel
 		return result, nil
 	}
+	if req.ReportRequirements != nil {
+		events, listErr := executor.service.ListEvents(ctx, req.MissionID)
+		if listErr != nil {
+			return result, listErr
+		}
+		reviewedEventIDs, reviewErr := app.ReportRequirementReviewEventIDs(events, req.ReportRequirements.PendingEventID)
+		if reviewErr != nil {
+			return result, reviewErr
+		}
+		plan, planErr := reportPlanFixtureSectionalPlan(events, *req.ReportRequirements)
+		if planErr != nil {
+			return result, planErr
+		}
+		requirementMap, normalizeErr := reporting.NormalizeReportRequirementMap(reporting.ReportRequirementMap{ReviewedEventIDs: reviewedEventIDs}, plan)
+		if normalizeErr != nil {
+			return result, normalizeErr
+		}
+		encoded, _ := json.Marshal(req.ReportRequirements)
+		args := []string{
+			"mcp", "-db", executor.database, "-mission-id", req.MissionID, "-agent-session-id", req.ToolSessionID, "-agent-executor", req.AgentExecutor,
+			"-enabled-tool", plasmamcp.ToolResearchRead,
+			"-enabled-tool", plasmamcp.ToolReportRequirementsSubmit,
+			"-report-requirements-binding-json", string(encoded),
+		}
+		call := map[string]any{
+			"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+			"params": map[string]any{"name": plasmamcp.ToolReportRequirementsSubmit, "arguments": map[string]any{
+				"mission_id": req.MissionID, "session_id": req.ToolSessionID, "pending_event_id": req.ReportRequirements.PendingEventID,
+				"plan_event_id": req.ReportRequirements.PlanEventID, "idempotency_key": req.ReportRequirements.IdempotencyKey,
+				"producer": req.ReportRequirements.Producer, "requirement_map": requirementMap,
+			}},
+		}
+		callJSON, _ := json.Marshal(call)
+		input := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n" + string(callJSON) + "\n")
+		command := exec.CommandContext(ctx, executor.binary, args...)
+		command.Stdin = bytes.NewReader(input)
+		output, runErr := command.CombinedOutput()
+		if runErr != nil {
+			return result, fmt.Errorf("plasma requirements MCP stdio failed: %w: %s", runErr, output)
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		if len(lines) != 2 || !strings.Contains(lines[0], plasmamcp.ToolReportRequirementsSubmit) || !strings.Contains(lines[1], "requirement_map_event_id") || strings.Contains(lines[1], `"isError":true`) {
+			return result, fmt.Errorf("unexpected plasma requirements mcp stdio output: %s", output)
+		}
+		result.Text = reporting.ReportRequirementsMappedSentinel
+		return result, nil
+	}
 	if req.ReportPlan == nil {
 		return result, nil
 	}
@@ -185,7 +233,7 @@ func TestWebReportRoutesUseRealPlasmaMCPStdio(t *testing.T) {
 			defer store.Close()
 			service := app.NewService(store)
 			delegate := &fakeAgentExecutor{responses: test.responses}
-			executor := &stdioReportPlanExecutor{binary: binary, database: database, delegate: delegate, malformedFirstLongFormFinalize: test.mode == reportModeLongForm}
+			executor := &stdioReportPlanExecutor{binary: binary, database: database, delegate: delegate, service: service, malformedFirstLongFormFinalize: test.mode == reportModeLongForm}
 			server := httptest.NewServer(NewServer(service, Options{AgentExecutors: map[string]AgentExecutor{test.executorName: executor}}))
 			defer server.Close()
 			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "MCP acceptance"})
@@ -200,6 +248,9 @@ func TestWebReportRoutesUseRealPlasmaMCPStdio(t *testing.T) {
 			}
 			if test.mode == reportModeLongForm && (executor.longFormFinalizeCalls != 2 || countEvents(detail, "report.draft.failed") != 0 || countEvents(detail, "turn.agent.response") != 0) {
 				t.Fatalf("built stdio validation retry did not recover cleanly: calls=%d events=%#v", executor.longFormFinalizeCalls, detail["events"])
+			}
+			if test.mode == reportModeLongForm && countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
+				t.Fatalf("stdio path did not submit one requirement map: %#v", detail["events"])
 			}
 			events, _ := detail["events"].([]any)
 			submittedIndex, canonicalIndex := -1, -1
@@ -229,6 +280,20 @@ func TestWebReportRoutesUseRealPlasmaMCPStdio(t *testing.T) {
 			}
 			if len(delegate.requests) == 0 || delegate.requests[0].ReportPlan == nil {
 				t.Fatal("Web did not produce a report-plan MCP context")
+			}
+			if test.mode == reportModeLongForm {
+				if len(delegate.requests) != 6 {
+					t.Fatalf("expected plan, requirements, section, part, and two final requests, got %#v", delegate.requests)
+				}
+				if delegate.requests[1].ReportRequirements == nil || delegate.requests[1].ReportPlan != nil || !requestHasMCPTool(delegate.requests[1], plasmamcp.ToolReportRequirementsSubmit) {
+					t.Fatalf("Web did not produce a dedicated requirement-map MCP context: %#v", delegate.requests[1])
+				}
+				if delegate.requests[2].ReportPlan != nil || delegate.requests[2].ReportRequirements != nil || delegate.requests[2].PartAssembly != nil || delegate.requests[2].LongFormFinalize != nil {
+					t.Fatalf("section request was not third in the stdio flow: %#v", delegate.requests[2])
+				}
+				if delegate.requests[3].PartAssembly == nil || delegate.requests[4].LongFormFinalize == nil || delegate.requests[5].LongFormFinalize == nil {
+					t.Fatalf("stdio long-form stage order changed: %#v", delegate.requests)
+				}
 			}
 			planRequest := delegate.requests[0]
 			for _, expected := range []string{missionID, planRequest.ToolSessionID, planRequest.ReportPlan.PendingEventID, test.mode, planRequest.ReportPlan.IdempotencyKey, `producer {"type":"agent_session","id":"` + planRequest.ToolSessionID + `"}`} {

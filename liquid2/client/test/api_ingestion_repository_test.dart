@@ -27,6 +27,23 @@ void main() {
     expect(detail.document.kind, 'bookmark');
   });
 
+  test('scrapeUrl posts to scrape endpoint', () async {
+    final adapter = IngestionRecordingAdapter();
+    final repository = ApiLibraryRepository(_api(adapter));
+
+    await repository.scrapeUrl(
+      url: 'https://example.com/a',
+      folderId: 'folder_1',
+      tagIds: ['tag_go'],
+    );
+
+    final request = adapter.requests.single;
+    expect(request.path, '/api/v1/documents/scrape');
+    expect(adapter.bodies[request], contains('"url":"https://example.com/a"'));
+    expect(adapter.bodies[request], contains('"folderId":"folder_1"'));
+    expect(adapter.bodies[request], isNot(contains('"title"')));
+  });
+
   test('uploadFile sends multipart bytes', () async {
     final adapter = IngestionRecordingAdapter();
     final repository = ApiLibraryRepository(_api(adapter));

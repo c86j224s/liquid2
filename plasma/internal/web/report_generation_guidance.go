@@ -28,6 +28,7 @@ const (
 	reportGenerationGuidanceProfileVisualSupplement              = "visual-supplement"
 	reportGenerationGuidanceProfileVisualPlan                    = "visual-plan"
 	reportGenerationGuidanceProfileDefault                       = reportGenerationGuidanceProfileNarrativeContract
+	reportGenerationGuidanceProfileLongFormDefault               = reportGenerationGuidanceProfilePartConnectiveEconomyVoice
 )
 
 func SelectReportGenerationGuidance(profile string) (string, string, error) {
@@ -35,6 +36,48 @@ func SelectReportGenerationGuidance(profile string) (string, string, error) {
 }
 
 func SelectReportGenerationGuidanceForMode(reportMode string, profile string) (string, string, error) {
+	if reportMode == reportModeLongForm && strings.TrimSpace(profile) == "" {
+		profile = reportGenerationGuidanceProfileLongFormDefault
+	}
+	if isReportGenerationGuidanceProfilePartConnectiveSubjectDirectSynthesisVoice(profile) {
+		if reportMode != reportModeLongForm {
+			return "", "", fmt.Errorf("%w: subject-direct synthesis voice is supported only for long-form reports", app.ErrInvalidInput)
+		}
+		normalized := reportGenerationGuidanceProfilePartConnectiveSubjectDirectSynthesisVoice
+		text := strings.TrimSpace(strings.Join([]string{
+			LongFormReportGenerationGuidance(normalized),
+			reportSectionDirectWritingGuidance(normalized),
+			reportPartConnectiveEconomyGuidance(normalized),
+			reportSubjectDirectSynthesisSectionGuidance(normalized),
+		}, "\n\n"))
+		sum := sha256.Sum256([]byte(text))
+		return normalized, hex.EncodeToString(sum[:]), nil
+	}
+	if isReportGenerationGuidanceProfilePartConnectiveEconomyVoice(profile) {
+		if reportMode != reportModeLongForm {
+			return "", "", fmt.Errorf("%w: Part connective economy is supported only for long-form reports", app.ErrInvalidInput)
+		}
+		normalized := reportGenerationGuidanceProfilePartConnectiveEconomyVoice
+		text := strings.TrimSpace(strings.Join([]string{
+			LongFormReportGenerationGuidance(normalized),
+			reportSectionDirectWritingGuidance(normalized),
+			reportPartConnectiveEconomyGuidance(normalized),
+		}, "\n\n"))
+		sum := sha256.Sum256([]byte(text))
+		return normalized, hex.EncodeToString(sum[:]), nil
+	}
+	if isReportGenerationGuidanceProfileSectionDirectReadingVoice(profile) {
+		if reportMode != reportModeLongForm {
+			return "", "", fmt.Errorf("%w: section-direct reading voice is supported only for long-form reports", app.ErrInvalidInput)
+		}
+		normalized := reportGenerationGuidanceProfileSectionDirectReadingVoice
+		text := strings.TrimSpace(strings.Join([]string{
+			LongFormReportGenerationGuidance(normalized),
+			reportSectionDirectWritingGuidance(normalized),
+		}, "\n\n"))
+		sum := sha256.Sum256([]byte(text))
+		return normalized, hex.EncodeToString(sum[:]), nil
+	}
 	if reportMode == reportModeLongForm && isReportGenerationGuidanceProfileLongFormExperiment(profile) {
 		normalized := normalizeLongFormExperimentProfile(profile)
 		text := LongFormReportGenerationGuidance(normalized)
@@ -69,6 +112,26 @@ func selectReportGenerationGuidanceText(profile string, guidance func(string) st
 		text := guidance(reportGenerationGuidanceProfileNarrativeContract)
 		sum := sha256.Sum256([]byte(text))
 		return reportGenerationGuidanceProfileNarrativeContract, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileReaderParagraphContract, "reader_paragraph_contract", "direct-explanation-contract", "direct_explanation_contract":
+		text := guidance(reportGenerationGuidanceProfileReaderParagraphContract)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileReaderParagraphContract, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileCuriosityLedExplanation, "curiosity_led_explanation", "curiosity-explanation", "curiosity_explanation", "processed-reading-artifact", "processed_reading_artifact":
+		text := guidance(reportGenerationGuidanceProfileCuriosityLedExplanation)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileCuriosityLedExplanation, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileCuriosityNaturalVoice, "curiosity_natural_voice", "natural-curiosity", "natural_curiosity":
+		text := guidance(reportGenerationGuidanceProfileCuriosityNaturalVoice)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileCuriosityNaturalVoice, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileCuriosityTightVoice, "curiosity_tight_voice", "tight-curiosity", "tight_curiosity", "compact-curiosity", "compact_curiosity":
+		text := guidance(reportGenerationGuidanceProfileCuriosityTightVoice)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileCuriosityTightVoice, hex.EncodeToString(sum[:]), nil
+	case reportGenerationGuidanceProfileEditedReadingVoice, "edited_reading_voice", "edited-reading", "edited_reading", "reading-editor", "reading_editor":
+		text := guidance(reportGenerationGuidanceProfileEditedReadingVoice)
+		sum := sha256.Sum256([]byte(text))
+		return reportGenerationGuidanceProfileEditedReadingVoice, hex.EncodeToString(sum[:]), nil
 	case reportGenerationGuidanceProfileVisualTypeManual, "visual_type_manual", "visual-type-selection", "visual_type_selection":
 		text := guidance(reportGenerationGuidanceProfileVisualTypeManual)
 		sum := sha256.Sum256([]byte(text))
@@ -310,6 +373,7 @@ func longFormExperimentalPlanningGuidance(profile string) string {
 		strings.TrimSpace(longFormSectionBriefPlanningGuidance(profile)),
 		strings.TrimSpace(longFormSectionBriefClusterMemoryPlanningGuidance(profile)),
 		strings.TrimSpace(longFormPlanReviewPlanningGuidance(profile)),
+		strings.TrimSpace(reportSubjectDirectSynthesisPlanningGuidance(profile)),
 		strings.TrimSpace(reportNarrativeContractPlanningGuidance(profile)),
 	}
 	kept := make([]string, 0, len(parts))

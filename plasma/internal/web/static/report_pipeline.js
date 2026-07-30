@@ -18,6 +18,19 @@
 
   function nodeLabel(node) {
     const coordinate = node.part_index ? ` ${node.part_index}${node.section_index ? `.${node.section_index}` : ""}` : "";
+    if (node.kind === "requirements") return "요구 연결";
+    if (node.kind === "part_plan") return `파트 계획${coordinate}`;
+    if (node.kind === "section") return `섹션${coordinate}`;
+    if (node.kind === "part") return `파트 조립${coordinate}`;
+    if (node.kind === "part_edit") return `파트 편집${coordinate}`;
+    if (node.kind === "part_author") return `파트 최종 작성${coordinate}`;
+    if (node.kind === "final_assembly") return "최종 조립";
+    if (node.kind === "final_write") return "최종 작성";
+    if (node.kind === "reader_edit") return "독자 편집";
+    if (node.kind === "style_edit") return "말투 편집";
+    if (node.kind === "corrective_gate") return "근거·요구 교정";
+    if (node.kind === "final") return "최종 편집·확정";
+    if (node.kind === "artifact") return "산출물";
     return `${node.kind}${coordinate}`;
   }
 
@@ -68,9 +81,18 @@
   }
 
   function stageName(node) {
+    if (node.kind === "requirements") return "사용자 요구 연결";
+    if (node.kind === "part_plan") return `파트 ${node.part_index} 읽기 흐름 계획`;
     if (node.kind === "section") return `파트 ${node.part_index} 섹션 ${node.section_index} 작성`;
-    if (node.kind === "part") return `파트 ${node.part_index} 작성`;
-    if (node.kind === "final") return "최종화";
+    if (node.kind === "part") return `파트 ${node.part_index} 조립`;
+    if (node.kind === "part_edit") return `파트 ${node.part_index} 편집`;
+    if (node.kind === "part_author") return `파트 ${node.part_index} 최종 작성`;
+    if (node.kind === "final_assembly") return "최종 조립";
+    if (node.kind === "final_write") return "최종 작성";
+    if (node.kind === "reader_edit") return "독자 편집";
+    if (node.kind === "style_edit") return "말투 편집";
+    if (node.kind === "corrective_gate") return "근거·요구 교정";
+    if (node.kind === "final") return "최종 편집·확정";
     if (node.kind === "artifact") return "산출물 생성";
     return "계획 수립";
   }
@@ -78,6 +100,12 @@
   function currentStage(nodes) {
     const runningSections = nodes.filter((node) => node.kind === "section" && node.state === "running");
     if (runningSections.length > 1) return { name: `섹션 ${runningSections.length}개 병렬 작성`, state: status.running.text };
+    const runningPartPlans = nodes.filter((node) => node.kind === "part_plan" && node.state === "running");
+    if (runningPartPlans.length > 1) return { name: `파트 ${runningPartPlans.length}개 병렬 계획`, state: status.running.text };
+    const runningPartEdits = nodes.filter((node) => node.kind === "part_edit" && node.state === "running");
+    if (runningPartEdits.length > 1) return { name: `파트 ${runningPartEdits.length}개 병렬 편집`, state: status.running.text };
+    const runningPartAuthors = nodes.filter((node) => node.kind === "part_author" && node.state === "running");
+    if (runningPartAuthors.length > 1) return { name: `파트 ${runningPartAuthors.length}개 최종 작성`, state: status.running.text };
     const current = nodes.find((node) => node.state === "running") ||
       nodes.find((node) => node.state === "failed") ||
       nodes.find((node) => node.state === "pending") ||
@@ -101,9 +129,20 @@
 
   function reportPhases(nodes) {
     return [
+      { label: "요구 연결", nodes: nodes.filter((node) => node.kind === "requirements") },
+      { label: "파트 계획", nodes: nodes.filter((node) => node.kind === "part_plan") },
       { label: "섹션 작성", nodes: nodes.filter((node) => node.kind === "section") },
-      { label: "파트 조립", nodes: nodes.filter((node) => node.kind === "part") }
+      { label: "파트 조립", nodes: nodes.filter((node) => node.kind === "part") },
+      { label: "파트 편집", nodes: nodes.filter((node) => node.kind === "part_edit") },
+      { label: "파트 최종 작성", nodes: nodes.filter((node) => node.kind === "part_author") }
     ].filter((phase) => phase.nodes.length > 0);
+  }
+
+  function finalEditClosingNodes(nodes) {
+    const staged = nodes.filter((node) => node.kind === "final_assembly" || node.kind === "final_write" || node.kind === "reader_edit" || node.kind === "style_edit" || node.kind === "corrective_gate");
+    const artifacts = nodes.filter((node) => node.id === "artifact" || node.kind === "artifact");
+    if (staged.length) return [...staged, ...artifacts];
+    return nodes.filter((node) => node.id === "final" || node.id === "artifact" || node.kind === "final" || node.kind === "artifact");
   }
 
   function phaseSummary(nodes) {
@@ -182,7 +221,12 @@
     closing.forEach(addNode);
     const width = Math.max(760, nextX);
     const transition = revealing ? " pipeline-graph-revealing" : "";
-    return `<svg class="pipeline-graph${transition}" style="--pipeline-width: ${width}px; --pipeline-height: 136px" viewBox="0 0 ${width} 136" role="img" aria-label="계획, 섹션 작성, 파트 조립, 최종화, 산출물 순서의 리포트 생성 진행 상황"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
+    const hasRequirements = phases.some((phase) => phase.nodes.some((node) => node.kind === "requirements"));
+    const hasPartPlanning = phases.some((phase) => phase.nodes.some((node) => node.kind === "part_plan"));
+    const hasPartAuthor = phases.some((phase) => phase.nodes.some((node) => node.kind === "part_author"));
+    const middle = [hasRequirements ? "요구 연결" : "", hasPartPlanning ? "파트 계획" : "", "섹션 작성", "파트 조립", hasPartAuthor ? "파트 최종 작성" : ""].filter(Boolean).join(", ");
+    const aria = `계획, ${middle}, 최종화, 산출물 순서의 리포트 생성 진행 상황`;
+    return `<svg class="pipeline-graph${transition}" style="--pipeline-width: ${width}px; --pipeline-height: 136px" viewBox="0 0 ${width} 136" role="img" aria-label="${aria}"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
   }
 
   function arrowMarker() {
@@ -205,8 +249,11 @@
   }
 
   function fanoutProgressGraph(plan, phases, closing, revealing) {
+    const requirements = phases.flatMap((phase) => phase.nodes).filter((node) => node.kind === "requirements");
+    const partPlans = phases.flatMap((phase) => phase.nodes).filter((node) => node.kind === "part_plan");
     const sections = phases.flatMap((phase) => phase.nodes).filter((node) => node.kind === "section");
     const parts = phases.flatMap((phase) => phase.nodes).filter((node) => node.kind === "part");
+    const partFinals = phases.flatMap((phase) => phase.nodes).filter((node) => node.kind === "part_edit" || node.kind === "part_author");
     if (!sections.length || !parts.length) return progressGraph(plan, phases, closing, revealing, false);
     const output = [];
     const padding = 36;
@@ -219,29 +266,61 @@
     const centerY = 62 + (lastRowY - 62) / 2;
     const height = Math.max(136, Math.round(lastRowY + 74));
     const maxSectionsPerPart = Math.max(...rows.map(([, items]) => items.length));
+    const partPlanWidth = partPlans.length ? maxNodeWidth(partPlans) : 0;
     const sectionWidth = maxNodeWidth(sections);
     const partWidth = maxNodeWidth(parts);
-    const planWidth = plan ? visualNodeWidth(plan) : 144;
-    const planX = padding + planWidth / 2;
-    const firstSectionX = planX + planWidth / 2 + branchGap + sectionWidth / 2;
+    const partFinalWidth = partFinals.length ? maxNodeWidth(partFinals) : 0;
+    const prefixNodes = [plan, ...requirements].filter(Boolean);
+    const prefixLayouts = [];
+    let prefixRight = padding;
+    prefixNodes.forEach((node, index) => {
+      const width = visualNodeWidth(node);
+      const x = prefixRight + width / 2;
+      prefixLayouts.push({ node, x, width, fixed: index === 0 });
+      prefixRight = x + width / 2 + nodeGap;
+    });
+    const branchSource = prefixLayouts[prefixLayouts.length - 1];
+    const partPlanX = partPlans.length ? prefixRight - nodeGap + branchGap + partPlanWidth / 2 : 0;
+    const firstSectionX = (partPlans.length ? partPlanX + partPlanWidth / 2 : prefixRight - nodeGap) + branchGap + sectionWidth / 2;
     const sectionStep = sectionWidth + nodeGap;
     const partX = firstSectionX + Math.max(0, maxSectionsPerPart - 1) * sectionStep + sectionWidth / 2 + branchGap + partWidth / 2;
+    const partFinalX = partFinals.length ? partX + partWidth / 2 + branchGap + partFinalWidth / 2 : 0;
     const closingNodes = closing.map((node) => ({ node, width: visualNodeWidth(node) }));
-    let closingX = partX + partWidth / 2 + branchGap;
+    let closingX = (partFinals.length ? partFinalX + partFinalWidth / 2 : partX + partWidth / 2) + branchGap;
+    const partPlanByIndex = new Map(partPlans.map((node) => [node.part_index || 1, node]));
     const partByIndex = new Map(parts.map((node) => [node.part_index || 1, node]));
+    const partFinalByIndex = new Map(partFinals.map((node) => [node.part_index || 1, node]));
 
     const sectionPhaseStart = firstSectionX - sectionWidth / 2 - 16;
     const sectionPhaseEnd = firstSectionX + Math.max(0, maxSectionsPerPart - 1) * sectionStep + sectionWidth / 2 + 16;
+    if (partPlans.length) {
+      output.push(`<g class="pipeline-visual-phase pipeline-visual-phase-fanout"><rect x="${partPlanX - partPlanWidth / 2 - 16}" y="16" width="${partPlanWidth + 32}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${partPlanX - partPlanWidth / 2 - 6}" y="34">파트 계획</text></g>`);
+    }
     output.push(`<g class="pipeline-visual-phase pipeline-visual-phase-fanout"><rect x="${sectionPhaseStart}" y="16" width="${sectionPhaseEnd - sectionPhaseStart}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${sectionPhaseStart + 10}" y="34">섹션 작성</text></g>`);
     output.push(`<g class="pipeline-visual-phase pipeline-visual-phase-fanout"><rect x="${partX - partWidth / 2 - 16}" y="16" width="${partWidth + 32}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${partX - partWidth / 2 - 6}" y="34">파트 조립</text></g>`);
-    if (plan) output.push(visualNode(plan, planX, centerY, planWidth, true));
+    if (partFinals.length) {
+      const label = partFinals.some((node) => node.kind === "part_author") ? "파트 최종 작성" : "파트 편집";
+      output.push(`<g class="pipeline-visual-phase pipeline-visual-phase-fanout"><rect x="${partFinalX - partFinalWidth / 2 - 16}" y="16" width="${partFinalWidth + 32}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${partFinalX - partFinalWidth / 2 - 6}" y="34">${label}</text></g>`);
+    }
+    prefixLayouts.forEach((layout, index) => {
+      if (index > 0) output.push(pathConnector(prefixLayouts[index - 1].x, centerY, layout.x, centerY));
+      output.push(visualNode(layout.node, layout.x, centerY, layout.width, layout.fixed));
+    });
 
     const partLayouts = [];
+    const branchTerminalLayouts = [];
     rows.forEach(([partIndex, items], rowIndex) => {
       const y = 62 + rowIndex * rowGap;
+      const partPlanNode = partPlanByIndex.get(partIndex);
+      let rowSource = branchSource ? { x: branchSource.x, y: centerY } : null;
+      if (partPlanNode) {
+        if (branchSource) output.push(pathConnector(branchSource.x, centerY, partPlanX, y));
+        output.push(visualNode(partPlanNode, partPlanX, y, partPlanWidth, false));
+        rowSource = { x: partPlanX, y };
+      }
       items.forEach((node, index) => {
         const x = firstSectionX + index * sectionStep;
-        if (plan) output.push(pathConnector(planX, centerY, x, y));
+        if (rowSource) output.push(pathConnector(rowSource.x, rowSource.y, x, y));
         output.push(visualNode(node, x, y, sectionWidth, false));
       });
       const partNode = partByIndex.get(partIndex);
@@ -249,14 +328,21 @@
       items.forEach((_node, index) => output.push(pathConnector(firstSectionX + index * sectionStep, y, partX, y)));
       output.push(visualNode(partNode, partX, y, partWidth, false));
       partLayouts.push({ x: partX, y, node: partNode });
+      const partFinalNode = partFinalByIndex.get(partIndex);
+      if (partFinalNode) {
+        output.push(pathConnector(partX, y, partFinalX, y));
+        output.push(visualNode(partFinalNode, partFinalX, y, partFinalWidth, false));
+        branchTerminalLayouts.push({ x: partFinalX, y, node: partFinalNode });
+      } else {
+        branchTerminalLayouts.push({ x: partX, y, node: partNode });
+      }
     });
-
     let previousClosing = null;
     closingNodes.forEach(({ node, width }, index) => {
       const x = closingX + width / 2;
       const y = centerY;
       if (index === 0) {
-        partLayouts.forEach((layout) => output.push(pathConnector(layout.x, layout.y, x, y)));
+        branchTerminalLayouts.forEach((layout) => output.push(pathConnector(layout.x, layout.y, x, y)));
       } else if (previousClosing) {
         output.push(pathConnector(previousClosing.x, previousClosing.y, x, y));
       }
@@ -266,7 +352,12 @@
     });
     const width = Math.max(760, Math.round((previousClosing ? previousClosing.x + previousClosing.width / 2 : partX + partWidth / 2) + padding));
     const transition = revealing ? " pipeline-graph-revealing" : "";
-    return `<svg class="pipeline-graph pipeline-graph-fanout${transition}" style="--pipeline-width: ${width}px; --pipeline-height: ${height}px" viewBox="0 0 ${width} ${height}" role="img" aria-label="계획에서 여러 섹션 작성으로 갈라지고 파트 조립으로 합쳐지는 병렬 리포트 생성 진행 상황"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
+    const aria = partFinals.length ?
+      `계획 뒤 ${partPlans.length ? "파트 계획과 " : ""}여러 섹션 작성으로 갈라지고 파트 조립과 ${partFinals.some((node) => node.kind === "part_author") ? "파트 최종 작성" : "파트 편집"}을 거쳐 최종화되는 병렬 리포트 생성 진행 상황` :
+      requirements.length ?
+        `계획과 요구 연결 뒤 ${partPlans.length ? "파트 계획과 " : ""}여러 섹션 작성으로 갈라지고 파트 조립으로 합쳐지는 병렬 리포트 생성 진행 상황` :
+        `계획에서 ${partPlans.length ? "파트 계획과 " : ""}여러 섹션 작성으로 갈라지고 파트 조립으로 합쳐지는 병렬 리포트 생성 진행 상황`;
+    return `<svg class="pipeline-graph pipeline-graph-fanout${transition}" style="--pipeline-width: ${width}px; --pipeline-height: ${height}px" viewBox="0 0 ${width} ${height}" role="img" aria-label="${aria}"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
   }
 
   function renderActions(progress) {
@@ -294,6 +385,47 @@
     const strategy = fanout ? "장문 · 빠른 병렬" :
       payload.report_mode === "long_form" ? "장문 · 순차" : "일반";
     return { title, startedAt, attempt, strategy, fanout };
+  }
+
+  function fallbackRequestSummary(attempt) {
+    const startedAt = attempt.startedAt === "생성 시작 시각 알 수 없음"
+      ? ""
+      : attempt.startedAt;
+    const startedAtLabel = startedAt && typeof timeShort === "function" ? timeShort(startedAt) : attempt.startedAt;
+    return {
+      mode: attempt.strategy,
+      strategy: "",
+      guidance: "",
+      rigor: "미지정",
+      model: "미션 설정 상속",
+      effort: "미션 설정 상속",
+      direction: "지정 없음",
+      startedAt: startedAtLabel,
+      startedAtDateTime: startedAt
+    };
+  }
+
+  function renderRequestDetails(summary, open) {
+    const request = summary || {};
+    const item = (label, value, className = "") => {
+      const display = value || "미지정";
+      const extraClass = className ? ` ${className}` : "";
+      return `<span class="report-generation-item${extraClass}"><strong>${escapeHTML(label)}</strong><span>${escapeHTML(display)}</span></span>`;
+    };
+    const startedAt = request.startedAt || "미지정";
+    const startedAtTime = `<span class="report-generation-item"><strong>전체 생성 시작</strong><span><time datetime="${escapeHTML(request.startedAtDateTime || "")}">${escapeHTML(startedAt)}</time></span></span>`;
+    return `<details class="pipeline-request-details"${open ? " open" : ""}><summary>생성 요청 상세</summary>
+      <div class="report-generation-summary" aria-label="생성 요청 설정">
+        ${item("방식", request.mode)}
+        ${request.strategy ? item("장문 작성", request.strategy) : ""}
+        ${request.guidance ? item("글쓰기", request.guidance) : ""}
+        ${item("엄격도", request.rigor)}
+        ${item("모델", request.model)}
+        ${item("추론", request.effort)}
+        ${item("방향", request.direction, "report-direction-line")}
+        ${startedAtTime}
+      </div>
+    </details>`;
   }
 
   async function requestRetry(button, progress) {
@@ -347,7 +479,7 @@
     }, 1000);
   }
 
-  window.renderReportPipeline = function renderReportPipeline(progress) {
+  window.renderReportPipeline = function renderReportPipeline(progress, requestSummary) {
     const host = document.getElementById("reportPipeline");
     if (!host) return;
     if (!progress || progress.state === "unknown") { stopLiveTiming(); host.innerHTML = ""; return; }
@@ -355,12 +487,14 @@
     const detailed = hasPlannedContent(nodes);
     const plan = planNode(nodes, progress);
     const phases = detailed ? reportPhases(nodes) : [];
-    const closing = detailed ? nodes.filter((node) => node.id === "final" || node.id === "artifact" || node.kind === "final" || node.kind === "artifact") : [];
+    const closing = detailed ? finalEditClosingNodes(nodes) : [];
     const graphNodes = [plan, ...phases.flatMap((phase) => phase.nodes), ...closing];
     const stage = currentStage(graphNodes);
     const details = typeof host.querySelector === "function" ? host.querySelector(".pipeline-details") : null;
+    const requestDetails = typeof host.querySelector === "function" ? host.querySelector(".pipeline-request-details") : null;
     const visual = typeof host.querySelector === "function" ? host.querySelector(".pipeline-visual") : null;
     const detailsOpen = Boolean(details && details.open);
+    const requestDetailsOpen = Boolean(requestDetails && requestDetails.open);
     const visualScrollLeft = visual && Number.isFinite(visual.scrollLeft) ? visual.scrollLeft : 0;
     const revealing = detailed && host.dataset && host.dataset.pipelinePhase === "planning";
     if (host.dataset) host.dataset.pipelinePhase = detailed ? "detailed" : "planning";
@@ -368,9 +502,10 @@
     const retry = progress.retry || {};
     const reason = retry.reason ? `<p id="pipelineRetryReason" class="pipeline-reason">${escapeHTML(retry.reason)}</p>` : "";
     const attempt = reportAttemptDetails(progress);
+    const request = requestSummary || fallbackRequestSummary(attempt);
     host.innerHTML = `<section class="report-pipeline" aria-labelledby="reportPipelineTitle">
       <header class="pipeline-header"><div><h3 id="reportPipelineTitle">최신 리포트 생성 파이프라인</h3><p class="pipeline-report-title">${escapeHTML(attempt.title)}</p></div><p class="pipeline-current" aria-live="polite"><strong>${escapeHTML(attempt.attempt)}</strong><span class="pipeline-current-step">${escapeHTML(stage.name)}</span><span class="pipeline-current-status">${escapeHTML(stage.state)}</span></p></header>
-      <dl class="pipeline-attempt-meta"><div><dt>작성 방식</dt><dd>${escapeHTML(attempt.strategy)}</dd></div><div><dt>전체 생성 시작</dt><dd><time datetime="${escapeHTML(attempt.startedAt === "생성 시작 시각 알 수 없음" ? "" : attempt.startedAt)}">${escapeHTML(attempt.startedAt)}</time></dd></div></dl>
+      ${renderRequestDetails(request, requestDetailsOpen)}
       <details class="pipeline-details"${detailsOpen ? " open" : ""}><summary>생성 파이프라인 펼치기</summary>
         <div class="pipeline-visual">${progressGraph(plan, phases, closing, revealing, attempt.fanout)}</div>
         <ol class="pipeline-flow sr-only" aria-label="리포트 생성 단계의 상태">${accessibleGraph}</ol>${reason}${renderActions(progress)}

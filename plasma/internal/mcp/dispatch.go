@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func (server *Server) Call(ctx context.Context, call ToolCall) ToolResult {
@@ -102,6 +104,8 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.withIdempotency(ctx, call, server.callReportPatchFinalize)
 	case ToolReportPlanSubmit:
 		return server.callReportPlanSubmit(ctx, call)
+	case ToolReportRequirementsSubmit:
+		return server.callReportRequirementsSubmit(ctx, call)
 	case ToolReportPartAssemblyStart:
 		if !server.partAssemblyToolEnabled(call.Name) {
 			return partAssemblyDisabledResult(call)
@@ -127,24 +131,155 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 			return partAssemblyDisabledResult(call)
 		}
 		return server.withIdempotency(ctx, call, server.callReportPartAssemblySubmit)
+	case ToolReportPartEditStart:
+		if !server.partEditToolEnabled(call.Name) {
+			return partEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartEditStart)
+	case ToolReportPartEditRead:
+		if !server.partEditToolEnabled(call.Name) {
+			return partEditDisabledResult(call)
+		}
+		return server.callReportPartEditRead(ctx, call)
+	case ToolReportPartEditPatch:
+		if !server.partEditToolEnabled(call.Name) {
+			return partEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartEditPatch)
+	case ToolReportPartEditSubmit:
+		if !server.partEditToolEnabled(call.Name) {
+			return partEditDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportPartEditSubmit)
 	case ToolReportLongFormFinalize:
+		if server.finalEditConfigErr != nil || server.finalEditStageBindingSet {
+			return errorResult(call.Name, missionIDFromArguments(call.Arguments), "binding", "long-form finalization tools are disabled for final edit stage sessions", false, nil)
+		}
 		return server.callReportLongFormFinalize(ctx, call)
+	case ToolReportLongFormFinalWriteStart:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditStart(ctx, call, reporting.FinalEditStageWriter)
+		})
+	case ToolReportLongFormFinalWriteRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormStageEditRead(ctx, call, reporting.FinalEditStageWriter)
+	case ToolReportLongFormFinalWritePatch:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditPatch(ctx, call, reporting.FinalEditStageWriter)
+		})
+	case ToolReportLongFormFinalWriteSubmit:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditSubmit(ctx, call, reporting.FinalEditStageWriter)
+		})
+	case ToolReportLongFormReaderEditStart:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditStart(ctx, call, reporting.FinalEditStageReader)
+		})
+	case ToolReportLongFormReaderEditRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormStageEditRead(ctx, call, reporting.FinalEditStageReader)
+	case ToolReportLongFormReaderEditPatch:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditPatch(ctx, call, reporting.FinalEditStageReader)
+		})
+	case ToolReportLongFormReaderEditSubmit:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditSubmit(ctx, call, reporting.FinalEditStageReader)
+		})
+	case ToolReportLongFormStyleEditStart:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditStart(ctx, call, reporting.FinalEditStageStyle)
+		})
+	case ToolReportLongFormStyleEditRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormStageEditRead(ctx, call, reporting.FinalEditStageStyle)
+	case ToolReportLongFormStyleEditPatch:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditPatch(ctx, call, reporting.FinalEditStageStyle)
+		})
+	case ToolReportLongFormStyleEditSubmit:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+			return server.callReportLongFormStageEditSubmit(ctx, call, reporting.FinalEditStageStyle)
+		})
 	case ToolReportLongFormEditStart:
+		if server.finalEditStageMode() == reporting.FinalEditStageGate {
+			if !server.finalEditStageToolEnabled(call.Name) {
+				return finalEditStageDisabledResult(call)
+			}
+			return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+				return server.callReportLongFormStageEditStart(ctx, call, reporting.FinalEditStageGate)
+			})
+		}
 		if !server.longFormEditToolEnabled(call.Name) {
 			return longFormEditDisabledResult(call)
 		}
 		return server.withIdempotency(ctx, call, server.callReportLongFormEditStart)
 	case ToolReportLongFormEditRead:
+		if server.finalEditStageMode() == reporting.FinalEditStageGate {
+			if !server.finalEditStageToolEnabled(call.Name) {
+				return finalEditStageDisabledResult(call)
+			}
+			return server.callReportLongFormStageEditRead(ctx, call, reporting.FinalEditStageGate)
+		}
 		if !server.longFormEditToolEnabled(call.Name) {
 			return longFormEditDisabledResult(call)
 		}
 		return server.callReportLongFormEditRead(ctx, call)
 	case ToolReportLongFormEditPatch:
+		if server.finalEditStageMode() == reporting.FinalEditStageGate {
+			if !server.finalEditStageToolEnabled(call.Name) {
+				return finalEditStageDisabledResult(call)
+			}
+			return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+				return server.callReportLongFormStageEditPatch(ctx, call, reporting.FinalEditStageGate)
+			})
+		}
 		if !server.longFormEditToolEnabled(call.Name) {
 			return longFormEditDisabledResult(call)
 		}
 		return server.withIdempotency(ctx, call, server.callReportLongFormEditPatch)
 	case ToolReportLongFormEditSubmit:
+		if server.finalEditStageMode() == reporting.FinalEditStageGate {
+			if !server.finalEditStageToolEnabled(call.Name) {
+				return finalEditStageDisabledResult(call)
+			}
+			return server.withIdempotency(ctx, call, func(ctx context.Context, call ToolCall) ToolResult {
+				return server.callReportLongFormStageEditSubmit(ctx, call, reporting.FinalEditStageGate)
+			})
+		}
 		if !server.longFormEditToolEnabled(call.Name) {
 			return longFormEditDisabledResult(call)
 		}

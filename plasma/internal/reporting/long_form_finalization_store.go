@@ -12,10 +12,11 @@ import (
 type LongFormFinalizationStore interface {
 	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
 	GetRawArtifact(context.Context, string) (app.RawArtifact, error)
+	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
 	CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error)
 }
 
-func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeBinding) error {
+func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStore, events []app.LedgerEvent, binding LongFormFinalizeBinding) error {
 	acceptedPending, err := longFormPendingLineage(events, binding.PendingEventID)
 	if err != nil {
 		return err
@@ -24,7 +25,9 @@ func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeB
 		return fmt.Errorf("%w: bound report pending event does not exist", app.ErrConflict)
 	}
 	planCount := 0
+	partEditEnabled := false
 	parts := make([]string, len(binding.PartArtifactIDs))
+	partEvents := make([]string, len(parts))
 	partSeen := make([]bool, len(parts))
 	sectionsByIndex := map[[2]int]string{}
 	for _, event := range events {
@@ -41,6 +44,7 @@ func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeB
 			if event.EventID != binding.PlanEventID || payload["report_mode"] != ModeLongForm || payload["artifact_id"] != binding.ArtifactID {
 				return fmt.Errorf("%w: long-form plan lineage differs from binding", app.ErrConflict)
 			}
+			partEditEnabled = payloadBool(payload, "part_edit_enabled")
 		}
 		if event.EventType == "report.part.created" {
 			if payload["plan_event_id"] != binding.PlanEventID {
@@ -52,6 +56,7 @@ func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeB
 			}
 			partSeen[index-1] = true
 			parts[index-1], _ = payload["artifact_id"].(string)
+			partEvents[index-1] = event.EventID
 		}
 		if event.EventType == "report.section.created" {
 			if payload["plan_event_id"] != binding.PlanEventID {
@@ -84,7 +89,29 @@ func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeB
 	if planCount != 1 {
 		return fmt.Errorf("%w: long-form finalization plan count differs from binding", app.ErrConflict)
 	}
-	if !equalStrings(parts, binding.PartArtifactIDs) {
+	if partEditEnabled {
+		editedParts := make([]string, len(parts))
+		providerSessions := map[string]bool{}
+		for index := range parts {
+			contract := partEditOutcomeContractFromFinalBinding(binding, partEvents[index], parts[index], index+1)
+			outcomes, err := validPartEditOutcomes(ctx, store, events, acceptedPending, contract)
+			if err != nil {
+				return err
+			}
+			if len(outcomes) != 1 {
+				return fmt.Errorf("%w: long-form finalization requires exactly one valid reviewed edited Part", app.ErrConflict)
+			}
+			providerSessionID := payloadString(eventPayload(outcomes[0].Event), "provider_session_id")
+			if providerSessionID == "" || providerSessions[providerSessionID] {
+				return fmt.Errorf("%w: long-form finalization Part editor session lineage differs", app.ErrConflict)
+			}
+			providerSessions[providerSessionID] = true
+			editedParts[index] = outcomes[0].Artifact.ArtifactID
+		}
+		if !equalStrings(editedParts, binding.PartArtifactIDs) {
+			return fmt.Errorf("%w: long-form finalization edited part lineage differs from binding", app.ErrConflict)
+		}
+	} else if !equalStrings(parts, binding.PartArtifactIDs) {
 		return fmt.Errorf("%w: long-form finalization part lineage differs from binding", app.ErrConflict)
 	}
 	if !equalStrings(sections, binding.SectionArtifactIDs) {
@@ -93,61 +120,17 @@ func validateLongFormLineage(events []app.LedgerEvent, binding LongFormFinalizeB
 	return nil
 }
 
-func longFormPendingLineage(events []app.LedgerEvent, pendingID string) (map[string]bool, error) {
-	type link struct{ origin, parent, strategy string }
-	links := map[string]link{}
-	for _, event := range events {
-		if event.EventType != "report.draft.pending" {
-			continue
-		}
-		payload := eventPayload(event)
-		origin, _ := payload["origin_pending_event_id"].(string)
-		parent, _ := payload["retry_of_pending_event_id"].(string)
-		strategy, _ := payload["retry_strategy"].(string)
-		if origin == "" {
-			origin = event.EventID
-		}
-		links[event.EventID] = link{origin: origin, parent: parent, strategy: strategy}
+func partEditOutcomeContractFromFinalBinding(binding LongFormFinalizeBinding, sourcePartEventID string, sourceArtifactID string, partIndex int) PartEditOutcomeContract {
+	return PartEditOutcomeContract{
+		MissionID: binding.MissionID, CurrentPendingEventID: binding.PendingEventID, PlanEventID: binding.PlanEventID,
+		SourcePartEventID: sourcePartEventID, SourceArtifactID: sourceArtifactID, PartIndex: partIndex,
+		AgentExecutor: binding.AgentExecutor, AgentModel: binding.AgentModel, AgentReasoningEffort: binding.AgentReasoningEffort,
+		AgentSelectionSource: binding.AgentSelectionSource, MCPMode: binding.MCPMode,
+		ReportSessionPolicy: binding.ReportSessionPolicy, ReportSessionPolicySelection: binding.ReportSessionPolicySelection,
+		GenerationGuidanceProfile: binding.GenerationGuidanceProfile, GenerationGuidanceSHA256: binding.GenerationGuidanceSHA256,
+		SessionChainKind: binding.SessionChainKind, ReportPlanSessionID: binding.ReportPlanSessionID,
+		ExcludedProviderSessionIDs: []string{binding.ProviderSessionID},
 	}
-	accepted := map[string]bool{}
-	current, ok := links[pendingID]
-	if !ok {
-		return accepted, fmt.Errorf("%w: bound report pending event does not exist", app.ErrConflict)
-	}
-	origin := current.origin
-	seen := map[string]bool{}
-	for depth := 0; depth < 64; depth++ {
-		if seen[pendingID] {
-			return nil, fmt.Errorf("%w: long-form retry lineage cycle", app.ErrConflict)
-		}
-		seen[pendingID] = true
-		item, ok := links[pendingID]
-		if !ok || item.origin != origin {
-			return nil, fmt.Errorf("%w: long-form retry lineage differs", app.ErrConflict)
-		}
-		accepted[pendingID] = true
-		if item.strategy == "restart" {
-			if item.parent == "" {
-				return nil, fmt.Errorf("%w: long-form restart lineage is incomplete", app.ErrConflict)
-			}
-			parent, ok := links[item.parent]
-			if !ok || parent.origin != origin {
-				return nil, fmt.Errorf("%w: long-form restart lineage differs", app.ErrConflict)
-			}
-			return accepted, nil
-		}
-		if item.parent == "" {
-			if item.origin != pendingID {
-				return nil, fmt.Errorf("%w: long-form retry origin differs", app.ErrConflict)
-			}
-			return accepted, nil
-		}
-		if item.strategy != "resume_failed" {
-			return nil, fmt.Errorf("%w: unsupported long-form retry lineage", app.ErrConflict)
-		}
-		pendingID = item.parent
-	}
-	return nil, fmt.Errorf("%w: long-form retry lineage is too deep", app.ErrConflict)
 }
 
 func loadLongFormParts(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding) ([]string, error) {
@@ -170,7 +153,6 @@ func eventPayload(event app.LedgerEvent) map[string]any {
 	_ = json.Unmarshal(event.Payload, &value)
 	return value
 }
-
 func payloadString(payload map[string]any, key string) string {
 	value, _ := payload[key].(string)
 	return value

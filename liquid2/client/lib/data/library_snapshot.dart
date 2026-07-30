@@ -54,6 +54,18 @@ class LibrarySnapshot {
       loadMoreError: null,
     );
   }
+
+  LibrarySnapshot removeDocument(String documentId) {
+    final nextDocuments = documents
+        .where((document) => document.id != documentId)
+        .toList();
+    final removed = documents.length - nextDocuments.length;
+    if (removed == 0) return this;
+    return copyWith(
+      documents: nextDocuments,
+      totalCount: totalCount > removed ? totalCount - removed : 0,
+    );
+  }
 }
 
 const _sentinel = Object();

@@ -23,6 +23,13 @@ func reportPlanMCPTools() []string {
 	return append(reportReadMCPTools(), plasmamcp.ToolReportPlanSubmit)
 }
 
+func reportRequirementMCPTools() []string {
+	return []string{
+		plasmamcp.ToolResearchRead,
+		plasmamcp.ToolReportRequirementsSubmit,
+	}
+}
+
 func reportPartAssemblyMCPTools(profile string) []string {
 	tools := []string{
 		plasmamcp.ToolReportPartAssemblyStart,
@@ -34,6 +41,51 @@ func reportPartAssemblyMCPTools(profile string) []string {
 		tools = append(tools, plasmamcp.ToolReportPartSectionRead, plasmamcp.ToolMermaidValidate)
 	}
 	return tools
+}
+
+func reportPartEditMCPTools() []string {
+	return []string{
+		plasmamcp.ToolReportPartEditStart,
+		plasmamcp.ToolReportPartEditRead,
+		plasmamcp.ToolReportPartEditPatch,
+		plasmamcp.ToolReportPartEditSubmit,
+	}
+}
+
+func reportFinalEditReaderMCPTools() []string {
+	return []string{
+		plasmamcp.ToolReportLongFormReaderEditStart,
+		plasmamcp.ToolReportLongFormReaderEditRead,
+		plasmamcp.ToolReportLongFormReaderEditPatch,
+		plasmamcp.ToolReportLongFormReaderEditSubmit,
+	}
+}
+
+func reportFinalEditWriterMCPTools() []string {
+	return []string{
+		plasmamcp.ToolReportLongFormFinalWriteStart,
+		plasmamcp.ToolReportLongFormFinalWriteRead,
+		plasmamcp.ToolReportLongFormFinalWritePatch,
+		plasmamcp.ToolReportLongFormFinalWriteSubmit,
+	}
+}
+
+func reportFinalEditStyleMCPTools() []string {
+	return []string{
+		plasmamcp.ToolReportLongFormStyleEditStart,
+		plasmamcp.ToolReportLongFormStyleEditRead,
+		plasmamcp.ToolReportLongFormStyleEditPatch,
+		plasmamcp.ToolReportLongFormStyleEditSubmit,
+	}
+}
+
+func reportFinalEditGateMCPTools() []string {
+	return append(reportReadMCPTools(),
+		plasmamcp.ToolReportLongFormEditStart,
+		plasmamcp.ToolReportLongFormEditRead,
+		plasmamcp.ToolReportLongFormEditPatch,
+		plasmamcp.ToolReportLongFormEditSubmit,
+	)
 }
 
 func reportFinalizeMCPTools(profile string) []string {
