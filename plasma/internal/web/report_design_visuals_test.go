@@ -75,7 +75,7 @@ func TestDesignedReportSourceTeXPromptAndVersionContract(t *testing.T) {
 	if designedReportRendererVersion != expectedVersion {
 		t.Fatalf("designed renderer version = %q, want %q", designedReportRendererVersion, expectedVersion)
 	}
-	appJS := string(mustReadStatic(t, "static/app.js"))
+	appJS := string(mustReadStatic(t, "static/plasma/reports_constants.js"))
 	if !strings.Contains(appJS, `const DESIGNED_REPORT_RENDERER_VERSION = "`+expectedVersion+`";`) {
 		t.Fatalf("browser designed renderer version is not synchronized with %q", expectedVersion)
 	}

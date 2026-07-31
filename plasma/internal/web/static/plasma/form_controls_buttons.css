@@ -1,0 +1,143 @@
+
+/* ============================================================
+   FORM CONTROLS
+   ============================================================ */
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  background: var(--surface2);
+  color: var(--ink);
+  padding: 9px 11px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  min-height: var(--control-height);
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--accent-from);
+  box-shadow: var(--focus-ring);
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-height);
+  border: 1px solid var(--accent-from);
+  border-radius: var(--radius);
+  background: var(--accent-from);
+  color: #fdf2ea;
+  cursor: pointer;
+  padding: 5px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  box-shadow: var(--button-shadow-soft);
+  transition: background 0.15s, box-shadow 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-mid);
+  border-color: var(--accent-mid);
+  filter: none;
+  box-shadow: var(--button-shadow-hover);
+}
+
+button:active:not(:disabled) {
+  box-shadow: none;
+}
+
+button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Secondary stays restrained, but retains enough relief to read as a button. */
+button.secondary,
+button.button-secondary {
+  background: var(--surface2);
+  color: var(--ink2);
+  border-color: var(--line2);
+  box-shadow: var(--button-shadow-soft);
+}
+
+button.secondary:hover:not(:disabled),
+button.button-secondary:hover:not(:disabled) {
+  background: var(--surface3);
+  border-color: color-mix(in srgb, var(--ink2) 55%, var(--line2));
+  filter: none;
+  box-shadow: var(--button-shadow-hover);
+}
+
+button.quiet,
+button.button-quiet {
+  background: transparent;
+  color: var(--ink2);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+button.quiet:hover:not(:disabled),
+button.button-quiet:hover:not(:disabled) {
+  background: var(--surface2);
+  color: var(--ink);
+  border-color: var(--line2);
+  box-shadow: none;
+}
+
+button.danger,
+button.button-danger {
+  background: transparent;
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 45%, transparent);
+  box-shadow: none;
+}
+
+button.danger:hover:not(:disabled),
+button.button-danger:hover:not(:disabled) {
+  background: var(--red-dim);
+  border-color: var(--red);
+  filter: none;
+  box-shadow: none;
+}
+
+button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-from) 14%, var(--surface2));
+  color: var(--accent-from);
+  border-color: color-mix(in srgb, var(--accent-from) 48%, var(--line2));
+  box-shadow: none;
+}
+
+button[aria-busy="true"] {
+  cursor: progress;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.40;
+  box-shadow: none;
+}
+
+button.button-sm {
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12px;
+}

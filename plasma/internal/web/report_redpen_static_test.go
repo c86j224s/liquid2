@@ -9,13 +9,17 @@ import (
 func TestReportRedpenStaticContracts(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	appScript := string(mustReadStatic(t, "static/app.js"))
-	controller := string(mustReadStatic(t, "static/report_redpen.js"))
-	markdown := string(mustReadStatic(t, "static/report_redpen_markdown.js"))
+	controller := string(mustReadStatic(t, "static/plasma/reports_redpen.js"))
+	markdown := string(mustReadStatic(t, "static/plasma/reports_redpen_markdown.js"))
+	state := string(mustReadStatic(t, "static/plasma/reports_state.js"))
 	styles := string(mustReadStatic(t, "static/report_redpen.css"))
-	combined := index + appScript + controller + markdown + styles
+	bootstrap := string(mustReadStatic(t, "static/plasma/bootstrap_modules.js"))
+	init := string(mustReadStatic(t, "static/plasma/reports_redpen_init.js"))
+	exports := string(mustReadStatic(t, "static/plasma/reports_exports_core.js"))
+	combined := index + appScript + controller + init + markdown + state + bootstrap + exports + styles
 	for _, expected := range []string{
 		`id="reportRedpenStart"`, `id="reportRedpenSave"`, `id="reportRedpenCancel"`,
-		`src="/static/report_redpen_markdown.js"`, `src="/static/report_redpen.js"`,
+		`src="/static/plasma/reports_redpen_markdown.js"`, `src="/static/plasma/reports_redpen.js"`,
 		`href="/static/report_redpen.css"`, "createReportRedpenController",
 		"expected_current_artifact_id", "/redpen/download", "report.redpen.saved",
 		"data-redpen-start-line", "report-redpen-inline-editor", "beforeunload",
@@ -93,7 +97,7 @@ global.getSelection = () => ({
   focusNode: {},
   removeAllRanges() { selectionClearCount += 1; }
 });
-global.ReportRedpenMarkdown = {
+const markdownStub = {
   selectionBlock() { return block; },
   blockForTarget(_root, target) { return target === blockElement ? block : null; },
   rawBlock() { return "원문\n"; },
@@ -104,8 +108,8 @@ global.ReportRedpenMarkdown = {
     return {textarea: {}};
   }
 };
-eval(fs.readFileSync("static/report_redpen.js", "utf8"));
-const controller = createReportRedpenController({
+global.Plasma={reports:{redpenMarkdown: markdownStub}}; eval(fs.readFileSync("static/plasma/reports_redpen.js", "utf8"));
+const controller = global.Plasma.reports.createRedpenController({
   body, container, status, startButton, saveButton, cancelButton,
   render(value) { return value; },
   async load() { return {exists: false, workcopy: {}}; },
@@ -150,7 +154,7 @@ func TestReportRedpenMarkdownBlockMapping(t *testing.T) {
 	fixture := `
 const fs = require("fs");
 global.window = global;
-eval(fs.readFileSync("static/report_redpen_markdown.js", "utf8"));
+global.Plasma={reports:{}}; eval(fs.readFileSync("static/plasma/reports_redpen_markdown.js", "utf8")); const ReportRedpenMarkdown=global.Plasma.reports.redpenMarkdown;
 const md = require("./static/vendor/markdown-it.min.js")({html:false,breaks:true});
 const fence = String.fromCharCode(96).repeat(3);
 const source = "# 제목\n\n첫 문단입니다.\n\n- 단순 항목\n\n" + fence + "js\nconst unsafe = true;\n" + fence + "\n\n| 열 | 값 |\n|---|---|\n| a | b |\n";

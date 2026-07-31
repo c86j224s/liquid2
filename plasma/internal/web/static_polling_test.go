@@ -10,15 +10,8 @@ func TestSelectedMissionActivityPollUsesCursorBeforeDetailFallback(t *testing.T)
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required")
 	}
-	script := string(mustReadStatic(t, "static/app.js"))
-	functions := []string{
-		jsFunctionSource(t, script, "missionActivityCursor"),
-		jsFunctionSource(t, script, "detailMissionActivityCursor"),
-		jsFunctionSource(t, script, "mergeMissionActivity"),
-		jsFunctionSource(t, script, "applyMissionDetail"),
-		strings.Replace(jsFunctionSource(t, script, "refreshSelectedMissionDetail"), "function refreshSelectedMissionDetail", "async function refreshSelectedMissionDetail", 1),
-		strings.Replace(jsFunctionSource(t, script, "refreshSelectedMissionActivity"), "function refreshSelectedMissionActivity", "async function refreshSelectedMissionActivity", 1),
-	}
+	missionScript := string(mustReadStatic(t, "static/plasma/mission.js"))
+	pollingScript := string(mustReadStatic(t, "static/plasma/polling.js"))
 	fixture := `
 const state = {
   missionId:"mis_1", selectionGeneration:1, detailGeneration:1,
@@ -32,7 +25,17 @@ const ownsMissionSelection=(owner)=>owner.missionId===state.missionId && owner.s
 const ownsDetailRequest=(owner)=>ownsMissionSelection(owner) && owner.detailGeneration===state.detailGeneration;
 const api=async(path)=>{requests.push(path); const sequence=nextCursor?.sequence ?? 0; if(path.endsWith("/activity")) return {activity:{last_sequence:sequence,active_work:{items:[]}},cursor:nextCursor}; return {projection:{last_sequence:sequence},activity_cursor:nextCursor};};
 const rememberMissionID=()=>{}; const markMissionActivitySeen=()=>{}; const renderDetail=()=>{}; const renderMissions=()=>{};
-` + strings.Join(functions, "\n") + `
+const window = {Plasma:{state,transport:{api},sources:{loadConfluenceConnections:async()=>{},loadConfluenceAccess:async()=>{},resetConfluenceMissionUI(){},renderConfluenceControls(){},renderConfluenceResults(){}}}};
+` + missionScript + `
+` + pollingScript + `
+const {applyMissionDetail, refreshSelectedMissionDetail} = window.Plasma.mission;
+const {refreshSelectedMissionActivity} = window.Plasma.polling;
+	window.Plasma.mission.configure({api, rememberMissionID, markMissionActivitySeen, recordDetailActivityCursor:window.Plasma.polling.recordDetailActivityCursor, renderDetail, renderMissions, afterSelectionApplied: async (owner) => {
+	  await loadConfluenceConnections("", owner);
+	  if (!window.Plasma.mission.ownsDetailRequest(owner)) return;
+	  await loadConfluenceAccess(owner);
+	}});
+window.Plasma.polling.configure({api, refreshSelectedMissionDetail, renderMissions});
 (async()=>{
   applyMissionDetail({missionId:"mis_1",selectionGeneration:1,detailGeneration:1}, {projection:{last_sequence:1},activity_cursor:nextCursor});
   if(!state.missionActivityCursors.mis_1 || state.missionActivityCursors.mis_1.sequence!==5) throw new Error("initial detail did not seed activity cursor");
@@ -68,20 +71,11 @@ func TestOlderActivityPollCannotReplaceNewerOrdinaryReload(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required")
 	}
-	script := string(mustReadStatic(t, "static/app.js"))
-	asyncSource := func(name string) string {
-		return strings.Replace(jsFunctionSource(t, script, name), "function "+name, "async function "+name, 1)
-	}
-	functions := []string{
-		jsFunctionSource(t, script, "missionActivityCursor"),
-		jsFunctionSource(t, script, "detailMissionActivityCursor"),
-		jsFunctionSource(t, script, "mergeMissionActivity"),
-		jsFunctionSource(t, script, "applyMissionDetail"),
-		asyncSource("refreshSelectedMissionDetail"),
-		asyncSource("refreshSelectedMissionActivity"),
-		asyncSource("selectMission"),
-		asyncSource("reloadMission"),
-	}
+	missionScript := string(mustReadStatic(t, "static/plasma/mission.js"))
+	selectionScript := string(mustReadStatic(t, "static/plasma/mission_selection.js"))
+	pollingScript := string(mustReadStatic(t, "static/plasma/polling.js"))
+	selectMissionSource := strings.Replace(jsFunctionSource(t, selectionScript, "selectMission"), "function selectMission", "async function selectMission", 1)
+	reloadMissionSource := strings.Replace(jsFunctionSource(t, selectionScript, "reloadMission"), "function reloadMission", "async function reloadMission", 1)
 	fixture := `
 const MISSION_STORAGE_KEY="plasma.activeMissionId";
 const state={missionId:"mis_1",selectionGeneration:1,detailGeneration:1,detail:{projection:{last_sequence:5,title:"old"},activity_cursor:{schema:"mission-activity/v1",sequence:5,server_id:"server-a"}},missions:[{MissionID:"mis_1",activity:{last_sequence:5,active_work:{items:[{}]}}}],missionActivityCursors:{mis_1:{schema:"mission-activity/v1",sequence:5,serverID:"server-a"}}};
@@ -93,7 +87,24 @@ const ownsDetailRequest=(owner)=>ownsMissionSelection(owner)&&owner.detailGenera
 const beginMissionSelection=(missionId)=>{state.detailGeneration++; return {missionId,selectionGeneration:state.selectionGeneration,detailGeneration:state.detailGeneration};};
 const localStorage={setItem(){}}; const rememberMissionID=()=>{}; const markMissionActivitySeen=()=>{}; const renderDetail=()=>{}; const renderMissions=()=>{}; const renderMissionLoadFailed=()=>{throw new Error("reload failed");};
 const refreshMissionList=async()=>{listRefreshes++;}; const loadConfluenceConnections=async()=>{connectionRefreshes++;}; const loadConfluenceAccess=async()=>{accessRefreshes++;};
-` + strings.Join(functions, "\n") + `
+const window = {Plasma:{state,transport:{api},sources:{loadConfluenceConnections,loadConfluenceAccess,resetConfluenceMissionUI(){},renderConfluenceControls(){},renderConfluenceResults(){}}}};
+` + missionScript + `
+` + pollingScript + `
+const applyMissionDetail = window.Plasma.mission.applyMissionDetail;
+const refreshSelectedMissionDetail = window.Plasma.mission.refreshSelectedMissionDetail;
+const refreshSelectedMissionActivity = window.Plasma.polling.refreshSelectedMissionActivity;
+window.Plasma.mission.configure({api, rememberMissionID, markMissionActivitySeen, recordDetailActivityCursor:window.Plasma.polling.recordDetailActivityCursor, renderDetail, renderMissions, afterSelectionApplied: async (owner) => {
+  await loadConfluenceConnections("", owner);
+  if (!window.Plasma.mission.ownsDetailRequest(owner)) return;
+  await loadConfluenceAccess(owner);
+}});
+window.Plasma.polling.configure({api, refreshSelectedMissionDetail, renderMissions});
+window.Plasma.mission.refreshMissionList = refreshMissionList;
+window.Plasma.mission.renderMissionLoadFailed = renderMissionLoadFailed;
+const Plasma = window.Plasma;
+const mission = window.Plasma.mission;
+` + selectMissionSource + `
+` + reloadMissionSource + `
 (async()=>{
   const poll=refreshSelectedMissionActivity({missionId:"mis_1",selectionGeneration:1,detailGeneration:1});
   await Promise.resolve();

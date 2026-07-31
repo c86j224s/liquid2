@@ -1,0 +1,580 @@
+
+/* ============================================================
+   FORM LAYOUTS
+   ============================================================ */
+.stack {
+  display: grid;
+  gap: 9px;
+}
+
+.inline-form {
+  display: grid;
+  grid-template-columns: 1fr 84px;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.inline-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.button-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line2);
+  background: var(--surface2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  text-decoration: none;
+  border-color: var(--accent-from);
+}
+
+.source-helper {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+}
+
+.source-helper a {
+  display: inline-block;
+  margin-top: 6px;
+}
+
+.muted-inline {
+  color: var(--muted);
+}
+
+/* Confluence agent-search grant: a collapsible section at the bottom of the
+   Sources › Confluence tab (distinct from adding a page as a source). */
+.confluence-agent-grant {
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  margin-top: 4px;
+}
+
+.confluence-agent-grant > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 13px;
+  user-select: none;
+}
+
+.confluence-agent-grant > summary::-webkit-details-marker {
+  display: none;
+}
+
+.confluence-agent-grant > summary::before {
+  content: "›";
+  color: var(--muted);
+  font-size: 15px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.confluence-agent-grant[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.confluence-agent-grant > summary #confluenceAccessBadge {
+  margin-left: auto;
+}
+
+.confluence-agent-grant > .stack {
+  padding: 0 12px 12px;
+}
+
+.confluence-agent-grant .inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.confluence-agent-grant .inline-form select,
+.confluence-agent-grant .inline-form input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.confluence-agent-grant .inline-form button {
+  flex: 0 0 auto;
+}
+
+.confluence-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.confluence-status label:not(.segmented-select-control) span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.confluence-status .segmented-select-control,
+.confluence-box > .segmented-select-control {
+  width: 100%;
+}
+
+.confluence-box {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.confluence-box-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confluence-box-head strong {
+  font-size: 12.5px;
+}
+
+.confluence-primary-card {
+  border-color: color-mix(in srgb, var(--accent-from) 34%, var(--line));
+}
+
+.confluence-token-note {
+  margin: 0;
+}
+
+.confluence-flow {
+  display: grid;
+  gap: 6px;
+}
+
+/* Confluence source discovery actions sit as a natural-width row, not full-width. */
+.confluence-source-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+/* ── Confluence source: guided step flow (연결 → 찾기 → 추가) ── */
+.confluence-step {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.confluence-step:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.confluence-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.confluence-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-mid);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.confluence-more {
+  margin-top: 2px;
+}
+
+.confluence-more > summary {
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 4px 0;
+  user-select: none;
+}
+
+.confluence-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.confluence-more > summary::before {
+  content: "▸ ";
+}
+
+.confluence-more[open] > summary::before {
+  content: "▾ ";
+}
+
+.confluence-more > .stack {
+  margin-top: 8px;
+}
+
+/* ── Settings › model defaults ── */
+.model-defaults-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.model-defaults-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.model-default-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 0.75fr) minmax(140px, 0.5fr);
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.model-default-row.readonly {
+  grid-template-columns: minmax(180px, 1fr) auto;
+}
+
+/* Read-only rows show their value as a badge; hug the right edge so the value
+   column lines up with the editable rows' controls above/below. */
+.model-default-row.readonly > .badge {
+  justify-self: end;
+}
+
+.model-default-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.model-default-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.model-default-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.model-default-row .segmented-select-control.compact {
+  min-height: 38px;
+}
+
+.model-default-row .segmented-select-control.compact select {
+  min-width: 0;
+  width: 100%;
+}
+
+/* ── Settings › Confluence connections as collapsible per-token cards ── */
+.confluence-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.confluence-connection-cards {
+  display: grid;
+  gap: 8px;
+}
+
+.confluence-conn-card {
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.confluence-conn-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 13px;
+  user-select: none;
+}
+
+.confluence-conn-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.confluence-conn-card > summary::before {
+  content: "›";
+  color: var(--muted);
+  font-size: 15px;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.confluence-conn-card[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.conn-card-name {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.conn-card-sites-count {
+  margin-left: auto;
+}
+
+.conn-card-body {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.conn-card-rename {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.conn-card-rename .conn-rename-input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.conn-card-rename button {
+  flex: 0 0 auto;
+}
+
+.confluence-conn-card .conn-card-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+/* New-token card: collapsed by default at the bottom of the list. */
+.confluence-add-card {
+  border: 1px dashed var(--line2);
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+
+.confluence-add-card > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink2);
+  user-select: none;
+}
+
+.confluence-add-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.confluence-add-card[open] {
+  background: var(--surface);
+}
+
+.confluence-add-card > form {
+  padding: 0 12px 12px;
+}
+
+/* Settings › connection management block (shown only when a connection exists). */
+.confluence-manage {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.confluence-lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+
+.confluence-lifecycle input {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
+.confluence-lifecycle button {
+  flex: 0 0 auto;
+}
+
+.confluence-manual {
+  gap: 10px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--panel));
+}
+
+.confluence-manual > summary {
+  cursor: pointer;
+  color: var(--ink2);
+  font-size: 12.5px;
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.confluence-manual > form {
+  padding-top: 2px;
+}
+
+.confluence-search {
+  grid-template-columns: minmax(180px, 1fr) minmax(96px, 0.4fr) 92px 72px;
+}
+
+.source-preview {
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* ============================================================
+   LOCAL PATH SOURCE BROWSER
+   ============================================================ */
+.local-path-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  min-height: 18px;
+}
+
+.local-path-crumb {
+  cursor: pointer;
+  color: var(--blue);
+}
+
+.local-path-crumb:hover {
+  text-decoration: underline;
+}
+
+.local-path-crumb.current {
+  color: var(--ink2);
+  cursor: default;
+  text-decoration: none;
+}
+
+.local-path-sep {
+  color: var(--muted);
+}
+
+.local-path-tree {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+.local-path-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  justify-content: flex-start;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--item-bg);
+  border: 1px solid var(--item-bdr);
+  color: var(--ink2);
+  min-height: 34px;
+}
+
+.local-path-entry:hover:not(:disabled) {
+  background: var(--surface2);
+  filter: none;
+  border-color: var(--line2);
+}
+
+.local-path-entry .lp-icon {
+  flex: 0 0 auto;
+  font-size: 13px;
+}
+
+.local-path-entry .lp-name {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.local-path-entry .lp-meta {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.local-path-entry.selected {
+  border-color: var(--accent-from);
+  box-shadow: inset 0 0 0 1px var(--accent-from);
+}
+
+.local-path-entry.denied {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.local-path-note {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 2px 0;
+}

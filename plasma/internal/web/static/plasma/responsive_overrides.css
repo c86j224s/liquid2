@@ -1,0 +1,494 @@
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 1180px) {
+  .workspace {
+    grid-template-columns: minmax(220px, 280px) 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  /* --- Layout --- */
+  .topbar {
+    flex-direction: row;
+    align-items: center;
+    min-height: 48px;
+  }
+
+  .mission-banner {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+    padding: 10px;
+    gap: 10px;
+    align-items: stretch;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body.chat-focus .workspace {
+    padding-top: 20px;
+  }
+
+  .focus-mode-handle {
+    bottom: -16px;
+    width: 76px;
+    height: 32px;
+    min-height: 32px;
+  }
+
+  body.mission-rail-collapsed .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .mission-rail-toggle {
+    display: none;
+  }
+
+  .main-column {
+    min-height: 0;
+  }
+
+  /* --- Mobile mission picker (bottom sheet) --- */
+  .rail {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 0;
+    top: auto;
+    z-index: 23;
+    overflow: visible;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    transform: translateY(105%);
+    transition: transform 0.24s ease;
+    pointer-events: none;
+  }
+
+  body.mission-picker-open .rail {
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .rail > .panel {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    max-height: min(78dvh, 560px);
+    padding: 12px;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.45);
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 22;
+    background: rgba(0, 0, 0, 0.50);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+  }
+
+  body.mission-picker-open::before {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-only {
+    display: inline-flex;
+  }
+
+  .main-column {
+    grid-template-rows: auto auto minmax(0, 1fr);
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .tab-panel.active > .panel {
+    overflow: auto;
+  }
+
+  /* --- A: Compact touch targets --- */
+  button {
+    min-height: var(--control-height);
+    padding: 6px 10px;
+  }
+
+  .icon-button {
+    width: var(--control-height);
+    min-height: var(--control-height);
+  }
+
+  details > summary {
+    min-height: 38px;
+    padding: 8px 10px;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 38px;
+    padding: 8px 10px;
+  }
+
+  /* --- B: backdrop-blur 완화 (성능) --- */
+  .panel {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    background: rgba(255, 255, 255, 0.07);
+  }
+
+  [data-theme="light"] .panel {
+    background: rgba(255, 255, 255, 0.95);
+  }
+
+  .modal {
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    padding: 12px 8px;
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    padding: 12px;
+  }
+
+  .modal-card > .panel-head {
+    margin: -12px -12px 10px;
+    padding: 10px 12px;
+  }
+
+  .topbar {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    background: rgba(11, 13, 18, 0.90);
+  }
+
+  [data-theme="light"] .topbar {
+    background: rgba(250, 250, 250, 0.96);
+  }
+
+  .error-toast {
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+
+  /* --- C: Topbar 정돈 --- */
+  .topbar {
+    padding: 8px 12px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    gap: 8px;
+  }
+
+  .runtime {
+    margin-left: auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    row-gap: 6px;
+  }
+
+  .runtime .badge:not(#healthBadge):not(#environmentBadge) {
+    display: none;
+  }
+
+  .subtitle {
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #themeToggle {
+    margin-left: auto;
+  }
+
+  /* --- D: 탭바 스냅 --- */
+  .tabbar {
+    gap: 2px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    min-height: 38px;
+    padding: 7px 10px;
+  }
+
+  /* --- E: Summary 카운트 칩 wrap --- */
+  details.section-details > summary,
+  #newMissionDetails > summary,
+  #agentControlsDetails > summary,
+  .source-add > summary {
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  details.section-details > summary::before,
+  #newMissionDetails > summary::before,
+  #agentControlsDetails > summary::before,
+  .source-add > summary::before {
+    flex-shrink: 0;
+  }
+
+  .model-default-row,
+  .model-default-row.readonly {
+    grid-template-columns: 1fr;
+  }
+
+  /* --- F: 모달 --- */
+  .panel-actions {
+    flex-wrap: wrap;
+  }
+
+  /* --- G: Composer --- */
+  .composer {
+    grid-template-columns: minmax(0, 1fr) 72px;
+    gap: 8px;
+    margin-top: 8px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .composer textarea {
+    min-height: 48px;
+    max-height: 96px;
+    font-size: 13px;
+  }
+
+  .composer button[type="submit"],
+  #sendTurnButton {
+    width: auto;
+    min-height: 48px;
+  }
+
+  /* --- H: Conversation panel fixed shell --- */
+  .conversation-panel {
+    min-height: 0;
+    height: 100%;
+    /* recall-box is display:none on mobile; flex column from the base rule
+       handles the layout regardless of how many sections are visible. */
+    padding: 10px;
+  }
+
+  .conversation-panel > .panel-head {
+    margin-bottom: 8px;
+  }
+
+  .recall-box {
+    display: none;
+  }
+
+  .turn-log {
+    min-height: 0;
+    padding: 2px;
+    gap: 8px;
+  }
+
+  .agent-controls {
+    grid-template-columns: 1fr;
+  }
+
+  /* On mobile the conversation is the primary surface: 자율 진행 stays collapsed
+     by default; when expanded its body scrolls as one region. */
+  .workflow-control textarea {
+    min-height: 40px;
+  }
+
+  .workflow-control[open] > .workflow-control-body {
+    max-height: 62vh;
+  }
+
+  .confluence-status,
+  .confluence-search {
+    grid-template-columns: 1fr;
+  }
+
+  .confluence-status button,
+  .confluence-search button {
+    width: 100%;
+  }
+
+  /* --- I: Mission list 내부 스크롤 캡 (바텀 시트 안에서) --- */
+  #missionList {
+    max-height: 52dvh;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #newMissionDetails {
+    margin-bottom: 6px;
+  }
+
+  /* --- J: Mission banner --- */
+  .mission-banner {
+    padding: 9px 10px;
+    gap: 8px;
+  }
+
+  .metric-row {
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    row-gap: 6px;
+    scrollbar-width: none;
+  }
+
+  .metric-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  #missionName {
+    font-size: 16px;
+    line-height: 1.2;
+  }
+
+  #missionObjectiveText {
+    display: -webkit-box;
+    max-width: 100%;
+    margin-top: 2px;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    font-size: 12px;
+  }
+
+  /* --- K: Error toast --- */
+  .error-toast {
+    right: 8px;
+    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
+    width: calc(100vw - 16px);
+  }
+
+  /* --- Misc: inline-form on narrow --- */
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- M: 480px - 더 좁은 폰 --- */
+@media (max-width: 480px) {
+  h1,
+  #missionName {
+    font-size: 18px;
+  }
+
+  .panel {
+    padding: 10px;
+  }
+
+  .badge,
+  .metric {
+    font-size: 11px;
+    padding: 3px 7px;
+  }
+
+  .workspace {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .topbar {
+    padding: 8px 10px;
+    padding-top: max(8px, env(safe-area-inset-top));
+  }
+}
+
+/* --- Short screens (e.g. iPhone 13 mini, 812px tall): keep the conversation
+   and composer usable when 자율 진행 is expanded, and tighten vertical rhythm. --- */
+@media (max-height: 820px) {
+  .workflow-control[open] > .workflow-control-body {
+    max-height: 40vh;
+  }
+
+  .composer textarea {
+    min-height: 52px;
+  }
+
+  .mission-banner {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+@media (max-height: 680px) {
+  .workflow-control[open] > .workflow-control-body {
+    max-height: 34vh;
+  }
+}
+
+/* --- pointer: coarse — 터치 기기 공통 (태블릿 포함) --- */
+@media (pointer: coarse) {
+  :root {
+    --control-height: 40px;
+  }
+
+  button {
+    min-height: var(--control-height);
+  }
+
+  .source-tab {
+    min-height: 40px;
+  }
+
+  .icon-button {
+    width: var(--control-height);
+    min-height: var(--control-height);
+  }
+
+  details > summary {
+    min-height: 40px;
+    cursor: pointer;
+  }
+
+  input,
+  select,
+  textarea {
+    min-height: 40px;
+  }
+
+  .tab {
+    min-height: 40px;
+  }
+
+  .tabbar {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* --- hover: none — stuck hover 효과 무효화 --- */
+@media (hover: none) {
+  .item:hover:not(button.item:disabled) {
+    border-color: var(--item-bdr);
+    box-shadow: none;
+  }
+
+  button:hover:not(:disabled) {
+    filter: none;
+    box-shadow: none;
+  }
+
+  button.secondary:hover:not(:disabled) {
+    background: var(--surface3);
+    box-shadow: none;
+  }
+
+  details.section-details > summary:hover,
+  #newMissionDetails > summary:hover,
+  #agentControlsDetails > summary:hover,
+  .source-add > summary:hover {
+    background: var(--surface);
+    border-color: var(--line2);
+  }
+}

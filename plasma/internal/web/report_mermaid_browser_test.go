@@ -11,9 +11,9 @@ func TestReportMermaidStaticAssetOrderAndLazyRuntime(t *testing.T) {
 	ordered := []string{
 		"vendor/purify.min.js",
 		"vendor/katex/katex.min.js",
-		"report_math.js",
-		"report_mermaid_legend.js",
-		"report_mermaid.js",
+		"plasma/reports_math.js",
+		"plasma/reports_mermaid_legend.js",
+		"plasma/reports_mermaid.js",
 		"app.js",
 	}
 	last := -1
@@ -28,8 +28,8 @@ func TestReportMermaidStaticAssetOrderAndLazyRuntime(t *testing.T) {
 		t.Fatal("Mermaid runtime should be lazy-loaded, not included in the initial page")
 	}
 	for _, asset := range []string{
-		"static/report_mermaid.js",
-		"static/report_mermaid_legend.js",
+		"static/plasma/reports_mermaid.js",
+		"static/plasma/reports_mermaid_legend.js",
 		"static/report_mermaid.css",
 		"static/vendor/mermaid.min.js",
 		"static/vendor/mermaid.LICENSE",
@@ -41,13 +41,13 @@ func TestReportMermaidStaticAssetOrderAndLazyRuntime(t *testing.T) {
 }
 
 func TestReportMermaidMarkdownSurfaces(t *testing.T) {
-	app := string(mustReadStatic(t, "static/app.js"))
-	runtime := string(mustReadStatic(t, "static/report_mermaid.js"))
-	legend := string(mustReadStatic(t, "static/report_mermaid_legend.js"))
+	app := string(mustReadStatic(t, "static/app.js")) + mustReadPlasmaConversationScripts(t) + string(mustReadStatic(t, "static/plasma/reports_modal.js"))
+	runtime := string(mustReadStatic(t, "static/plasma/reports_mermaid.js"))
+	legend := string(mustReadStatic(t, "static/plasma/reports_mermaid_legend.js"))
 	style := string(mustReadStatic(t, "static/report_mermaid.css"))
 	for _, expected := range []string{
-		"window.renderPlasmaMermaid?.(log)",
-		`if (kind === "markdown") window.renderPlasmaMermaid?.($("detailBody"))`,
+		"window.Plasma?.reports?.renderPlasmaMermaid?.(log)",
+		`if (kind === "markdown") reports.renderPlasmaMermaid?.($("detailBody"));`,
 		`/static/vendor/mermaid.min.js`,
 		`securityLevel: "strict"`,
 		`startOnLoad: false`,
@@ -86,8 +86,8 @@ func TestReportMermaidLineLegendParser(t *testing.T) {
 const fs = require("fs"), vm = require("vm");
 const context = { window: {} };
 vm.createContext(context);
-vm.runInContext(fs.readFileSync("static/report_mermaid_legend.js", "utf8"), context);
-const labels = context.window.plasmaMermaidLineLegendLabels(` + "`" + `xychart-beta
+context.window.Plasma={reports:{}}; vm.runInContext(fs.readFileSync("static/plasma/reports_mermaid_legend.js", "utf8"), context);
+const labels = context.window.Plasma.reports.plasmaMermaidLineLegendLabels(` + "`" + `xychart-beta
   title "TIOBE"
   x-axis [2020, 2021]
   line "Python" [3, 1]
@@ -96,11 +96,11 @@ const labels = context.window.plasmaMermaidLineLegendLabels(` + "`" + `xychart-b
   line JavaScript [7, 6]
 ` + "`" + `);
 if (JSON.stringify(labels) !== JSON.stringify(["Python", "C++", "Rust", "JavaScript"])) process.exit(1);
-const flowchartLabels = context.window.plasmaMermaidLineLegendLabels("flowchart TD\\n  A --> B");
+const flowchartLabels = context.window.Plasma.reports.plasmaMermaidLineLegendLabels("flowchart TD\\n  A --> B");
 if (flowchartLabels.length !== 0) process.exit(2);
-const unlabeled = context.window.plasmaMermaidLineLegendLabels("xychart-beta\\n  line [1, 2]");
+const unlabeled = context.window.Plasma.reports.plasmaMermaidLineLegendLabels("xychart-beta\\n  line [1, 2]");
 if (unlabeled.length !== 0) process.exit(3);
-if (typeof context.window.applyPlasmaMermaidLineLegend !== "function") process.exit(4);
+if (typeof context.window.Plasma.reports.applyPlasmaMermaidLineLegend !== "function") process.exit(4);
 `
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("Mermaid legend parser fixture: %v: %s", err, out)

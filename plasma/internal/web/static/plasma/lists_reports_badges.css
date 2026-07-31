@@ -1,0 +1,608 @@
+
+/* ============================================================
+   LISTS
+   ============================================================ */
+.list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.list.compact {
+  gap: 5px;
+}
+
+.list-section-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: 4px 0 1px;
+}
+
+/* ============================================================
+   ITEMS (card)
+   ============================================================ */
+.item {
+  position: relative;
+  border: 1px solid var(--item-bdr);
+  border-radius: 9px;
+  background: var(--item-bg);
+  padding: 9px 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.item:has(> input.item-select) {
+  padding-right: 38px;
+}
+
+input.item-select {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 20px;
+  height: 20px;
+  min-height: 20px;
+  margin: 0;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--line2);
+  background: var(--surface2);
+  accent-color: var(--accent-from);
+  cursor: pointer;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.item.selected {
+  border-color: var(--accent-from);
+  box-shadow: 0 0 0 1px var(--accent-from), var(--shadow-sm);
+}
+
+.item.source-removed {
+  opacity: 0.74;
+  border-style: dashed;
+}
+
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  margin: 0 0 8px;
+  background: var(--surface2);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-md);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.bulk-bar .badge {
+  margin-right: auto;
+}
+
+.bulk-bar button {
+  min-height: var(--control-height);
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+.item:hover:not(button.item:disabled) {
+  border-color: var(--line2);
+  box-shadow: var(--shadow-sm);
+}
+
+button.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: normal;
+  background: var(--item-bg);
+}
+
+button.item:hover:not(:disabled) {
+  filter: none;
+}
+
+button.item.secondary {
+  background: var(--item-bg);
+}
+
+.item.active {
+  border-color: var(--accent-from);
+  box-shadow: inset 3px 0 0 var(--accent-from), var(--shadow-sm);
+}
+
+.item-title {
+  font-weight: 600;
+  font-size: 13.5px;
+  margin-bottom: 3px;
+  color: var(--ink);
+  min-width: 0;
+  /* Override the inherited button white-space:nowrap so long titles wrap
+     instead of overflowing the card. */
+  white-space: normal;
+  /* keep-all so Korean wraps at word boundaries; overflow-wrap:anywhere
+     (inherited from .item) still breaks a too-long unbreakable token. */
+  word-break: keep-all;
+  /* Clamp to 2 lines. max-height + overflow:hidden is the hard cap that works
+     in every browser (so the title can never exceed the card); -webkit-box
+     line-clamp adds the ellipsis where supported. The standard `line-clamp`
+     shorthand is intentionally omitted — it made display compute to flow-root
+     and broke the clamp in some browsers, letting long titles overflow. */
+  line-height: 1.4;
+  max-height: 2.8em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.item-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.item-title-row .item-title {
+  flex: 1 1 auto;
+}
+
+.mission-activity {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+}
+
+.mission-activity-mark {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-from);
+}
+
+.mission-activity-running .mission-activity-mark {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+  border: 2px solid var(--accent-from);
+  border-right-color: transparent;
+  animation: mission-activity-spin 0.9s linear infinite;
+}
+
+.mission-activity-failed .mission-activity-mark {
+  width: 0;
+  height: 0;
+  background: transparent;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 9px solid var(--red);
+  border-radius: 0;
+}
+
+@keyframes mission-activity-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mission-activity-running .mission-activity-mark {
+    animation: none;
+    border-right-color: var(--accent-from);
+  }
+
+  .mission-banner-shell,
+  .mission-banner-shell > .mission-banner,
+  .focus-mode-handle {
+    transition: none;
+  }
+}
+
+/* Mission picker items: titles may wrap; secondary metadata stays compact. */
+#missionList .item {
+  padding: 8px 11px;
+}
+
+#missionList .item-title {
+  display: block;
+  max-height: none;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: initial;
+}
+
+#missionList .item-meta {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: -0.01em;
+}
+
+#missionList .mission-archived {
+  border-style: dashed;
+  opacity: 0.82;
+}
+
+.mission-archive-toggle {
+  min-height: 24px;
+  margin: 10px 0 10px;
+  padding: 2px;
+  align-self: start;
+}
+
+.mission-archive-toggle input[type="checkbox"] {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  padding: 0;
+  flex: 0 0 14px;
+}
+
+.mission-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.mission-item-meta > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mission-lifecycle-pill {
+  flex: 0 0 auto;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--amber);
+  font-family: var(--font-body);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+/* identifier metas read as data: monospace, slightly dimmer */
+.item-meta.clamp-line {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.item-meta {
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.item-meta.clamp-line,
+.clamp-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-meta.source-candidate-reason {
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.item-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* Report cards carry many actions — render them as a calm tinted toolbar
+   instead of a wall of solid ember; the top-level generate CTA stays solid. */
+.report-card .item-actions button {
+  min-height: var(--control-height);
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+.report-card .item-actions button:not(.secondary):not(.danger):not(.quiet) {
+  background: color-mix(in srgb, var(--accent-from) 13%, transparent);
+  color: var(--accent-from);
+  border-color: color-mix(in srgb, var(--accent-from) 32%, transparent);
+}
+
+.report-card .item-actions button:not(.secondary):not(.danger):not(.quiet):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-from) 22%, transparent);
+  border-color: color-mix(in srgb, var(--accent-from) 50%, transparent);
+}
+
+/* Grouped actions (도구 ▾ / 받기 ▾): a chip that expands to its buttons in place. */
+.report-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-height);
+  padding: 6px 11px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.report-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.report-menu > summary:hover {
+  background: var(--surface2);
+  border-color: var(--ink2);
+}
+
+.report-menu[open] {
+  flex-basis: 100%;
+}
+
+.report-menu-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+  padding-left: 2px;
+}
+
+.report-card {
+  border-left: 3px solid transparent;
+}
+
+.report-card.active {
+  border-left-color: var(--accent-from);
+}
+
+/* Accordion: only the selected report card expands its body + inline preview */
+.report-card.selected {
+  border-left-color: var(--accent-from);
+}
+
+.report-card-toggle {
+  cursor: pointer;
+}
+
+.report-card-toggle::after {
+  content: "›";
+  align-self: center;
+  margin-left: 4px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.report-card.selected .report-card-toggle::after {
+  transform: rotate(90deg);
+}
+
+.report-card-body {
+  display: none;
+  margin-top: 8px;
+}
+
+.report-card.selected .report-card-body {
+  display: block;
+}
+
+.report-title-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.report-chip-row {
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+/* On phones the badges drop below the title so the title keeps full width and
+   Korean no longer gets squeezed into mid-syllable breaks. */
+@media (max-width: 760px) {
+  .report-title-line {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+  }
+  .report-chip-row {
+    justify-content: flex-start;
+  }
+}
+
+.report-plan-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--ink2);
+  font-size: 12px;
+  min-width: 0;
+}
+
+.report-plan-line > .badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.report-plan-line > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-error-line {
+  color: var(--red);
+}
+
+.report-error-line > span:last-child {
+  white-space: normal;
+}
+
+.report-trace {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.report-trace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.trace-bars {
+  display: grid;
+  gap: 5px;
+}
+
+.trace-bar {
+  display: grid;
+  grid-template-columns: minmax(78px, 1fr) 2fr auto;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink2);
+  font-size: 11.5px;
+  min-width: 0;
+}
+
+.trace-bar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-bar i {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface3);
+}
+
+.trace-bar b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), var(--green));
+}
+
+.trace-bar em {
+  color: var(--muted);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ============================================================
+   BADGES / METRICS
+   ============================================================ */
+.badge,
+.metric {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--line2);
+  background: var(--surface2);
+  color: var(--ink2);
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.badge.muted {
+  color: var(--muted);
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.badge.warn {
+  border-color: color-mix(in srgb, var(--amber) 42%, transparent);
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+.badge.danger {
+  border-color: color-mix(in srgb, var(--red) 38%, transparent);
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+/* "latest/new" carries the brand ember so the current item stands out. */
+.badge.session-new {
+  border-color: color-mix(in srgb, var(--accent-from) 48%, transparent);
+  background: color-mix(in srgb, var(--accent-from) 16%, transparent);
+  color: var(--accent-from);
+}
+
+.badge.confidence.high {
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.badge.confidence.medium {
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: var(--blue-dim);
+  color: var(--blue);
+}
+
+.badge.confidence.low {
+  border-color: color-mix(in srgb, var(--red) 38%, transparent);
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.badge.confidence.unknown {
+  color: var(--muted);
+}

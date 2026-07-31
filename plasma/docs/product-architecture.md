@@ -56,6 +56,169 @@ New work should keep this direction: transport packages adapt requests, domain
 packages define product meaning, app-level services orchestrate use cases, and
 storage/connectors remain replaceable implementations.
 
+## Browser Frontend Composition Boundary
+
+The browser remains a replaceable Plasma client over the mission ledger and HTTP
+surface. Its frontend composition keeps classic scripts and uses one browser
+namespace, `window.Plasma`, as the only shared global root for new modules. New
+shared browser modules live under `internal/web/static/plasma/*.js` and attach
+only named submodules to that root.
+
+The foundation owners are explicit:
+
+- `Plasma.dom` owns pure selectors and text formatting only: `$`, escaping,
+  short IDs, timestamps, and deterministic byte formatting. It owns no product
+  state, modal policy, clipboard behavior, network behavior, or feature markup.
+- `Plasma.state` owns the existing flat browser state object without changing
+  keys, defaults, or semantics.
+- `Plasma.ui` owns genuinely shared visual controls and browser effects. Its
+  public API is one object, while the implementation is split physically:
+  `ui.js` initializes the namespace and owns count chips, empty-state markup,
+  section-empty toggling, generic disabled mechanics, and button text;
+  `ui_feedback.js` extends the same object with the error toast and clipboard
+  copying; `ui_detail.js` extends it with the detail modal, backdrop close, copy
+  behavior, scroll position ratio, and generic `data-detail-json` handling; and
+  `ui_tabs.js` owns the shared tab shell. The detail modal exposes a hook
+  boundary so feature owners can preserve behavior such as report redpen
+  before-leave checks and edited copy content without moving that report-specific
+  policy into shared UI. It owns no mission
+  lifecycle, pending-state, active-work, executor/model, workflow, report,
+  source, conversation, or claim-confidence policy, and no feature-specific body
+  markup.
+- `Plasma.mission` owns mission load, create, select, reload, archive, restore,
+  hard-delete, mission list/lifecycle rendering, local selection storage, mission
+  metadata editor wiring, mission-switch transient reset, and mission artifact
+  preview URL construction. It owns selection/detail generations, captured owners,
+  stale ownership checks, reusable begin/clear transitions, selected-detail
+  application, and selected detail reload. It calls explicit composition
+  callbacks only for cross-owner effects such as full detail rendering, form
+  disabling, error display, and the generic mission transition hooks
+  `beforeSelectionChange(currentMissionId, nextMissionId)` and
+  `afterSelectionApplied(owner)`. Those hooks are neutral extension points:
+  `app.js` composes the existing report before-leave guard and post-selection
+  source refresh order, while `Plasma.mission` remains unaware of report redpen
+  and Confluence policy. It does not own report redpen policy, source feature
+  rendering, workflow policy, or conversation policy.
+- `Plasma.transport` owns the browser HTTP helpers, including mission-scoped
+  request helpers and their existing response/error behavior.
+- `Plasma.polling` owns the two existing recursive `setTimeout` polling loops:
+  the 2000 ms selected pending poll and the 3000 ms observed mission activity
+  poll. It owns timer and in-flight fields, poll owners, activity cursor parsing
+  and storage, mission activity seen watermarks and pruning, non-regressing
+  mission activity merge mechanics, stale-owner gates, document-hidden skip
+  behavior, refresh scheduling, and the existing bounded selected-detail fallback
+  decision. It receives the selected-pending predicate explicitly from `app.js`.
+  Bootstrap supplies health-badge success/failure callbacks. `Plasma.polling`
+  does not render active-work notices or feature markup.
+
+`app.js` remains served at `/static/app.js` and remains the final browser
+composition root. It loads after the foundation scripts, shared UI scripts,
+feature owners, `Plasma.reports`, and `Plasma.bootstrap`. It keeps only
+cross-owner composition: mission-required validation, whole-detail rendering,
+form enablement and blocking predicates, active-work action routing,
+`runBulkSequential`, explicit owner configuration, selected-pending derivation,
+generic mission transition callback composition, and `Plasma.bootstrap.start`.
+The mission transition composition first asks the report redpen controller before
+switching between two non-empty different missions, then after detail application
+loads Confluence connections, re-checks detail ownership, and loads Confluence
+access. Moved implementations must not remain in `app.js` as duplicate
+functions, classes, wrappers, or proxy shims.
+
+`Plasma.conversation` owns conversation-specific browser mechanics: sending and
+canceling turns, resetting agent sessions, agent executor/model/reasoning
+controls and summaries, active-work notice rendering from projected state,
+turn rendering, steering placement, terminal badges, copy controls, and turn
+navigation. It uses `Plasma.mission` and `Plasma.transport` for mission capture
+and request execution, and it does not own polling timers, in-flight polling
+flags, activity cursors, stale polling transitions, refresh scheduling, or
+selected-detail fallback. The public surface remains one `Plasma.conversation`
+object, while focused classic scripts extend that object by concrete role:
+conversation actions, agent state/model/control/session presentation,
+active-work notices, turn state, turn rendering, and turn navigation. Cross-
+feature blocking decisions are supplied by `app.js` callbacks.
+
+`Plasma.workflow` owns workflow-specific browser mechanics: workflow raw input,
+goal draft, start, stop, continue, busy controls, run and step rendering, status
+and decision labels, and workflow-list events. The composition root supplies the
+explicit raw-input fallback from the conversation composer so the existing
+behavior remains `workflowInstruction` first and `turnText` second; this is a
+composition dependency, not a new product rule. Workflow does not own polling.
+The public surface remains one `Plasma.workflow` object, while focused classic
+scripts extend that object for workflow actions, input/goal-draft/busy controls,
+and run/status rendering. Cross-feature blocking decisions are supplied by
+`app.js` callbacks.
+
+`Plasma.sources` owns source intake, saved-source rendering and locators, source
+candidate rendering and source-candidate bulk actions, local-path source
+controls, Liquid2 source controls, and mission-scoped Confluence source UI. Its
+Confluence files are split by role: actionable error mapping, connection/site
+core, common source controls, URL/search flow, one-click flow, OAuth listener,
+mission access, browse fetch/rendering, review/approval, update checks, and
+result click handling. It uses explicit `Plasma.dom`, `Plasma.state`,
+`Plasma.transport`, `Plasma.mission`, and `Plasma.ui` dependencies plus
+composition callbacks from `app.js`; it does not own cross-feature form blocking,
+mission lifecycle policy, active-work policy, evidence proposal selection, or
+report request-time model overrides.
+
+`Plasma.settings` owns global settings UI for persisted model defaults and
+Confluence connection management. Model-default settings remain separate from
+report request-time model selection. Confluence settings are split between
+rendering and actions, and consume `Plasma.sources` Confluence connection
+helpers rather than bare `app.js` globals.
+
+`Plasma.proposals` owns evidence-proposal submission and decisions, proposal
+queue/detail rendering, candidate source option rendering, selection state,
+bulk actions, and extraction status markup. It uses `Plasma.mission`,
+`Plasma.transport`, `Plasma.ui`, and explicit `app.js` callbacks for
+mission-required validation, errors, and sequential bulk execution.
+
+`Plasma.knowledge` owns `EVIDENCE_TYPE_LABELS`, saved evidence and saved claim
+rendering, approved evidence/claims projection, and claim-confidence list,
+detail, badge, history, and chip rendering. It uses `Plasma.ui` for the shared
+detail modal shell instead of owning modal close/copy behavior.
+
+`Plasma.ledger` owns read-only ledger rendering, event labels, and event times,
+and uses `Plasma.ui` for generic detail display.
+
+`Plasma.reports` owns report-specific browser controls, request payload assembly,
+draft/cancel/patch actions, report list/state/trace/notice/timing rendering,
+pipeline graph and retry presentation, export/view/download actions, conversation
+export, report modal content, model selection, direction hints, Markdown/basic
+HTML/designed HTML/H5/redpen actions, math/Mermaid/image enhancement, and the
+redpen controller. It uses `Plasma.ui` for the modal shell, close behavior,
+detail scroll ratio, detail copy, clipboard, and error toast instead of
+reimplementing those shared behaviors.
+
+`Plasma.bootstrap` owns DOMContentLoaded setup, feature module configuration,
+event binding, local browser chrome initialization, and initial load calls.
+`app.js` supplies explicit callbacks for active-work pending derivation,
+report/conversation/workflow mutual blocking, mission lifecycle blocking,
+active-work action routing, shared `runBulkSequential`, and residual product
+composition. Feature modules render projected state and use shared APIs rather
+than reimplementing cross-feature behavior.
+
+CSS follows the same composition boundary while keeping the linked stylesheet
+entry contract scoped to `/static/app.css`. That entry remains the stable
+stylesheet linked by `index.html`, but it is an import-only manifest over
+source-order ownership segments under `internal/web/static/plasma/*.css`. The
+imported files are contiguous slices of the original cascade: their names
+describe the visual responsibility of that source range, not a license to
+regroup selectors across earlier or later rules. The late cross-owner responsive
+overrides remain the final imported CSS file so their original priority is
+preserved. The CSS source reconstructed in import order remains byte-for-byte
+stable, while ten new subordinate `/static/plasma/*.css` URLs and browser
+resource requests are introduced; partial-load failures and request count
+therefore belong to the normal static-asset serving contract rather than a
+concatenation fallback. This split is ownership documentation and maintenance
+structure only; it is not a redesign, cascade-layer migration, build-step
+introduction, minification pass, selector rewrite, or linked stylesheet URL
+rename.
+
+Non-goals are unchanged: no visual redesign, no backend/API/MCP/CLI/database
+change, no framework, bundler, ES-module, package, or TypeScript migration, no
+static URL rename, no DOM ID, data-attribute, or localStorage contract change,
+and no product policy or retry/recovery change.
+
 ## Storage Boundary
 
 Plasma owns its own database and domain model. The following are not allowed:

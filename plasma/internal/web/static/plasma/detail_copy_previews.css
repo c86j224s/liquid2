@@ -1,0 +1,345 @@
+
+/* ============================================================
+   CHIP ROW / CONFIDENCE
+   ============================================================ */
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.confidence-item .item-title {
+  min-width: 0;
+}
+
+.confidence-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* ============================================================
+   DETAIL BODY / GRID / BOX
+   ============================================================ */
+.detail-section {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.detail-box,
+.history-entry {
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line2);
+  border-radius: 9px;
+  background: var(--surface2);
+  padding: 10px;
+}
+
+.detail-meta {
+  color: var(--muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.detail-scroll-ratio {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in oklab, var(--bg3) 82%, transparent);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.detail-scroll-ratio.hidden {
+  display: none;
+}
+
+.detail-body {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.detail-body > * + * {
+  margin-top: 10px;
+}
+
+.detail-body pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  max-height: 520px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-entry {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 9px;
+}
+
+.trace-entry.failed {
+  border-color: color-mix(in srgb, var(--amber) 34%, transparent);
+  background: var(--amber-dim);
+}
+
+.trace-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trace-entry-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.trace-args,
+.trace-error {
+  color: var(--ink2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.trace-error {
+  color: var(--amber);
+}
+
+/* ============================================================
+   MISC BUTTONS
+   ============================================================ */
+.mini-copy {
+  min-height: var(--control-height-mini);
+  padding: 2px 7px;
+  font-size: 11px;
+  background: var(--surface3);
+  color: var(--ink2);
+  border-color: var(--line2);
+  box-shadow: none;
+}
+
+/* Per-turn copy button, pinned to the right of the label. */
+.turn-copy {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Make sure conversation text stays selectable for manual copy too. */
+.turn-text,
+.turn-markdown {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.icon-button {
+  width: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  background: transparent;
+  color: var(--ink2);
+  border-color: var(--line2);
+  font-size: 15px;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.icon-button.secondary {
+  background: var(--surface3);
+}
+
+/* ============================================================
+   DIVIDER
+   ============================================================ */
+.divider {
+  height: 1px;
+  background: var(--line);
+  margin: 12px 0;
+}
+
+/* ============================================================
+   SECONDARY TEXT
+   ============================================================ */
+.secondary {
+  color: var(--muted);
+}
+
+/* ============================================================
+   RECALL / REPORT PREVIEW CODE BLOCKS
+   ============================================================ */
+#recallPreview,
+/* Draft status notice (replaces the old bottom preview for transient messages) */
+.report-notice {
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 12px;
+  white-space: pre-line;
+}
+
+.report-notice.error {
+  border-color: rgba(217, 83, 79, 0.5);
+  color: #e0726d;
+}
+
+.active-work-notice {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent-from) 38%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent-from) 8%, var(--surface));
+  color: var(--ink2);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.active-work-notice.hidden { display: none; }
+
+.active-work-notice button {
+  margin-left: 2px;
+  min-height: 28px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.active-work-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.active-work-item button { flex: 0 0 auto; }
+
+@media (max-width: 560px) {
+  .active-work-notice { width: 100%; }
+  .active-work-item { flex: 1 1 100%; }
+  .active-work-notice button { margin-left: 0; }
+}
+
+.source-candidate-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.source-candidate-notice strong {
+  color: var(--ink);
+}
+
+.source-candidate-notice button {
+  flex: 0 0 auto;
+}
+
+/* Inline markdown preview rendered inside the selected report card */
+.report-card-preview {
+  margin-top: 10px;
+}
+
+.report-preview-head {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.report-preview-md {
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+}
+
+.report-preview-pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  border: 1px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.html-report-preview iframe {
+  display: block;
+  width: 100%;
+  height: min(72vh, 760px);
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: #111;
+}
+
+.report-card-preview-hint {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 0 2px;
+}
+
+.report-preview-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
+}

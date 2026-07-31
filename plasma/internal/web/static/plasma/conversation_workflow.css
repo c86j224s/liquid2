@@ -1,0 +1,694 @@
+
+/* ============================================================
+   CONVERSATION PANEL
+   ============================================================ */
+.conversation-panel {
+  position: relative;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Small floating jump controls for long conversations. */
+.turn-nav {
+  position: absolute;
+  right: 16px;
+  bottom: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 5;
+}
+
+.turn-nav.hidden {
+  display: none;
+}
+
+.turn-nav-btn {
+  width: var(--control-height);
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  border-radius: var(--radius);
+  background: var(--surface3);
+  color: var(--ink2);
+  border: 1px solid var(--line2);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.turn-nav-btn:hover:not(:disabled) {
+  background: var(--surface2);
+  filter: none;
+}
+
+/* Flex column instead of a fixed grid-row count: the turn log absorbs the
+   remaining space and every other section keeps its content height, so adding
+   or removing a section (workflow control, source-candidate notice, …) never
+   shifts a flexible row onto the wrong element. */
+.conversation-panel > * {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.conversation-panel > .turn-log {
+  flex: 1 1 0;
+}
+
+.agent-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.agent-controls label:not(.segmented-select-control) {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-controls .segmented-select-control {
+  width: 100%;
+}
+
+.agent-control-meta {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-status {
+  min-height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.session-status.ready {
+  border-color: color-mix(in srgb, var(--blue) 40%, transparent);
+  background: var(--blue-dim);
+  color: var(--blue);
+}
+
+.session-status.live {
+  border-color: color-mix(in srgb, var(--green) 40%, transparent);
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+/* ============================================================
+   RECALL BOX
+   ============================================================ */
+.recall-box {
+  border: 1px dashed var(--line2);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  background: var(--surface);
+}
+
+.recall-box summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 600;
+  font-size: 12px;
+  user-select: none;
+}
+
+.recall-box summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 4px;
+}
+
+/* ============================================================
+   TURN LOG
+   ============================================================ */
+.turn-log {
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+  padding: 4px;
+  display: grid;
+  /* Cap the column at the container width so wide children (code blocks,
+     tables) scroll inside their card instead of stretching the whole log. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-content: start;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+.turn {
+  border: 1px solid var(--item-bdr);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--item-bg);
+  min-width: 0;
+}
+
+/* Distinguish speakers by temperature: user = warm ember, agent = cool slate,
+   controller = brass (meta/steering). */
+.turn.user {
+  border-left: 3px solid var(--accent-from);
+  background: color-mix(in srgb, var(--accent-from) 7%, transparent);
+}
+
+.turn.agent {
+  border-left: 3px solid var(--blue);
+  background: color-mix(in srgb, var(--blue) 8%, transparent);
+}
+
+.turn.controller {
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+}
+
+.turn-steering-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.turn-steering-label {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.turn-steering-text strong {
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.turn-steering-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn.pending {
+  border-left: 3px solid var(--blue);
+  background: var(--blue-dim);
+}
+
+.turn.session-event {
+  border-left: 3px solid var(--muted);
+  background: var(--surface);
+}
+
+.turn-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.turn-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.turn-markdown {
+  white-space: normal;
+  font-size: 13.5px;
+  line-height: 1.68;
+  color: var(--ink);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.turn-markdown p,
+.turn-markdown ul,
+.turn-markdown ol,
+.turn-markdown pre,
+.turn-markdown blockquote {
+  margin: 0 0 11px;
+}
+
+.turn-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.turn-markdown ul,
+.turn-markdown ol {
+  padding-left: 20px;
+}
+
+.turn-markdown li {
+  margin-bottom: 4px;
+}
+
+.turn-markdown li::marker {
+  color: var(--accent-from);
+}
+
+.turn-markdown h1,
+.turn-markdown h2,
+.turn-markdown h3,
+.turn-markdown h4 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ink);
+  margin: 16px 0 8px;
+}
+
+.turn-markdown h1 { font-size: 18px; }
+.turn-markdown h2 { font-size: 16px; }
+.turn-markdown h3 { font-size: 14.5px; }
+.turn-markdown h4 { font-size: 13.5px; }
+
+.turn-markdown > :first-child {
+  margin-top: 0;
+}
+
+.turn-markdown strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.turn-markdown code {
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  background: var(--surface3);
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+
+.turn-markdown pre {
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  color: var(--code-fg);
+  overflow: auto;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  border: 1px solid var(--line);
+}
+
+/* Wide tables scroll horizontally instead of stretching/overflowing the card. */
+.turn-markdown table,
+.report-preview-md table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+.turn-markdown th,
+.turn-markdown td,
+.report-preview-md th,
+.report-preview-md td {
+  border: 1px solid var(--line2);
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.turn-markdown th,
+.report-preview-md th {
+  background: var(--surface2);
+  font-weight: 600;
+}
+
+.turn-markdown pre code {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+.turn-markdown blockquote {
+  border-left: 3px solid var(--amber);
+  color: var(--muted);
+  padding-left: 10px;
+}
+
+.turn-note {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--green-dim);
+  border-radius: 7px;
+  background: var(--green-dim);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.turn-note.muted {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.turn-note.warn {
+  border-color: var(--amber-dim);
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+
+/* ============================================================
+   STATUS / SPINNER
+   ============================================================ */
+.report-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-status.hidden {
+  display: none;
+}
+
+/* 자율 진행 collapses behind a toggle (like 에이전트 설정); the summary keeps
+   the status badge + run count visible without expanding. */
+.workflow-control {
+  margin: 4px 0;
+}
+
+.workflow-control > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.12s;
+}
+
+.workflow-control > summary::-webkit-details-marker {
+  display: none;
+}
+
+.workflow-control > summary::before {
+  content: "›";
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.workflow-control[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.workflow-control > summary:hover {
+  background: var(--surface2);
+}
+
+.workflow-control > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.workflow-control-title {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.workflow-control > summary > .count-chip {
+  margin-left: auto;
+}
+
+.workflow-control[open] > .workflow-control-body {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  /* One scroll region: inputs + run history share the space and the history is
+     no longer crushed by the input fields — you scroll the whole body. */
+  max-height: 56vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+/* Compact step-mode picker: natural width, left-aligned instead of a full row. */
+#workflowStepInstructionMode {
+  width: auto;
+  min-width: 200px;
+  max-width: 100%;
+  justify-self: start;
+}
+
+.workflow-run-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.workflow-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workflow-actions button {
+  min-height: var(--control-height);
+  padding: 6px 11px;
+}
+
+.workflow-control .field-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  margin-bottom: -2px;
+}
+
+.workflow-control textarea {
+  min-height: 46px;
+}
+
+.workflow-layered-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.workflow-run-list {
+  display: grid;
+  gap: 6px;
+  /* No separate cap: the run history flows full-length inside the body's
+     scroll region so the input fields no longer squeeze it. */
+}
+
+/* Run history card: a clear header, key/value meta block, and a status-dotted
+   step timeline — each section separated by a hairline. */
+.workflow-run {
+  border: 1px solid var(--item-bdr);
+  border-radius: var(--radius-sm);
+  background: var(--item-bg);
+  overflow: hidden;
+}
+
+.workflow-run-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 9px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.wf-run-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+
+.wf-run-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.workflow-run-meta {
+  display: grid;
+  gap: 4px;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--line);
+}
+
+.wf-field {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.wf-k {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.wf-v {
+  color: var(--ink2);
+  overflow-wrap: anywhere;
+}
+
+/* The step rows can be wider than the panel (long ids + reason); scroll this
+   list horizontally instead of clipping it, especially on mobile. */
+.workflow-steps {
+  display: flex;
+  flex-direction: column;
+  padding: 5px 9px 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+  overscroll-behavior-x: contain;
+}
+
+.wf-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11.5px;
+  color: var(--ink2);
+  width: max-content;
+  min-width: 100%;
+}
+
+.wf-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+
+.wf-step-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink2);
+  flex-shrink: 0;
+}
+
+.wf-step-status {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.wf-step-tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent-from);
+  flex-shrink: 0;
+}
+
+.wf-step-reason {
+  color: var(--muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.wf-dot-done   .wf-step-dot { background: var(--green); }
+.wf-dot-active .wf-step-dot {
+  background: var(--accent-from);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-from) 22%, transparent);
+}
+.wf-dot-wait    .wf-step-dot { background: var(--amber); }
+.wf-dot-fail    .wf-step-dot { background: var(--red); }
+.wf-dot-stopped .wf-step-dot { background: var(--ink2); }
+.wf-dot-muted   .wf-step-dot { background: var(--line2); }
+
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--line2);
+  border-top-color: var(--accent-from);
+  border-radius: 999px;
+  animation: spin 0.7s linear infinite;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   COMPOSER
+   ============================================================ */
+.composer {
+  display: grid;
+  grid-template-columns: 1fr 120px;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.composer textarea {
+  min-height: 64px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+}

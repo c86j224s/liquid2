@@ -49,6 +49,119 @@ telemetry에 근거한 약한 conditional behavior로 유지합니다.
 의미를 정의하고, app-level service는 use case를 조율합니다. Storage와 connector는 교체 가능한
 implementation으로 남아야 합니다.
 
+## 브라우저 프런트엔드 조립 경계
+
+브라우저는 미션 장부와 HTTP 인터페이스 위에서 동작하는, 교체 가능한 Plasma 클라이언트입니다. 프런트엔드는
+기존의 일반 스크립트 방식을 유지하며, 새 모듈이 공유하는 전역 진입점은 `window.Plasma` 하나로 제한합니다.
+공용 브라우저 모듈은 `internal/web/static/plasma/*.js` 아래에 두고 이 진입점의 명시적인 하위 모듈로만
+연결합니다.
+
+기반 모듈의 책임은 다음과 같이 나뉩니다.
+
+- `Plasma.dom`은 `$` 선택자, 문자열 이스케이프, 짧은 식별자와 시각 표시용 시간·용량 형식처럼 상태를
+  바꾸지 않는 DOM·문자열 도우미만 소유합니다. 제품 상태, 모달 동작, 클립보드, 네트워크 요청, 기능별
+  마크업은 소유하지 않습니다.
+- `Plasma.state`는 기존의 단일 브라우저 상태 객체를 소유합니다. 키, 기본값, 의미는 바꾸지 않습니다.
+- `Plasma.ui`는 여러 기능이 함께 쓰는 시각적 컨트롤과 브라우저 효과를 소유합니다. 공개 API는 하나의
+  객체로 유지하되 구현 파일은 역할별로 나눕니다. `ui.js`는 이름공간을 만들고 개수 칩, 빈 상태 마크업, 빈
+  섹션 토글, 공통 비활성화 처리, 버튼 문구를 담당합니다. `ui_feedback.js`는 같은 객체에 오류 토스트와
+  클립보드 복사를 추가합니다. `ui_detail.js`는 상세 모달, 배경 클릭 닫기, 복사 동작, 스크롤 위치 비율,
+  공통 `data-detail-json` 처리를 추가하고, `ui_tabs.js`는 공용 탭 쉘을 소유합니다. 상세 모달은 기능 소유자가 보고서 빨간펜 편집에서 나가기 전
+  확인과 편집 중인 내용 복사를 유지할 수 있도록 연결 지점만 제공합니다. 그 보고서 전용 정책 자체는 공용 UI로
+  옮기지 않습니다. 미션 생명주기, 대기 상태, 진행 중인 작업, 에이전트 실행기와 모델, 워크플로, 보고서, 소스,
+  대화, 주장 신뢰도 정책과 기능별 본문 마크업은 소유하지 않습니다.
+- `Plasma.mission`은 미션 load/create/select/reload/archive/restore/hard-delete, 미션 목록과 생명주기
+  렌더링, 로컬 선택 저장, 미션 메타데이터 편집기 연결, 미션 전환 임시 상태 초기화, 미션 artifact preview
+  URL 생성을 소유합니다. 선택·상세 세대, 캡처한 소유자, 오래된 소유권 검사, 재사용 가능한 선택 시작·해제
+  전환, 선택한 상세 적용, 선택한 상세 다시 읽기도 여기에 속합니다. 전체 상세 렌더링, form 비활성화, 오류 표시는
+  `app.js`가 넘긴 명시 callback으로만 연결합니다. 또한
+  `beforeSelectionChange(currentMissionId, nextMissionId)`와 `afterSelectionApplied(owner)`라는 일반 미션 전환
+  hook만 제공합니다. 이 hook은 중립적인 연결 지점입니다. `app.js`가 기존 보고서 빨간펜 이탈 확인과 선택 후
+  source 새로고침 순서를 조합하며, `Plasma.mission`은 보고서 빨간펜이나 Confluence 정책을 알지 않습니다.
+  보고서 빨간펜 정책, source 기능 렌더링, workflow 정책, conversation 정책은 소유하지 않습니다.
+- `Plasma.transport`는 미션 범위 요청과 기존 응답·오류 처리를 포함한 브라우저 HTTP 도우미를 소유합니다.
+- `Plasma.polling`은 기존의 두 재귀 `setTimeout` 폴링 루프를 소유합니다. 선택된 미션의 대기 작업 폴링은
+  2000ms, 관찰 중인 미션 활동 폴링은 3000ms 타이밍을 그대로 유지합니다. 타이머와 in-flight 필드, 폴링
+  소유자, 활동 커서 파싱과 저장, 미션 활동 확인 watermark와 pruning, 후퇴하지 않는 미션 활동 병합, 오래된
+  소유자 차단, `document.hidden`일 때 건너뛰는 동작, 다음 갱신 예약, 기존의 선택된 상세 한정 fallback 결정을
+  담당합니다. 선택된 미션의 pending 여부는 `app.js`가 명시 callback으로 넘깁니다. 상태 배지 성공·실패 callback은
+  bootstrap이 연결합니다. 진행 중인 작업 알림과 기능별 마크업은 렌더링하지 않습니다.
+
+`app.js`는 계속 `/static/app.js`로 제공되며 최종 브라우저 조립 루트로 남습니다. 기반 스크립트, 공용 UI
+스크립트, 기능 소유자, `Plasma.reports`, `Plasma.bootstrap` 다음에 불러옵니다. 남는 책임은 미션 필수 검증,
+전체 detail 렌더링, form enablement와 blocking predicate, active-work action routing, `runBulkSequential`,
+명시적인 owner configure, selected-pending 계산, 일반 미션 전환 callback 조합, `Plasma.bootstrap.start`뿐입니다.
+미션 전환 조합은 비어 있지 않은 서로 다른 두 미션 사이를 이동할 때 먼저 보고서 빨간펜 controller의 이탈 확인을
+요청하고, 선택 상세가 적용된 뒤 Confluence connection을 불러온 다음 상세 소유권을 다시 확인하고 Confluence
+access를 불러옵니다. 새 모듈로 옮긴 구현을 `app.js`에 중복 함수, 클래스, 래퍼 또는 프록시 형태로 남기지
+않습니다.
+
+`Plasma.conversation`은 대화에 특화된 브라우저 동작을 소유합니다. Turn 전송과 취소, agent session reset,
+agent executor/model/reasoning control과 요약, projected state에서 만드는 active-work 알림, turn rendering,
+steering 표시 위치, terminal badge, copy control, turn navigation이 여기에 속합니다. Mission capture와 요청
+실행은 `Plasma.mission`과 `Plasma.transport`를 사용합니다. Polling timer, in-flight polling flag, activity
+cursor, stale polling transition, refresh scheduling, selected-detail fallback은 소유하지 않습니다. 공개 표면은
+하나의 `Plasma.conversation` 객체로 유지하고, 물리 파일은 conversation action, agent state/model/control/session
+presentation, active-work 알림, turn state, turn rendering, turn navigation처럼 구체적인 역할별 classic script가
+같은 객체를 확장합니다. 기능 사이의 blocking 판단은 `app.js`가 callback으로 넘깁니다.
+
+`Plasma.workflow`는 workflow에 특화된 브라우저 동작을 소유합니다. Workflow raw input, goal draft, start,
+stop, continue, busy control, run과 step rendering, status/decision label, workflow list event가 여기에
+속합니다. 기존 동작처럼 raw input은 `workflowInstruction`을 먼저 보고 비어 있을 때 `turnText`를 fallback으로
+사용합니다. 이 fallback은 `app.js`가 넘기는 명시적인 조립 의존성이지 새 제품 규칙이 아닙니다. Workflow도
+polling을 소유하지 않습니다. 공개 표면은 하나의 `Plasma.workflow` 객체로 유지하고, 물리 파일은 workflow
+action, input/goal-draft/busy control, run/status rendering 역할별 classic script가 같은 객체를 확장합니다.
+기능 사이의 blocking 판단은 `app.js`가 callback으로 넘깁니다.
+
+`Plasma.sources`는 source intake, 저장된 source 렌더링과 locator, source candidate 렌더링과 source-candidate
+bulk action, local-path source control, Liquid2 source control, 미션 범위 Confluence source UI를 소유합니다.
+Confluence 파일은 실행 가능한 오류 매핑, connection/site core, 공통 source control, URL/search flow, one-click
+flow, OAuth listener, mission access, browse fetch/rendering, review/approval, update check, result click 처리처럼
+역할별로 나뉩니다. `Plasma.dom`, `Plasma.state`, `Plasma.transport`, `Plasma.mission`, `Plasma.ui`와 `app.js`가
+넘긴 조립 callback을 명시적으로 사용합니다. 기능 사이 form blocking, mission lifecycle 정책, active-work 정책,
+evidence proposal selection, report 요청 시점 model override는 소유하지 않습니다.
+
+`Plasma.settings`는 persisted model defaults와 Confluence connection management의 전역 settings UI를 소유합니다.
+Model-default settings는 report 요청 시점 model selection과 분리되어 있습니다. Confluence settings는 rendering과
+action으로 나뉘며, bare `app.js` global 대신 `Plasma.sources`의 Confluence connection helper를 소비합니다.
+
+`Plasma.proposals`는 evidence-proposal 제출과 결정, proposal queue/detail 렌더링, candidate source option
+렌더링, 선택 상태, bulk action, extraction status markup을 소유합니다. 미션 필수 검증, 오류 표시, 순차 bulk
+실행은 `app.js`가 넘긴 명시 callback을 사용합니다.
+
+`Plasma.knowledge`는 `EVIDENCE_TYPE_LABELS`, saved evidence와 saved claim 렌더링, approved evidence/claims
+projection, claim-confidence list/detail/badge/history/chip 렌더링을 소유합니다. Modal close/copy 동작은
+소유하지 않고 `Plasma.ui`의 공용 detail modal shell을 사용합니다.
+
+`Plasma.ledger`는 read-only ledger 렌더링, event label, event time을 소유하며 generic detail 표시는
+`Plasma.ui`를 사용합니다.
+
+`Plasma.reports`는 보고서 전용 browser control, 요청 payload 조립, draft/cancel/patch action, report
+list/state/trace/notice/timing 렌더링, pipeline graph와 retry 표시, export/view/download action, conversation
+export, report modal content, model selection, direction hint, Markdown/basic HTML/designed HTML/H5/redpen action,
+math/Mermaid/image enhancement, redpen controller를 소유합니다. Modal shell, 닫기 동작, detail scroll ratio,
+detail copy, clipboard, error toast는 `Plasma.ui`를 호출하며 공용 동작을 다시 구현하지 않습니다.
+
+`Plasma.bootstrap`은 DOMContentLoaded setup, feature module configuration, event binding, local browser chrome
+초기화, initial load call을 소유합니다. `app.js`는 active-work pending 계산, report/conversation/workflow 상호
+차단, mission lifecycle 차단, active-work action routing, 공유 `runBulkSequential`, 잔여 제품 조립에 필요한 명시
+callback을 넘깁니다. 기능 모듈은 전달받은 상태를 화면에 표시하고 공용 동작을 다시 구현하지 않습니다.
+
+CSS도 같은 조립 경계를 따르되, `index.html`이 연결하는 stylesheet 진입점 계약은 `/static/app.css`로 범위를
+좁혀 안정적으로 유지합니다. 이 진입점은 계속 안정된 linked stylesheet이며,
+`internal/web/static/plasma/*.css` 아래의 source-order 소유 구간을 순서대로 가져오는 import-only manifest입니다.
+가져오는 CSS 파일은 기존 cascade의 연속된 조각입니다. 파일 이름은 해당 원본 구간의 시각적 책임을 설명하지만,
+앞뒤에 떨어져 있던 selector를 새 의미별로 다시 모으는 근거가 아닙니다. 여러 소유 영역을 함께 덮는 마지막
+responsive override 구간은 기존 우선순위를 보존하기 위해 마지막 import로 유지합니다. import 순서대로
+재구성한 CSS 원문은 byte-for-byte로 동일하지만, subordinate `/static/plasma/*.css` URL 10개와 브라우저 resource
+request가 새로 도입됩니다. 따라서 부분 로드 실패와 요청 수 증가는 별도 concatenation fallback이 아니라 일반
+static asset serving 계약에서 다룹니다. 이 분리는 소유권 문서화와 유지보수 구조일 뿐이며, redesign, cascade
+layer 도입, build step 추가, minification, selector rewrite, linked stylesheet URL rename이 아닙니다.
+
+화면 재설계, 백엔드·API·MCP·CLI·데이터베이스 변경, 프레임워크·번들러·ES 모듈·패키지·TypeScript 도입,
+기존 정적 URL 이름 변경, DOM ID·데이터 속성·로컬 저장소 계약 변경, 제품 정책과 재시도·복구 동작 변경은 이 경계
+정리의 범위에 포함하지 않습니다.
+
 ## 저장소 경계
 
 Plasma는 자체 database와 domain model을 소유합니다. 다음은 금지합니다.

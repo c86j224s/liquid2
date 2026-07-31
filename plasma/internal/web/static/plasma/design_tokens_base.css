@@ -1,0 +1,254 @@
+/* ============================================================
+   DESIGN TOKENS
+   Dark is default; [data-theme="light"] or prefers-color-scheme: light → light.
+   ============================================================ */
+/* "Research Dossier — Ink & Ember": warm archival neutrals, a molten ember
+   accent, brass + slate signals. Editorial Korean serif headings, Plex body. */
+:root {
+  color-scheme: dark;
+
+  /* typography */
+  --font-display: "Gowun Batang", "Nanum Myeongjo", "Pretendard", ui-serif, Georgia, serif;
+  --font-body:    "IBM Plex Sans KR", "Pretendard", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", Consolas, monospace;
+
+  /* radii — editorial, lightly rounded. --radius matches the dominant 8px. */
+  --radius-sm:   4px;
+  --radius:      8px;
+  --radius-md:   10px;
+  --radius-lg:   11px;
+
+  /* spacing scale — snap gaps/padding to this rhythm (4 · 8 · 12 · 16 · 24 · 32) */
+  --space-1:     4px;
+  --space-2:     8px;
+  --space-3:     12px;
+  --space-4:     16px;
+  --space-5:     24px;
+  --space-6:     32px;
+
+  /* type scale — data/label · body · title · display (no half-steps) */
+  --text-xs:     11px;
+  --text-sm:     12px;
+  --text-base:   13px;
+  --text-md:     15px;
+  --text-lg:     18px;
+  --text-xl:     23px;
+
+  /* compact command controls; touch layouts override this to 40px */
+  --control-height: 34px;
+  --control-height-mini: 24px;
+
+  /* base — warm charcoal ink, solid surfaces (no glass) */
+  --bg:          #15120d;
+  --bg2:         #1b1711;
+  --surface:     #201b14;
+  --surface2:    #28221a;
+  --surface3:    #322a20;
+
+  /* text — warm paper whites */
+  --ink:         #ece4d4;
+  --ink2:        #c0b4a0;
+  --muted:       #8c7f6c;
+
+  /* borders — warm hairlines */
+  --line:        rgba(236, 228, 212, 0.09);
+  --line2:       rgba(236, 228, 212, 0.17);
+
+  /* accent — molten ember */
+  --accent-from: #d2602c;
+  --accent-to:   #e08a3a;
+  --accent-mid:  #d97334;
+  --accent-grad: linear-gradient(135deg, var(--accent-from) 0%, var(--accent-to) 100%);
+
+  /* semantic — muted, archival */
+  --green:       #87a06b;
+  --green-dim:   rgba(135, 160, 107, 0.16);
+  --blue:        #8aa0bd;
+  --blue-dim:    rgba(138, 160, 189, 0.16);
+  --amber:       #cb9c4f;
+  --amber-dim:   rgba(203, 156, 79, 0.16);
+  --red:         #d2685a;
+  --red-dim:     rgba(210, 104, 90, 0.16);
+
+  /* focus */
+  --focus-ring:  0 0 0 3px rgba(210, 96, 44, 0.34);
+
+  /* shadow — warm black */
+  --shadow-sm:   0 1px 3px rgba(0, 0, 0, 0.40);
+  --shadow-md:   0 6px 24px rgba(0, 0, 0, 0.48);
+  --shadow-lg:   0 18px 52px rgba(0, 0, 0, 0.58);
+  --button-shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  --button-shadow-hover: 0 2px 5px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.13);
+
+  /* panel */
+  --panel-bg:    #1a1610;
+  --panel-bdr:   rgba(236, 228, 212, 0.11);
+
+  /* item */
+  --item-bg:     #1e1912;
+  --item-bdr:    rgba(236, 228, 212, 0.09);
+
+  /* code — deep warm inset */
+  --code-bg:     #100d09;
+  --code-fg:     #e2d7c2;
+}
+
+/* Light theme — warm ivory paper */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg:          #f4efe3;
+    --bg2:         #ebe4d4;
+    --surface:     #fbf8f0;
+    --surface2:    #ffffff;
+    --surface3:    #f0e8d7;
+    --ink:         #241d14;
+    --ink2:        #574d3d;
+    --muted:       #8c8067;
+    --line:        rgba(36, 29, 20, 0.11);
+    --line2:       rgba(36, 29, 20, 0.18);
+    --accent-from: #bd4f23;
+    --accent-to:   #cf7a31;
+    --accent-mid:  #c25e28;
+    --green:       #4f7a45;
+    --green-dim:   rgba(79, 122, 69, 0.14);
+    --blue:        #4d6485;
+    --blue-dim:    rgba(77, 100, 133, 0.12);
+    --amber:       #9a7220;
+    --amber-dim:   rgba(154, 114, 32, 0.14);
+    --red:         #b3493a;
+    --red-dim:     rgba(179, 73, 58, 0.12);
+    --focus-ring:  0 0 0 3px rgba(189, 79, 35, 0.28);
+    --shadow-sm:   0 1px 3px rgba(60, 42, 20, 0.10);
+    --shadow-md:   0 6px 20px rgba(60, 42, 20, 0.12);
+    --shadow-lg:   0 18px 46px rgba(60, 42, 20, 0.16);
+    --button-shadow-soft: 0 1px 2px rgba(60, 42, 20, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+    --button-shadow-hover: 0 2px 5px rgba(60, 42, 20, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+    --panel-bg:    #fbf8f0;
+    --panel-bdr:   rgba(36, 29, 20, 0.11);
+    --item-bg:     #ffffff;
+    --item-bdr:    rgba(36, 29, 20, 0.09);
+    --code-bg:     #241f17;
+    --code-fg:     #e8dcc6;
+  }
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg:          #f4efe3;
+  --bg2:         #ebe4d4;
+  --surface:     #fbf8f0;
+  --surface2:    #ffffff;
+  --surface3:    #f0e8d7;
+  --ink:         #241d14;
+  --ink2:        #574d3d;
+  --muted:       #8c8067;
+  --line:        rgba(36, 29, 20, 0.11);
+  --line2:       rgba(36, 29, 20, 0.18);
+  --accent-from: #bd4f23;
+  --accent-to:   #cf7a31;
+  --accent-mid:  #c25e28;
+  --green:       #4f7a45;
+  --green-dim:   rgba(79, 122, 69, 0.14);
+  --blue:        #4d6485;
+  --blue-dim:    rgba(77, 100, 133, 0.12);
+  --amber:       #9a7220;
+  --amber-dim:   rgba(154, 114, 32, 0.14);
+  --red:         #b3493a;
+  --red-dim:     rgba(179, 73, 58, 0.12);
+  --focus-ring:  0 0 0 3px rgba(189, 79, 35, 0.28);
+  --shadow-sm:   0 1px 3px rgba(60, 42, 20, 0.10);
+  --shadow-md:   0 6px 20px rgba(60, 42, 20, 0.12);
+  --shadow-lg:   0 18px 46px rgba(60, 42, 20, 0.16);
+  --button-shadow-soft: 0 1px 2px rgba(60, 42, 20, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  --button-shadow-hover: 0 2px 5px rgba(60, 42, 20, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  --panel-bg:    #fbf8f0;
+  --panel-bdr:   rgba(36, 29, 20, 0.11);
+  --item-bg:     #ffffff;
+  --item-bdr:    rgba(36, 29, 20, 0.09);
+  --code-bg:     #241f17;
+  --code-fg:     #e8dcc6;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* ============================================================
+   RESET / BASE
+   ============================================================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  /* Warm archival atmosphere: a faint ember glow over deep ink, plus a fine
+     paper grain so surfaces read as material rather than flat glass. */
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(120% 80% at 100% 0%, rgba(210, 96, 44, 0.10), transparent 60%),
+    radial-gradient(90% 70% at 0% 100%, rgba(138, 160, 189, 0.06), transparent 55%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+  background-attachment: fixed;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.12;
+}
+
+h2 {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+}
+
+h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink2);
+  margin-bottom: 8px;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}

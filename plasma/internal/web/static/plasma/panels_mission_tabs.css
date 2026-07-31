@@ -1,0 +1,495 @@
+
+/* ============================================================
+   PANEL (glass surface)
+   ============================================================ */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-bdr);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 15px;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* The tab bar already labels the conversation, so drop the redundant "대화"
+   panel head — the turn log climbs higher and the chat uses more of the screen.
+   The status/cancel actions still appear (they're hidden until a turn runs). */
+.conversation-panel > .panel-head {
+  margin-bottom: 0;
+}
+
+.conversation-panel > .panel-head > h2 {
+  display: none;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-mode-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.report-model-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-request-panel {
+  display: grid;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.report-direction-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: var(--control-height);
+  width: max-content;
+  padding: 5px 10px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+  box-shadow: var(--button-shadow-soft);
+}
+
+.report-direction-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.report-direction-details > summary:hover,
+.report-direction-details[open] > summary {
+  border-color: color-mix(in srgb, var(--accent-from) 42%, var(--line2));
+  background: var(--surface2);
+  color: var(--ink);
+  box-shadow: var(--button-shadow-hover);
+}
+
+.report-direction-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.report-direction-details[open] {
+  flex: 1 0 100%;
+}
+
+.report-direction-details[open] .report-direction-field {
+  max-width: 760px;
+}
+
+.report-request-actions,
+.report-generation-settings {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.report-request-actions {
+  justify-content: flex-start;
+}
+
+.report-generation-settings {
+  flex: 0 1 auto;
+}
+
+.report-mode-actions {
+  margin-left: auto;
+}
+
+@media (max-width: 720px) {
+  .report-generation-settings,
+  .report-model-controls {
+    display: grid;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .report-generation-settings > .inline-control,
+  .report-model-controls .inline-control {
+    display: flex;
+    width: 100%;
+  }
+
+  .report-generation-settings .inline-control select {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .report-request-actions,
+  .report-mode-actions {
+    width: 100%;
+  }
+
+  .report-mode-actions {
+    width: auto;
+    margin-left: auto;
+    justify-content: flex-end;
+  }
+}
+
+.report-mode-actions button {
+  min-width: 96px;
+}
+
+.inline-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.inline-control select {
+  width: auto;
+  min-width: 92px;
+  padding: 6px 28px 6px 9px;
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+
+.segmented-select-control {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--control-height);
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--surface2);
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+/* Label chip stays quiet (brass on inset surface); ember is reserved for
+   primary actions and focus/active state, not every select. */
+.segmented-select-label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 11px;
+  background: var(--surface3);
+  color: var(--muted);
+  border-right: 1px solid var(--line2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.segmented-select-control:focus-within .segmented-select-label {
+  color: var(--ink2);
+}
+
+.segmented-select-control select {
+  flex: 1 1 auto;
+  height: 100%;
+  width: auto;
+  min-width: 92px;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 30px 6px 11px;
+  box-shadow: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-select-model select {
+  min-width: 160px;
+}
+
+.report-select-effort select {
+  min-width: 132px;
+}
+
+.report-select-execution select {
+  min-width: 118px;
+}
+
+.segmented-select-control:focus-within {
+  border-color: var(--accent-from);
+  box-shadow: var(--focus-ring);
+}
+
+.segmented-select-control select:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.segmented-select-control:has(select:disabled) {
+  opacity: 0.44;
+}
+
+/* ============================================================
+   MISSION BANNER (hero)
+   ============================================================ */
+.mission-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 16px;
+}
+
+.mission-banner-head {
+  min-width: 0;
+	flex: 1;
+}
+
+.mission-metadata-editor { max-width: 760px; }
+.mission-metadata-editor label { display: grid; gap: 4px; color: var(--muted); font-size: 12px; }
+.mission-metadata-scope { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.mission-metadata-editor .inline-actions { margin-top: 8px; }
+.field-error { color: var(--danger); font-size: 12px; }
+.mission-settings-card[open] > .stack {
+  gap: 12px;
+}
+.mission-lifecycle-settings,
+.mission-hard-delete-settings {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 760px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.mission-hard-delete-settings {
+  border-top-color: color-mix(in srgb, var(--red) 35%, var(--line));
+}
+
+.mission-lifecycle-settings strong,
+.mission-hard-delete-settings strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.mission-hard-delete-settings strong {
+  color: var(--red);
+}
+
+.mission-lifecycle-settings .inline-actions,
+.mission-hard-delete-settings .inline-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.mission-lifecycle-button {
+  min-height: 30px;
+  padding: 4px 10px;
+}
+.mission-lifecycle-notice {
+  margin-top: 5px;
+  color: var(--amber);
+  font-size: 12px;
+}
+.report-direction-field { display: grid; gap: 5px; max-width: 760px; color: var(--muted); font-size: 12px; }
+
+.report-generation-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 9px 0 4px;
+}
+
+.report-generation-item {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 26px;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--ink2);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.report-generation-item strong,
+.report-generation-item span {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 7px;
+}
+
+.report-generation-item strong {
+  background: var(--surface3);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.report-direction-line {
+  flex: 1 1 260px;
+  min-width: min(100%, 220px);
+}
+
+.report-direction-line span:last-child {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+	.mission-banner { align-items: flex-start; }
+	.mission-metadata-scope { grid-template-columns: 1fr; }
+  .mission-lifecycle-settings,
+  .mission-hard-delete-settings {
+    display: grid;
+  }
+}
+
+.mission-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mission-recall-button {
+  min-height: var(--control-height);
+  padding: 6px 11px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+#missionName {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  word-break: keep-all;
+}
+
+/* Objective clamped to one line so the banner stays a slim strip (full text is
+   in the 상태 미리보기 popup). */
+#missionObjectiveText {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* Focus mode: fold the mission banner + settings/workflow summaries so the
+   conversation takes the whole column. */
+body.chat-focus #agentControlsDetails,
+body.chat-focus #workflowControlDetails {
+  display: none;
+}
+
+body.chat-focus .mission-banner-shell {
+  grid-template-rows: minmax(0, 0fr);
+}
+
+body.chat-focus .mission-banner {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-18px) scale(0.98);
+}
+
+/* ============================================================
+   TABBAR
+   ============================================================ */
+.tabbar {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line2);
+  scrollbar-width: none;
+}
+
+.tabbar::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  flex: 0 0 auto;
+  min-height: 38px;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 16px;
+  margin-bottom: -1px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab:hover:not(:disabled):not(.active) {
+  background: transparent;
+  color: var(--ink2);
+  filter: none;
+  box-shadow: none;
+}
+
+.tab.active {
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent-from);
+  box-shadow: none;
+}
+
+.tab-panel {
+  display: none;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+.tab-panel.active > .panel {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+}

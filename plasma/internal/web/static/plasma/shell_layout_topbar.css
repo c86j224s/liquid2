@@ -1,0 +1,257 @@
+
+/* ============================================================
+   APP SHELL
+   ============================================================ */
+.app-shell {
+  height: 100dvh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ============================================================
+   TOPBAR
+   ============================================================ */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 62px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--line2);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 10;
+}
+
+/* topbar background is theme-aware via var(--surface); no per-theme override needed */
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin-top: 3px;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+}
+
+.runtime,
+.metric-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.environment-badge {
+  padding: 3px 7px;
+  border-color: color-mix(in oklab, var(--amber) 46%, var(--line));
+  background: var(--amber-dim);
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* Theme toggle button */
+#themeToggle {
+  min-height: var(--control-height);
+  font-size: 15px;
+}
+
+#themeToggle:hover:not(:disabled) {
+  background: var(--surface2);
+  border-color: var(--line2);
+  filter: none;
+}
+
+.focus-mode-handle {
+  position: absolute;
+  left: 50%;
+  bottom: -12px;
+  z-index: 12;
+  width: 68px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--line2) 82%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface2) 94%, var(--amber) 6%), var(--surface));
+  color: var(--muted);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  transform: translateX(-50%);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.focus-mode-handle:hover:not(:disabled),
+.focus-mode-handle:focus-visible {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line2));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface2) 86%, var(--amber) 14%), var(--surface));
+  color: var(--text);
+}
+
+.focus-mode-handle span {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ============================================================
+   WORKSPACE LAYOUT
+   ============================================================ */
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(360px, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 14px;
+  padding: 14px;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  transition: grid-template-columns 0.2s ease;
+}
+
+body.mission-rail-collapsed .workspace {
+  grid-template-columns: 18px minmax(360px, 1fr);
+}
+
+.rail,
+.main-column {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rail {
+  position: relative;
+  overflow: visible;
+}
+
+.mission-banner-shell {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  transition: grid-template-rows 0.2s ease;
+}
+
+.mission-banner-shell > .mission-banner {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.rail > .panel {
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.mission-rail-toggle {
+  position: absolute;
+  top: 50%;
+  right: -9px;
+  z-index: 4;
+  width: 24px;
+  height: 68px;
+  min-height: 68px;
+  padding: 0;
+  border-radius: 999px;
+  border-color: color-mix(in srgb, var(--line2) 82%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface2) 94%, var(--amber) 6%), var(--surface));
+  color: var(--muted);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.24);
+  transform: translateY(-50%);
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.mission-rail-toggle:hover:not(:disabled),
+.mission-rail-toggle:focus-visible {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--line2));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface2) 86%, var(--amber) 14%), var(--surface));
+  color: var(--text);
+}
+
+.mission-rail-toggle span {
+  display: block;
+  font-size: 20px;
+  line-height: 1;
+  transform: translateX(-1px);
+}
+
+body.mission-rail-collapsed .rail > .panel {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-18px) scale(0.98);
+}
+
+body.mission-rail-collapsed .mission-rail-toggle {
+  right: -12px;
+}
+
+body.mission-rail-collapsed .mission-rail-toggle span {
+  transform: translateX(1px);
+}
+
+/* Flex column (not a fixed 3-row grid) so hiding the banner in focus mode
+   doesn't shift the tab panel off its flexible row. */
+.main-column {
+  display: flex;
+  flex-direction: column;
+}
+
+.main-column > * {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.main-column > .tab-panel {
+  flex: 1 1 0;
+}
+
+#missionList {
+  min-height: 0;
+  overflow: auto;
+  /* Pack items at their content height; don't stretch rows to fill the rail. */
+  align-content: start;
+  align-items: start;
+  grid-auto-rows: max-content;
+}

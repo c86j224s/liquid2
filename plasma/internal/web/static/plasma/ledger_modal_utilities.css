@@ -1,0 +1,635 @@
+
+/* ============================================================
+   LEDGER PANEL — dense single-line rows that fill the panel
+   ============================================================ */
+.ledger-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ledger-panel .list {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  margin-top: 10px;
+  gap: 3px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+
+.ledger-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto 9rem;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  min-height: 30px;
+  padding: 5px 11px;
+  background: var(--item-bg);
+  border: 1px solid var(--item-bdr);
+  border-radius: var(--radius-sm);
+  color: var(--ink2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.ledger-row:hover:not(:disabled) {
+  background: var(--surface2);
+  border-color: var(--line2);
+  filter: none;
+}
+
+.ledger-seq {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.ledger-type {
+  font-weight: 600;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ledger-time {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink2);
+}
+
+.ledger-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+
+@media (max-width: 760px) {
+  :root {
+    --control-height: 40px;
+  }
+
+  .source-tab {
+    min-height: 38px;
+  }
+
+  .ledger-row {
+    grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  }
+  .ledger-row .ledger-id { display: none; }
+}
+
+/* ============================================================
+   ERROR TOAST
+   ============================================================ */
+.error-toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  width: min(520px, calc(100vw - 36px));
+  background: var(--panel-bg);
+  border: 1px solid color-mix(in srgb, var(--red) 48%, transparent);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--red) 16%, transparent), var(--shadow-lg);
+  padding: 12px;
+  z-index: 20;
+}
+
+.error-toast.hidden {
+  display: none;
+}
+
+#errorText {
+  max-height: 260px;
+  overflow: auto;
+  color: var(--red);
+  margin: 0;
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+.modal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 30;
+}
+
+.modal.hidden {
+  display: none;
+}
+
+.modal-card {
+  width: min(860px, 100%);
+  max-height: min(760px, calc(100vh - 36px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--panel-bdr);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  padding: 16px;
+  animation: card-up 0.08s ease-out;
+}
+
+.modal-card > .panel-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  margin: -16px -16px 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line2);
+  border-radius: 14px 14px 0 0;
+  background: color-mix(in oklab, var(--bg2) 92%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Report viewing: a large modal that fills most of the screen. */
+.modal-card--wide {
+  width: min(1200px, 100%);
+  max-height: calc(100dvh - 40px);
+}
+
+.report-modal-body {
+  font-size: 13.5px;
+  line-height: 1.68;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.report-modal-body.turn-markdown {
+  overflow-wrap: anywhere;
+}
+
+.report-modal-body.turn-markdown p,
+.report-modal-body.turn-markdown ul,
+.report-modal-body.turn-markdown ol,
+.report-modal-body.turn-markdown blockquote,
+.report-modal-body.turn-markdown table,
+.report-modal-body.turn-markdown pre {
+  max-width: 100%;
+}
+
+.report-modal-body.turn-markdown pre {
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.report-modal-body.turn-markdown code {
+  white-space: break-spaces;
+}
+
+.report-modal-body.turn-markdown th,
+.report-modal-body.turn-markdown td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.report-modal-body.turn-markdown h1,
+.report-modal-body.turn-markdown h2,
+.report-modal-body.turn-markdown h3,
+.report-modal-body.turn-markdown h4 {
+  overflow-wrap: anywhere;
+}
+
+.report-modal-body.turn-markdown h1::before,
+.report-modal-body.turn-markdown h2::before,
+.report-modal-body.turn-markdown h3::before,
+.report-modal-body.turn-markdown h4::before {
+  display: inline-block;
+  margin-right: 7px;
+  color: var(--muted2);
+  font-family: var(--font-mono);
+  font-size: 0.76em;
+  font-weight: 600;
+  opacity: 0.62;
+}
+
+.report-modal-body.turn-markdown h1::before { content: "#"; }
+.report-modal-body.turn-markdown h2::before { content: "##"; }
+.report-modal-body.turn-markdown h3::before { content: "###"; }
+.report-modal-body.turn-markdown h4::before { content: "####"; }
+
+.report-modal-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--code-fg);
+  background: var(--code-bg);
+  padding: 12px;
+  border-radius: var(--radius);
+}
+
+.report-modal-frame iframe {
+  width: 100%;
+  height: 74vh;
+  border: 0;
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+@keyframes card-up {
+  from { transform: translateY(8px); opacity: 0.7; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+/* ============================================================
+   PROGRESSIVE DISCLOSURE — details/summary (section-details)
+   ============================================================ */
+details.section-details {
+  margin: 10px 0;
+}
+
+details.section-details > summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+details.section-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.section-details > summary::before {
+  content: "›";
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+details.section-details[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details.section-details > summary:hover {
+  background: var(--surface2);
+  border-color: var(--line2);
+}
+
+details.section-details > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+details.section-details[open] > summary {
+  border-radius: var(--radius) var(--radius) 0 0;
+  border-bottom-color: transparent;
+}
+
+details.section-details[open] > .list,
+details.section-details[open] > .stack {
+  padding: 8px;
+  border: 1px solid var(--line2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Mission rail new-mission details */
+#newMissionDetails {
+  margin-bottom: 8px;
+}
+
+#newMissionDetails > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+#newMissionDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+#newMissionDetails > summary::before {
+  content: "›";
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+#newMissionDetails[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#newMissionDetails > summary:hover {
+  background: var(--surface2);
+}
+
+#newMissionDetails > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+#newMissionDetails[open] > .stack {
+  padding: 8px;
+  border: 1px solid var(--line2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Agent controls details */
+#agentControlsDetails {
+  margin-bottom: 10px;
+}
+
+#agentControlsDetails > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.12s;
+}
+
+#agentControlsDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+#agentControlsDetails > summary::before {
+  content: "›";
+  font-size: 14px;
+  line-height: 1;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+#agentControlsDetails[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#agentControlsDetails > summary:hover {
+  background: var(--surface2);
+}
+
+#agentControlsDetails > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+#agentControlsDetails[open] > .agent-controls {
+  margin-top: 0;
+  padding: 10px;
+  border: 1px solid var(--line2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Add text source details */
+.source-add {
+  margin-bottom: 6px;
+}
+
+.source-add > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--line2);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.12s;
+}
+
+.source-add > summary::-webkit-details-marker {
+  display: none;
+}
+
+.source-add > summary::before {
+  content: "›";
+  font-size: 15px;
+  line-height: 1;
+  color: var(--muted);
+  display: inline-block;
+  transition: transform 0.15s;
+  flex-shrink: 0;
+}
+
+.source-add[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.source-add > summary:hover {
+  background: var(--surface2);
+}
+
+.source-add > summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.source-add[open] > .stack {
+  padding: 10px;
+  border: 1px solid var(--line2);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Unify the four source-add forms: the submit action sits at the bottom-right
+   at natural width across all of them (text / media / pdf / local path). */
+.source-add[open] > .stack > button[type="submit"] {
+  justify-self: end;
+}
+
+.source-add .inline-actions {
+  justify-content: flex-end;
+}
+
+/* ── Source-add methods as a tab strip (one panel at a time) ── */
+.source-add-group {
+  margin-bottom: 6px;
+}
+
+.source-tabstrip {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line2);
+}
+
+.source-tabstrip::-webkit-scrollbar {
+  display: none;
+}
+
+.source-tab {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.source-tab:hover {
+  color: var(--ink2);
+  background: var(--surface);
+}
+
+.source-tab.active {
+  position: relative;
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line2);
+}
+
+.source-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-mid);
+}
+
+.source-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Inside the tab group the tab strip drives the panels, so hide the native
+   details summaries and give the open panel a full border. */
+.source-add-group .source-add {
+  margin-bottom: 0;
+}
+
+.source-add-group .source-add > summary {
+  display: none;
+}
+
+.source-add-group .source-add[open] > .stack {
+  border-radius: var(--radius);
+  border-top: 1px solid var(--line2);
+}
+
+/* Agent controls summary inline status text */
+.agent-controls-summary-text {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* ============================================================
+   COUNT CHIP
+   ============================================================ */
+.count-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  min-height: 18px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent-from) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-from) 35%, transparent);
+  color: var(--accent-from);
+  vertical-align: middle;
+  line-height: 1;
+}
+
+.count-chip:empty {
+  display: none;
+}
+
+/* ============================================================
+   COLLAPSED EMPTY SECTIONS
+   ============================================================ */
+.collapsed-empty {
+  display: none !important;
+}
+
+/* ============================================================
+   UTILITY
+   ============================================================ */
+.hidden {
+  display: none !important;
+}
+
+.mobile-only {
+  display: none;
+}

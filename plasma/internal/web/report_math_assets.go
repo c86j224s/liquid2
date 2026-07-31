@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-//go:embed static/vendor/katex/katex.min.js static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/vendor/purify.min.js static/vendor/mermaid.min.js static/report_math.js static/report_math.css static/report_mermaid_legend.js static/report_mermaid.js static/report_mermaid.css
+//go:embed static/vendor/katex/katex.min.js static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/vendor/purify.min.js static/vendor/mermaid.min.js static/plasma/namespace.js static/plasma/reports.js static/plasma/reports_math.js static/plasma/reports_mermaid_legend.js static/plasma/reports_mermaid.js static/report_math.css static/report_mermaid.css
 var reportMathAssets embed.FS
 
 var reportMathFonts = []string{
@@ -68,11 +68,11 @@ func selfContainedMermaidHead() (string, error) {
 }
 
 func selfContainedMarkdownScripts() (string, error) {
-	return selfContainedReportScriptsWithBootstrap(`(()=>{const run=()=>{const source=document.getElementById("report-markdown");const target=document.getElementById("report-body");if(source&&target&&window.renderPlasmaMarkdown)window.renderPlasmaMarkdown(target,JSON.parse(source.textContent))};document.readyState==="loading"?document.addEventListener("DOMContentLoaded",run,{once:true}):run()})();`)
+	return selfContainedReportScriptsWithBootstrap(`(()=>{const run=()=>{const source=document.getElementById("report-markdown");const target=document.getElementById("report-body");if(source&&target&&window.Plasma?.reports?.renderPlasmaMarkdown)window.Plasma.reports.renderPlasmaMarkdown(target,JSON.parse(source.textContent))};document.readyState==="loading"?document.addEventListener("DOMContentLoaded",run,{once:true}):run()})();`)
 }
 
 func selfContainedDesignedScripts() (string, error) {
-	return selfContainedReportScriptsWithBootstrap(`(()=>{const run=()=>{document.querySelectorAll("[data-designed-markdown]").forEach(node=>{const source=node.querySelector('script[type="application/json"]');if(!source||!window.renderPlasmaMarkdown)return;try{window.renderPlasmaMarkdown(node,JSON.parse(source.textContent))}catch(_error){}});window.renderDesignedTextMath&&window.renderDesignedTextMath(document.body)};document.readyState==="loading"?document.addEventListener("DOMContentLoaded",run,{once:true}):run()})();`)
+	return selfContainedReportScriptsWithBootstrap(`(()=>{const run=()=>{document.querySelectorAll("[data-designed-markdown]").forEach(node=>{const source=node.querySelector('script[type="application/json"]');if(!source||!window.Plasma?.reports?.renderPlasmaMarkdown)return;try{window.Plasma.reports.renderPlasmaMarkdown(node,JSON.parse(source.textContent))}catch(_error){}});window.Plasma?.reports?.renderDesignedTextMath&&window.Plasma.reports.renderDesignedTextMath(document.body)};document.readyState==="loading"?document.addEventListener("DOMContentLoaded",run,{once:true}):run()})();`)
 }
 
 func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
@@ -92,7 +92,15 @@ func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	renderer, err := reportMathAssets.ReadFile("static/report_math.js")
+	namespace, err := reportMathAssets.ReadFile("static/plasma/namespace.js")
+	if err != nil {
+		return "", err
+	}
+	reports, err := reportMathAssets.ReadFile("static/plasma/reports.js")
+	if err != nil {
+		return "", err
+	}
+	renderer, err := reportMathAssets.ReadFile("static/plasma/reports_math.js")
 	if err != nil {
 		return "", err
 	}
@@ -100,16 +108,18 @@ func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
 		"<script>" + safeRawElement(string(texmath), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(purify), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(runtime), "script") + "</script>\n" +
+		"<script>" + safeRawElement(string(namespace), "script") + "</script>\n" +
+		"<script>" + safeRawElement(string(reports), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(renderer), "script") + "</script>\n"
 	mermaidRuntime, err := reportMathAssets.ReadFile("static/vendor/mermaid.min.js")
 	if err != nil {
 		return "", err
 	}
-	mermaidLegend, err := reportMathAssets.ReadFile("static/report_mermaid_legend.js")
+	mermaidLegend, err := reportMathAssets.ReadFile("static/plasma/reports_mermaid_legend.js")
 	if err != nil {
 		return "", err
 	}
-	mermaidRenderer, err := reportMathAssets.ReadFile("static/report_mermaid.js")
+	mermaidRenderer, err := reportMathAssets.ReadFile("static/plasma/reports_mermaid.js")
 	if err != nil {
 		return "", err
 	}

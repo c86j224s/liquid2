@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -9703,15 +9704,71 @@ func TestWorkspaceResponsesDisableBrowserCaching(t *testing.T) {
 	server := httptest.NewServer(NewServer(app.NewService(store), Options{}))
 	defer server.Close()
 
-	for _, path := range []string{"/api/missions", "/", "/static/app.js", "/static/confluence.js"} {
+	for _, path := range []string{"/api/missions", "/", "/static/app.js", "/static/plasma/namespace.js", "/static/plasma/state.js", "/static/plasma/sources_confluence_core.js"} {
 		resp, err := http.Get(server.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", path, resp.StatusCode)
+		}
 		if got := resp.Header.Get("Cache-Control"); got != "no-store" {
 			t.Fatalf("expected Cache-Control no-store for %s, got %q", path, got)
 		}
+	}
+}
+
+func TestImportedAppCSSFilesServeFromEmbeddedAndStaticDir(t *testing.T) {
+	ctx := context.Background()
+	imports := appCSSImportPathsForServerTest(t)
+	staticRoot, staticDirExpected := writeSentinelStaticDirCSS(t, imports)
+	for _, mode := range []struct {
+		name     string
+		options  Options
+		expected map[string][]byte
+	}{
+		{name: "embedded", options: Options{}, expected: embeddedCSSBodiesForServerTest(t, imports)},
+		{name: "static-dir", options: Options{StaticDir: staticRoot}, expected: staticDirExpected},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+
+			server := httptest.NewServer(NewServer(app.NewService(store), mode.options))
+			defer server.Close()
+
+			for _, href := range imports {
+				resp, err := http.Get(server.URL + href)
+				if err != nil {
+					t.Fatal(err)
+				}
+				body, readErr := io.ReadAll(resp.Body)
+				closeErr := resp.Body.Close()
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if closeErr != nil {
+					t.Fatal(closeErr)
+				}
+				if resp.StatusCode != http.StatusOK {
+					t.Fatalf("%s %s status = %d", mode.name, href, resp.StatusCode)
+				}
+				mediaType, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+				if err != nil {
+					t.Fatalf("%s %s Content-Type parse failed: %v", mode.name, href, err)
+				}
+				if mediaType != "text/css" {
+					t.Fatalf("%s %s Content-Type = %q", mode.name, href, resp.Header.Get("Content-Type"))
+				}
+				if !bytes.Equal(body, mode.expected[href]) {
+					t.Fatalf("%s %s body did not match expected mode content", mode.name, href)
+				}
+			}
+		})
 	}
 }
 
@@ -11250,4 +11307,73 @@ func escapeTestPDFString(value string) string {
 	value = strings.ReplaceAll(value, `(`, `\(`)
 	value = strings.ReplaceAll(value, `)`, `\)`)
 	return value
+}
+
+func appCSSImportPathsForServerTest(t *testing.T) []string {
+	t.Helper()
+	content, err := os.ReadFile("static/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imports []string
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		href, ok := strings.CutPrefix(line, `@import url("`)
+		if !ok {
+			t.Fatalf("static/app.css must be import-only, got line %q", line)
+		}
+		href, ok = strings.CutSuffix(href, `");`)
+		if !ok {
+			t.Fatalf("static/app.css import line has unexpected suffix: %q", line)
+		}
+		if !strings.HasPrefix(href, "/static/plasma/") || !strings.HasSuffix(href, ".css") {
+			t.Fatalf("static/app.css import must target /static/plasma/*.css, got %q", href)
+		}
+		imports = append(imports, href)
+	}
+	if len(imports) == 0 {
+		t.Fatal("static/app.css declares no imports")
+	}
+	return imports
+}
+
+func embeddedCSSBodiesForServerTest(t *testing.T, imports []string) map[string][]byte {
+	t.Helper()
+	bodies := make(map[string][]byte, len(imports))
+	for _, href := range imports {
+		body, err := os.ReadFile(strings.TrimPrefix(href, "/"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodies[href] = body
+	}
+	return bodies
+}
+
+func writeSentinelStaticDirCSS(t *testing.T, imports []string) (string, map[string][]byte) {
+	t.Helper()
+	root := t.TempDir()
+	bodies := make(map[string][]byte, len(imports))
+	for index, href := range imports {
+		rel := strings.TrimPrefix(strings.TrimPrefix(href, "/static/"), "/")
+		body := []byte(fmt.Sprintf("/* static-dir sentinel css %02d: %s */\n.sentinel-static-dir-%02d { color: #%06x; }\n", index, href, index, index+1))
+		embedded, err := os.ReadFile(strings.TrimPrefix(href, "/"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(body, embedded) {
+			t.Fatalf("sentinel body unexpectedly matches embedded CSS for %s", href)
+		}
+		full := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bodies[href] = body
+	}
+	return root, bodies
 }
