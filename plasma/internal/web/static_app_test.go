@@ -1607,7 +1607,7 @@ const classList = {toggle(){}};
 const nodes = {
   turnText:{value:"Question"}, agentExecutor:{value:"codex"}, mcpMode:{value:"auto"}, controllerStrategy:{value:"auto"},
   workflowInstruction:{value:"Research"}, workflowRunGoal:{value:""}, workflowStepInstruction:{value:""},
-  reportAgentModel:{value:""}, reportAgentReasoningEffort:{value:""}, reportRigor:{value:"balanced"},
+  reportAgentModel:{value:""}, reportAgentReasoningEffort:{value:""}, reportRigor:{value:"strict"},
   conversationActiveWork:{classList, innerHTML:""}, reportActiveWork:{classList, innerHTML:""},
   turnLog:{scrollHeight:0,scrollTop:0,clientHeight:0,innerHTML:""},
   turnNav:{classList}
@@ -1946,7 +1946,7 @@ func TestBatchAMissionRoutesUseCapturedTransport(t *testing.T) {
 			source = conversationSessionScript
 		}
 		body := jsFunctionBody(t, source, name)
-		if strings.Contains(body, "/api/missions/${state.missionId}") || !strings.Contains(body, "missionApi") && !strings.Contains(body, "missionFetch") {
+		if strings.Contains(body, "/api/missions/${state.missionId}") || !strings.Contains(body, "missionApi") && !strings.Contains(body, "missionFetch") && !strings.Contains(body, "fetchSourceChunk") {
 			t.Fatalf("%s must not build a mutable mission URL", name)
 		}
 	}
@@ -2614,16 +2614,22 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 
 func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
-	for _, expected := range []string{
+	if strings.Contains(index, `id="reportGenerationGuidance"`) {
+		t.Fatalf("report writing selector remained in the Web UI")
+	}
+	if strings.Contains(index, `<option value="balanced"`) ||
+		!strings.Contains(index, `<option value="strict" selected>검증형</option>`) {
+		t.Fatalf("report rigor UI must default to strict and omit balanced")
+	}
+	if strings.Contains(index, `reportPostHumanize`) ||
+		strings.Contains(index, `report-post-humanize-control`) ||
+		strings.Contains(index, `말투 보정`) {
+		t.Fatalf("report humanize checkbox must not be exposed in the Web UI")
+	}
+	for _, legacy := range []string{
 		`<option value="part-connective-economy-voice" selected>기본: 시각자료 계획</option>`,
 		`<option value="section-brief-narrative-contract">섹션 중심</option>`,
 		`<option value="section-brief-cluster-memory-narrative-contract">섹션 중심 + 풍부하게</option>`,
-	} {
-		if !strings.Contains(index, expected) {
-			t.Fatalf("missing report generation option %q", expected)
-		}
-	}
-	for _, legacy := range []string{
 		`<option value="part-assembly-edit-tools">파트 조립 다듬기</option>`,
 		`<option value="g2">기본 글쓰기</option>`,
 		`<option value="section-brief">섹션 중심</option>`,
@@ -2642,20 +2648,11 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 	}
 	script := mustReadPlasmaReportScripts(t)
 	fixture := `
-let nodes = {reportGenerationGuidance:{value:"section-brief-narrative-contract"}};
-const $ = (id) => nodes[id] || null;
 	` + jsSourceRange(t, script, "const REPORT_RIGOR_LABELS", "\n\n  Object.assign(reports") + `
-nodes.reportGenerationGuidance.value = "section-brief-narrative-contract";
-if (selectedReportGenerationGuidance("long_form") !== "section-brief-narrative-contract") throw new Error("section brief choice did not pass through for long-form");
-if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("section brief choice did not fall back to the default for planned reports");
-nodes.reportGenerationGuidance.value = "section-brief-cluster-memory-narrative-contract";
-if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-narrative-contract") throw new Error("cluster memory choice did not pass through for long-form");
-if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("cluster memory choice did not fall back to the default for planned reports");
-nodes.reportGenerationGuidance.value = "part-connective-economy-voice";
-if (selectedReportGenerationGuidance("long_form") !== "part-connective-economy-voice") throw new Error("productized long-form default did not pass through");
-if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("long-form default did not fall back for planned reports");
+if (selectedReportGenerationGuidance("long_form") !== "section-brief-cluster-memory-narrative-contract") throw new Error("rich long-form default did not apply");
+if (selectedReportGenerationGuidance("planned") !== "narrative-contract") throw new Error("planned reports did not keep narrative default");
 if (reportGenerationGuidanceLabel("narrative-contract") !== "시각자료 계획") throw new Error("default choice label mismatch");
-if (reportGenerationGuidanceLabel("part-connective-economy-voice") !== "시각자료 계획") throw new Error("long-form default label mismatch");
+if (reportGenerationGuidanceLabel("part-connective-economy-voice") !== "시각자료 계획") throw new Error("legacy long-form voice label mismatch");
 if (reportGenerationGuidanceLabel("g2") !== "기본 글쓰기") throw new Error("legacy g2 label not retained");
 if (reportGenerationGuidanceLabel("section-brief") !== "섹션 중심 (이전)") throw new Error("legacy section label not distinguished");
 if (reportGenerationGuidanceLabel("part-assembly-edit-tools") !== "파트 조립 다듬기") throw new Error("hidden part assembly label not retained");
@@ -2684,7 +2681,6 @@ func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.
 		"reportAgentModel",
 		"reportAgentReasoningEffort",
 		"reportLongFormExecutionStrategy",
-		"reportGenerationGuidance",
 		"workflowGoalDefaultModel",
 		"workflowGoalDefaultReasoningEffort",
 	}
@@ -3104,7 +3100,7 @@ func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
 	source := jsFunctionSource(t, script, "activeWorkBlocksControl") + "\n" + jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
 	fixture := `
 const elements = {};
-for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","reportGenerationGuidance","draftQuickReport","draftLongReport","cancelReportButton"]) {
+for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","cancelReportButton"]) {
   elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
 }
 const $ = (id) => elements[id];
@@ -3115,18 +3111,24 @@ const window = {Plasma:{ui:{
   setButtonText(id, text) { elements[id].textContent = text; }
 }}};
 ` + source + `
-const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","reportGenerationGuidance","draftQuickReport","draftLongReport"];
+const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport"];
 function assertDisabled(label) {
   if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
 }
 for (const guard of ["agent_turn_running","workflow_running","report_generation_running"]) {
   state.detail.active_work.blocked_controls = [{control:"report_start",reason_codes:[guard]}];
-  state.workflowGoalDraftPending = false;
+  state.turnPending = state.workflowPending = state.workflowGoalDraftPending = state.reportPending = false;
   setReportBusy(false);
   assertDisabled(guard);
 }
 state.detail.active_work.blocked_controls = [];
-state.workflowGoalDraftPending = false;
+for (const guard of ["turnPending","workflowPending","workflowGoalDraftPending"]) {
+  state.turnPending = state.workflowPending = state.workflowGoalDraftPending = state.reportPending = false;
+  state[guard] = true;
+  setReportBusy(false);
+  assertDisabled(guard);
+}
+state.turnPending = state.workflowPending = state.workflowGoalDraftPending = false;
 setReportBusy(true);
 assertDisabled("reportPending");
 setReportBusy(false);
@@ -3163,6 +3165,57 @@ const $ = () => { throw new Error("draftReport touched controls before rejecting
 	command := exec.Command("node", "-e", fixture)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("draftReport active-work fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestDraftReportPostHumanizePayloadIsLongFormOnly(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the report humanize payload fixture")
+	}
+	source := jsFunctionSource(t, mustReadPlasmaReportScripts(t), "draftReport")
+	source = strings.Replace(source, "function draftReport", "async function draftReport", 1)
+	fixture := `
+const calls = [];
+const state = {detail:{projection:{title:"Mission"}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const nodes = {
+  reportAgentModel:{value:""}, reportAgentReasoningEffort:{value:""}, reportLongFormExecutionStrategy:{value:"serial"},
+  reportRigor:{value:"strict"}, agentExecutor:{value:"codex"}, mcpMode:{value:"auto"}
+};
+const $ = (id) => nodes[id] || {value:""};
+const requireMission = () => true;
+const captureMissionSelection = () => ({missionId:"mis_1"});
+const ownsMissionSelection = () => true;
+const missionApi = async (_owner, path, init) => {
+  calls.push({path, body:init.body});
+  return {pending_event:{Payload:init.body}};
+};
+const reports = {
+  modelSelection:{payload:() => ({agent_model:"",agent_reasoning_effort:""})},
+  selectedReportGenerationGuidance:(mode) => mode === "long_form" ? "section-brief-cluster-memory-narrative-contract" : "narrative-contract",
+  direction:{current:()=>"", clear(){}},
+  setReportBusy(busy){ state.reportPending = busy; }, setReportNotice(){}, reportPendingMessage(){ return "pending"; }
+};
+const reloadMission = async () => {};
+const schedulePendingPoll = () => {};
+const showError = (err) => { throw err; };
+` + source + `
+(async () => {
+  await draftReport("long_form");
+  state.reportPending = false;
+  await draftReport("planned");
+  state.reportPending = false;
+  await draftReport("one_take");
+  state.reportPending = false;
+  await draftReport("long_form");
+  const got = calls.map((call) => call.body.post_report_humanize);
+  if (got.join(",") !== "enabled,disabled,disabled,enabled") throw new Error("unexpected humanize payloads " + got.join(","));
+  if (calls[0].body.generation_guidance_profile !== "section-brief-cluster-memory-narrative-contract") throw new Error("long-form rich guidance not sent");
+  if (calls[1].body.generation_guidance_profile !== "narrative-contract") throw new Error("planned narrative guidance not sent");
+})().catch((error) => { console.error(error); process.exit(1); });
+`
+	command := exec.Command("node", "-e", fixture)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("draftReport humanize payload fixture failed: %v: %s", err, output)
 	}
 }
 
@@ -3527,18 +3580,25 @@ func TestStaticAppSourceRefreshUsesExistingDetailRenderer(t *testing.T) {
 	}
 }
 
-func TestStaticAppExposesReportHumanizeRetry(t *testing.T) {
-	script := []byte(mustReadPlasmaReportScripts(t))
-	content := string(script)
-	for _, expected := range []string{
+func TestStaticAppHidesReportHumanizeCreateRetry(t *testing.T) {
+	content := string(mustReadStatic(t, "static/plasma/reports_cards_artifacts.js")) + "\n" + string(mustReadStatic(t, "static/index.html"))
+	for _, removed := range []string{
 		"H5 말투 보정 다시 생성",
 		"start-humanized-markdown-artifact",
-		"exportReportArtifactHumanizedMarkdown",
-		"/humanized_markdown_export",
-		"H5 말투 보정 시작 실패",
 	} {
-		if !strings.Contains(content, expected) {
-			t.Fatalf("expected static app to expose report humanize retry %q", expected)
+		if strings.Contains(content, removed) {
+			t.Fatalf("static app still exposes report humanize create/retry UI %q", removed)
+		}
+	}
+	for _, historicalAccess := range []string{"보정 Markdown 보기", "보정 MD 받기"} {
+		if !strings.Contains(content, historicalAccess) {
+			t.Fatalf("historical humanized artifact access was removed %q", historicalAccess)
+		}
+	}
+	script := string(mustReadPlasmaReportScripts(t))
+	for _, retained := range []string{"exportReportArtifactHumanizedMarkdown", "/humanized_markdown_export"} {
+		if !strings.Contains(script, retained) {
+			t.Fatalf("expected static app to retain report humanize compatibility boundary %q", retained)
 		}
 	}
 }
@@ -3974,6 +4034,138 @@ process.stdout.write(JSON.stringify(sourceDetailPayload(source, confluence)));
 		if strings.Contains(raw, forbidden) {
 			t.Fatalf("sanitized detail payload leaked internal field/value %q: %s", forbidden, raw)
 		}
+	}
+}
+
+func TestSourceReadingChunksAndConfluenceScopeFixture(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for source reading fixture test")
+	}
+	fixture := `
+const fs = require("fs");
+const vm = require("vm");
+function assert(ok, message) { if (!ok) throw new Error(message); }
+function node(id) {
+  const n = {
+    id, textContent:"", innerHTML:"", disabled:false, classList:{add(){},remove(){},contains(){return false;}},
+    querySelector(selector) {
+      if (selector === "[data-source-read-more]" && this.innerHTML.includes("data-source-read-more")) {
+        return {disabled:this.innerHTML.includes("disabled"), addEventListener(type, fn){ n.readMoreHandler = fn; }};
+      }
+      return null;
+    }
+  };
+  return n;
+}
+const nodes = {detailTitle:node("detailTitle"), detailBody:node("detailBody"), detailModal:node("detailModal"), sourceList:node("sourceList")};
+nodes.detailModal.classList = {remove(name){ nodes.detailModal.hiddenRemoved = name; }, add(){}, contains(){return false;}};
+nodes.detailModal.querySelector = () => ({classList:{toggle(){}, remove(){}}});
+const document = {getElementById:(id)=>nodes[id]||null, querySelector:()=>node("q")};
+const requests = [];
+let responses = [];
+const state = {missionId:"mis_a", selectionGeneration:1, detail:{sources:[]}};
+const $ = (id) => nodes[id] || null;
+const escapeHTML = (value) => String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const escapeAttr = escapeHTML;
+const missionApi = (owner, path) => {
+  requests.push({owner:{...owner}, path});
+  const next = responses.shift();
+  if (!next) return Promise.reject(new Error("missing response"));
+  if (next.defer) return new Promise((resolve, reject) => { next.resolve = resolve; next.reject = reject; });
+  if (next.reject) return Promise.reject(next.reject);
+  return Promise.resolve(next.value);
+};
+const captureMissionSelection = () => ({missionId:state.missionId, selectionGeneration:state.selectionGeneration});
+const ownsMissionSelection = (owner) => owner.missionId === state.missionId && owner.selectionGeneration === state.selectionGeneration;
+class StaleMissionOperationError extends Error {}
+const isStaleMissionOperation = (err) => err instanceof StaleMissionOperationError;
+let errors = 0;
+const Plasma = {
+  state,
+  dom: {$, escapeHTML, escapeAttr, timeShort:()=>"", formatBytes:()=>""},
+  ui: {showDetail(title, value){ state.genericDetail = {title, value}; }, openDetailModal(){ nodes.detailModal.opened = true; }, empty:()=>"", updateCountChip(){}, setSectionEmpty(){}, showError(){ errors++; }},
+  transport: {missionApi},
+  mission: {captureMissionSelection, ownsMissionSelection, isStaleMissionOperation}
+};
+const window = {Plasma};
+globalThis.window = window;
+globalThis.document = document;
+for (const script of [
+  "static/plasma/sources.js",
+  "static/plasma/sources_confluence_locators.js",
+  "static/plasma/sources_reading.js"
+]) {
+  vm.runInThisContext(fs.readFileSync(script, "utf8"), {filename:script});
+}
+Object.assign(window.Plasma.sources, {
+  localPathLocator:()=>null,
+  mediaLocator:()=>null,
+  pdfLocator:()=>null,
+  documentLocator:()=>null,
+  mediaSourceLabel:()=>"",
+  documentSourceText:()=>"",
+  pdfSourceText:()=>"",
+  mediaSourceText:()=>"",
+  sourceDetailPayload:(source)=>source,
+  confluenceUpdateState:()=>null,
+  confluenceUpdateText:()=>"",
+  dependency(name) {
+    if (name === "requireMission") return () => true;
+    if (name === "reloadMission") return async () => {};
+    if (name === "showError") return () => { errors++; };
+    return () => {};
+  },
+  sourceLocatorType(locator) { return locator.locator_type || locator.LocatorType || locator.kind || locator.Kind || ""; }
+});
+vm.runInThisContext(fs.readFileSync("static/plasma/sources_rendering.js", "utf8"), {filename:"static/plasma/sources_rendering.js"});
+(async () => {
+  responses = [{value:{content:"AAA", next_offset:5, truncated:true}}];
+  await window.Plasma.sources.readSource("snap_1");
+  assert(requests.at(-1).path === "/sources/snap_1/read?offset=0&max_bytes=20000", "first read must use explicit offset and max_bytes");
+  assert(state.detailText === "AAA", "first chunk detail text changed");
+  assert(nodes.detailBody.innerHTML.includes("저장된 내용이 더 있습니다.") && nodes.detailBody.innerHTML.includes("더 보기"), "truncated status or button missing");
+
+  const appendResponse = {defer:true};
+  responses = [appendResponse];
+  const firstAppend = window.Plasma.sources.loadMoreSourceReading();
+  const duplicateAppend = window.Plasma.sources.loadMoreSourceReading();
+  assert(requests.at(-1).path === "/sources/snap_1/read?offset=5&max_bytes=20000", "append must use returned next_offset");
+  assert(requests.filter((request) => request.path.includes("offset=5")).length === 1, "duplicate click was not suppressed");
+  assert(nodes.detailBody.innerHTML.includes("불러오는 중…") && nodes.detailBody.innerHTML.includes("disabled"), "loading button state missing");
+  appendResponse.resolve({content:"BBB", next_offset:8, truncated:true});
+  await firstAppend; await duplicateAppend;
+  assert(state.detailText === "AAABBB", "append did not accumulate content");
+
+  responses = [{reject:new Error("later failure")}];
+  await window.Plasma.sources.loadMoreSourceReading();
+  assert(state.detailText === "AAABBB" && nodes.detailBody.innerHTML.includes("저장된 내용이 더 있습니다.") && errors === 1, "failure did not retain prior content");
+
+  const staleResponse = {defer:true};
+  responses = [staleResponse];
+  const staleRead = window.Plasma.sources.readSource("stale_snap");
+  state.missionId = "mis_b"; state.selectionGeneration = 2;
+  staleResponse.resolve({content:"STALE", next_offset:9, truncated:true});
+  await staleRead;
+  assert(state.detailText === "AAABBB", "stale mission response mutated detail text");
+
+  state.missionId = "mis_a"; state.selectionGeneration = 1;
+  state.sourceReading.loading = false;
+  responses = [{value:{content:"CCC", next_offset:11, truncated:false}}];
+  await window.Plasma.sources.loadMoreSourceReading();
+  assert(state.detailText === "AAABBBCCC" && nodes.detailBody.innerHTML.includes("저장된 내용을 모두 불러왔습니다.") && !nodes.detailBody.innerHTML.includes("더 보기"), "final untruncated state changed");
+
+  const full = {Connector:{ConnectorID:"confluence", ConnectorType:"confluence_cloud", ExternalVersion:"7"}, Locators:JSON.stringify([{locator_type:"confluence_page_body", site_url:"https://docs.example/wiki", page_id:"123", start:0, end:500}])};
+  const range = {Title:"Roadmap (Confluence range 10-30)", Connector:{ConnectorID:"confluence", ConnectorType:"confluence_cloud"}, Locators:JSON.stringify([{locator_type:"confluence_page_range", site_url:"https://docs.example/wiki", page_id:"123", start:10, end:30, partial:true}])};
+  assert(window.Plasma.sources.confluenceSourceText(window.Plasma.sources.confluenceSourceInfo(full)).includes("전체 페이지"), "full Confluence label missing");
+  const rangeInfo = window.Plasma.sources.confluenceSourceInfo(range);
+  assert(window.Plasma.sources.confluenceSourceText(rangeInfo).includes("선택 범위 / 원문 문자 11–30"), "range Confluence label missing");
+  window.Plasma.sources.renderSources([range]);
+  assert(nodes.sourceList.innerHTML.includes("Roadmap") && nodes.sourceList.innerHTML.includes("선택 범위"), "generated title cleanup or range badge missing");
+  assert(!nodes.sourceList.innerHTML.includes("Roadmap (Confluence range 10-30)\n          <span"), "generated title suffix was not cleaned from visible title");
+})().catch((err) => { console.error(err); process.exit(1); });
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("execute source reading fixture: %v\n%s", err, string(output))
 	}
 }
 

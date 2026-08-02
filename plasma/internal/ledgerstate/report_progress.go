@@ -66,8 +66,9 @@ type reportPayload struct {
 }
 
 const (
-	finalEditPipelineReaderStyleGateV1               = "reader_style_gate_v1"
-	finalEditPipelineAssemblyWriterReaderStyleGateV2 = "assembly_writer_reader_style_gate_v2"
+	finalEditPipelineReaderStyleGateV1                                 = "reader_style_gate_v1"
+	finalEditPipelineAssemblyWriterReaderStyleGateV2                   = "assembly_writer_reader_style_gate_v2"
+	finalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 = "assembly_writer_reader_style_validation_evidence_gate_v3"
 )
 
 // ProjectReportProgress normalizes legacy report events and never infers a
@@ -248,6 +249,15 @@ func ProjectReportProgress(events []Event) ReportProgress {
 					nodes = append(nodes, ReportProgressNode{ID: stageID("style_edit", 0, 0), Kind: "style_edit", State: "pending"})
 				}
 				nodes = append(nodes, ReportProgressNode{ID: stageID("corrective_gate", 0, 0), Kind: "corrective_gate", State: "pending"})
+			case finalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3:
+				nodes = append(nodes, ReportProgressNode{ID: stageID("final_assembly", 0, 0), Kind: "final_assembly", State: "pending"})
+				nodes = append(nodes, ReportProgressNode{ID: stageID("final_write", 0, 0), Kind: "final_write", State: "pending"})
+				nodes = append(nodes, ReportProgressNode{ID: stageID("reader_edit", 0, 0), Kind: "reader_edit", State: "pending"})
+				if strings.TrimSpace(q.PostReportHumanize) == "enabled" {
+					nodes = append(nodes, ReportProgressNode{ID: stageID("style_edit", 0, 0), Kind: "style_edit", State: "pending"})
+					nodes = append(nodes, ReportProgressNode{ID: stageID("style_semantic_validation", 0, 0), Kind: "style_semantic_validation", State: "pending"})
+				}
+				nodes = append(nodes, ReportProgressNode{ID: stageID("evidence_gate", 0, 0), Kind: "evidence_gate", State: "pending"})
 			}
 		}
 	}
@@ -331,6 +341,24 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			continue
 		case "report.final_edit.gate.submitted":
 			id = stageID("corrective_gate", 0, 0)
+		case "report.final_edit.style_semantic_validation.started":
+			id = stageID("style_semantic_validation", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.style_semantic_validation.submitted":
+			id = stageID("style_semantic_validation", 0, 0)
+		case "report.final_edit.evidence_gate.started":
+			id = stageID("evidence_gate", 0, 0)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.final_edit.evidence_gate.submitted":
+			id = stageID("evidence_gate", 0, 0)
 		case "report.artifact.created", "report.artifact.exported":
 			if q.PendingID != selected {
 				continue
@@ -465,6 +493,14 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 			starts[stageID("corrective_gate", 0, 0)] = event.CreatedAt
 		case "report.final_edit.gate.submitted":
 			terminals[stageID("corrective_gate", 0, 0)] = event.CreatedAt
+		case "report.final_edit.style_semantic_validation.started":
+			starts[stageID("style_semantic_validation", 0, 0)] = event.CreatedAt
+		case "report.final_edit.style_semantic_validation.submitted":
+			terminals[stageID("style_semantic_validation", 0, 0)] = event.CreatedAt
+		case "report.final_edit.evidence_gate.started":
+			starts[stageID("evidence_gate", 0, 0)] = event.CreatedAt
+		case "report.final_edit.evidence_gate.submitted":
+			terminals[stageID("evidence_gate", 0, 0)] = event.CreatedAt
 		case "report.final.failed":
 			if mapped, ok := finalEditProgressStageID(payload.FailedStage); ok {
 				terminals[mapped] = event.CreatedAt
@@ -556,6 +592,12 @@ func stageID(kind string, part, section int) string {
 	if kind == "style_edit" {
 		return "style-edit"
 	}
+	if kind == "style_semantic_validation" {
+		return "style-semantic-validation"
+	}
+	if kind == "evidence_gate" {
+		return "evidence-gate"
+	}
 	if kind == "corrective_gate" {
 		return "corrective-gate"
 	}
@@ -579,6 +621,10 @@ func finalEditProgressStageID(kind string) (string, bool) {
 		return stageID("reader_edit", 0, 0), true
 	case "style_edit":
 		return stageID("style_edit", 0, 0), true
+	case "style_semantic_validation":
+		return stageID("style_semantic_validation", 0, 0), true
+	case "evidence_gate":
+		return stageID("evidence_gate", 0, 0), true
 	case "corrective_gate":
 		return stageID("corrective_gate", 0, 0), true
 	default:

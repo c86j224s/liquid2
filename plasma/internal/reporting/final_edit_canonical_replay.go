@@ -11,6 +11,7 @@ import (
 type finalEditCanonicalFields struct {
 	Pipeline         string
 	GateFindings     []StoredFinalEditGateFinding
+	SemanticReview   FinalEditSemanticAttestation
 	ActualArtifactID string
 	GateEventID      string
 	GateChanged      bool
@@ -62,7 +63,7 @@ func loadCanonicalArtifactForBinding(ctx context.Context, store LongFormFinaliza
 func validateLongFormCanonicalReplayRequest(ctx context.Context, store LongFormFinalizationStore, events []app.LedgerEvent, binding LongFormFinalizeBinding, event app.LedgerEvent, req LongFormFinalizeRequest) error {
 	payload := eventPayload(event)
 	pipeline := strings.TrimSpace(req.FinalEditPipeline)
-	if err := validateFinalEditCanonicalReplayPayload(payload, pipeline, req.GateFindings); err != nil {
+	if err := validateFinalEditCanonicalReplayPayload(payload, pipeline, req.GateFindings, req.SemanticReview); err != nil {
 		return err
 	}
 	if isSupportedFinalEditPipeline(pipeline) {
@@ -83,7 +84,7 @@ func validateLongFormCanonicalReplayRequest(ctx context.Context, store LongFormF
 	return nil
 }
 
-func validateFinalEditCanonicalReplayPayload(payload map[string]any, pipeline string, findings []StoredFinalEditGateFinding) error {
+func validateFinalEditCanonicalReplayPayload(payload map[string]any, pipeline string, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) error {
 	storedPipeline := payloadString(payload, "final_edit_pipeline")
 	if strings.TrimSpace(pipeline) == "" {
 		if storedPipeline != "" {
@@ -94,12 +95,23 @@ func validateFinalEditCanonicalReplayPayload(payload map[string]any, pipeline st
 	if !isSupportedFinalEditPipeline(pipeline) || storedPipeline != pipeline {
 		return fmt.Errorf("%w: canonical final edit pipeline differs", app.ErrConflict)
 	}
-	storedFindings, err := decodeStoredFinalEditGateFindingsPayload(payload["final_edit_gate_findings"])
+	storedFindings, err := decodeStoredFinalEditGateFindingsPayloadForPipeline(payload["final_edit_gate_findings"], pipeline)
 	if err != nil {
 		return err
 	}
 	if !equalStoredFinalEditGateFindings(storedFindings, findings) {
 		return fmt.Errorf("%w: canonical final edit gate findings differ", app.ErrConflict)
+	}
+	storedSemantic, err := decodeFinalEditSemanticAcceptancePayload(map[string]any{
+		"semantic_acceptance":        payload["final_edit_semantic_acceptance"],
+		"semantic_acceptance_count":  payload["final_edit_semantic_acceptance_count"],
+		"semantic_acceptance_digest": payload["final_edit_semantic_acceptance_digest"],
+	})
+	if err != nil {
+		return err
+	}
+	if !equalStoredFinalEditSemanticAcceptance(storedSemantic.Records, semanticReview.Records) || storedSemantic.Digest != semanticReview.Digest || storedSemantic.Count != semanticReview.Count {
+		return fmt.Errorf("%w: canonical semantic acceptance differs", app.ErrConflict)
 	}
 	return nil
 }
@@ -119,7 +131,7 @@ func validateLongFormCanonicalGatePayload(ctx context.Context, store LongFormFin
 		payloadString(payload, "artifact_sha256") == "" {
 		return fmt.Errorf("%w: canonical final edit gate payload is incomplete", app.ErrConflict)
 	}
-	canonicalFindings, err := decodeStoredFinalEditGateFindingsPayload(payload["final_edit_gate_findings"])
+	canonicalFindings, err := decodeStoredFinalEditGateFindingsPayloadForPipeline(payload["final_edit_gate_findings"], plan.Pipeline)
 	if err != nil {
 		return err
 	}
@@ -128,12 +140,16 @@ func validateLongFormCanonicalGatePayload(ctx context.Context, store LongFormFin
 		return fmt.Errorf("%w: canonical final edit gate changed flag is invalid", app.ErrConflict)
 	}
 	gateEventID := payloadString(payload, "final_edit_gate_event_id")
-	key := FinalEditStageIdempotencyKey(FinalEditStageGate, binding.PendingEventID, binding.PlanEventID)
+	gateStage := FinalEditStageGate
+	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		gateStage = FinalEditStageEvidenceGate
+	}
+	key := FinalEditStageIdempotencyKey(gateStage, binding.PendingEventID, binding.PlanEventID)
 	var foundBinding FinalEditStageBinding
 	var gateEvent app.LedgerEvent
 	count := 0
 	for _, event := range events {
-		if event.EventType != FinalEditGateSubmittedEventType || event.CorrelationID != key {
+		if event.EventType != finalEditSubmittedEventType(gateStage) || event.CorrelationID != key {
 			continue
 		}
 		count++
@@ -163,12 +179,29 @@ func validateLongFormCanonicalGatePayload(ctx context.Context, store LongFormFin
 		!equalStoredFinalEditGateFindings(canonicalFindings, gateResult.GateFindings) {
 		return fmt.Errorf("%w: canonical final edit gate payload differs", app.ErrConflict)
 	}
+	canonicalSemantic, err := decodeFinalEditSemanticAcceptancePayload(map[string]any{
+		"semantic_acceptance":        payload["final_edit_semantic_acceptance"],
+		"semantic_acceptance_count":  payload["final_edit_semantic_acceptance_count"],
+		"semantic_acceptance_digest": payload["final_edit_semantic_acceptance_digest"],
+	})
+	if err != nil {
+		return err
+	}
+	if !equalStoredFinalEditSemanticAcceptance(canonicalSemantic.Records, gateResult.SemanticReview.Records) || canonicalSemantic.Digest != gateResult.SemanticReview.Digest || canonicalSemantic.Count != gateResult.SemanticReview.Count {
+		return fmt.Errorf("%w: canonical semantic acceptance differs", app.ErrConflict)
+	}
 	if gateChanged {
+		if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+			return fmt.Errorf("%w: evidence gate canonical payload cannot be changed", app.ErrConflict)
+		}
 		if gateResult.Artifact.ArtifactID != binding.ArtifactID || gateResult.Artifact.Producer != binding.Producer {
 			return fmt.Errorf("%w: changed corrective gate canonical artifact differs from binding", app.ErrConflict)
 		}
 	} else if gateResult.Artifact.ArtifactID != foundBinding.SourceArtifactID {
 		return fmt.Errorf("%w: no-op corrective gate canonical artifact differs from source", app.ErrConflict)
+	}
+	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 && payloadString(payload, "artifact_id") != foundBinding.SourceArtifactID {
+		return fmt.Errorf("%w: evidence gate canonical artifact must be the source artifact", app.ErrConflict)
 	}
 	return nil
 }

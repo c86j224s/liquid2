@@ -8,71 +8,76 @@ import (
 )
 
 const (
-	ToolMissionGet                     = "plasma.mission.get"
-	ToolMissionUpdate                  = "plasma.mission.update"
-	ToolSourcesList                    = "plasma.sources.list"
-	ToolSourcesRead                    = "plasma.sources.read"
-	ToolSourcesTree                    = "plasma.sources.tree"
-	ToolSourcesGrep                    = "plasma.sources.grep"
-	ToolSourcesSearch                  = "plasma.sources.search"
-	ToolSourceCandidatesPropose        = "plasma.sources.candidates.propose"
-	ToolSourceCandidatesRead           = "plasma.sources.candidates.read"
-	ToolLocalPathRoots                 = "plasma.local_path.roots"
-	ToolLocalPathTree                  = "plasma.local_path.tree"
-	ToolLocalPathAttach                = "plasma.local_path.attach"
-	ToolSourcesRemove                  = "plasma.sources.remove"
-	ToolSourcesRestore                 = "plasma.sources.restore"
-	ToolResearchOutline                = "plasma.research.outline"
-	ToolResearchList                   = "plasma.research.list"
-	ToolResearchRead                   = "plasma.research.read"
-	ToolResearchGrep                   = "plasma.research.grep"
-	ToolResearchRefs                   = "plasma.research.references"
-	ToolMermaidValidate                = "plasma.mermaid.validate"
-	ToolWorkflowStart                  = "plasma.workflow.start"
-	ToolWorkflowStatus                 = "plasma.workflow.status"
-	ToolWorkflowStop                   = "plasma.workflow.stop"
-	ToolReportPatchStart               = "plasma.report.patch.start"
-	ToolReportPatchRead                = "plasma.report.patch.read"
-	ToolReportPatchApply               = "plasma.report.patch.apply"
-	ToolReportPatchFinalize            = "plasma.report.patch.finalize"
-	ToolReportPlanSubmit               = "plasma.report.plan.submit"
-	ToolReportRequirementsSubmit       = "plasma.report.requirements.submit"
-	ToolReportPartAssemblyStart        = "plasma.report.part_assembly.start"
-	ToolReportPartAssemblyRead         = "plasma.report.part_assembly.read"
-	ToolReportPartSectionRead          = "plasma.report.part_assembly.section.read"
-	ToolReportPartAssemblyPatch        = "plasma.report.part_assembly.patch"
-	ToolReportPartAssemblySubmit       = "plasma.report.part_assembly.submit"
-	ToolReportPartEditStart            = "plasma.report.part_edit.start"
-	ToolReportPartEditRead             = "plasma.report.part_edit.read"
-	ToolReportPartEditPatch            = "plasma.report.part_edit.patch"
-	ToolReportPartEditSubmit           = "plasma.report.part_edit.submit"
-	ToolReportLongFormFinalize         = "plasma.report.long_form.finalize"
-	ToolReportLongFormFinalWriteStart  = "plasma.report.long_form.final_write.start"
-	ToolReportLongFormFinalWriteRead   = "plasma.report.long_form.final_write.read"
-	ToolReportLongFormFinalWritePatch  = "plasma.report.long_form.final_write.patch"
-	ToolReportLongFormFinalWriteSubmit = "plasma.report.long_form.final_write.submit"
-	ToolReportLongFormReaderEditStart  = "plasma.report.long_form.reader_edit.start"
-	ToolReportLongFormReaderEditRead   = "plasma.report.long_form.reader_edit.read"
-	ToolReportLongFormReaderEditPatch  = "plasma.report.long_form.reader_edit.patch"
-	ToolReportLongFormReaderEditSubmit = "plasma.report.long_form.reader_edit.submit"
-	ToolReportLongFormStyleEditStart   = "plasma.report.long_form.style_edit.start"
-	ToolReportLongFormStyleEditRead    = "plasma.report.long_form.style_edit.read"
-	ToolReportLongFormStyleEditPatch   = "plasma.report.long_form.style_edit.patch"
-	ToolReportLongFormStyleEditSubmit  = "plasma.report.long_form.style_edit.submit"
-	ToolReportLongFormEditStart        = "plasma.report.long_form.final_edit.start"
-	ToolReportLongFormEditRead         = "plasma.report.long_form.final_edit.read"
-	ToolReportLongFormEditPatch        = "plasma.report.long_form.final_edit.patch"
-	ToolReportLongFormEditSubmit       = "plasma.report.long_form.final_edit.submit"
-	ToolExperimentReportCreate         = "plasma.experiment.report.create"
-	ToolExperimentReportAppend         = "plasma.experiment.report.append"
-	ToolExperimentReportRead           = "plasma.experiment.report.read"
-	ToolExperimentReportFinalize       = "plasma.experiment.report.finalize"
-	ToolSourcesSnapshot                = "plasma.sources.snapshot"
-	ToolEvidencePropose                = "plasma.evidence.propose"
-	ToolQuestionsPropose               = "plasma.questions.propose"
-	ToolClaimsPropose                  = "plasma.claims.propose"
-	ToolClaimConfidence                = "plasma.claims.confidence.update"
-	ToolProposalsSubmit                = "plasma.proposals.submit"
+	ToolMissionGet                                  = "plasma.mission.get"
+	ToolMissionUpdate                               = "plasma.mission.update"
+	ToolSourcesList                                 = "plasma.sources.list"
+	ToolSourcesRead                                 = "plasma.sources.read"
+	ToolSourcesTree                                 = "plasma.sources.tree"
+	ToolSourcesGrep                                 = "plasma.sources.grep"
+	ToolSourcesSearch                               = "plasma.sources.search"
+	ToolSourceCandidatesPropose                     = "plasma.sources.candidates.propose"
+	ToolSourceCandidatesRead                        = "plasma.sources.candidates.read"
+	ToolLocalPathRoots                              = "plasma.local_path.roots"
+	ToolLocalPathTree                               = "plasma.local_path.tree"
+	ToolLocalPathAttach                             = "plasma.local_path.attach"
+	ToolSourcesRemove                               = "plasma.sources.remove"
+	ToolSourcesRestore                              = "plasma.sources.restore"
+	ToolResearchOutline                             = "plasma.research.outline"
+	ToolResearchList                                = "plasma.research.list"
+	ToolResearchRead                                = "plasma.research.read"
+	ToolResearchGrep                                = "plasma.research.grep"
+	ToolResearchRefs                                = "plasma.research.references"
+	ToolMermaidValidate                             = "plasma.mermaid.validate"
+	ToolWorkflowStart                               = "plasma.workflow.start"
+	ToolWorkflowStatus                              = "plasma.workflow.status"
+	ToolWorkflowStop                                = "plasma.workflow.stop"
+	ToolReportPatchStart                            = "plasma.report.patch.start"
+	ToolReportPatchRead                             = "plasma.report.patch.read"
+	ToolReportPatchApply                            = "plasma.report.patch.apply"
+	ToolReportPatchFinalize                         = "plasma.report.patch.finalize"
+	ToolReportPlanSubmit                            = "plasma.report.plan.submit"
+	ToolReportRequirementsSubmit                    = "plasma.report.requirements.submit"
+	ToolReportPartAssemblyStart                     = "plasma.report.part_assembly.start"
+	ToolReportPartAssemblyRead                      = "plasma.report.part_assembly.read"
+	ToolReportPartSectionRead                       = "plasma.report.part_assembly.section.read"
+	ToolReportPartAssemblyPatch                     = "plasma.report.part_assembly.patch"
+	ToolReportPartAssemblySubmit                    = "plasma.report.part_assembly.submit"
+	ToolReportPartEditStart                         = "plasma.report.part_edit.start"
+	ToolReportPartEditRead                          = "plasma.report.part_edit.read"
+	ToolReportPartEditPatch                         = "plasma.report.part_edit.patch"
+	ToolReportPartEditSubmit                        = "plasma.report.part_edit.submit"
+	ToolReportLongFormFinalize                      = "plasma.report.long_form.finalize"
+	ToolReportLongFormFinalWriteStart               = "plasma.report.long_form.final_write.start"
+	ToolReportLongFormFinalWriteRead                = "plasma.report.long_form.final_write.read"
+	ToolReportLongFormFinalWritePatch               = "plasma.report.long_form.final_write.patch"
+	ToolReportLongFormFinalWriteSubmit              = "plasma.report.long_form.final_write.submit"
+	ToolReportLongFormReaderEditStart               = "plasma.report.long_form.reader_edit.start"
+	ToolReportLongFormReaderEditRead                = "plasma.report.long_form.reader_edit.read"
+	ToolReportLongFormReaderEditPatch               = "plasma.report.long_form.reader_edit.patch"
+	ToolReportLongFormReaderEditSubmit              = "plasma.report.long_form.reader_edit.submit"
+	ToolReportLongFormStyleEditStart                = "plasma.report.long_form.style_edit.start"
+	ToolReportLongFormStyleEditRead                 = "plasma.report.long_form.style_edit.read"
+	ToolReportLongFormStyleEditPatch                = "plasma.report.long_form.style_edit.patch"
+	ToolReportLongFormStyleEditSubmit               = "plasma.report.long_form.style_edit.submit"
+	ToolReportLongFormEditStart                     = "plasma.report.long_form.final_edit.start"
+	ToolReportLongFormEditRead                      = "plasma.report.long_form.final_edit.read"
+	ToolReportLongFormStyleReviewRead               = "plasma.report.long_form.style_review.read"
+	ToolReportLongFormEditPatch                     = "plasma.report.long_form.final_edit.patch"
+	ToolReportLongFormEditSubmit                    = "plasma.report.long_form.final_edit.submit"
+	ToolReportLongFormStyleSemanticValidationRead   = "plasma.report.long_form.style_semantic_validation.read"
+	ToolReportLongFormStyleSemanticValidationSubmit = "plasma.report.long_form.style_semantic_validation.submit"
+	ToolReportLongFormEvidenceGateRead              = "plasma.report.long_form.evidence_gate.read"
+	ToolReportLongFormEvidenceGateSubmit            = "plasma.report.long_form.evidence_gate.submit"
+	ToolExperimentReportCreate                      = "plasma.experiment.report.create"
+	ToolExperimentReportAppend                      = "plasma.experiment.report.append"
+	ToolExperimentReportRead                        = "plasma.experiment.report.read"
+	ToolExperimentReportFinalize                    = "plasma.experiment.report.finalize"
+	ToolSourcesSnapshot                             = "plasma.sources.snapshot"
+	ToolEvidencePropose                             = "plasma.evidence.propose"
+	ToolQuestionsPropose                            = "plasma.questions.propose"
+	ToolClaimsPropose                               = "plasma.claims.propose"
+	ToolClaimConfidence                             = "plasma.claims.confidence.update"
+	ToolProposalsSubmit                             = "plasma.proposals.submit"
 )
 
 type ToolDefinition struct {
@@ -224,8 +229,27 @@ func (server *Server) ListTools() []ToolDefinition {
 		for _, tool := range []ToolDefinition{
 			{Name: ToolReportLongFormEditStart, Description: "Long-form corrective gate only: open the reviewed final edit manuscript for bounded MCP correction.", InputSchema: schemaReportLongFormStageEditStart},
 			{Name: ToolReportLongFormEditRead, Description: "Long-form corrective gate only: read a bounded slice of the in-process corrective gate draft.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormStyleReviewRead, Description: "Long-form corrective gate only: read bounded changed style paragraphs for semantic acceptance; transient text is not persisted in trace summaries.", InputSchema: schemaReportLongFormStageEditRead},
 			{Name: ToolReportLongFormEditPatch, Description: "Long-form corrective gate only: apply an exact bounded correction before canonical finalization.", InputSchema: schemaReportLongFormStageEditPatch},
 			{Name: ToolReportLongFormEditSubmit, Description: "Long-form corrective gate only: submit corrective gate findings and canonicalize the final artifact.", InputSchema: schemaReportLongFormGateEditSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case reporting.FinalEditStageStyleSemanticValidation:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormStyleSemanticValidationRead, Description: "Long-form style semantic validation only: read bounded changed reader/style paragraph comparisons; this tool cannot mutate manuscript text.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormStyleSemanticValidationSubmit, Description: "Long-form style semantic validation only: submit per-paragraph accepted_equivalent or rejected_revert_to_reader verdicts; the server constructs the resolved manuscript.", InputSchema: schemaReportLongFormStyleSemanticValidationSubmit},
+		} {
+			if server.finalEditStageToolEnabled(tool.Name) {
+				tools = append(tools, tool)
+			}
+		}
+	case reporting.FinalEditStageEvidenceGate:
+		for _, tool := range []ToolDefinition{
+			{Name: ToolReportLongFormEvidenceGateRead, Description: "Long-form evidence gate only: read the final report draft for report-to-evidence connection judgment; this tool cannot mutate manuscript text.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormEvidenceGateSubmit, Description: "Long-form evidence gate only: submit connection judgments and canonicalize the exact bound source artifact with zero operations.", InputSchema: schemaReportLongFormEvidenceGateSubmit},
 		} {
 			if server.finalEditStageToolEnabled(tool.Name) {
 				tools = append(tools, tool)

@@ -29,6 +29,8 @@
     if (node.kind === "final_write") return "최종 작성";
     if (node.kind === "reader_edit") return "독자 편집";
     if (node.kind === "style_edit") return "말투 편집";
+    if (node.kind === "style_semantic_validation") return "말투 의미 검증";
+    if (node.kind === "evidence_gate") return "근거 연결 검증";
     if (node.kind === "corrective_gate") return "근거·요구 교정";
     if (node.kind === "final") return "최종 편집·확정";
     if (node.kind === "artifact") return "산출물";
@@ -92,6 +94,8 @@
     if (node.kind === "final_write") return "최종 작성";
     if (node.kind === "reader_edit") return "독자 편집";
     if (node.kind === "style_edit") return "말투 편집";
+    if (node.kind === "style_semantic_validation") return "말투 의미 검증";
+    if (node.kind === "evidence_gate") return "근거 연결 검증";
     if (node.kind === "corrective_gate") return "근거·요구 교정";
     if (node.kind === "final") return "최종 편집·확정";
     if (node.kind === "artifact") return "산출물 생성";
@@ -140,7 +144,7 @@
   }
 
   function finalEditClosingNodes(nodes) {
-    const staged = nodes.filter((node) => node.kind === "final_assembly" || node.kind === "final_write" || node.kind === "reader_edit" || node.kind === "style_edit" || node.kind === "corrective_gate");
+    const staged = nodes.filter((node) => node.kind === "final_assembly" || node.kind === "final_write" || node.kind === "reader_edit" || node.kind === "style_edit" || node.kind === "style_semantic_validation" || node.kind === "evidence_gate" || node.kind === "corrective_gate");
     const artifacts = nodes.filter((node) => node.id === "artifact" || node.kind === "artifact");
     if (staged.length) return [...staged, ...artifacts];
     return nodes.filter((node) => node.id === "final" || node.id === "artifact" || node.kind === "final" || node.kind === "artifact");

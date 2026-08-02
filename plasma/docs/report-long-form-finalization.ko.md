@@ -19,17 +19,19 @@ progress, 정적 projection은 이 저장된 계획 payload에서만 Part planni
 Part edit이 켜지면 post-assembly Part editor가 immutable source Part artifact
 하나를 읽고 patch한 뒤, 새 edited Part artifact 또는 source artifact를 재사용하는
 unchanged completion을 제출한다. 새 planned narrative 장문 보고서는
-`final_edit_pipeline: assembly_writer_reader_style_gate_v2`를 저장한다. 서버는 먼저
+`final_edit_pipeline: assembly_writer_reader_style_validation_evidence_gate_v3`를 저장한다. 서버는 먼저
 검토된 Part들에서 agent session 없이 deterministic `final_assembly` artifact를 만든다.
 그 다음 final writer가 전용 `plasma.report.long_form.final_write.*` tool로 최종 원고
 작성 범위를 다루고, 별도 reader editor가 writer artifact를 검토한다. 기존
 `post_report_humanize` 설정이 켜져 있으면 optional pre-canonical style edit이
-실행되며, corrective provenance gate가 source와 requirement 경계를 확인한 뒤
-정확히 하나의 canonical `report.artifact.created` event를 만든다.
+실행된 뒤 read-only `style_semantic_validation`이 의미 보존 여부를 판정한다.
+마지막 `evidence_gate`는 report-to-evidence 연결만 판단하고, 서버가 bound artifact를
+정확히 하나의 canonical `report.artifact.created` event로 확정한다.
 
 Web 진행 화면은 이 순서를 `최종 조립`, `최종 작성`, `독자 편집`, `말투 편집`,
-`근거·요구 교정`으로 표시한다. `말투 편집`은 `post_report_humanize`가 enabled인
-실행에만 나타나며, 꺼진 실행에서는 나머지 단계 순서를 바꾸지 않고 생략된다.
+`말투 의미 검증`, `근거 연결 검증`으로 표시한다. `말투 편집`과 `말투 의미 검증`은
+`post_report_humanize`가 enabled인 실행에만 나타나며, 꺼진 실행은 reader edit에서
+바로 `evidence_gate`로 간다.
 
 `final_edit_pipeline: reader_style_gate_v1`가 저장된 계획은 replay와 중단 작업 복구를
 위해 v1 reader/style/gate 경로를 유지한다. 이 경로에서는 서버가 검토된 Part artifact를
@@ -42,15 +44,16 @@ style edit, corrective gate만 실행하고 final writer를 두지 않는다.
 
 ## Part 조립과 Part 편집 도구
 
-브라우저에는 시각자료 계획, 섹션 중심, 섹션 중심 + 풍부한 cluster memory라는 세
-가지 글쓰기 선택지가 남는다. 독자 중심 작성 계약은 세 선택지 아래의 공통 기준이며
-네 번째 선택지가 아니다. 내부적으로 새 요청은 서로 다른 composite profile 값을
-사용하므로 저장된 legacy profile 값을 새 의미로 재해석하지 않는다.
+브라우저는 더 이상 보고서 글쓰기 선택지를 노출하지 않는다. 새 장문 Web 요청은
+`section-brief-cluster-memory-narrative-contract` rich section-centered composite
+profile을 기본값으로 쓰고, 장문이 아닌 요청은 `narrative-contract`를 기본값으로 쓴다.
+독자 중심 작성 계약은 공통 기준이며, 저장된 event와 direct API 호출을 새 의미로
+재해석하지 않기 위해 older profile 값만 계속 허용한다.
 
-세 선택지는 같은 Part assembly MCP 인계를 사용한다. Section을 읽는 Part assembler는
-현재 Part에 바인딩된 immutable Section을 모두 bounded read한 뒤 intro, transition,
-closing을 쓰고 `PART_ASSEMBLY_SUBMITTED` sentinel을 반환한다. 이 assembler는
-post-assembly Part editor가 아니다.
+활성 장문 기본값은 같은 Part assembly MCP 인계를 사용한다. Section을 읽는 Part
+assembler는 현재 Part에 바인딩된 immutable Section을 모두 bounded read한 뒤 intro,
+transition, closing을 쓰고 `PART_ASSEMBLY_SUBMITTED` sentinel을 반환한다. 이
+assembler는 post-assembly Part editor가 아니다.
 
 Post-assembly Part editor는 `part_edit_enabled`가 true일 때만 실행된다. 이 editor는
 source Part artifact 하나에만 바인딩되고 `plasma.report.part_edit.*` tool만 받는다.
@@ -84,13 +87,13 @@ policy, guidance profile, session chain, report-plan session, fork source가 포
 Part assembler는 그 Part-owner provider session에서 fork되고, 최종 Part author는
 기계적 조립 뒤 같은 Part-owner session을 resume해 기존 closed
 `plasma.report.part_edit.*` tool로 작업한다. 최종화 경로는 저장된
-`final_edit_pipeline`만 기준으로 결정한다. 새 v2 계획은 deterministic final assembly,
+`final_edit_pipeline`만 기준으로 결정한다. 새 v3 계획은 deterministic final assembly,
 report-plan provider session에서 fork한 final writer, 같은 report-plan session의
-독립 sibling reader, reader provider session에서 fork한 optional style editor, 같은
-report-plan session의 sibling corrective gate 순서로 실행된다. 저장된 v1 계획은
-final writer나 final-assembly progress 없이 reader/style/gate를 계속 실행한다. 저장된
-legacy profile은 `plasma.report.long_form.finalize`를 계속 사용하며 staged final-edit
-단계를 실행하지 않는다.
+독립 sibling reader, optional `style_edit`, read-only `style_semantic_validation`,
+read-only `evidence_gate` 순서로 실행된다. 저장된 v1/v2 계획은 legacy replay/recovery
+compatibility path이며 기존 reader/style/corrective-gate 의미를 유지한다. 저장된 legacy
+profile은 `plasma.report.long_form.finalize`를 계속 사용하며 staged final-edit 단계를
+실행하지 않는다.
 
 선택한 전략은 `report.draft.pending`의 `execution_strategy`에 저장되어 재시작과
 stale 복구가 같은 경로를 사용한다. 값이 없거나 `serial`이면 기존 순차 동작이다.
@@ -147,12 +150,24 @@ matching final binding이 모두 있는 gate-stage session에서만 노출된다
 - `plasma.report.long_form.final_edit.patch`
 - `plasma.report.long_form.final_edit.submit`
 
-Gate는 support가 불명확한 claim을 확인하기 위해 approved read tool을 사용할 수 있다.
-Gate는 무조건 보고서를 줄이거나 검열하는 단계가 아니다. source/evidence 경계 위반,
-owner-bound requirement 위반, 지원되지 않는 claim처럼 승인된 repair action이 필요한
-문제만 교정한다. Gate finding은 서버가 계산한 statement hash, classification, repair
-action, approved evidence ID만 저장한다. Raw statement text는 transient tool input일
-뿐 저장하지 않는다.
+v3 `style_semantic_validation`은 read-only 비교와 verdict submit tool만 받는다.
+Verdict는 `accepted_equivalent`와 `rejected_revert_to_reader`뿐이며, agent는 prose,
+patch, final paragraph ordinal, manuscript Markdown, `repaired_by_gate`를 제출할 수
+없다. 서버는 durable reader/style paragraph lineage에서 resolved Markdown을 만들고,
+문단 수, 순서, delimiter, protected Markdown invariant를 증명할 수 없으면 닫힌다.
+
+v3 `evidence_gate`는 approved read tool과 read-only evidence-gate tool만 받는다.
+Evidence read surface는 deterministic report-owned Markdown block passage와 서버가
+계산한 `statement_sha256`을 짝지어 제공하므로 provider가 hash를 계산하지 않는다.
+Finding은 `statement_sha256`, `classification`, 승인된 `evidence_ids`만 포함할 수
+있다. repair action, patch, replacement prose, manuscript Markdown, semantic
+acceptance, operation count는 제출할 수 없다. Reporting layer는 bound
+`SourceArtifactID`를 다시 읽고 lineage/SHA를 검증한 뒤 그 정확한 source content에 없는 hash를
+거부하고, raw passage나 미승인 ref 없이 connection judgment를 저장하며, byte-identical source
+content를 `operation_count=0`으로 canonicalize한다. Evidence judgment는 canonicalization을
+막거나 자동 repair를 일으키지 않는다.
+
+저장된 v1/v2 corrective gate event는 기존 의미대로 decode와 replay를 유지한다.
 
 에이전트는 artifact ID, 파일명, 제목, 보고서 모드, 파트와 섹션 순서, 공급자
 provenance, 모델 설정, binding identity를 선택할 수 없다. Stage artifact ID나
@@ -164,13 +179,13 @@ opening/closing input에만 묶여 남으며, 저장된 계획에 active pipelin
 사용된다. 이 값은 서버가 binding하며 commit 전에 mission ledger와 raw artifact에
 다시 대조한다.
 
-Staged pipeline에서 writer, reader, style submission은 durable intermediate event일
-뿐이다. Corrective gate submission 뒤 같은 gate/finalization 경계에서 정확히 하나의
-canonical event를 만들거나, 복구가 저장된 gate submission에서 이어 받아 완료된
-provider를 다시 실행하지 않고 한 번만 canonicalize한다. No-op gate는 alias artifact를
-만들지 않고 이전 durable artifact를 canonical로 채택한다. 변경된 gate만 예정된 final
-artifact를 만든다. 같은 binding과 content SHA는 기존 결과를 replay한다. 식별자,
-provenance, 파트 순서, idempotency key, pipeline marker, stage lineage,
+v3 staged pipeline에서 writer, reader, style, style semantic validation, evidence gate
+submission은 durable intermediate event일 뿐이다. Evidence gate submission 뒤 같은
+gate/finalization 경계에서 정확히 하나의 canonical event를 만들거나, 복구가 저장된
+gate submission에서 이어 받아 완료된 provider를 다시 실행하지 않고 한 번만
+canonicalize한다. Evidence gate는 alias나 repair artifact를 만들지 않고 이전 durable
+artifact를 canonical로 채택한다. 같은 binding과 content SHA는 기존 결과를 replay한다.
+식별자, provenance, 파트 순서, idempotency key, pipeline marker, stage lineage,
 approved-evidence state, 내용이 다르면 재시작이나 동시 호출 뒤에도 conflict다. 이
 조건부 트랜잭션은 현재 ledger 상태를 기준으로 함께 판정하므로, pending 보고서의
 terminal event와 최종 canonical artifact/event 생성은 경합할 수 없다.

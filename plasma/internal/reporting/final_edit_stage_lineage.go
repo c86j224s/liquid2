@@ -51,6 +51,10 @@ func validateFinalEditStageLineage(ctx context.Context, store FinalEditStageStor
 		return validateFinalEditStyleLineage(ctx, store, events, binding, plan)
 	case FinalEditStageGate:
 		return validateFinalEditGateLineage(ctx, store, events, binding, plan)
+	case FinalEditStageStyleSemanticValidation:
+		return validateFinalEditStyleSemanticValidationLineage(ctx, store, events, binding, plan)
+	case FinalEditStageEvidenceGate:
+		return validateFinalEditEvidenceGateLineage(ctx, store, events, binding, plan)
 	default:
 		return fmt.Errorf("%w: unsupported final edit stage", app.ErrInvalidInput)
 	}
@@ -75,7 +79,7 @@ func finalEditStagePlanForBinding(events []app.LedgerEvent, binding FinalEditSta
 
 func finalEditStageBindingForPlan(binding FinalEditStageBinding, plan FinalEditPipelinePlanState) FinalEditStageBinding {
 	binding = normalizeFinalEditStageBinding(binding)
-	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
+	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 || plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
 		binding.FinalEditPipeline = plan.Pipeline
 	} else if binding.FinalEditPipeline == FinalEditPipelineReaderStyleGateV1 {
 		binding.FinalEditPipeline = ""
@@ -86,12 +90,12 @@ func finalEditStageBindingForPlan(binding FinalEditStageBinding, plan FinalEditP
 func validateFinalEditStageSessionContract(binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
 	switch binding.Stage {
 	case FinalEditStageWriter:
-		if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		if (plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 && plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3) ||
 			binding.ProviderSessionID == binding.ReportPlanSessionID ||
 			binding.ForkSourceAgentSessionID != binding.ReportPlanSessionID {
 			return fmt.Errorf("%w: writer final edit session chain differs from contract", app.ErrConflict)
 		}
-	case FinalEditStageReader, FinalEditStageGate:
+	case FinalEditStageReader, FinalEditStageGate, FinalEditStageStyleSemanticValidation, FinalEditStageEvidenceGate:
 		if binding.ProviderSessionID == binding.ReportPlanSessionID || binding.ForkSourceAgentSessionID != binding.ReportPlanSessionID {
 			return fmt.Errorf("%w: reader/gate final edit session chain differs from contract", app.ErrConflict)
 		}
@@ -100,8 +104,8 @@ func validateFinalEditStageSessionContract(binding FinalEditStageBinding, plan F
 }
 
 func validateFinalEditWriterLineage(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
-	if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		return fmt.Errorf("%w: final writer requires assembly_writer_reader_style_gate_v2 plan", app.ErrConflict)
+	if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 && plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return fmt.Errorf("%w: final writer requires an assembly final edit plan", app.ErrConflict)
 	}
 	request, assembly, err := finalEditAssemblyRequest(ctx, store, events, binding)
 	if err != nil {
@@ -127,7 +131,7 @@ func validateFinalEditWriterLineage(ctx context.Context, store FinalEditStageSto
 }
 
 func validateFinalEditReaderLineage(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
-	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
+	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 || plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
 		writer, ok, err := loadFinalEditStageSubmissionForChain(ctx, store, events, binding, plan, FinalEditStageWriter)
 		if err != nil {
 			return err
@@ -169,7 +173,7 @@ func validateFinalEditStyleLineage(ctx context.Context, store FinalEditStageStor
 	if binding.SourceArtifactID != reader.Artifact.ArtifactID || binding.EditedArtifactID == binding.SourceArtifactID || binding.EditedArtifactID == plan.ArtifactID {
 		return fmt.Errorf("%w: style edit source chain differs from contract", app.ErrConflict)
 	}
-	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 &&
+	if (plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 || plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3) &&
 		(binding.ProviderSessionID == reader.Binding.ProviderSessionID || binding.ForkSourceAgentSessionID != reader.Binding.ProviderSessionID) {
 		return fmt.Errorf("%w: style edit session chain differs from contract", app.ErrConflict)
 	}
@@ -177,6 +181,9 @@ func validateFinalEditStyleLineage(ctx context.Context, store FinalEditStageStor
 }
 
 func validateFinalEditGateLineage(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
+	if plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return fmt.Errorf("%w: corrective gate is legacy-only for v3 final edit plans", app.ErrConflict)
+	}
 	priorStage := FinalEditStageReader
 	if plan.PostReportHumanize == FinalEditHumanizeEnabled {
 		priorStage = FinalEditStageStyle
@@ -190,6 +197,47 @@ func validateFinalEditGateLineage(ctx context.Context, store FinalEditStageStore
 	}
 	if binding.SourceArtifactID != prior.Artifact.ArtifactID || binding.EditedArtifactID != plan.ArtifactID {
 		return fmt.Errorf("%w: corrective gate source or target differs from contract", app.ErrConflict)
+	}
+	return nil
+}
+
+func validateFinalEditStyleSemanticValidationLineage(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
+	if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return fmt.Errorf("%w: style semantic validation requires v3 final edit plan", app.ErrConflict)
+	}
+	if plan.PostReportHumanize != FinalEditHumanizeEnabled {
+		return fmt.Errorf("%w: style semantic validation is disabled for this final edit plan", app.ErrConflict)
+	}
+	style, ok, err := loadFinalEditStageSubmissionForChain(ctx, store, events, binding, plan, FinalEditStageStyle)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: style semantic validation requires style submission", app.ErrConflict)
+	}
+	if binding.SourceArtifactID != style.Artifact.ArtifactID || binding.EditedArtifactID == binding.SourceArtifactID || binding.EditedArtifactID == plan.ArtifactID {
+		return fmt.Errorf("%w: style semantic validation source chain differs from contract", app.ErrConflict)
+	}
+	return nil
+}
+
+func validateFinalEditEvidenceGateLineage(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, binding FinalEditStageBinding, plan FinalEditPipelinePlanState) error {
+	if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return fmt.Errorf("%w: evidence gate requires v3 final edit plan", app.ErrConflict)
+	}
+	priorStage := FinalEditStageReader
+	if plan.PostReportHumanize == FinalEditHumanizeEnabled {
+		priorStage = FinalEditStageStyleSemanticValidation
+	}
+	prior, ok, err := loadFinalEditStageSubmissionForChain(ctx, store, events, binding, plan, priorStage)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("%w: evidence gate requires prior final edit submission", app.ErrConflict)
+	}
+	if binding.SourceArtifactID != prior.Artifact.ArtifactID || binding.EditedArtifactID != plan.ArtifactID {
+		return fmt.Errorf("%w: evidence gate source or target differs from contract", app.ErrConflict)
 	}
 	return nil
 }

@@ -30,6 +30,8 @@
       else if (action === "view-html-artifact") reports.exportReportArtifactHTML(artifactID);
       else if (action === "download-html-artifact") reports.exportReportArtifactHTML(artifactID, { download: true });
       else if (action === "patch-artifact") reports.patchReportArtifact(artifactID, artifactButton.dataset.reportTitle || "");
+      // Deprecated compatibility action. New artifact cards no longer emit it,
+      // but older embedded markup may still route through this handler.
       else if (action === "start-humanized-markdown-artifact") reports.exportReportArtifactHumanizedMarkdown(artifactID);
       else if (action === "view-designed-html-artifact" || action === "start-designed-html-artifact") reports.exportReportArtifactDesignedHTML(artifactID);
       else if (action === "download-designed-html-artifact") reports.exportReportArtifactDesignedHTML(artifactID, { download: true });

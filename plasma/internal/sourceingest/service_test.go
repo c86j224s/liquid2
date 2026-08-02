@@ -2,6 +2,7 @@ package sourceingest
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,79 @@ func TestCreateFetchedURLSourceWithEventPreservesPayload(t *testing.T) {
 		"title":        "Article",
 		"url":          "https://example.com/article",
 	})
+}
+
+func TestCreateFetchedURLSourceWithEventRecordsBrowserRenderCandidateDiagnostic(t *testing.T) {
+	store := &sourceCandidateServiceStore{}
+	result, err := CreateFetchedURLSourceWithEvent(context.Background(), store, CreateFetchedURLSourceRequest{
+		MissionID:  "mis_1",
+		URL:        "https://example.com/app",
+		Title:      "App",
+		ArtifactID: "art_url",
+		SnapshotID: "src_url",
+		EventID:    "evt_url",
+		Producer:   Producer{Type: "user", ID: "plasma-ui"},
+		Fetched: FetchedURLSource{
+			Content:   []byte(sourceIngestBrowserRenderHTMLFixture()),
+			MediaType: "text/html; charset=utf-8",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateFetchedURLSourceWithEvent returned error: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(result.Event.Payload, &payload); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	diagnosis, ok := payload["browser_render_candidate"].(map[string]any)
+	if !ok || diagnosis["candidate"] != true {
+		t.Fatalf("expected browser render candidate diagnosis, got %#v", payload)
+	}
+}
+
+func TestCreateFetchedURLSourceWithEventRecordsBrowserRenderMetadata(t *testing.T) {
+	renderedAt := time.Date(2026, 7, 10, 1, 2, 3, 0, time.UTC)
+	store := &sourceCandidateServiceStore{}
+	result, err := CreateFetchedURLSourceWithEvent(context.Background(), store, CreateFetchedURLSourceRequest{
+		MissionID:                      "mis_1",
+		URL:                            "https://example.com/app",
+		Title:                          "Rendered",
+		ArtifactID:                     "art_url",
+		SnapshotID:                     "src_url",
+		EventID:                        "evt_url",
+		Producer:                       Producer{Type: "user", ID: "plasma-ui"},
+		SourceCandidateProposalEventID: "evt_candidate_proposed",
+		Fetched: FetchedURLSource{
+			Content:            []byte("<!doctype html><html><body><main>Rendered article body</main></body></html>"),
+			MediaType:          "text/html; charset=utf-8",
+			Title:              "Rendered",
+			RetrievalMethod:    "browser_render",
+			FinalURL:           "https://example.com/app?loaded=1",
+			RenderedAt:         renderedAt,
+			RawFetchSHA256:     strings.Repeat("a", 64),
+			RawFetchArtifactID: "art_candidate_raw",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateFetchedURLSourceWithEvent returned error: %v", err)
+	}
+	assertJSONPayloadIncludes(t, result.Event.Payload, map[string]any{
+		"retrieval_method":                   "browser_render",
+		"final_url":                          "https://example.com/app?loaded=1",
+		"rendered_at":                        renderedAt.Format(time.RFC3339Nano),
+		"raw_fetch_sha256":                   strings.Repeat("a", 64),
+		"raw_fetch_artifact_id":              "art_candidate_raw",
+		"source_candidate_proposal_event_id": "evt_candidate_proposed",
+	})
+	var locators []map[string]string
+	if err := json.Unmarshal(result.Snapshot.Locators, &locators); err != nil {
+		t.Fatalf("locators are not JSON: %v", err)
+	}
+	if len(locators) != 1 || locators[0]["retrieval_method"] != "browser_render" ||
+		locators[0]["final_url"] != "https://example.com/app?loaded=1" ||
+		locators[0]["rendered_at"] != renderedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("expected browser render locator metadata, got %#v", locators)
+	}
 }
 
 func TestBuildSourceSnapshotFailureAppendRequestPreservesPayloadContract(t *testing.T) {
@@ -104,6 +178,13 @@ func TestCreateStagedURLSourceWithEventPreservesReusePayload(t *testing.T) {
 		"source_candidate_proposal_event_id": "evt_proposed",
 		"source_candidate_artifact_reused":   true,
 	})
+}
+
+func sourceIngestBrowserRenderHTMLFixture() string {
+	return `<html><head><title>Client App</title>` +
+		strings.Repeat(`<script src="/assets/chunk.js"></script>`, 5) +
+		`<script>window.__INITIAL_STATE__={};` + strings.Repeat("bundle();", 300) + `</script>` +
+		`</head><body><div id="root" data-reactroot=""></div><noscript>Please enable JavaScript to view this page.</noscript></body></html>`
 }
 
 func TestCreateFetchedPDFURLSourceWithEventPreservesPayload(t *testing.T) {

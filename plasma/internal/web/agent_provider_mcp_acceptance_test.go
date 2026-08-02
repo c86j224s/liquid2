@@ -554,16 +554,101 @@ elif stage:
     prefix="plasma.report.long_form.reader_edit"; sentinel="FINAL_EDIT_STAGE_SUBMITTED"
   elif binding["stage"] == "style_edit":
     prefix="plasma.report.long_form.style_edit"; sentinel="FINAL_EDIT_STAGE_SUBMITTED"
+  elif binding["stage"] == "style_semantic_validation":
+    read_pages=[]
+    offset=0
+    proc=subprocess.Popen([command]+args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    msg_id=[0]
+    def call_read_only(tool,arguments):
+      msg_id[0]+=1
+      proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":msg_id[0],"method":"tools/call","params":{"name":tool,"arguments":arguments}})+"\n")
+      proc.stdin.flush()
+      line=proc.stdout.readline()
+      if not line: raise SystemExit(proc.stderr.read())
+      return json.loads(line)
+    while True:
+      page_read={**read,"offset":offset,"max_bytes":128}
+      response=call_read_only("plasma.report.long_form.style_semantic_validation.read",page_read)
+      if response.get("result",{}).get("isError"): raise SystemExit(json.dumps(response))
+      content=response["result"]["content"][0]["text"]
+      review_output=json.loads(content)
+      tool_content=review_output.get("content",{})
+      page_content=tool_content.get("content","") if isinstance(tool_content, dict) else tool_content
+      read_pages.append(page_content)
+      truncated=tool_content.get("truncated",False) if isinstance(tool_content, dict) else review_output.get("truncated",False)
+      if not truncated: break
+      offset=tool_content["next_offset"] if isinstance(tool_content, dict) else review_output["next_offset"]
+    semantic=[]
+    items=json.loads("".join(read_pages) or "[]")
+    semantic=[{"paragraph_ordinal":item["paragraph_ordinal"],"verdict":"accepted_equivalent"} for item in items]
+    submit={**submit,"semantic_acceptance":semantic}
+    response=call_read_only("plasma.report.long_form.style_semantic_validation.submit",submit)
+    proc.stdin.close()
+    stderr=proc.stderr.read()
+    code=proc.wait()
+    if code or response.get("result",{}).get("isError") or "event_id" not in json.dumps(response): raise SystemExit(stderr+json.dumps(response))
+    emit("FINAL_EDIT_STAGE_SUBMITTED")
+    raise SystemExit(0)
+  elif binding["stage"] == "evidence_gate":
+    read_pages=[]
+    offset=0
+    proc=subprocess.Popen([command]+args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+    msg_id=[0]
+    def call_read_only(tool,arguments):
+      msg_id[0]+=1
+      proc.stdin.write(json.dumps({"jsonrpc":"2.0","id":msg_id[0],"method":"tools/call","params":{"name":tool,"arguments":arguments}})+"\n")
+      proc.stdin.flush()
+      line=proc.stdout.readline()
+      if not line: raise SystemExit(proc.stderr.read())
+      return json.loads(line)
+    while True:
+      page_read={**read,"offset":offset,"max_bytes":128}
+      response=call_read_only("plasma.report.long_form.evidence_gate.read",page_read)
+      if response.get("result",{}).get("isError"): raise SystemExit(json.dumps(response))
+      read_output=json.loads(response["result"]["content"][0]["text"])
+      tool_content=read_output.get("content",{})
+      page_content=tool_content.get("content","") if isinstance(tool_content, dict) else tool_content
+      read_pages.append(page_content)
+      truncated=tool_content.get("truncated",False) if isinstance(tool_content, dict) else read_output.get("truncated",False)
+      if not truncated: break
+      offset=tool_content["next_offset"] if isinstance(tool_content, dict) else read_output["next_offset"]
+    tool_content="".join(read_pages)
+    packet_content=tool_content.get("content",tool_content) if isinstance(tool_content, dict) else tool_content
+    packet=json.loads(packet_content) if isinstance(packet_content, str) else packet_content
+    passages=packet.get("passages") or []
+    if not passages: raise SystemExit("evidence read returned no passages")
+    submit={**submit,"gate_findings":[{"statement_sha256":passages[0]["statement_sha256"],"classification":"derived_synthesis"}]}
+    response=call_read_only("plasma.report.long_form.evidence_gate.submit",submit)
+    proc.stdin.close()
+    stderr=proc.stderr.read()
+    code=proc.wait()
+    if code or response.get("result",{}).get("isError") or "event_id" not in json.dumps(response): raise SystemExit(stderr+json.dumps(response))
+    emit(os.environ.get("PLASMA_TEST_FINAL_ACK", "REPORT_FINALIZED"))
+    raise SystemExit(0)
   else:
     prefix="plasma.report.long_form.final_edit"; sentinel=os.environ.get("PLASMA_TEST_FINAL_ACK", "REPORT_FINALIZED")
     submit={**submit,"gate_findings":[]}
   calls=[
     (prefix+".start",start),
     (prefix+".read",read),
-    (prefix+".submit",submit),
   ]
+  if binding["stage"] == "corrective_gate" and binding.get("post_report_humanize") == "enabled":
+    review={**read,"max_bytes":65536}
+    calls.append(("plasma.report.long_form.style_review.read",review))
+  calls.append((prefix+".submit",submit))
   messages=[{"jsonrpc":"2.0","id":i+1,"method":"tools/call","params":{"name":tool,"arguments":arguments}} for i,(tool,arguments) in enumerate(calls)]
   proc=subprocess.run([command]+args,input="".join(json.dumps(x)+"\n" for x in messages),text=True,capture_output=True)
+  responses=[json.loads(line) for line in proc.stdout.splitlines() if line.strip()]
+  if binding["stage"] == "corrective_gate" and binding.get("post_report_humanize") == "enabled" and len(responses) >= 3 and not responses[2].get("result",{}).get("isError"):
+    content=responses[2]["result"]["content"][0]["text"]
+    review_output=json.loads(content)
+    items=json.loads(review_output.get("content","[]"))
+    semantic=[{"paragraph_ordinal":item["paragraph_ordinal"],"final_paragraph_ordinal":item["paragraph_ordinal"],"verdict":"accepted_equivalent"} for item in items]
+    if semantic:
+      submit={**submit,"semantic_acceptance":semantic}
+    calls[-1]=(prefix+".submit",submit)
+    messages=[{"jsonrpc":"2.0","id":i+1,"method":"tools/call","params":{"name":tool,"arguments":arguments}} for i,(tool,arguments) in enumerate(calls)]
+    proc=subprocess.run([command]+args,input="".join(json.dumps(x)+"\n" for x in messages),text=True,capture_output=True)
   if proc.returncode or '"isError":true' in proc.stdout or "event_id" not in proc.stdout: raise SystemExit(proc.stderr+proc.stdout)
   emit(sentinel)
   raise SystemExit(0)

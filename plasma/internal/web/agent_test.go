@@ -1154,7 +1154,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form default",
 			mode:       reportModeLongForm,
 			input:      "",
-			profile:    reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			profile:    reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract,
 			hasPlan:    true,
 			hasWriting: true,
 		},

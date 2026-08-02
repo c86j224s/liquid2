@@ -240,6 +240,27 @@
   min-width: 118px;
 }
 
+.report-checkbox-control {
+  height: var(--control-height);
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius);
+  background: var(--surface2);
+  color: var(--ink2);
+}
+
+.report-checkbox-control input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  margin: 0;
+}
+
+.report-checkbox-control:has(input:disabled) {
+  opacity: 0.44;
+}
+
 .segmented-select-control:focus-within {
   border-color: var(--accent-from);
   box-shadow: var(--focus-ring);

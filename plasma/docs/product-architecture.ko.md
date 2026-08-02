@@ -398,14 +398,12 @@ MCP read로 찾아야 합니다.
 `one_take`를 제외한 agent-backed report generation은 가능한 경우 현재 research
 provider session을 fork하여 report-only session에서 실행합니다.
 
-기본 보고서 경로는 G2 generation-time guidance를 사용합니다. H5 Korean tone pass는 기본적으로 꺼져 있습니다.
-사용자가 humanized Markdown export를 명시적으로 요청한 경우에만, 보고서 생성이 끝난 뒤 실행되는 shared
-Markdown transformation으로 동작합니다. H5는 original artifact를 대체하지 않습니다. 또한 planning, source
-selection, AST shaping, content-model generation, Designed HTML rendering에도 참여하지 않습니다. Staged
-long-form final-edit pipeline은 post-canonical 위치만 예외입니다. 기존 `post_report_humanize` 설정은
-corrective gate 전 optional pre-canonical style edit을 제어하고, 이 저장된 pipeline에서는 예전 post-canonical
-H5 export를 억제합니다. Manual 또는 legacy humanized Markdown export는 기존 post-report H5 의미를 그대로
-유지합니다.
+기본 보고서 경로는 G2 generation-time guidance를 사용합니다. Manual post-canonical H5 export는 브라우저에서
+deprecated이며 historical artifact와 direct API compatibility로만 남습니다. H5는 original artifact를
+대체하지 않습니다. 또한 planning, source selection, AST shaping, content-model generation, Designed HTML
+rendering에도 참여하지 않습니다. 새 브라우저 장문 보고서는 `post_report_humanize=enabled`를 항상 보내 read-only evidence gate 전
+pre-canonical style edit과 read-only semantic validation을 실행하며, 사용자 토글은 없습니다. 장문이 아닌 브라우저 요청은 이 값을 disabled로 유지합니다.
+Manual 또는 legacy humanized Markdown export는 기존 post-report H5 의미를 그대로 유지합니다.
 
 H5 단계는 report session을 resume하고 bounded `plasma.report.patch.*` MCP tool만 노출합니다. Agent는 저장된
 Markdown artifact를 slice 단위로 읽고 targeted patch operation을 적용합니다. 전체 Markdown을 prompt에 붙이거나,
@@ -460,31 +458,42 @@ author로 resume해 기존 closed Part-edit tool을 사용합니다. Part-plan r
 provenance를 검증하고 저장된 canonical brief를 반환합니다. Retry 요청이 새 brief를 만들었더라도 그 값을
 canonical brief와 비교하지 않습니다.
 
-이 작성 계약은 별도 글쓰기 선택지가 아닙니다. 화면의 `시각자료 계획`, `섹션 중심`, `섹션 중심 + 풍부하게`는
-구성 방식을 선택하며, 세 경로 모두 같은 독자 중심 계약과 편집 경계를 사용합니다.
+이 작성 계약은 별도 글쓰기 선택지가 아닙니다. 브라우저는 더 이상 보고서 글쓰기 선택지를 노출하지 않으며,
+새 장문 요청은 `section-brief-cluster-memory-narrative-contract`를 기본값으로 사용합니다. 저장된 event와
+direct API 호출을 새 의미로 재해석하지 않기 위해 older profile 값은 계속 허용합니다.
 
 새 planned narrative 장문 계획은 저장된 plan에
-`final_edit_pipeline: assembly_writer_reader_style_gate_v2`를 기록합니다. 검토된 Part output이 있으면 실행기는
+`final_edit_pipeline: assembly_writer_reader_style_validation_evidence_gate_v3`를 기록합니다. 검토된 Part output이 있으면 실행기는
 agent session 없는 deterministic final assembly를 제품 코드에서 만들고, report-plan provider session에서 final
 writer를 fork합니다. Writer는 `plasma.report.long_form.final_write.*` tool만 받고 whole-report opening, conclusion,
 Part transition, 전역 connective logic을 다룰 수 있지만 research, external fact 추가, 전체 Part/Section reorder는
 할 수 없습니다. Reader editor는 같은 report-plan session에서 fork된 독립 sibling이며 writer session을 상속하지 않고
 writer artifact를 입력으로 받습니다. 정규화된 `post_report_humanize`가 enabled이면 pre-canonical style stage가
 reader provider session에서 fork되고, style-edit tool만 받아 claim, citation, structure, requirement coverage를
-바꾸지 않는 작은 말투와 유창성 patch만 할 수 있습니다. Corrective gate는 report-plan session에서 fork된 또 다른
-sibling이며 approved read tool과 기존 `plasma.report.long_form.final_edit.*` tool surface를 받고 유일한 canonical
-producer입니다. Gate는 보고서를 무조건 줄이거나 검열하는 단계가 아닙니다. Source/evidence 경계 위반, owner-bound
-requirement 위반, approved repair가 필요한 unsupported claim만 교정합니다. Gate는 raw statement text 없이 hash된
-finding만 기록하고, gate stage를 submit한 뒤 정확히 하나의 canonical `report.artifact.created` event를 만듭니다.
-No-op gate는 이전 durable artifact를 canonical로 채택하고, changed gate만 예정 final artifact를 만듭니다.
+바꾸지 않는 작은 말투와 유창성 patch만 할 수 있습니다. 이 단계의 submitted ledger event는
+`style_operation_diagnoses_version=1`과 ordered `style_operation_diagnoses` record를 저장합니다. 각 record는
+1-based operation ordinal, 검증된 category token, summary 세미콜론 뒤의 concrete reason, accepted patch의 정확한
+match text, replacement text, 그리고 적용된 occurrence를 담습니다. 더 넓은 document excerpt와 prompt/provider output은
+저장하지 않습니다. 이어지는 read-only
+`style_semantic_validation`은 reader/style 비교와 verdict-submit tool만 받고, 서버가
+`accepted_equivalent` 또는 `rejected_revert_to_reader` verdict를 durable paragraph
+lineage에 따라 결정적으로 적용합니다. Read-only `evidence_gate`는 report-plan
+session에서 fork된 또 다른 sibling이며 approved read tool과 evidence read/submit tool만
+받고 report-to-evidence 연결만 판단합니다. Evidence read packet은 deterministic report-owned
+Markdown block과 서버가 계산한 `statement_sha256`을 짝지어 제공합니다. Reporting layer는 bound
+source artifact를 다시 읽어 lineage/SHA를 검증하고, 그 정확한 content 밖의 hash를 거부하며,
+raw passage 없이 connection judgment를 저장한 뒤 byte-identical artifact를 `operation_count=0`으로
+canonicalize합니다.
 
-이 v2 경로는 새 planned narrative 장문 보고서의 채택된 기본 최종화 경로입니다. Web 진행 화면은 실제 실행
-순서대로 `최종 조립`, `최종 작성`, `독자 편집`, 선택적 `말투 편집`, `근거·요구 교정`을 표시합니다.
-`post_report_humanize`가 disabled이면 `말투 편집` 노드만 생략합니다.
+이 v3 경로는 새 planned narrative 장문 보고서의 채택된 기본 최종화 경로입니다. 새 브라우저 장문 요청의
+Web 진행 화면은 실제 실행 순서대로 `최종 조립`, `최종 작성`, `독자 편집`, `말투 편집`,
+`말투 의미 검증`, `근거 연결 검증`을 표시합니다. 저장된 `post_report_humanize`가 disabled인 direct API 또는
+legacy/replay 실행만 두 style 노드를 생략하고 reader edit에서 바로 `evidence_gate`로 갑니다.
 
 `final_edit_pipeline: reader_style_gate_v1`가 저장된 계획은 기존 replay 의미를 유지합니다. 검토된 Part를 immutable
 reader-source Markdown artifact로 조립한 뒤 reader edit, optional style edit, 같은 corrective gate만 실행하고
 deterministic final assembly와 final writer 단계는 두지 않습니다.
+저장된 `assembly_writer_reader_style_gate_v2` 계획도 기존 corrective-gate repair 의미로 decode, replay, 중단 복구를 유지합니다.
 
 복구는 저장된 계획 payload에서만 Part planning을 도출하고, 누락, 중복, malformed, wrong-Part, wrong-plan,
 wrong-session, stale Part plan을 거부합니다. `report.part_plan.created`는 executor consistency lock 대상이며,

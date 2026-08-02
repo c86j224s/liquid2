@@ -266,8 +266,11 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	}
 	assertV2FinalEditRequestChain(t, requests, len(requests)-3, len(requests)-2, len(requests)-1, "report-session", false, false)
 	final := requests[len(requests)-1]
-	if final.FinalEditStage == nil || final.FinalEditStage.Stage != reporting.FinalEditStageGate || final.LongFormFinalize == nil || !strings.Contains(final.Prompt, "Global requirement preservation checks") || !strings.Contains(final.Prompt, "req_fanout_risk_register") {
-		t.Fatalf("fanout gate editor did not receive mapped requirement preservation checks:\n%s", final.Prompt)
+	if final.FinalEditStage == nil || final.FinalEditStage.Stage != reporting.FinalEditStageEvidenceGate || final.LongFormFinalize == nil {
+		t.Fatalf("fanout evidence gate did not receive the v3 evidence binding:\n%s", final.Prompt)
+	}
+	if strings.Contains(final.Prompt, "Global requirement preservation checks") || strings.Contains(final.Prompt, "req_fanout_risk_register") || strings.Contains(final.Prompt, "calibrated risk register") {
+		t.Fatalf("fanout evidence gate retained requirement preservation checks:\n%s", final.Prompt)
 	}
 	if strings.Contains(final.Prompt, "req_fanout_unmapped_appendix") || strings.Contains(final.Prompt, "add unsupported appendix") {
 		t.Fatalf("fanout gate editor received unmapped requirement preservation checks:\n%s", final.Prompt)
@@ -281,24 +284,24 @@ func assertV2FinalEditRequestChain(t *testing.T, requests []AgentRequest, writer
 	gate := requests[gateIndex]
 	if writer.FinalEditStage == nil ||
 		writer.FinalEditStage.Stage != reporting.FinalEditStageWriter ||
-		writer.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		writer.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		writer.LongFormFinalize != nil ||
 		!slices.Equal(writer.ExtraMCPTools, reportFinalEditWriterMCPTools()) {
 		t.Fatalf("writer stage request mismatch: %#v", writer)
 	}
 	if reader.FinalEditStage == nil ||
 		reader.FinalEditStage.Stage != reporting.FinalEditStageReader ||
-		reader.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		reader.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		reader.LongFormFinalize != nil ||
 		!slices.Equal(reader.ExtraMCPTools, reportFinalEditReaderMCPTools()) {
 		t.Fatalf("reader stage request mismatch: %#v", reader)
 	}
 	if gate.FinalEditStage == nil ||
-		gate.FinalEditStage.Stage != reporting.FinalEditStageGate ||
-		gate.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		gate.FinalEditStage.Stage != reporting.FinalEditStageEvidenceGate ||
+		gate.FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		gate.LongFormFinalize == nil ||
-		!slices.Equal(gate.ExtraMCPTools, reportFinalEditGateMCPTools()) {
-		t.Fatalf("gate stage request mismatch: %#v", gate)
+		!slices.Equal(gate.ExtraMCPTools, reportFinalEditEvidenceGateMCPTools()) {
+		t.Fatalf("evidence gate stage request mismatch: %#v", gate)
 	}
 	if writer.FinalEditStage.ForkSourceAgentSessionID != planSessionID ||
 		reader.FinalEditStage.ForkSourceAgentSessionID != planSessionID ||
@@ -306,7 +309,7 @@ func assertV2FinalEditRequestChain(t *testing.T, requests []AgentRequest, writer
 		writer.FinalEditStage.PreviousProviderSessionID != planSessionID ||
 		reader.FinalEditStage.PreviousProviderSessionID != planSessionID ||
 		gate.FinalEditStage.PreviousProviderSessionID != planSessionID {
-		t.Fatalf("v2 final edit stages must be sibling forks from plan session: writer=%#v reader=%#v gate=%#v", writer.FinalEditStage, reader.FinalEditStage, gate.FinalEditStage)
+		t.Fatalf("v3 final edit stages must be sibling forks from plan session: writer=%#v reader=%#v gate=%#v", writer.FinalEditStage, reader.FinalEditStage, gate.FinalEditStage)
 	}
 	writerArtifactID := writer.FinalEditStage.SourceArtifactID
 	if writerChanged {
@@ -319,7 +322,7 @@ func assertV2FinalEditRequestChain(t *testing.T, requests []AgentRequest, writer
 	if reader.PreviousSessionID == writer.PreviousSessionID ||
 		reader.FinalEditStage.SourceArtifactID != writerArtifactID ||
 		gate.FinalEditStage.SourceArtifactID != readerArtifactID {
-		t.Fatalf("v2 final edit artifact/session chain mismatch: writer=%#v reader=%#v gate=%#v", writer.FinalEditStage, reader.FinalEditStage, gate.FinalEditStage)
+		t.Fatalf("v3 final edit artifact/session chain mismatch: writer=%#v reader=%#v gate=%#v", writer.FinalEditStage, reader.FinalEditStage, gate.FinalEditStage)
 	}
 	if requestHasMCPTool(writer, "plasma.research.read") ||
 		requestHasMCPTool(writer, "plasma.sources.read") ||
@@ -437,7 +440,7 @@ func (agent *fanoutRequirementAgent) Run(_ context.Context, req AgentRequest) (A
 		return AgentResult{Text: "requirements mapped", SessionID: sessionID}, nil
 	case req.PartAssembly != nil:
 		return AgentResult{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: sessionID}, nil
-	case req.FinalEditStage != nil && req.FinalEditStage.Stage == reporting.FinalEditStageGate:
+	case req.FinalEditStage != nil && (req.FinalEditStage.Stage == reporting.FinalEditStageGate || req.FinalEditStage.Stage == reporting.FinalEditStageEvidenceGate):
 		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: sessionID}, nil
 	case req.FinalEditStage != nil:
 		return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: sessionID}, nil

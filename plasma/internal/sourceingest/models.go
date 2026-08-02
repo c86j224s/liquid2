@@ -47,15 +47,20 @@ const SourceRetrievalPolicyLiveReference = app.SourceRetrievalPolicyLiveReferenc
 var ErrInvalidInput = app.ErrInvalidInput
 
 type FetchedURLSource struct {
-	Content           []byte
-	MediaType         string
-	Title             string
-	ExternalVersion   string
-	ExternalUpdatedAt time.Time
-	ByteSize          int64
-	PageCount         int
-	TextLength        int
-	TextLengthKnown   bool
+	Content            []byte
+	MediaType          string
+	Title              string
+	ExternalVersion    string
+	ExternalUpdatedAt  time.Time
+	ByteSize           int64
+	PageCount          int
+	TextLength         int
+	TextLengthKnown    bool
+	RetrievalMethod    string
+	FinalURL           string
+	RenderedAt         time.Time
+	RawFetchSHA256     string
+	RawFetchArtifactID string
 }
 
 type FetchedMediaSource struct {
@@ -100,15 +105,16 @@ type MediaSourceSnapshotResult struct {
 }
 
 type CreateFetchedURLSourceRequest struct {
-	MissionID  string
-	URL        string
-	Title      string
-	ArtifactID string
-	SnapshotID string
-	EventID    string
-	Producer   Producer
-	Fetched    FetchedURLSource
-	FetchedAt  time.Time
+	MissionID                      string
+	URL                            string
+	Title                          string
+	ArtifactID                     string
+	SnapshotID                     string
+	EventID                        string
+	Producer                       Producer
+	Fetched                        FetchedURLSource
+	FetchedAt                      time.Time
+	SourceCandidateProposalEventID string
 }
 
 type SourceSnapshotFailureAppendRequest struct {

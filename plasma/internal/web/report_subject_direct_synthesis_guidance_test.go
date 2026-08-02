@@ -88,7 +88,7 @@ func TestSubjectDirectSynthesisProfileTargetsPlanningAndSectionOnly(t *testing.T
 
 func TestSubjectDirectSynthesisDoesNotChangeLongFormDefault(t *testing.T) {
 	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "")
-	if err != nil || profile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice || strings.TrimSpace(sha) == "" {
+	if err != nil || profile != reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract || strings.TrimSpace(sha) == "" {
 		t.Fatalf("long-form default changed: profile=%q sha=%q err=%v", profile, sha, err)
 	}
 }

@@ -25,12 +25,14 @@ async function draftReport(reportMode = "one_take") {
     ? ($("reportLongFormExecutionStrategy")?.value || "serial")
     : "serial";
   const generationGuidanceProfile = reports.selectedReportGenerationGuidance(reportMode);
+  const postReportHumanize = reportMode === "long_form" ? "enabled" : "disabled";
   const pendingPayload = {
     title,
     report_mode: reportMode,
     execution_strategy: executionStrategy,
     generation_guidance_profile: generationGuidanceProfile,
-    rigor_level: $("reportRigor").value || "balanced",
+    post_report_humanize: postReportHumanize,
+    rigor_level: $("reportRigor").value || "strict",
     agent_model: reportSelection.agent_model,
     agent_reasoning_effort: reportSelection.agent_reasoning_effort,
     direction_hint: typeof reports.direction.current === "function" ? reports.direction.current() : ""
@@ -146,12 +148,11 @@ function setReportBusy(busy) {
 }
 
 function syncReportControls() {
-	const blocked = activeWorkBlocksControl("report_start") || state.workflowGoalDraftPending || state.reportPending || missionLifecycleWriteBlocked() || !state.detail;
+	const blocked = activeWorkBlocksControl("report_start") || state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending || missionLifecycleWriteBlocked() || !state.detail;
 	window.Plasma.ui.setElementDisabled("reportRigor", blocked);
 	window.Plasma.ui.setElementDisabled("reportAgentModel", blocked);
 	window.Plasma.ui.setElementDisabled("reportAgentReasoningEffort", blocked);
 	window.Plasma.ui.setElementDisabled("reportLongFormExecutionStrategy", blocked);
-	window.Plasma.ui.setElementDisabled("reportGenerationGuidance", blocked);
 	window.Plasma.ui.setElementDisabled("draftQuickReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftLongReport", blocked);
 }

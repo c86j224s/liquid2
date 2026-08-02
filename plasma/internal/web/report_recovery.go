@@ -119,15 +119,18 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 		return reportDraftRequest{}, fmt.Errorf("%w: invalid report pending payload", app.ErrInvalidInput)
 	}
 	return reportDraftRequest{
-		Title:                        firstNonEmpty(payload.Title, "Mission report"),
-		DirectionHint:                reporting.NormalizeDirectionHint(payload.DirectionHint),
-		ExecutionStrategy:            strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
-		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
-		AgentModel:                   strings.TrimSpace(payload.AgentModel),
-		AgentReasoningEffort:         strings.TrimSpace(payload.AgentReasoningEffort),
-		AgentSelectionSource:         strings.TrimSpace(payload.AgentSelectionSource),
-		MCPMode:                      firstNonEmpty(payload.MCPMode, "auto"),
-		RigorLevel:                   firstNonEmpty(payload.RigorLevel, defaultReportRigorLevel),
+		Title:                firstNonEmpty(payload.Title, "Mission report"),
+		DirectionHint:        reporting.NormalizeDirectionHint(payload.DirectionHint),
+		ExecutionStrategy:    strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
+		AgentExecutor:        firstNonEmpty(payload.AgentExecutor, "codex"),
+		AgentModel:           strings.TrimSpace(payload.AgentModel),
+		AgentReasoningEffort: strings.TrimSpace(payload.AgentReasoningEffort),
+		AgentSelectionSource: strings.TrimSpace(payload.AgentSelectionSource),
+		MCPMode:              firstNonEmpty(payload.MCPMode, "auto"),
+		// Pending events written before rigor was persisted used the old balanced
+		// behavior. Recovery must resume that frozen behavior, not the new request
+		// default.
+		RigorLevel:                   firstNonEmpty(payload.RigorLevel, legacyPendingReportRigorLevel),
 		ReportMode:                   firstNonEmpty(payload.ReportMode, defaultReportMode),
 		ReportSessionPolicy:          firstNonEmpty(payload.ReportSessionPolicy, reportSessionPolicySameSession),
 		ReportSessionPolicySelection: strings.TrimSpace(payload.ReportSessionPolicySelection),

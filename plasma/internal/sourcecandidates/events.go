@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/sourcediagnostics"
 )
 
 func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRequest) (app.AppendEventRequest, bool, error) {
@@ -116,6 +117,9 @@ func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID st
 		payload["text_length"] = fetched.TextLength
 	}
 	payload["text_length_known"] = fetched.TextLengthKnown
+	if diagnosis := sourcediagnostics.DiagnoseBrowserRenderCandidate(fetched.Content, fetched.MediaType); diagnosis.Candidate {
+		payload["browser_render_candidate"] = diagnosis
+	}
 	if sessionID != "" {
 		payload["tool_session_id"] = sessionID
 		payload["agent_session_id"] = sessionID

@@ -16,6 +16,8 @@
   const confluenceSourceInfo = (...args) => sources.confluenceSourceInfo(...args);
   const confluenceUpdateState = (...args) => sources.confluenceUpdateState(...args);
   const confluenceUpdateText = (...args) => sources.confluenceUpdateText(...args);
+  const confluenceScopeLabel = (...args) => sources.confluenceScopeLabel(...args);
+  const confluenceDisplayTitle = (...args) => sources.confluenceDisplayTitle(...args);
   const mediaSourceLabel = (...args) => sources.mediaSourceLabel(...args);
   const documentSourceText = (...args) => sources.documentSourceText(...args);
   const pdfSourceText = (...args) => sources.pdfSourceText(...args);
@@ -56,15 +58,18 @@
       if (media) locatorText = mediaSourceText(media);
       if (confluence) locatorText = confluenceSourceText(confluence);
       const detailPayload = sourceDetailPayload(source, confluence);
+      const title = source.Title || source.title || snapshotID;
+      const displayTitle = confluence ? confluenceDisplayTitle(title) : title;
       return `
       <div class="item ${removed ? "source-removed" : ""}">
         <div class="item-title">
-          ${escapeHTML(source.Title || source.title || snapshotID)}
+          ${escapeHTML(displayTitle)}
           <span class="badge muted">${escapeHTML(modeLabel)}</span>
           ${mediaLabel ? `<span class="badge">${escapeHTML(mediaLabel)}</span>` : ""}
           ${pdfLabel ? `<span class="badge">${escapeHTML(pdfLabel)}</span>` : ""}
           ${documentLabel ? `<span class="badge">${escapeHTML(documentLabel)}</span>` : ""}
           ${confluenceLabel ? `<span class="badge">${escapeHTML(confluenceLabel)}</span>` : ""}
+          ${confluence ? `<span class="badge muted">${escapeHTML(confluenceScopeLabel(confluence))}</span>` : ""}
           ${confluence?.version ? `<span class="badge muted">v${escapeHTML(confluence.version)}</span>` : ""}
           ${removed ? `<span class="badge warn">제거됨</span>` : ""}
         </div>

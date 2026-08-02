@@ -6,15 +6,16 @@
   const escapeAttr = root.Plasma.dom.escapeAttr;
 
   function humanizedArtifacts(payload) {
+    // Manual H5 creation is deprecated; retain historical status and artifact access.
     const humanized = reports.reportArtifactHumanizedExportState(payload.artifact_id || "");
     const redpen = humanized.state === "completed" ? reports.reportArtifactRedpenState(humanized.payload.artifact_id || "") : { state: "idle", payload: {} };
-    const label = humanized.state === "completed" ? "생성 완료" : humanized.state === "failed" ? "생성 실패" : humanized.state === "pending" ? "생성 중" : humanized.state === "skipped" ? "변경 없음" : "선택 실행 가능";
+    const label = humanized.state === "completed" ? "생성 완료" : humanized.state === "failed" ? "생성 실패" : humanized.state === "pending" ? "생성 중" : humanized.state === "skipped" ? "변경 없음" : "생성 없음";
     const actions = humanized.state === "completed" ? `
       <button type="button" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="view-artifact">보정 Markdown 보기</button>
       <button type="button" class="secondary" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="download-artifact">보정 MD 받기</button>
       ${redpen.state === "completed" ? `<button type="button" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="view-redpen-artifact">보정본 빨간펜 보기</button>` : ""}`
       : humanized.state === "pending" ? `<button type="button" class="secondary" disabled>말투 보정 중</button>`
-      : `<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="start-humanized-markdown-artifact" ${state.reportPending ? "disabled" : ""}>${humanized.state === "failed" ? "H5 말투 보정 다시 생성" : "H5 말투 보정 생성"}</button>`;
+      : "";
     const failureLine = humanized.state === "failed" ? `<div class="report-plan-line report-error-line"><span class="badge warn">실패 사유</span><span>${escapeHTML(humanized.payload.error || humanized.payload.text || "실패 사유 없음")}</span></div>` : "";
     const redpenLine = redpen.state === "completed" ? `<div class="report-plan-line"><span class="badge muted">보정본 빨간펜</span><span>${escapeHTML(`작업본 v${redpen.payload.revision || "?"} 저장됨`)}</span></div>` : "";
     const redpenDownload = redpen.state === "completed" ? `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(humanized.payload.artifact_id || "")}" data-action="download-redpen-artifact">보정본 빨간펜 받기</button>` : "";

@@ -324,6 +324,54 @@ func TestProjectReportProgressIncludesAssemblyWriterReaderStyleGateV2Stages(t *t
 	}
 }
 
+func TestProjectReportProgressIncludesV3ReadOnlyValidationStages(t *testing.T) {
+	base := time.Date(2026, 7, 28, 5, 0, 0, 0, time.UTC)
+	events := []Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "assembly_writer_reader_style_validation_evidence_gate_v3", "post_report_humanize": "enabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_assembly", EventType: "report.final_assembly.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_writer", EventType: "report.final_edit.writer.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(45 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(55 * time.Second)},
+		{EventID: "evt_style", EventType: "report.final_edit.style.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(65 * time.Second)},
+		{EventID: "evt_style_semantic_start", EventType: "report.final_edit.style_semantic_validation.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(70 * time.Second)},
+		{EventID: "evt_style_semantic", EventType: "report.final_edit.style_semantic_validation.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(78 * time.Second)},
+		{EventID: "evt_evidence_gate_start", EventType: "report.final_edit.evidence_gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(80 * time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := assertReportNodeOrder(t, progress.Nodes, []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "style-edit", "style-semantic-validation", "evidence-gate", "final", "artifact"})
+	if nodes["style-semantic-validation"].Kind != "style_semantic_validation" || nodes["evidence-gate"].Kind != "evidence_gate" {
+		t.Fatalf("v3 validation nodes not projected with stable kinds: %#v", progress.Nodes)
+	}
+	if nodes["style-semantic-validation"].State != "completed" || nodes["evidence-gate"].State != "running" {
+		t.Fatalf("v3 validation node states differ: %#v", progress.Nodes)
+	}
+	assertNodeTiming(t, nodes["style-semantic-validation"], base.Add(70*time.Second), 8_000)
+
+	disabled := ProjectReportProgress([]Event{
+		{EventID: "evt_pending", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_pending", "final_edit_pipeline": "assembly_writer_reader_style_validation_evidence_gate_v3", "post_report_humanize": "disabled",
+			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(10 * time.Second)},
+		{EventID: "evt_section", EventType: "report.section.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1, "section_index": 1}), CreatedAt: base.Add(20 * time.Second)},
+		{EventID: "evt_part", EventType: "report.part.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending", "part_index": 1}), CreatedAt: base.Add(30 * time.Second)},
+		{EventID: "evt_assembly", EventType: "report.final_assembly.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(35 * time.Second)},
+		{EventID: "evt_writer", EventType: "report.final_edit.writer.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(45 * time.Second)},
+		{EventID: "evt_reader", EventType: "report.final_edit.reader.submitted", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(55 * time.Second)},
+		{EventID: "evt_evidence_gate_start", EventType: "report.final_edit.evidence_gate.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": "evt_pending"}), CreatedAt: base.Add(80 * time.Second)},
+	})
+	assertReportNodeOrder(t, disabled.Nodes, []string{"plan", "section-1-1", "part-1", "final-assembly", "final-write", "reader-edit", "evidence-gate", "final", "artifact"})
+	if reportNodeState(disabled.Nodes, "style-edit") != "" || reportNodeState(disabled.Nodes, "style-semantic-validation") != "" {
+		t.Fatalf("disabled v3 progress must skip style nodes: %#v", disabled.Nodes)
+	}
+}
+
 func TestProjectReportProgressMapsV2FinalWriteFailure(t *testing.T) {
 	base := time.Date(2026, 7, 28, 4, 0, 0, 0, time.UTC)
 	progress := ProjectReportProgress([]Event{

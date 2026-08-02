@@ -12,7 +12,7 @@ func TestFinalEditSubmittedEventDecodeFailsClosedOnEnvelopeTamper(t *testing.T) 
 	binding := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageReader, "art_source", "art_reader")
 	source := app.RawArtifact{ArtifactID: binding.SourceArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: app.Producer{Type: "system", ID: "source"}, SHA256: contentSHA256([]byte("source")), Content: []byte("source")}
 	artifact := app.RawArtifact{ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: binding.Producer, SHA256: contentSHA256([]byte("edited")), Content: []byte("edited")}
-	request := buildFinalEditSubmittedAppendRequest("evt_reader_submitted", binding, source, artifact, 1, true, nil)
+	request := buildFinalEditSubmittedAppendRequest("evt_reader_submitted", binding, source, artifact, 1, true, nil, FinalEditSemanticAttestation{})
 	base := app.LedgerEvent{EventID: request.EventID, MissionID: request.MissionID, EventType: request.EventType, Producer: request.Producer, CausationEventID: request.CausationEventID, CorrelationID: request.CorrelationID, Payload: request.Payload}
 
 	for name, mutate := range map[string]func(*app.LedgerEvent){
@@ -85,6 +85,34 @@ func TestStoredFinalEditGateFindingsDecodeRejectsMalformedStatementSHA256(t *tes
 		if _, err := decodeStoredFinalEditGateFindingsPayload(payload); !errors.Is(err, app.ErrConflict) {
 			t.Fatalf("hash=%q err=%v, want conflict", hash, err)
 		}
+	}
+}
+
+func TestStoredFinalEditGateFindingsDecodeSeparatesLegacyAndEvidenceGateRules(t *testing.T) {
+	validHash := contentSHA256([]byte("Unsupported claim."))
+	readOnly := []any{map[string]any{
+		"statement_sha256": validHash,
+		"classification":   FinalEditGateClassUnverifiedExternalFact,
+		"evidence_ids":     []any{"evd_ok"},
+	}}
+	if _, err := decodeStoredFinalEditGateFindingsPayloadForStage(readOnly, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, FinalEditStageEvidenceGate); err != nil {
+		t.Fatalf("v3 evidence gate read-only finding rejected: %v", err)
+	}
+	if _, err := decodeStoredFinalEditGateFindingsPayloadForStage(readOnly, FinalEditPipelineReaderStyleGateV1, FinalEditStageGate); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("legacy unverified finding without repair_action err=%v, want conflict", err)
+	}
+
+	legacyRepaired := []any{map[string]any{
+		"statement_sha256": validHash,
+		"classification":   FinalEditGateClassUnverifiedExternalFact,
+		"repair_action":    FinalEditRepairAttachApprovedEvidence,
+		"evidence_ids":     []any{"evd_ok"},
+	}}
+	if _, err := decodeStoredFinalEditGateFindingsPayloadForStage(legacyRepaired, FinalEditPipelineReaderStyleGateV1, FinalEditStageGate); err != nil {
+		t.Fatalf("legacy repaired finding rejected: %v", err)
+	}
+	if _, err := decodeStoredFinalEditGateFindingsPayloadForStage(legacyRepaired, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, FinalEditStageEvidenceGate); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("v3 repair_action finding err=%v, want conflict", err)
 	}
 }
 

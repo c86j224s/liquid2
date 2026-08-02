@@ -59,7 +59,7 @@ func longFormReaderStyleGateEnabled(profile string) bool {
 
 func longFormFinalEditPipelineForPlan(profile string) string {
 	if longFormReaderStyleGateEnabled(profile) {
-		return reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2
+		return reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
 	}
 	return ""
 }
@@ -71,7 +71,7 @@ func longFormReaderStyleGatePlanEventEnabled(event app.LedgerEvent) bool {
 
 func longFormSupportedStagedFinalEditPipeline(pipeline string) bool {
 	switch strings.TrimSpace(pipeline) {
-	case reporting.FinalEditPipelineReaderStyleGateV1, reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2:
+	case reporting.FinalEditPipelineReaderStyleGateV1, reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2, reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3:
 		return true
 	default:
 		return false
@@ -88,6 +88,8 @@ func (server *Server) runLongFormReaderStyleGatePipeline(ctx context.Context, re
 		return nil, longFormFinalEditStageFailure("final_edit", req.planEvent.EventID, fmt.Errorf("%w: final edit pipeline requires a report plan session", app.ErrConflict))
 	}
 	switch req.finalEditPipeline() {
+	case reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3:
+		return server.runLongFormAssemblyWriterReaderStyleValidationEvidenceGatePipeline(ctx, req, executor, forker, planSessionID)
 	case reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2:
 		return server.runLongFormAssemblyWriterReaderStyleGatePipeline(ctx, req, executor, forker, planSessionID)
 	case reporting.FinalEditPipelineReaderStyleGateV1:
@@ -119,7 +121,63 @@ func (server *Server) runLongFormReaderStyleGatePipeline(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	gate, err := server.runLongFormFinalEditStage(ctx, req, gateProgress, &gateFinalBinding, reportFinalEditGateMCPTools(), finalEditGateSubmittedSentinel, agentLongFormGatePrompt, executor)
+	gate, err := server.runLongFormFinalEditStage(ctx, req, gateProgress, &gateFinalBinding, reportFinalEditGateMCPToolsForHumanize(req.postReportHumanize), finalEditGateSubmittedSentinel, agentLongFormGatePromptForHumanize(req.postReportHumanize), executor)
+	if err != nil {
+		return nil, err
+	}
+	artifact, event := gate.final.Artifact, gate.final.Event
+	return map[string]any{"artifact": artifact, "event": event, "markdown": string(artifact.Content)}, nil
+}
+
+func (server *Server) runLongFormAssemblyWriterReaderStyleValidationEvidenceGatePipeline(ctx context.Context, req longFormReaderStyleGatePipelineRequest, executor AgentExecutor, forker AgentSessionForker, planSessionID string) (map[string]any, error) {
+	recoveryFinal := req.longFormFinalBinding(newID("ses"), planSessionID, planSessionID, firstNonEmpty(req.forkSourceAgentSessionID, planSessionID))
+	assemblyArtifactID := reporting.FinalEditAssemblyArtifactID(req.planEvent.EventID, req.partArtifactIDs)
+	writerProgress, err := server.finalEditStageProgress(ctx, recoveryFinal, req, reporting.FinalEditStageWriter, assemblyArtifactID, newID("art"), planSessionID, forker, planSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if writerProgress.StartEvent.EventID == "" && writerProgress.Submission == nil {
+		if _, _, err := reporting.EnsureFinalEditAssembly(ctx, server.service, newID("evt"), writerProgress.Binding); err != nil {
+			return nil, longFormFinalEditStageFailure(reporting.FinalEditStageWriter, req.planEvent.EventID, err)
+		}
+	}
+	writer, err := server.runLongFormFinalEditStage(ctx, req, writerProgress, nil, reportFinalEditWriterMCPTools(), finalEditStageSubmittedSentinel, agentLongFormWriterEditPrompt, executor)
+	if err != nil {
+		return nil, err
+	}
+	readerProgress, err := server.finalEditStageProgress(ctx, recoveryFinal, req, reporting.FinalEditStageReader, writer.stage.Artifact.ArtifactID, newID("art"), planSessionID, forker, planSessionID)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := server.runLongFormFinalEditStage(ctx, req, readerProgress, nil, reportFinalEditReaderMCPTools(), finalEditStageSubmittedSentinel, agentLongFormReaderEditPrompt, executor)
+	if err != nil {
+		return nil, err
+	}
+	prior := reader
+	if req.postReportHumanize == reporting.FinalEditHumanizeEnabled {
+		styleProgress, err := server.finalEditStageProgress(ctx, recoveryFinal, req, reporting.FinalEditStageStyle, reader.stage.Artifact.ArtifactID, newID("art"), reader.binding.ProviderSessionID, forker, reader.binding.ProviderSessionID)
+		if err != nil {
+			return nil, err
+		}
+		style, err := server.runLongFormFinalEditStage(ctx, req, styleProgress, nil, reportFinalEditStyleMCPTools(), finalEditStageSubmittedSentinel, agentLongFormStyleEditPrompt, executor)
+		if err != nil {
+			return nil, err
+		}
+		semanticProgress, err := server.finalEditStageProgress(ctx, recoveryFinal, req, reporting.FinalEditStageStyleSemanticValidation, style.stage.Artifact.ArtifactID, newID("art"), planSessionID, forker, planSessionID)
+		if err != nil {
+			return nil, err
+		}
+		semantic, err := server.runLongFormFinalEditStage(ctx, req, semanticProgress, nil, reportFinalEditStyleSemanticValidationMCPTools(), finalEditStageSubmittedSentinel, agentLongFormStyleSemanticValidationPrompt, executor)
+		if err != nil {
+			return nil, err
+		}
+		prior = semantic
+	}
+	gateProgress, gateFinalBinding, err := server.finalEditEvidenceGateProgress(ctx, req, recoveryFinal, prior.stage.Artifact.ArtifactID, planSessionID, planSessionID, forker)
+	if err != nil {
+		return nil, err
+	}
+	gate, err := server.runLongFormFinalEditStage(ctx, req, gateProgress, &gateFinalBinding, reportFinalEditEvidenceGateMCPTools(), finalEditGateSubmittedSentinel, agentLongFormEvidenceGatePrompt, executor)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +225,7 @@ func (server *Server) runLongFormAssemblyWriterReaderStyleGatePipeline(ctx conte
 	if err != nil {
 		return nil, err
 	}
-	gate, err := server.runLongFormFinalEditStage(ctx, req, gateProgress, &gateFinalBinding, reportFinalEditGateMCPTools(), finalEditGateSubmittedSentinel, agentLongFormGatePrompt, executor)
+	gate, err := server.runLongFormFinalEditStage(ctx, req, gateProgress, &gateFinalBinding, reportFinalEditGateMCPToolsForHumanize(req.postReportHumanize), finalEditGateSubmittedSentinel, agentLongFormGatePromptForHumanize(req.postReportHumanize), executor)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +298,29 @@ func (server *Server) finalEditGateProgress(ctx context.Context, req longFormRea
 	return reporting.FinalEditStageProgress{Binding: gate}, final, nil
 }
 
+func (server *Server) finalEditEvidenceGateProgress(ctx context.Context, req longFormReaderStyleGatePipelineRequest, finalBase reporting.LongFormFinalizeBinding, sourceArtifactID string, previousProviderSessionID string, planSessionID string, forker AgentSessionForker) (reporting.FinalEditStageProgress, reporting.LongFormFinalizeBinding, error) {
+	if recovered, ok, err := reporting.LoadFinalEditStageProgress(ctx, server.service, reporting.FinalEditStageStartContract{FinalBinding: finalBase, Stage: reporting.FinalEditStageEvidenceGate}); err != nil {
+		return reporting.FinalEditStageProgress{}, reporting.LongFormFinalizeBinding{}, longFormFinalEditStageFailure(reporting.FinalEditStageEvidenceGate, req.planEvent.EventID, err)
+	} else if ok {
+		final := req.longFormFinalBinding(recovered.Binding.ToolSessionID, recovered.Binding.ProviderSessionID, recovered.Binding.PreviousProviderSessionID, recovered.Binding.ForkSourceAgentSessionID)
+		final.Producer = recovered.Binding.Producer
+		if err := reporting.ValidateFinalEditGateBindingsCompatible(recovered.Binding, final); err != nil {
+			return reporting.FinalEditStageProgress{}, reporting.LongFormFinalizeBinding{}, err
+		}
+		return recovered, final, nil
+	}
+	gateSessionID, gateForkSourceID, err := forkLongFormFinalEditSession(ctx, forker, planSessionID)
+	if err != nil {
+		return reporting.FinalEditStageProgress{}, reporting.LongFormFinalizeBinding{}, longFormFinalEditStageFailure(reporting.FinalEditStageEvidenceGate, req.planEvent.EventID, err)
+	}
+	final := req.longFormFinalBinding(newID("ses"), gateSessionID, previousProviderSessionID, gateForkSourceID)
+	gate := req.finalEditStageBinding(reporting.FinalEditStageEvidenceGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
+	if err := reporting.ValidateFinalEditGateBindingsCompatible(gate, final); err != nil {
+		return reporting.FinalEditStageProgress{}, reporting.LongFormFinalizeBinding{}, err
+	}
+	return reporting.FinalEditStageProgress{Binding: gate}, final, nil
+}
+
 func (req longFormReaderStyleGatePipelineRequest) finalEditStageBinding(stage string, sourceArtifactID string, editedArtifactID string, toolSessionID string, providerSessionID string, previousProviderSessionID string, forkSourceAgentSessionID string) reporting.FinalEditStageBinding {
 	binding := reporting.FinalEditStageBinding{
 		MissionID: req.missionID, PendingEventID: req.pendingEventID, PlanEventID: req.planEvent.EventID, Title: req.title,
@@ -253,8 +334,8 @@ func (req longFormReaderStyleGatePipelineRequest) finalEditStageBinding(stage st
 		SessionChainKind: req.sessionChainKind, PreReportResearchSessionID: req.preReportResearchSessionID, ReportPlanSessionID: req.reportPlanSessionID,
 		ForkSourceAgentSessionID: forkSourceAgentSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
 	}
-	if req.finalEditPipeline() == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		binding.FinalEditPipeline = reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2
+	if pipeline := req.finalEditPipeline(); pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 || pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		binding.FinalEditPipeline = pipeline
 	}
 	return binding
 }
@@ -399,7 +480,7 @@ Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
 }
 
 func agentLongFormReaderEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
-	if req.finalEditPipeline() == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
+	if pipeline := req.finalEditPipeline(); pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 || pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
 		return agentLongFormV2ReaderEditPrompt(req, binding, draftID, attempt)
 	}
 	return fmt.Sprintf(`Read and edit the durable long-form Part manuscript through the dedicated reader-edit MCP tools.
@@ -464,7 +545,7 @@ Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
 }
 
 func agentLongFormStyleEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
-	return fmt.Sprintf(`Apply the pre-canonical H5-style Korean tone pass through the dedicated style-edit MCP tools.
+	return fmt.Sprintf(`Apply the pre-canonical Korean natural-voice style pass through the dedicated style-edit MCP tools.
 
 Report title: %s
 Mission ID: %s
@@ -474,9 +555,24 @@ Bound stage metadata:
 Use exactly this workflow:
 1. Call %s with draft_id %q and the bound identities.
 2. Read the full manuscript with %s until truncated is false.
-3. Use %s only for small tone, fluency, sentence rhythm, and awkward Korean phrasing edits. Preserve structure, claims, citations, numbers, code, links, and paragraph boundaries.
-4. If no safe tone edit is justified, submit unchanged.
-5. Submit with %s and return exactly %s.
+3. Privately diagnose every paragraph before patching. Use only these categories and meanings:
+   - opaque_or_strained_mapping = relationship between domains is not quickly recoverable, collocation feels invented/strained, or image adds interpretation cost without explanatory gain; do not prohibit metaphor and preserve conventional/clarifying metaphor.
+   - unnatural_collocation = grammatical words that do not sound like normal Korean report prose in context.
+   - vague_reference = unclear/cheap pointer instead of naming the referent.
+   - nominalized_or_bureaucratic = noun/process-heavy phrase hiding a simple action.
+   - compressed_abstraction = several ideas packed into an abstract phrase that costs effort to unpack.
+   - report_process_meta = report/section narration where subject matter should be foregrounded.
+   - formulaic_transition = stock movement announcement with no useful logic.
+4. No edit quota/minimum.
+5. Use %s only with exact replace operations. Never use insert_after, append, or replace_all. Empty replacement is allowed only for a diagnosed local deletion that leaves its Markdown block non-empty.
+6. Each patch summary must use exactly this format: category: <one-known-token>; <concrete issue>. The category token must be one of the seven diagnosis categories above.
+7. Preserve structure, claims, citations, and paragraph boundaries. Never change heading lines, table rows, list markers, blockquote lines, code fences or fenced code, or source/reference lines.
+8. In every replacement, keep the exact ordered sequence of numbers, Latin technical tokens, inline-code spans, quoted spans, links, footnotes, and citation markers. If a repair overlaps one, copy the protected token or span verbatim and edit only the surrounding Korean; otherwise skip the repair.
+9. For report_process_meta, skip the repair when the navigation phrase contains a number or Latin token. Forbidden examples: changing "1부에서" to "앞에서", changing "이 Part에서는" to "여기서는", or rewriting any table row.
+10. Treat each successful replacement as the current draft. Before a later repair that overlaps earlier text, read the affected range again and use the current exact match.
+11. Before submit, reread every changed range and verify that its protected sequences are unchanged. Repair any mismatch before submitting.
+12. Submit unchanged if no safe local repair is justified.
+13. Submit with %s. After submit succeeds, make no further tool calls and return exactly %s.
 
 Do not summarize, add facts, call research/source tools, or expose IDs in the manuscript.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
@@ -515,6 +611,96 @@ Gate responsibilities:
 		plasmamcp.ToolReportLongFormEditStart, draftID,
 		plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch,
 		plasmamcp.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
+}
+
+func agentLongFormSemanticGatePrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
+	return fmt.Sprintf(`Run the corrective provenance gate and canonicalize the long-form report through MCP.
+
+Report title: %s
+Mission ID: %s
+Rigor: %s (%s)
+Bound gate metadata:
+%s
+
+Global requirement preservation checks:
+%s
+
+Use exactly this workflow:
+1. Call %s with draft_id %q and the bound identities.
+2. Read the full manuscript with %s until truncated is false.
+3. Use approved read tools to verify claims when support is unclear. Do not mutate sources or create new policy.
+4. Read changed style paragraphs with %s until truncated is false. Follow next_offset exactly; the gate cannot submit until this bounded review read returns truncated=false. For each changed source paragraph, submit paragraph_ordinal, final_paragraph_ordinal, and exactly one semantic verdict: accepted_equivalent when style and final meaning are equivalent, reverted_to_reader when final text returns to reader meaning, or repaired_by_gate when you repaired unsafe style drift.
+5. Apply required corrections with %s before submit. Semantic review is not an invitation to rewrite; fail closed on uncertainty by reverting the affected paragraph to reader meaning or repairing only the unsafe local drift.
+6. Submit with %s, gate_findings, and semantic_acceptance. If there are no findings, pass an empty array. If there were no changed style paragraphs, omit semantic_acceptance or pass an empty array. Use only these classifications: mission_source_grounded, session_grounded, derived_synthesis, rhetorical_construction, unverified_external_fact. Use only these repair actions: attach_approved_evidence, qualify_inference_or_uncertainty, retain_with_footnote, remove.
+7. Return exactly %s and nothing else after submit succeeds.
+
+Gate responsibilities:
+- Read the complete manuscript before judging it.
+- Enforce source/evidence boundaries and every owner-bound output requirement according to the rigor level.
+- Order repairs before canonicalization; the gate is the only canonical producer.
+- Do not include raw statement text anywhere except the transient gate_findings tool input.%s`,
+		req.title, req.missionID, req.rigor.level, req.rigor.label, agentReportAnyJSON(binding),
+		agentReportAnyJSON(reporting.ReportOwnerBoundRequirements(req.requirementMap)),
+		plasmamcp.ToolReportLongFormEditStart, draftID,
+		plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormStyleReviewRead, plasmamcp.ToolReportLongFormEditPatch,
+		plasmamcp.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
+}
+
+func agentLongFormStyleSemanticValidationPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
+	return fmt.Sprintf(`Run read-only style semantic validation for the long-form report through MCP.
+
+Report title: %s
+Mission ID: %s
+Bound stage metadata:
+%s
+
+Use exactly this workflow:
+1. Read changed reader/style paragraph comparisons with %s until truncated is false.
+2. Submit with %s using semantic_acceptance. For each changed paragraph submit paragraph_ordinal and exactly one verdict: accepted_equivalent or rejected_revert_to_reader.
+3. Return exactly %s and nothing else after submit succeeds.
+
+Validation responsibilities:
+- Judge only whether the style paragraph preserves the reader paragraph's meaning.
+- Do not submit prose, patches, final paragraph ordinals, repaired_by_gate, manuscript Markdown, or repair instructions.
+- When uncertain, use rejected_revert_to_reader.%s`,
+		req.title, req.missionID, agentReportAnyJSON(binding),
+		plasmamcp.ToolReportLongFormStyleSemanticValidationRead,
+		plasmamcp.ToolReportLongFormStyleSemanticValidationSubmit,
+		finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+}
+
+func agentLongFormEvidenceGatePrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
+	return fmt.Sprintf(`Run read-only evidence connection judgment and canonicalize the long-form report through MCP.
+
+Report title: %s
+Mission ID: %s
+Rigor: %s (%s)
+Bound stage metadata:
+%s
+
+Use exactly this workflow:
+1. Read the report passage packet with %s until truncated is false. Use only server-provided statement_sha256 values from that packet.
+2. Use approved read tools to verify report-to-evidence connections when support is unclear.
+3. Submit with %s and gate_findings. Each finding may contain only statement_sha256, classification, and approved evidence_ids. Use only these classifications: mission_source_grounded, session_grounded, derived_synthesis, rhetorical_construction, unverified_external_fact.
+4. Return exactly %s and nothing else after submit succeeds.
+
+Evidence gate responsibilities:
+- Judge report-to-evidence connections only.
+- Do not judge owner requirements, prose quality, style, or structure.
+- Do not calculate statement hashes; copy statement_sha256 exactly from the read packet.
+- Do not submit prose, patches, repair actions, manuscript Markdown, semantic acceptance, or operation counts.
+- Evidence judgments do not trigger automatic repair; the server canonicalizes the exact bound source artifact with zero operations.%s`,
+		req.title, req.missionID, req.rigor.level, req.rigor.label, agentReportAnyJSON(binding),
+		plasmamcp.ToolReportLongFormEvidenceGateRead,
+		plasmamcp.ToolReportLongFormEvidenceGateSubmit,
+		finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
+}
+
+func agentLongFormGatePromptForHumanize(humanize string) func(longFormReaderStyleGatePipelineRequest, reporting.FinalEditStageBinding, string, int) string {
+	if humanize == reporting.FinalEditHumanizeEnabled {
+		return agentLongFormSemanticGatePrompt
+	}
+	return agentLongFormGatePrompt
 }
 
 func finalEditRetryNote(attempt int) string {

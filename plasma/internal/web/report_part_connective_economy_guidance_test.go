@@ -72,14 +72,18 @@ func TestPartConnectiveEconomyGuidanceStaysWithPartAssembler(t *testing.T) {
 	}
 }
 
-func TestPartConnectiveEconomyIsOnlyTheLongFormDefault(t *testing.T) {
+func TestRichSectionGuidanceIsOnlyTheLongFormDefault(t *testing.T) {
 	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "")
-	if err != nil || profile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice || strings.TrimSpace(sha) == "" {
+	if err != nil || profile != reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract || strings.TrimSpace(sha) == "" {
 		t.Fatalf("unexpected long-form default: profile=%q sha=%q err=%v", profile, sha, err)
 	}
-	explicitProfile, explicitSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfilePartConnectiveEconomyVoice)
+	explicitProfile, explicitSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract)
 	if err != nil || explicitProfile != profile || explicitSHA != sha {
 		t.Fatalf("long-form default diverged from the tested profile: default=%q/%q explicit=%q/%q err=%v", profile, sha, explicitProfile, explicitSHA, err)
+	}
+	legacyProfile, legacySHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfilePartConnectiveEconomyVoice)
+	if err != nil || legacyProfile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice || strings.TrimSpace(legacySHA) == "" {
+		t.Fatalf("explicit legacy long-form voice profile was not preserved: profile=%q sha=%q err=%v", legacyProfile, legacySHA, err)
 	}
 	for _, mode := range []string{reportModeOneTake, reportModePlanned} {
 		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "")

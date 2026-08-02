@@ -180,6 +180,8 @@ func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if len(rest) == 2 && rest[1] == "humanized_markdown_export" {
+		// Deprecated UI initiation path. The route remains for historical
+		// artifacts/events and direct API compatibility.
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return

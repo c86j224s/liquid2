@@ -28,7 +28,7 @@ const (
 	reportGenerationGuidanceProfileVisualSupplement              = "visual-supplement"
 	reportGenerationGuidanceProfileVisualPlan                    = "visual-plan"
 	reportGenerationGuidanceProfileDefault                       = reportGenerationGuidanceProfileNarrativeContract
-	reportGenerationGuidanceProfileLongFormDefault               = reportGenerationGuidanceProfilePartConnectiveEconomyVoice
+	reportGenerationGuidanceProfileLongFormDefault               = reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract
 )
 
 func SelectReportGenerationGuidance(profile string) (string, string, error) {

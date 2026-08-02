@@ -345,7 +345,11 @@ func finalWriterV2ExpectedTraceRows(arm string, styleEnabled bool) []finalWriter
 	if styleEnabled {
 		gateSource = "style_edit"
 	}
-	rows = append(rows, finalWriterV2TraceRow{stage: "corrective_gate", label: "corrective gate", providerStage: reporting.FinalEditStageGate, tools: reportFinalEditGateMCPTools(), requiredEvents: []string{reporting.FinalEditGateStartedEventType, reporting.FinalEditGateSubmittedEventType}, forkFrom: "report_plan_session", sourceArtifact: gateSource, canonicalizes: true})
+	gateTools := reportFinalEditDisabledGateMCPTools()
+	if styleEnabled {
+		gateTools = reportFinalEditSemanticGateMCPTools()
+	}
+	rows = append(rows, finalWriterV2TraceRow{stage: "corrective_gate", label: "corrective gate", providerStage: reporting.FinalEditStageGate, tools: gateTools, requiredEvents: []string{reporting.FinalEditGateStartedEventType, reporting.FinalEditGateSubmittedEventType}, forkFrom: "report_plan_session", sourceArtifact: gateSource, canonicalizes: true})
 	return rows
 }
 

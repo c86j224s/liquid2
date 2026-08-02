@@ -8,19 +8,25 @@ import (
 )
 
 const (
-	FinalEditStageWriter = "final_write"
-	FinalEditStageReader = "reader_edit"
-	FinalEditStageStyle  = "style_edit"
-	FinalEditStageGate   = "corrective_gate"
+	FinalEditStageWriter                  = "final_write"
+	FinalEditStageReader                  = "reader_edit"
+	FinalEditStageStyle                   = "style_edit"
+	FinalEditStageGate                    = "corrective_gate"
+	FinalEditStageStyleSemanticValidation = "style_semantic_validation"
+	FinalEditStageEvidenceGate            = "evidence_gate"
 
-	FinalEditWriterStartedEventType   = "report.final_edit.writer.started"
-	FinalEditWriterSubmittedEventType = "report.final_edit.writer.submitted"
-	FinalEditReaderStartedEventType   = "report.final_edit.reader.started"
-	FinalEditReaderSubmittedEventType = "report.final_edit.reader.submitted"
-	FinalEditStyleStartedEventType    = "report.final_edit.style.started"
-	FinalEditStyleSubmittedEventType  = "report.final_edit.style.submitted"
-	FinalEditGateStartedEventType     = "report.final_edit.gate.started"
-	FinalEditGateSubmittedEventType   = "report.final_edit.gate.submitted"
+	FinalEditWriterStartedEventType                    = "report.final_edit.writer.started"
+	FinalEditWriterSubmittedEventType                  = "report.final_edit.writer.submitted"
+	FinalEditReaderStartedEventType                    = "report.final_edit.reader.started"
+	FinalEditReaderSubmittedEventType                  = "report.final_edit.reader.submitted"
+	FinalEditStyleStartedEventType                     = "report.final_edit.style.started"
+	FinalEditStyleSubmittedEventType                   = "report.final_edit.style.submitted"
+	FinalEditGateStartedEventType                      = "report.final_edit.gate.started"
+	FinalEditGateSubmittedEventType                    = "report.final_edit.gate.submitted"
+	FinalEditStyleSemanticValidationStartedEventType   = "report.final_edit.style_semantic_validation.started"
+	FinalEditStyleSemanticValidationSubmittedEventType = "report.final_edit.style_semantic_validation.submitted"
+	FinalEditEvidenceGateStartedEventType              = "report.final_edit.evidence_gate.started"
+	FinalEditEvidenceGateSubmittedEventType            = "report.final_edit.evidence_gate.submitted"
 )
 
 func BuildFinalEditStageStartedAppendRequest(eventID string, binding FinalEditStageBinding) app.AppendEventRequest {
@@ -39,7 +45,11 @@ func BuildFinalEditStageStartedAppendRequest(eventID string, binding FinalEditSt
 	}
 }
 
-func buildFinalEditSubmittedAppendRequest(eventID string, binding FinalEditStageBinding, source, artifact app.RawArtifact, operationCount int, changed bool, findings []StoredFinalEditGateFinding) app.AppendEventRequest {
+func buildFinalEditSubmittedAppendRequest(eventID string, binding FinalEditStageBinding, source, artifact app.RawArtifact, operationCount int, changed bool, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) app.AppendEventRequest {
+	return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, artifact, operationCount, changed, nil, findings, semanticReview)
+}
+
+func buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID string, binding FinalEditStageBinding, source, artifact app.RawArtifact, operationCount int, changed bool, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) app.AppendEventRequest {
 	payload := finalEditSubmittedPayload{
 		Kind:                         "long_form_final_edit_" + binding.Stage + "_submitted",
 		PendingEventID:               binding.PendingEventID,
@@ -79,7 +89,16 @@ func buildFinalEditSubmittedAppendRequest(eventID string, binding FinalEditStage
 		ArtifactSHA256:               artifact.SHA256,
 		Changed:                      changed,
 		GateFindings:                 append([]StoredFinalEditGateFinding(nil), findings...),
+		SemanticAcceptance:           append([]StoredFinalEditSemanticAcceptance(nil), semanticReview.Records...),
+		SemanticAcceptanceDigest:     semanticReview.Digest,
+		SemanticAcceptanceCount:      semanticReview.Count,
 		Text:                         fmt.Sprintf("장문 리포트 %s 단계를 durable artifact로 제출했습니다.", binding.Stage),
+	}
+	if binding.Stage == FinalEditStageStyle {
+		copied := make([]FinalEditStyleOperationDiagnosis, len(diagnoses))
+		copy(copied, diagnoses)
+		payload.StyleDiagnosesVersion = FinalEditStyleOperationDiagnosesVersion
+		payload.StyleOperationDiagnoses = &copied
 	}
 	return app.AppendEventRequest{
 		EventID:          strings.TrimSpace(eventID),
@@ -136,6 +155,10 @@ func finalEditStartedEventType(stage string) string {
 		return FinalEditStyleStartedEventType
 	case FinalEditStageGate:
 		return FinalEditGateStartedEventType
+	case FinalEditStageStyleSemanticValidation:
+		return FinalEditStyleSemanticValidationStartedEventType
+	case FinalEditStageEvidenceGate:
+		return FinalEditEvidenceGateStartedEventType
 	default:
 		return ""
 	}
@@ -151,6 +174,10 @@ func finalEditSubmittedEventType(stage string) string {
 		return FinalEditStyleSubmittedEventType
 	case FinalEditStageGate:
 		return FinalEditGateSubmittedEventType
+	case FinalEditStageStyleSemanticValidation:
+		return FinalEditStyleSemanticValidationSubmittedEventType
+	case FinalEditStageEvidenceGate:
+		return FinalEditEvidenceGateSubmittedEventType
 	default:
 		return ""
 	}
@@ -166,6 +193,10 @@ func finalEditStageID(stage string) string {
 		return "style-edit"
 	case FinalEditStageGate:
 		return "corrective-gate"
+	case FinalEditStageStyleSemanticValidation:
+		return "style-semantic-validation"
+	case FinalEditStageEvidenceGate:
+		return "evidence-gate"
 	default:
 		return strings.TrimSpace(stage)
 	}
@@ -177,7 +208,7 @@ func finalEditStagePayloadPipeline(binding FinalEditStageBinding) string {
 		return pipeline
 	}
 	if strings.TrimSpace(binding.Stage) == FinalEditStageWriter {
-		return FinalEditPipelineAssemblyWriterReaderStyleGateV2
+		return FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
 	}
 	return FinalEditPipelineReaderStyleGateV1
 }

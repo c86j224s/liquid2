@@ -62,24 +62,10 @@
     }
   }
 
-  async function readSource(snapshotID) {
-    if (!requireMission()) return;
-    const owner = captureMissionSelection();
-    try {
-      const result = await missionApi(owner, `/sources/${encodeURIComponent(snapshotID)}/read?max_bytes=20000`);
-      if (!ownsMissionSelection(owner)) return;
-      showDetail("소스 읽기", result);
-      await reloadMission(owner.missionId);
-    } catch (err) {
-      if (!isStaleMissionOperation(err) && ownsMissionSelection(owner)) showError(err);
-    }
-  }
-
   Object.assign(sources, {
     toggleRemovedSources,
     refreshSourcesOnly,
     removeSource,
-    restoreSource,
-    readSource
+    restoreSource
   });
 })(window.Plasma);

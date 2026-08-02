@@ -65,6 +65,51 @@ var (
 					"evidence_ids": arraySchema(prefixedStringSchema("evd_")),
 				},
 			)),
+			"semantic_acceptance": arraySchema(objectSchemaValue(
+				[]string{"paragraph_ordinal", "final_paragraph_ordinal", "verdict"},
+				map[string]any{
+					"paragraph_ordinal":       map[string]any{"type": "integer", "minimum": 1},
+					"final_paragraph_ordinal": map[string]any{"type": "integer", "minimum": 1},
+					"verdict":                 enumSchema("accepted_equivalent", "reverted_to_reader", "repaired_by_gate"),
+				},
+			)),
+		}),
+	)
+	schemaReportLongFormStyleSemanticValidationSubmit = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id", "semantic_acceptance"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rfe_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+			"semantic_acceptance": arraySchema(objectSchemaValue(
+				[]string{"paragraph_ordinal", "verdict"},
+				map[string]any{
+					"paragraph_ordinal": map[string]any{"type": "integer", "minimum": 1},
+					"verdict":           enumSchema("accepted_equivalent", "rejected_revert_to_reader"),
+				},
+			)),
+		}),
+	)
+	schemaReportLongFormEvidenceGateSubmit = objectSchema(
+		[]string{"mission_id", "session_id", "idempotency_key", "producer", "draft_id", "pending_event_id", "plan_event_id", "gate_findings"},
+		mergeProperties(commonMutatingProperties(), map[string]any{
+			"draft_id":         prefixedStringSchema("rfe_"),
+			"pending_event_id": prefixedStringSchema("evt_"),
+			"plan_event_id":    prefixedStringSchema("evt_"),
+			"gate_findings": arraySchema(objectSchemaValue(
+				[]string{"statement_sha256", "classification"},
+				map[string]any{
+					"statement_sha256": stringSchema(),
+					"classification": enumSchema(
+						"mission_source_grounded",
+						"session_grounded",
+						"derived_synthesis",
+						"rhetorical_construction",
+						"unverified_external_fact",
+					),
+					"evidence_ids": arraySchema(prefixedStringSchema("evd_")),
+				},
+			)),
 		}),
 	)
 )

@@ -16,6 +16,24 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
+func TestFinalEditGatePromptAndToolsAreHumanizeAware(t *testing.T) {
+	req := longFormReaderStyleGatePipelineRequest{title: "Report", missionID: "mis_gate", rigor: reportRigorProfiles["balanced"]}
+	binding := reporting.FinalEditStageBinding{Stage: reporting.FinalEditStageGate, PostReportHumanize: reporting.FinalEditHumanizeDisabled}
+	disabledPrompt := agentLongFormGatePromptForHumanize(reporting.FinalEditHumanizeDisabled)(req, binding, "rfe_gate", 1)
+	if slices.Contains(reportFinalEditGateMCPToolsForHumanize(reporting.FinalEditHumanizeDisabled), plasmamcp.ToolReportLongFormStyleReviewRead) ||
+		strings.Contains(disabledPrompt, "style_review") ||
+		strings.Contains(disabledPrompt, "semantic_acceptance") ||
+		!strings.Contains(disabledPrompt, "5. Submit with plasma.report.long_form.final_edit.submit and gate_findings") {
+		t.Fatalf("disabled gate prompt/tools leaked semantic review:\n%s", disabledPrompt)
+	}
+	enabledPrompt := agentLongFormGatePromptForHumanize(reporting.FinalEditHumanizeEnabled)(req, binding, "rfe_gate", 1)
+	if !slices.Contains(reportFinalEditGateMCPToolsForHumanize(reporting.FinalEditHumanizeEnabled), plasmamcp.ToolReportLongFormStyleReviewRead) ||
+		!strings.Contains(enabledPrompt, "plasma.report.long_form.style_review.read") ||
+		!strings.Contains(enabledPrompt, "semantic_acceptance") {
+		t.Fatalf("enabled gate prompt/tools omitted semantic review:\n%s", enabledPrompt)
+	}
+}
+
 func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -50,14 +68,14 @@ func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 	assertNarrativeContractProductRequests(t, agent.requests, true)
 	assertNarrativeContractSeparateEditorForks(t, agent.requests, agent.forkSources, agent.forkSessions, "report-session-1", true, 0)
 	planPayload := lastEventPayload(t, detail, "report.plan.created")
-	if planPayload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		t.Fatalf("serial plan did not activate v2 writer/reader/gate pipeline: %#v", planPayload)
+	if planPayload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		t.Fatalf("serial plan did not activate v3 writer/reader/evidence pipeline: %#v", planPayload)
 	}
 	assertReaderStyleGateNoOpCanonicalPayload(t, detail, false)
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["composition_strategy"] != reporting.LongFormCompositionNarrativeEdit ||
 		payload["assembly_strategy"] != "narrative_contract_final_edit" ||
-		payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		payload["planned_final_artifact_id"] == "" ||
 		payload["final_edit_gate_event_id"] == "" {
 		t.Fatalf("serial candidate metadata mismatch: %#v", payload)
@@ -145,8 +163,8 @@ func TestNarrativeContractSectionFanoutUsesSameProductEditorPath(t *testing.T) {
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	assertNarrativeContractFanoutProductRequests(t, agent.requests[1:])
 	planPayload := lastEventPayload(t, detail, "report.plan.created")
-	if planPayload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		t.Fatalf("fanout plan did not activate v2 writer/reader/gate pipeline: %#v", planPayload)
+	if planPayload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		t.Fatalf("fanout plan did not activate v3 writer/reader/evidence pipeline: %#v", planPayload)
 	}
 	if !slices.Equal(agent.forkSources, []string{"research-session-1", "report-fork-1", "part-owner-session", "part-owner-session", "report-fork-1", "report-fork-1", "report-fork-1"}) {
 		t.Fatalf("fanout session ownership differs: %#v", agent.forkSources)
@@ -168,7 +186,7 @@ func TestNarrativeContractSectionFanoutUsesSameProductEditorPath(t *testing.T) {
 	if payload["composition_strategy"] != reporting.LongFormCompositionNarrativeEdit ||
 		payload["assembly_strategy"] != "narrative_contract_final_edit" ||
 		payload["session_chain_kind"] != "section_fanout_report" ||
-		payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		payload["planned_final_artifact_id"] == "" ||
 		payload["final_edit_gate_event_id"] == "" {
 		t.Fatalf("fanout candidate metadata mismatch: %#v", payload)
@@ -201,9 +219,10 @@ func TestReaderStyleGateUsesHumanizeAsPreCanonicalStyleOnly(t *testing.T) {
 			{Text: writerMarkdown, SessionID: "writer-editor-style"},
 			{Text: finalMarkdown, SessionID: "reader-editor-style"},
 			{Text: finalEditStageSubmittedSentinel, SessionID: "style-editor-style"},
+			{Text: finalEditStageSubmittedSentinel, SessionID: "style-semantic-editor-style"},
 			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-style"},
 		}},
-		forkSessionIDs: []string{"part-editor-style", "writer-editor-style", "reader-editor-style", "style-editor-style", "gate-editor-style"},
+		forkSessionIDs: []string{"part-editor-style", "writer-editor-style", "reader-editor-style", "style-editor-style", "style-semantic-editor-style", "gate-editor-style"},
 	}
 	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
@@ -225,7 +244,7 @@ func TestReaderStyleGateUsesHumanizeAsPreCanonicalStyleOnly(t *testing.T) {
 		t.Fatalf("enabled humanize must run as pre-canonical style only: %#v", detail["events"])
 	}
 	requests := agent.requests
-	if len(requests) != 9 ||
+	if len(requests) != 10 ||
 		requests[5].FinalEditStage == nil ||
 		requests[5].FinalEditStage.Stage != reporting.FinalEditStageWriter ||
 		!slices.Equal(requests[5].ExtraMCPTools, reportFinalEditWriterMCPTools()) ||
@@ -236,15 +255,22 @@ func TestReaderStyleGateUsesHumanizeAsPreCanonicalStyleOnly(t *testing.T) {
 		requests[7].FinalEditStage.Stage != reporting.FinalEditStageStyle ||
 		!slices.Equal(requests[7].ExtraMCPTools, reportFinalEditStyleMCPTools()) ||
 		requests[8].FinalEditStage == nil ||
-		requests[8].FinalEditStage.Stage != reporting.FinalEditStageGate ||
-		!slices.Equal(requests[8].ExtraMCPTools, reportFinalEditGateMCPTools()) ||
+		requests[8].FinalEditStage.Stage != reporting.FinalEditStageStyleSemanticValidation ||
+		!slices.Equal(requests[8].ExtraMCPTools, reportFinalEditStyleSemanticValidationMCPTools()) ||
+		!strings.Contains(requests[8].Prompt, "plasma.report.long_form.style_semantic_validation.read") ||
+		requests[9].FinalEditStage == nil ||
+		requests[9].FinalEditStage.Stage != reporting.FinalEditStageEvidenceGate ||
+		!slices.Equal(requests[9].ExtraMCPTools, reportFinalEditEvidenceGateMCPTools()) ||
+		strings.Contains(requests[9].Prompt, "semantic_acceptance") ||
 		requests[6].FinalEditStage.SourceArtifactID != requests[5].FinalEditStage.EditedArtifactID ||
 		requests[7].FinalEditStage.SourceArtifactID != requests[6].FinalEditStage.EditedArtifactID ||
 		requests[8].FinalEditStage.SourceArtifactID != requests[7].FinalEditStage.SourceArtifactID ||
+		requests[9].FinalEditStage.SourceArtifactID != requests[8].FinalEditStage.SourceArtifactID ||
 		requests[5].FinalEditStage.ForkSourceAgentSessionID != "report-session-style" ||
 		requests[6].FinalEditStage.ForkSourceAgentSessionID != "report-session-style" ||
 		requests[7].FinalEditStage.ForkSourceAgentSessionID != "reader-editor-style" ||
-		requests[8].FinalEditStage.ForkSourceAgentSessionID != "report-session-style" {
+		requests[8].FinalEditStage.ForkSourceAgentSessionID != "report-session-style" ||
+		requests[9].FinalEditStage.ForkSourceAgentSessionID != "report-session-style" {
 		t.Fatalf("style/gate request sequence mismatch: %#v", requests)
 	}
 	stylePayload := lastEventPayload(t, detail, reporting.FinalEditStyleSubmittedEventType)
@@ -281,9 +307,10 @@ func TestReaderStyleGatePipelineAllowsStructurallySafeKoreanStylePolish(t *testi
 			{Text: writerMarkdown, SessionID: "writer-editor-korean-style"},
 			{Text: readerMarkdown, SessionID: "reader-editor-korean-style"},
 			{Text: styleMarkdown, SessionID: "style-editor-korean-style"},
+			{Text: finalEditStageSubmittedSentinel, SessionID: "style-semantic-editor-korean-style"},
 			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-korean-style"},
 		}},
-		forkSessionIDs: []string{"part-editor-korean-style", "writer-editor-korean-style", "reader-editor-korean-style", "style-editor-korean-style", "gate-editor-korean-style"},
+		forkSessionIDs: []string{"part-editor-korean-style", "writer-editor-korean-style", "reader-editor-korean-style", "style-editor-korean-style", "style-semantic-editor-korean-style", "gate-editor-korean-style"},
 	}
 	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
@@ -297,7 +324,8 @@ func TestReaderStyleGatePipelineAllowsStructurallySafeKoreanStylePolish(t *testi
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, reporting.FinalEditStyleSubmittedEventType) != 1 ||
-		countEvents(detail, reporting.FinalEditGateSubmittedEventType) != 1 ||
+		countEvents(detail, reporting.FinalEditStyleSemanticValidationSubmittedEventType) != 1 ||
+		countEvents(detail, reporting.FinalEditEvidenceGateSubmittedEventType) != 1 ||
 		countEvents(detail, "report.final.failed") != 0 {
 		t.Fatalf("structurally safe style polish did not reach gate cleanly: %#v", detail["events"])
 	}
@@ -345,7 +373,7 @@ func TestReaderStyleGateAdoptsDurableStageAfterAckMismatch(t *testing.T) {
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if executor.calls != 1 ||
 		countFinalEditStageRequests(agent.requests, reporting.FinalEditStageReader) != 1 ||
-		countFinalEditStageRequests(agent.requests, reporting.FinalEditStageGate) != 1 {
+		countFinalEditStageRequests(agent.requests, reporting.FinalEditStageEvidenceGate) != 1 {
 		t.Fatalf("reader ack mismatch should adopt durable submission without retry: calls=%d requests=%#v", executor.calls, agent.requests)
 	}
 	if countEvents(detail, reporting.FinalEditReaderSubmittedEventType) != 1 || countEvents(detail, "report.draft.failed") != 0 {
@@ -524,7 +552,7 @@ func assertNarrativeContractFanoutProductRequests(t *testing.T, requests []Agent
 		!slices.Equal(requests[6].ExtraMCPTools, reportFinalEditWriterMCPTools()) ||
 		requests[6].FinalEditStage == nil ||
 		requests[6].FinalEditStage.Stage != reporting.FinalEditStageWriter ||
-		requests[6].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[6].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[6].LongFormFinalize != nil {
 		t.Fatalf("candidate writer path differs: %#v", requests[6])
 	}
@@ -535,7 +563,7 @@ func assertNarrativeContractFanoutProductRequests(t *testing.T, requests []Agent
 		!slices.Equal(requests[7].ExtraMCPTools, reportFinalEditReaderMCPTools()) ||
 		requests[7].FinalEditStage == nil ||
 		requests[7].FinalEditStage.Stage != reporting.FinalEditStageReader ||
-		requests[7].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[7].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[7].FinalEditStage.SourceArtifactID != requests[6].FinalEditStage.EditedArtifactID ||
 		requests[7].LongFormFinalize != nil {
 		t.Fatalf("candidate reader editor path differs: %#v", requests[7])
@@ -544,13 +572,16 @@ func assertNarrativeContractFanoutProductRequests(t *testing.T, requests []Agent
 		t.Fatalf("reader editor exposed research/source tools: %#v", requests[7].ExtraMCPTools)
 	}
 	if requests[8].PreviousSessionID != "gate-editor-session" ||
-		!slices.Equal(requests[8].ExtraMCPTools, reportFinalEditGateMCPTools()) ||
+		!slices.Equal(requests[8].ExtraMCPTools, reportFinalEditEvidenceGateMCPTools()) ||
+		slices.Contains(requests[8].ExtraMCPTools, plasmamcp.ToolReportLongFormStyleReviewRead) ||
+		strings.Contains(requests[8].Prompt, "style_review") ||
+		strings.Contains(requests[8].Prompt, "semantic_acceptance") ||
 		requests[8].FinalEditStage == nil ||
-		requests[8].FinalEditStage.Stage != reporting.FinalEditStageGate ||
-		requests[8].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[8].FinalEditStage.Stage != reporting.FinalEditStageEvidenceGate ||
+		requests[8].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[8].FinalEditStage.SourceArtifactID != requests[7].FinalEditStage.EditedArtifactID ||
 		requests[8].LongFormFinalize == nil {
-		t.Fatalf("candidate corrective gate path differs: %#v", requests[8])
+		t.Fatalf("candidate evidence gate path differs: %#v", requests[8])
 	}
 }
 
@@ -596,7 +627,7 @@ func assertNarrativeContractProductRequests(t *testing.T, requests []AgentReques
 	}
 	if requests[writerIndex].FinalEditStage == nil ||
 		requests[writerIndex].FinalEditStage.Stage != reporting.FinalEditStageWriter ||
-		requests[writerIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[writerIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[writerIndex].FinalEditStage.EditedArtifactID == requests[writerIndex].FinalEditStage.SourceArtifactID ||
 		requests[writerIndex].LongFormFinalize != nil ||
 		!strings.Contains(requests[writerIndex].Prompt, "plasma.report.long_form.final_write.start") ||
@@ -610,29 +641,29 @@ func assertNarrativeContractProductRequests(t *testing.T, requests []AgentReques
 	}
 	if requests[readerIndex].FinalEditStage == nil ||
 		requests[readerIndex].FinalEditStage.Stage != reporting.FinalEditStageReader ||
-		requests[readerIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[readerIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[readerIndex].FinalEditStage.SourceArtifactID != requests[writerIndex].FinalEditStage.EditedArtifactID ||
 		requests[readerIndex].FinalEditStage.EditedArtifactID == requests[readerIndex].FinalEditStage.SourceArtifactID ||
 		requests[readerIndex].LongFormFinalize != nil {
 		t.Fatalf("candidate reader binding mismatch: %#v", requests[readerIndex])
 	}
-	if !slices.Equal(requests[gateIndex].ExtraMCPTools, reportFinalEditGateMCPTools()) ||
+	if !slices.Equal(requests[gateIndex].ExtraMCPTools, reportFinalEditEvidenceGateMCPTools()) ||
 		slices.Contains(requests[gateIndex].ExtraMCPTools, plasmamcp.ToolReportLongFormFinalize) {
-		t.Fatalf("candidate corrective gate tool surface mismatch: %#v", requests[gateIndex].ExtraMCPTools)
+		t.Fatalf("candidate evidence gate tool surface mismatch: %#v", requests[gateIndex].ExtraMCPTools)
 	}
 	if requests[gateIndex].FinalEditStage == nil ||
-		requests[gateIndex].FinalEditStage.Stage != reporting.FinalEditStageGate ||
-		requests[gateIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		requests[gateIndex].FinalEditStage.Stage != reporting.FinalEditStageEvidenceGate ||
+		requests[gateIndex].FinalEditStage.FinalEditPipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		requests[gateIndex].FinalEditStage.SourceArtifactID != requests[readerIndex].FinalEditStage.EditedArtifactID ||
 		requests[gateIndex].LongFormFinalize == nil ||
 		requests[gateIndex].LongFormFinalize.CompositionStrategy != reporting.LongFormCompositionNarrativeEdit {
-		t.Fatalf("candidate gate/final binding mismatch: %#v", requests[gateIndex])
+		t.Fatalf("candidate evidence gate/final binding mismatch: %#v", requests[gateIndex])
 	}
 	if !strings.Contains(requests[gateIndex].Prompt, "mission_source_grounded") || !strings.Contains(requests[gateIndex].Prompt, "unverified_external_fact") {
-		t.Fatalf("candidate corrective gate prompt lost exact classifications:\n%s", requests[gateIndex].Prompt)
+		t.Fatalf("candidate evidence gate prompt lost exact classifications:\n%s", requests[gateIndex].Prompt)
 	}
-	if wantRequirements && !strings.Contains(requests[gateIndex].Prompt, "Global requirement preservation checks") {
-		t.Fatalf("candidate corrective gate prompt lost requirement preservation checks:\n%s", requests[gateIndex].Prompt)
+	if strings.Contains(requests[gateIndex].Prompt, "Global requirement preservation checks") {
+		t.Fatalf("candidate evidence gate prompt retained requirement preservation checks:\n%s", requests[gateIndex].Prompt)
 	}
 }
 
@@ -708,23 +739,25 @@ func assertReaderStyleGateNoOpCanonicalPayload(t *testing.T, detail map[string]a
 		countEvents(detail, reporting.FinalEditWriterSubmittedEventType) != 1 ||
 		countEvents(detail, reporting.FinalEditReaderStartedEventType) != 1 ||
 		countEvents(detail, reporting.FinalEditReaderSubmittedEventType) != 1 ||
-		countEvents(detail, reporting.FinalEditGateStartedEventType) != 1 ||
-		countEvents(detail, reporting.FinalEditGateSubmittedEventType) != 1 ||
+		countEvents(detail, reporting.FinalEditEvidenceGateStartedEventType) != 1 ||
+		countEvents(detail, reporting.FinalEditEvidenceGateSubmittedEventType) != 1 ||
 		countEvents(detail, "report.artifact.created") != 1 {
-		t.Fatalf("v2 final edit durable event counts differ: %#v", detail["events"])
+		t.Fatalf("v3 final edit durable event counts differ: %#v", detail["events"])
 	}
 	wantStyleCount := 0
 	if wantStyle {
 		wantStyleCount = 1
 	}
 	if countEvents(detail, reporting.FinalEditStyleStartedEventType) != wantStyleCount ||
-		countEvents(detail, reporting.FinalEditStyleSubmittedEventType) != wantStyleCount {
+		countEvents(detail, reporting.FinalEditStyleSubmittedEventType) != wantStyleCount ||
+		countEvents(detail, reporting.FinalEditStyleSemanticValidationStartedEventType) != wantStyleCount ||
+		countEvents(detail, reporting.FinalEditStyleSemanticValidationSubmittedEventType) != wantStyleCount {
 		t.Fatalf("style durable event counts differ: %#v", detail["events"])
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	artifactID := payloadStringValue(t, payload, "artifact_id")
 	plannedID := payloadStringValue(t, payload, "planned_final_artifact_id")
-	if payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+	if payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
 		payload["final_edit_gate_changed"] != false ||
 		payloadStringValue(t, payload, "final_edit_gate_event_id") == "" ||
 		payloadStringValue(t, payload, "artifact_sha256") == "" ||

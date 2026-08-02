@@ -4208,6 +4208,26 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if legacyReq.GenerationGuidanceProfile != reportGenerationGuidanceProfileVisualPlan {
 		t.Fatalf("pre-profile pending report must recover through legacy preserve path, got %#v", legacyReq)
 	}
+	if legacyReq.RigorLevel != legacyPendingReportRigorLevel {
+		t.Fatalf("pre-rigor pending report must recover through legacy balanced rigor, got %#v", legacyReq)
+	}
+}
+
+func TestReportRigorDefaultsToStrictWhileBalancedRemainsCompatible(t *testing.T) {
+	defaultProfile, err := normalizeReportRigorProfile("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultProfile.level != "strict" || defaultProfile.label != "검증형" {
+		t.Fatalf("expected omitted report rigor to default to strict, got %#v", defaultProfile)
+	}
+	balancedProfile, err := normalizeReportRigorProfile("balanced")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if balancedProfile.level != "balanced" || balancedProfile.label != "균형형" {
+		t.Fatalf("expected explicit balanced rigor to remain accepted, got %#v", balancedProfile)
+	}
 }
 
 func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing.T) {
@@ -8566,6 +8586,270 @@ func TestURLSourceSnapshotFetchesOriginalMaterial(t *testing.T) {
 	}
 }
 
+func TestURLSourceSnapshotBrowserRendersCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	renderedAt := time.Date(2026, 7, 10, 1, 2, 3, 0, time.UTC)
+	var renders atomic.Int64
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{
+		urlFetcher: func(_ context.Context, rawURL string) (fetchedURLSource, error) {
+			if rawURL != "https://example.com/app" {
+				t.Fatalf("expected normalized fetch URL, got %q", rawURL)
+			}
+			return fetchedURLSource{
+				Content:   []byte(browserRenderCandidateHTMLFixture()),
+				MediaType: "text/html; charset=utf-8",
+				Title:     "Client App",
+			}, nil
+		},
+		browserRenderer: func(_ context.Context, rawURL string) (fetchedURLSource, error) {
+			renders.Add(1)
+			if rawURL != "https://example.com/app" {
+				t.Fatalf("expected normalized browser render URL, got %q", rawURL)
+			}
+			return fetchedURLSource{
+				Content:         []byte(browserRenderedDocumentFixture("Rendered Article")),
+				MediaType:       "text/html; charset=utf-8",
+				Title:           "Rendered Article",
+				FinalURL:        "https://example.com/app?loaded=1",
+				RenderedAt:      renderedAt,
+				TextLength:      720,
+				ByteSize:        720,
+				TextLengthKnown: true,
+			}, nil
+		},
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Browser render URL source"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	result := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://example.com/app#ignored",
+	})
+	if browserRendered, _ := result["browser_rendered"].(bool); !browserRendered {
+		t.Fatalf("expected browser rendered response, got %#v", result)
+	}
+	if renders.Load() != 1 {
+		t.Fatalf("expected one browser render, got %d", renders.Load())
+	}
+	artifactID := nestedString(t, result, "artifact", "ArtifactID")
+	artifact, err := store.GetRawArtifact(ctx, artifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(artifact.Content), "Rendered Article") || strings.Contains(string(artifact.Content), "data-reactroot") {
+		t.Fatalf("expected rendered source content, got %q", string(artifact.Content))
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	payload := lastEventPayload(t, detail, "source.snapshotted")
+	if payload["retrieval_method"] != sourceRetrievalMethodBrowserRender ||
+		payload["final_url"] != "https://example.com/app?loaded=1" ||
+		payload["rendered_at"] != renderedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("expected browser render source metadata, got %#v", payload)
+	}
+	if _, exists := payload["browser_render_candidate"]; exists {
+		t.Fatalf("rendered source must not preserve raw shell diagnostic: %#v", payload)
+	}
+	if rawSHA, _ := payload["raw_fetch_sha256"].(string); len(rawSHA) != 64 {
+		t.Fatalf("expected raw fetch hash for provenance, got %#v", payload)
+	}
+}
+
+func TestURLSourceSnapshotLeavesNonCandidateOnOriginalFetchPath(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{
+		urlFetcher: func(_ context.Context, _ string) (fetchedURLSource, error) {
+			return fetchedURLSource{
+				Content:   []byte("<!doctype html><title>Static</title><main>static original source body</main>"),
+				MediaType: "text/html; charset=utf-8",
+				Title:     "Static",
+			}, nil
+		},
+		browserRenderer: func(_ context.Context, _ string) (fetchedURLSource, error) {
+			t.Fatal("browser renderer must not run for a non-candidate URL source")
+			return fetchedURLSource{}, nil
+		},
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Static URL source"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	result := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://example.com/static",
+	})
+	if _, exists := result["browser_rendered"]; exists {
+		t.Fatalf("non-candidate response must not expose browser_rendered, got %#v", result)
+	}
+	artifact, err := store.GetRawArtifact(ctx, nestedString(t, result, "artifact", "ArtifactID"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(artifact.Content), "static original source body") {
+		t.Fatalf("expected original fetched content, got %q", string(artifact.Content))
+	}
+}
+
+func TestURLSourceSnapshotBrowserRendersStagedCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+
+	renderedAt := time.Date(2026, 7, 10, 4, 5, 6, 0, time.UTC)
+	var renders atomic.Int64
+	server := httptest.NewServer(NewServer(svc, Options{
+		urlFetcher: func(_ context.Context, _ string) (fetchedURLSource, error) {
+			t.Fatal("staged browser candidate approval must not re-run raw URL fetch")
+			return fetchedURLSource{}, nil
+		},
+		browserRenderer: func(_ context.Context, rawURL string) (fetchedURLSource, error) {
+			renders.Add(1)
+			if rawURL != "https://example.com/app" {
+				t.Fatalf("expected normalized browser render URL, got %q", rawURL)
+			}
+			return fetchedURLSource{
+				Content:         []byte(browserRenderedDocumentFixture("Rendered Staged Article")),
+				MediaType:       "text/html; charset=utf-8",
+				Title:           "Rendered Staged Article",
+				FinalURL:        rawURL,
+				RenderedAt:      renderedAt,
+				TextLength:      700,
+				ByteSize:        700,
+				TextLengthKnown: true,
+			}, nil
+		},
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Staged browser candidate"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	rawArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_candidate_browser",
+		MissionID:  missionID,
+		MediaType:  "text/html; charset=utf-8",
+		Filename:   "candidate.html",
+		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Content:    []byte(browserRenderCandidateHTMLFixture()),
+	})
+	if err != nil {
+		t.Fatalf("CreateRawArtifact returned error: %v", err)
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   "evt_candidate_staged_browser",
+		MissionID: missionID,
+		EventType: "source.candidate.staged",
+		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Payload: mustJSON(map[string]any{
+			"url":                "https://example.com/app",
+			"title":              "Raw Client App",
+			"proposal_event_id":  "evt_candidate_proposed_browser",
+			"artifact_id":        rawArtifact.ArtifactID,
+			"approval_state":     "unapproved_candidate",
+			"not_report_default": true,
+		}),
+	}); err != nil {
+		t.Fatalf("AppendEvent returned error: %v", err)
+	}
+
+	result := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://example.com/app",
+	})
+	if browserRendered, _ := result["browser_rendered"].(bool); !browserRendered {
+		t.Fatalf("expected browser rendered staged response, got %#v", result)
+	}
+	if reused, _ := result["reused_source_candidate"].(bool); reused {
+		t.Fatalf("browser-rendered staged candidate must store rendered content, got %#v", result)
+	}
+	if renders.Load() != 1 {
+		t.Fatalf("expected one browser render, got %d", renders.Load())
+	}
+	renderedArtifactID := nestedString(t, result, "artifact", "ArtifactID")
+	if renderedArtifactID == rawArtifact.ArtifactID {
+		t.Fatalf("expected a new rendered artifact, got staged artifact %q", renderedArtifactID)
+	}
+	renderedArtifact, err := store.GetRawArtifact(ctx, renderedArtifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(renderedArtifact.Content), "Rendered Staged Article") {
+		t.Fatalf("expected rendered staged content, got %q", string(renderedArtifact.Content))
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	payload := lastEventPayload(t, detail, "source.snapshotted")
+	if payload["retrieval_method"] != sourceRetrievalMethodBrowserRender ||
+		payload["raw_fetch_artifact_id"] != rawArtifact.ArtifactID ||
+		payload["source_candidate_proposal_event_id"] != "evt_candidate_proposed_browser" {
+		t.Fatalf("expected staged browser render metadata, got %#v", payload)
+	}
+}
+
+func TestURLSourceSnapshotRejectsBrowserCandidateWhenRenderFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{
+		urlFetcher: func(_ context.Context, _ string) (fetchedURLSource, error) {
+			return fetchedURLSource{
+				Content:   []byte(browserRenderCandidateHTMLFixture()),
+				MediaType: "text/html; charset=utf-8",
+				Title:     "Client App",
+			}, nil
+		},
+		browserRenderer: func(_ context.Context, _ string) (fetchedURLSource, error) {
+			return fetchedURLSource{}, fmt.Errorf("%w: render failed in test", app.ErrInvalidInput)
+		},
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Render failure URL source"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	status, _ := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://example.com/app",
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", status)
+	}
+	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
+	if countEvents(detail, "source.snapshotted") != 0 || countEvents(detail, "source.snapshot_failed") != 1 {
+		t.Fatalf("expected one failure and no source snapshot, got %#v", detail["events"])
+	}
+	payload := lastEventPayload(t, detail, "source.snapshot_failed")
+	if payload["source_kind"] != "url_browser_render" {
+		t.Fatalf("expected browser render failure source kind, got %#v", payload)
+	}
+}
+
+func browserRenderCandidateHTMLFixture() string {
+	return `<html><head><title>Client App</title>` +
+		strings.Repeat(`<script src="/assets/chunk.js"></script>`, 5) +
+		`<script>window.__INITIAL_STATE__={};` + strings.Repeat("bundle();", 300) + `</script>` +
+		`</head><body><div id="root" data-reactroot=""></div><noscript>Please enable JavaScript to view this page.</noscript></body></html>`
+}
+
+func browserRenderedDocumentFixture(title string) string {
+	return `<!doctype html><html><head><title>` + title + `</title></head><body><main><h1>` + title + `</h1>` +
+		strings.Repeat(`<p>Rendered source content has enough readable detail for Plasma to store it as the original material after the browser has evaluated the page.</p>`, 8) +
+		`</main></body></html>`
+}
+
 func TestURLSourceSnapshotRoutesConfluencePageURLToConnector(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -10879,6 +11163,18 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		if req.LongFormFinalize == nil {
 			return result, fmt.Errorf("final edit gate fixture requires final binding")
 		}
+		comparison, compareErr := reporting.FinalEditSemanticComparison(ctx, executor.service, binding, markdown)
+		if compareErr != nil {
+			return result, compareErr
+		}
+		semanticAcceptance := make([]reporting.FinalEditSemanticAcceptance, 0, len(comparison))
+		for _, item := range comparison {
+			semanticAcceptance = append(semanticAcceptance, reporting.FinalEditSemanticAcceptance{
+				ParagraphOrdinal:      item.ParagraphOrdinal,
+				FinalParagraphOrdinal: item.ParagraphOrdinal,
+				Verdict:               reporting.FinalEditSemanticAcceptedEquivalent,
+			})
+		}
 		_, err = reporting.SubmitFinalEditGate(ctx, executor.service, reporting.FinalEditGateSubmitRequest{
 			StageBinding:       binding,
 			FinalBinding:       *req.LongFormFinalize,
@@ -10887,6 +11183,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 			ManuscriptMarkdown: markdown,
 			OperationCount:     operationCount,
 			Findings:           nil,
+			SemanticAcceptance: semanticAcceptance,
 		})
 		if err != nil {
 			return result, err
@@ -10894,7 +11191,47 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		result.Text = finalEditGateSubmittedSentinel
 		return result, nil
 	}
-	_, err = reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)), markdown, operationCount)
+	if binding.Stage == reporting.FinalEditStageStyleSemanticValidation {
+		comparison, compareErr := reporting.FinalEditSemanticComparison(ctx, executor.service, binding, markdown)
+		if compareErr != nil {
+			return result, compareErr
+		}
+		semanticAcceptance := make([]reporting.FinalEditSemanticAcceptance, 0, len(comparison))
+		for _, item := range comparison {
+			semanticAcceptance = append(semanticAcceptance, reporting.FinalEditSemanticAcceptance{
+				ParagraphOrdinal: item.ParagraphOrdinal,
+				Verdict:          reporting.FinalEditSemanticAcceptedEquivalent,
+			})
+		}
+		_, err = reporting.SubmitFinalEditStyleSemanticValidation(ctx, executor.service, binding, fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)), semanticAcceptance)
+		if err != nil {
+			return result, err
+		}
+		result.Text = finalEditStageSubmittedSentinel
+		return result, nil
+	}
+	if binding.Stage == reporting.FinalEditStageEvidenceGate {
+		if req.LongFormFinalize == nil {
+			return result, fmt.Errorf("evidence gate fixture requires final binding")
+		}
+		_, err = reporting.SubmitFinalEditEvidenceGate(ctx, executor.service, reporting.FinalEditEvidenceGateSubmitRequest{
+			StageBinding:     binding,
+			FinalBinding:     *req.LongFormFinalize,
+			StageEventID:     fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)),
+			CanonicalEventID: fmt.Sprintf("evt_final_fixture_%d", executor.sequence.Add(1)),
+			Findings:         nil,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.Text = finalEditGateSubmittedSentinel
+		return result, nil
+	}
+	if binding.Stage == reporting.FinalEditStageStyle {
+		_, err = reporting.SubmitFinalEditStyleStage(ctx, executor.service, binding, fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)), markdown, operationCount, finalEditStyleDiagnosesForWebTest(operationCount))
+	} else {
+		_, err = reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_final_edit_submit_fixture_%d", executor.sequence.Add(1)), markdown, operationCount)
+	}
 	if err != nil {
 		return result, err
 	}

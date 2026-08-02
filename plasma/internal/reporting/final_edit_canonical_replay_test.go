@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,7 +30,7 @@ func TestLoadLongFormFinalizationRejectsMissingPipelineMarkerForBoundPlan(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_missing_marker_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil)); err != nil {
+	if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_missing_marker_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil, FinalEditSemanticAttestation{})); err != nil {
 		t.Fatal(err)
 	}
 	canonicalReq := longFormCanonicalRequest("evt_final_missing_marker", binding, finalArtifact, len(strings.Fields(manuscript)))
@@ -60,7 +61,7 @@ func TestLoadLongFormFinalizationRejectsCanonicalArtifactSHAMismatch(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	gateEvent, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_sha_mismatch_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil))
+	gateEvent, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_sha_mismatch_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil, FinalEditSemanticAttestation{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,11 +101,11 @@ func TestLoadLongFormFinalizationRejectsSecondMatchingGateSubmission(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	firstGate, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_duplicate_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil))
+	firstGate, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_duplicate_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, nil, FinalEditSemanticAttestation{}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_duplicate_submit_tampered", gateBinding, reader.Artifact, finalArtifact, 1, true, nil)); err != nil {
+	if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_duplicate_submit_tampered", gateBinding, reader.Artifact, finalArtifact, 1, true, nil, FinalEditSemanticAttestation{})); err != nil {
 		t.Fatal(err)
 	}
 	canonicalReq := longFormCanonicalRequestForFinalEdit("evt_final_gate_duplicate", binding, finalArtifact, len(strings.Fields(manuscript)), LongFormFinalizeRequest{
@@ -118,6 +119,50 @@ func TestLoadLongFormFinalizationRejectsSecondMatchingGateSubmission(t *testing.
 	}
 	if _, ok, err := LoadLongFormFinalization(ctx, svc, binding); ok || !errors.Is(err, app.ErrConflict) {
 		t.Fatalf("load ok=%t err=%v, want duplicate gate submission conflict", ok, err)
+	}
+}
+
+func TestLoadLongFormFinalizationRejectsTamperedV3EvidenceCanonicalPayload(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name            string
+		canonicalChange bool
+		artifactChange  bool
+	}{
+		{name: "changed_flag", canonicalChange: true},
+		{name: "changed_artifact", artifactChange: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, filepath.Join(t.TempDir(), "plasma.db"), FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+			defer closeStore()
+			binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+			reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "canonical_tamper_"+tc.name)
+			evidenceBinding := finalEditStageStoreStageBinding(binding, FinalEditStageEvidenceGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+			finalBinding := finalEditStageStoreFinalBindingForStage(binding, evidenceBinding)
+			if _, created, err := StartFinalEditStage(ctx, svc, "evt_evidence_canonical_tamper_"+tc.name+"_start", evidenceBinding); err != nil || !created {
+				t.Fatalf("evidence gate start created=%t err=%v", created, err)
+			}
+			gate, err := submitFinalEditStage(ctx, svc, evidenceBinding, "evt_evidence_canonical_tamper_"+tc.name+"_submit", string(reader.Artifact.Content), 0, nil, FinalEditSemanticAttestation{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			canonicalArtifact := gate.Artifact
+			if tc.artifactChange {
+				canonicalArtifact = createFinalEditReplayArtifact(t, ctx, svc, evidenceBinding, evidenceBinding.EditedArtifactID, "# Report\n\nForged canonical evidence artifact.\n", evidenceBinding.Producer)
+			}
+			canonicalReq := longFormCanonicalRequestForFinalEdit("evt_evidence_canonical_tamper_"+tc.name+"_final", finalBinding, canonicalArtifact, len(strings.Fields(string(canonicalArtifact.Content))), LongFormFinalizeRequest{
+				FinalEditPipeline:         FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3,
+				FinalEditActualArtifactID: canonicalArtifact.ArtifactID,
+				FinalEditGateEventID:      gate.Event.EventID,
+				FinalEditGateChanged:      tc.canonicalChange,
+			})
+			if _, err := svc.AppendEvent(ctx, canonicalReq); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok, err := LoadLongFormFinalization(ctx, svc, finalBinding); ok || !errors.Is(err, app.ErrConflict) {
+				t.Fatalf("tampered evidence canonical load ok=%t err=%v, want conflict", ok, err)
+			}
+		})
 	}
 }
 

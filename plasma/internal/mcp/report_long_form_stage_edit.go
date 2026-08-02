@@ -12,34 +12,44 @@ import (
 )
 
 type longFormStageEditDraft struct {
-	DraftID             string
-	Stage               string
-	MissionID           string
-	SessionID           string
-	PendingID           string
-	PlanEventID         string
-	Content             string
-	Operations          []reportPatchOperation
-	Finalizing          bool
-	Submitted           bool
-	StageSubmitted      bool
-	StageOperationCount int
-	ArtifactID          string
-	EventID             string
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	DraftID               string
+	Stage                 string
+	MissionID             string
+	SessionID             string
+	PendingID             string
+	PlanEventID           string
+	Content               string
+	Operations            []reportPatchOperation
+	Finalizing            bool
+	Submitted             bool
+	StageSubmitted        bool
+	StageOperationCount   int
+	StyleReviewNextOffset int
+	StyleReviewComplete   bool
+	ArtifactID            string
+	EventID               string
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 type reportLongFormStageEditSubmitInput struct {
 	reportLongFormEditSubmitInput
-	GateFindings *[]reportLongFormGateFindingInput `json:"gate_findings"`
+	GateFindings       *[]reportLongFormGateFindingInput        `json:"gate_findings"`
+	SemanticAcceptance *[]reportLongFormSemanticAcceptanceInput `json:"semantic_acceptance"`
 }
 
 type reportLongFormGateFindingInput struct {
-	Statement      string   `json:"statement"`
-	Classification string   `json:"classification"`
-	RepairAction   string   `json:"repair_action"`
-	EvidenceIDs    []string `json:"evidence_ids"`
+	StatementSHA256 string   `json:"statement_sha256"`
+	Statement       string   `json:"statement"`
+	Classification  string   `json:"classification"`
+	RepairAction    string   `json:"repair_action"`
+	EvidenceIDs     []string `json:"evidence_ids"`
+}
+
+type reportLongFormSemanticAcceptanceInput struct {
+	ParagraphOrdinal      int    `json:"paragraph_ordinal"`
+	FinalParagraphOrdinal int    `json:"final_paragraph_ordinal"`
+	Verdict               string `json:"verdict"`
 }
 
 func (server *Server) callReportLongFormStageEditStart(ctx context.Context, call ToolCall, expectedStage string) ToolResult {

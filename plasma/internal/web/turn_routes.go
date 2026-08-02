@@ -1051,15 +1051,20 @@ func (server *Server) fetchConfluenceSourceCandidate(ctx context.Context, missio
 
 func appFetchedURLSource(fetched fetchedURLSource) sourceingest.FetchedURLSource {
 	return sourceingest.FetchedURLSource{
-		Content:           fetched.Content,
-		MediaType:         fetched.MediaType,
-		Title:             fetched.Title,
-		ExternalVersion:   fetched.ExternalVersion,
-		ExternalUpdatedAt: fetched.ExternalUpdatedAt,
-		ByteSize:          fetched.ByteSize,
-		PageCount:         fetched.PageCount,
-		TextLength:        fetched.TextLength,
-		TextLengthKnown:   fetched.TextLengthKnown,
+		Content:            fetched.Content,
+		MediaType:          fetched.MediaType,
+		Title:              fetched.Title,
+		ExternalVersion:    fetched.ExternalVersion,
+		ExternalUpdatedAt:  fetched.ExternalUpdatedAt,
+		ByteSize:           fetched.ByteSize,
+		PageCount:          fetched.PageCount,
+		TextLength:         fetched.TextLength,
+		TextLengthKnown:    fetched.TextLengthKnown,
+		RetrievalMethod:    fetched.RetrievalMethod,
+		FinalURL:           fetched.FinalURL,
+		RenderedAt:         fetched.RenderedAt,
+		RawFetchSHA256:     fetched.RawFetchSHA256,
+		RawFetchArtifactID: fetched.RawFetchArtifactID,
 	}
 }
 

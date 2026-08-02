@@ -126,6 +126,7 @@ func submitGateDraft(t *testing.T, server *Server, gate reporting.FinalEditStage
 	args["pending_event_id"] = gate.PendingEventID
 	args["plan_event_id"] = gate.PlanEventID
 	args["gate_findings"] = findings
+	args["semantic_acceptance"] = []map[string]any{}
 	return server.Call(context.Background(), ToolCall{Name: ToolReportLongFormEditSubmit, Arguments: mustArgs(t, args)})
 }
 

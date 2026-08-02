@@ -1,20 +1,22 @@
 # Long-Form Report Finalization
 
 Web long-form reports keep the existing plan, section drafting, Part assembly,
-session policy, H5, and designed HTML workflow. The default execution strategy
-is serial. A separate long-form-only "fast parallel" option may fan out section
-drafting from the canonical plan session, then returns to the same Part
-assembly and finalization contract.
+session policy, pre-canonical style editing and semantic validation, and
+designed HTML workflow. Manual/post-canonical H5 is a separate deprecated
+compatibility path. The default execution strategy is serial. A separate
+long-form-only "fast parallel" option may fan out section drafting from the
+canonical plan session, then returns to the same Part assembly and finalization
+contract.
 
-The active Web writing choices use the same Part-edit and staged final-edit
-handoff in both strategies. For active narrative-contract profiles, the
-canonical plan event persists `part_edit_enabled: true` through the same
+The active browser default uses the same Part-edit and staged final-edit
+handoff in both strategies. For the active long-form narrative-contract default,
+the canonical plan event persists `part_edit_enabled: true` through the same
 profile contract used by writing guidance. Stored legacy plans that lack the
-field are interpreted as false, while new non-narrative profiles persist false;
-the static projection renders a Part edit phase only when durable progress
-contains it and does not synthesize the phase for legacy plans. Explicit
-`section_fanout` requests using the Part-connective narrative profiles also
-persist `part_planning_enabled: true` on the same canonical plan event. No
+field are interpreted as false, while explicit compatible non-narrative profiles
+persist false; the static projection renders a Part edit phase only when durable
+progress contains it and does not synthesize the phase for legacy plans. Explicit
+compatible `section_fanout` requests using Part-connective narrative profiles
+also persist `part_planning_enabled: true` on the same canonical plan event. No
 separate capability event exists; recovery, progress, and static projections
 derive Part planning only from that stored plan payload, and omitted fields
 remain false for legacy and serial work.
@@ -23,19 +25,24 @@ When Part edit is enabled, a bound post-assembly Part editor reads and patches
 one immutable source Part artifact, then submits either a new edited Part
 artifact or an unchanged no-op completion that reuses the source artifact. New
 planned narrative long-form reports store
-`final_edit_pipeline: assembly_writer_reader_style_gate_v2`. The server first
+`final_edit_pipeline: assembly_writer_reader_style_validation_evidence_gate_v3`. The server first
 creates a deterministic `final_assembly` artifact from the reviewed Parts with
 no agent session, then a final writer works through the dedicated
 `plasma.report.long_form.final_write.*` tools. A separate reader editor then
-reviews the writer artifact, the existing `post_report_humanize` setting may
-run an optional pre-canonical style edit, and the corrective provenance gate
-checks source and requirement boundaries before creating exactly one canonical
-`report.artifact.created` event.
+reviews the writer artifact. The existing `post_report_humanize` setting
+controls a pre-canonical style edit followed by read-only
+`style_semantic_validation`; new browser long-form requests always enable it
+with no user toggle, while non-long-form browser requests remain
+disabled. The read-only `evidence_gate` judges only report-to-evidence
+connections before the server creates exactly one canonical
+`report.artifact.created` event from the bound artifact. Manual/post-canonical
+H5 remains a separate deprecated compatibility path.
 
-The Web progress view presents that execution order as `최종 조립`, `최종 작성`,
-`독자 편집`, `말투 편집`, and `근거·요구 교정`. `말투 편집` appears only when
-`post_report_humanize` is enabled; disabled runs omit that node without changing
-the order of the remaining stages.
+For new browser long-form requests, the Web progress view presents that
+execution order as `최종 조립`, `최종 작성`, `독자 편집`, `말투 편집`,
+`말투 의미 검증`, and `근거 연결 검증`. Direct API or legacy/replay runs whose
+stored `post_report_humanize` is disabled omit both style stages and go from
+reader edit directly to `evidence_gate`.
 
 Stored plans with `final_edit_pipeline: reader_style_gate_v1` keep the v1
 reader/style/gate path for replay and interrupted work: the server assembles the
@@ -48,18 +55,19 @@ Planned reports and CLI report behavior do not use this command.
 
 ## Part Assembly And Part Edit Tools
 
-The browser keeps three visible writing choices: visual planning,
-section-centered writing, and section-centered writing with richer cluster
-memory. The reader-facing writing contract is a common baseline under all
-three, not a fourth choice. Internally, new requests use distinct composite
-profile values so stored legacy profile values are not reinterpreted.
+The browser no longer exposes a report-writing selector. New long-form Web
+requests default to the rich section-centered composite profile
+`section-brief-cluster-memory-narrative-contract`, while non-long-form requests
+default to `narrative-contract`. The reader-facing writing contract is a common
+baseline, and older profile values remain accepted only so stored events and
+direct API calls are not reinterpreted.
 
-All three choices keep the same visual-aid default: source shape should suggest
-the aid before the writer falls back to prose, so chronology tends toward
-timeline, dependency toward flowchart, actor handoff toward sequence diagram,
-lifecycle toward state diagram, ordered values toward source-backed chart, and
-scenario or trade-off toward matrix/table. They also use the same Part assembly
-MCP handoff. The Section-reading Part assembler must bounded-read every
+The active long-form default keeps the same visual-aid baseline: source shape
+should suggest the aid before the writer falls back to prose, so chronology
+tends toward timeline, dependency toward flowchart, actor handoff toward
+sequence diagram, lifecycle toward state diagram, ordered values toward
+source-backed chart, and scenario or trade-off toward matrix/table. It also
+uses the same Part assembly MCP handoff. The Section-reading Part assembler must bounded-read every
 immutable Section bound to that Part before writing intro, transitions, and
 closing, then returns the `PART_ASSEMBLY_SUBMITTED` sentinel. This assembler is
 not the post-assembly Part editor.
@@ -111,14 +119,14 @@ planning event per Part before Section writing. Section workers and the Part
 assembler fork from that Part-owner provider session, and the final Part author
 resumes the same Part-owner session through the existing closed
 `plasma.report.part_edit.*` tools after mechanical assembly. The finalization
-path is determined only by the stored `final_edit_pipeline`. New v2 plans run
+path is determined only by the stored `final_edit_pipeline`. New v3 plans run
 deterministic final assembly, then a final writer forked from the report-plan
 provider session, an independent reader sibling forked from that same plan
-session, an optional style editor forked from the reader provider session, and a
-corrective gate sibling forked from the report-plan session. Stored v1 plans
-continue to run reader/style/gate without writer or final-assembly progress.
-Stored legacy profiles continue to use `plasma.report.long_form.finalize` and
-do not run staged final-edit stages.
+session, optional `style_edit`, read-only `style_semantic_validation`, and
+read-only `evidence_gate`. Stored v1/v2 plans are legacy replay/recovery
+compatibility paths and keep their historical reader/style/corrective-gate
+semantics. Stored legacy profiles continue to use
+`plasma.report.long_form.finalize` and do not run staged final-edit stages.
 
 The strategy is stored on `report.draft.pending` as `execution_strategy` so
 restart and stale recovery use the same path. Omitted or `serial` values keep
@@ -176,12 +184,71 @@ the stored plan's normalized `post_report_humanize` is enabled:
 - `plasma.report.long_form.style_edit.patch`
 - `plasma.report.long_form.style_edit.submit`
 
-The corrective gate reuses the existing final-edit tool names, but only in a
-gate-stage session with both the complete gate binding and the matching final
-binding:
+In that enabled path, the style editor follows the experiment-61 natural-voice
+contract. It may only submit exact `replace` patches with `replace_all=false`,
+one non-empty Markdown block per operation, and exactly one of these diagnosis
+categories in each patch summary:
+`opaque_or_strained_mapping`, `unnatural_collocation`, `vague_reference`,
+`nominalized_or_bureaucratic`, `compressed_abstraction`,
+`report_process_meta`, or `formulaic_transition`. The style stage remains
+paragraph-preserving and keeps the existing deterministic final-style Markdown
+guard and source fallback.
+
+`report.final_edit.style.submitted` stores those diagnoses as
+`style_operation_diagnoses`: an ordered array of records with exactly
+`operation_ordinal`, `category`, `reason`, `match_text`, `replacement`, and
+`occurrence`. New changed style submissions also set
+`style_operation_diagnoses_version=1` and require one full record for each
+operation in 1..N order. The `reason` is the concrete issue text after the
+semicolon in the validated patch summary; `match_text`, `replacement`, and
+`occurrence` are copied from the accepted patch input, with non-positive
+occurrence normalized to 1. No-op or structural-fallback submissions store
+`operation_count=0`, `style_operation_diagnoses_version=1`, and
+`style_operation_diagnoses: []`. The ledger does not store broader excerpts,
+prompt/provider output, replacement byte counts, paragraph ordinals, or
+paragraph hashes for these style operations. Historical style submitted events
+that lack the field remain replayable as legacy unknown, and versionless
+two-field records remain replayable as legacy diagnosis records.
+
+The v3 style semantic validation stage receives only read-only comparison and
+verdict-submit tools:
+
+- `plasma.report.long_form.style_semantic_validation.read`
+- `plasma.report.long_form.style_semantic_validation.submit`
+
+Its verdicts are only `accepted_equivalent` and
+`rejected_revert_to_reader`. The agent cannot submit prose, patches, final
+paragraph ordinals, manuscript Markdown, or `repaired_by_gate`; the server
+builds the resolved Markdown from durable reader/style paragraph lineage and
+fails closed if paragraph count, ordering, delimiters, or protected Markdown
+invariants cannot be proved.
+
+The v3 evidence gate receives approved read tools plus only the read-only
+evidence-gate tools:
+
+- `plasma.report.long_form.evidence_gate.read`
+- `plasma.report.long_form.evidence_gate.submit`
+
+It cannot submit repair actions, patches, replacement prose, manuscript
+Markdown, semantic acceptance, or operation counts. Evidence findings contain
+only `statement_sha256`, `classification`, and approved `evidence_ids`. The
+read surface provides deterministic report-owned Markdown block passages paired
+with server-computed `statement_sha256` values, so the provider never calculates
+hashes. The reporting layer reloads the bound `SourceArtifactID`, verifies
+lineage/SHA, rejects hashes outside that exact source content, stores connection
+judgments without raw passages or unapproved refs, and canonicalizes byte-
+identical source content with `operation_count=0`. Evidence judgments do not
+block canonicalization and do not trigger automatic repair.
+
+Legacy v1/v2 corrective gate events remain decodable and replayable with their
+historical semantics. The legacy corrective gate uses the existing final-edit
+tool names only in a gate-stage session with both the complete gate binding and
+the matching final binding:
 
 - `plasma.report.long_form.final_edit.start`
 - `plasma.report.long_form.final_edit.read`
+- `plasma.report.long_form.style_review.read` (`post_report_humanize=enabled`
+  gate sessions only)
 - `plasma.report.long_form.final_edit.patch`
 - `plasma.report.long_form.final_edit.submit`
 
@@ -191,6 +258,25 @@ boundary violations, owner-bound requirement violations, and unsupported claims
 that need one of the approved repair actions. Gate findings persist server-
 computed statement hashes, classifications, repair actions, and approved
 evidence IDs only; raw statement text is transient tool input and is not stored.
+When an enabled style stage changed paragraph text, the gate must also read the
+complete bounded style-review packet from byte offset 0 through returned
+`next_offset` values until `truncated=false`. That packet is derived by the
+reporting layer from durable reader/style lineage and contains only changed
+reader/style paragraph pairs, not precomputed final text or final hashes. The
+gate submit payload then attests each changed source paragraph with
+`paragraph_ordinal`, `final_paragraph_ordinal`, and one verdict:
+`accepted_equivalent`, `reverted_to_reader`, or `repaired_by_gate`.
+
+The server derives reader, style, and final paragraph hashes from durable
+artifacts and the submitted final manuscript. It requires exactly one valid
+mapping for every style-changed source paragraph and unique final paragraph
+ordinals, sorts records by source paragraph ordinal, and stores only the
+ordinals, verdict, hashes, record count, and digest. Raw comparison text is not
+persisted. Corrective-gate paragraph or footnote insertion remains legal because
+final paragraph ordinals are mapped independently; a changed source paragraph
+must still map to one non-empty final block. Existing events without semantic
+acceptance fields remain replayable, and no-op style, absent-style, and disabled
+paths persist no semantic zero-count field.
 
 The agent cannot select artifact IDs, filenames, title, report mode, Part
 order, section order, provider provenance, model settings, or binding identity.
@@ -202,15 +288,15 @@ that may create the canonical finalization event. Legacy
 input for stored-profile compatibility only, and is used when the stored plan
 lacks the active pipeline field.
 
-For staged pipelines, writer, reader, and style submissions are durable
-intermediate events only. The corrective gate submission is followed by exactly
-one canonical event in the same gate/finalization boundary, or recovery resumes
-from the stored gate submission and canonicalizes once without re-running
-completed providers. A no-op gate canonicalizes the prior durable artifact
-rather than creating an alias artifact. A changed gate creates the planned final
-artifact. An identical binding and content SHA replays the canonical result. A
-different identity, provenance value, Part order, idempotency key, pipeline
-marker, stage lineage, approved-evidence state, or content causes a conflict,
+For staged v3 pipelines, writer, reader, style, style semantic validation, and
+evidence gate submissions are durable intermediate events only. The evidence
+gate submission is followed by exactly one canonical event in the same
+gate/finalization boundary, or recovery resumes from the stored gate submission
+and canonicalizes once without re-running completed providers. The evidence gate
+always canonicalizes the prior durable artifact rather than creating an alias or
+repair artifact. An identical binding and content SHA replays the canonical
+result. A different identity, provenance value, Part order, idempotency key,
+pipeline marker, stage lineage, approved-evidence state, or content causes a conflict,
 including after restart or a concurrent call. The conditional transaction also
 decides against the current ledger state, so a terminal event for the pending
 report cannot race with creation of the final canonical artifact and event.

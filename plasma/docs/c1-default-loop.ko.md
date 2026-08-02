@@ -80,6 +80,11 @@ Staged artifact는 승인 전 후보입니다. Agent는 중복 제안이나 낮�
 candidate-read MCP tool로 읽을 수 있습니다. 하지만 default source list, normal raw artifact read, report
 generation에는 포함하지 않습니다. 사용자가 승인해야 source snapshot이 생깁니다.
 
+Staged URL이나 직접 승인된 URL이 성공적으로 가져온 HTML이지만 내용이 얇은 JavaScript application shell에
+가까워 보이면, Plasma는 source event payload에 `browser_render_candidate` 진단을 붙일 수 있습니다. 이 값은
+나중에 browser rendering 실험 후보를 모으기 위한 검토 신호일 뿐입니다. Browser fallback을 실행하거나 후보를
+자동으로 source로 승격하지 않습니다.
+
 ## Controller Strategy
 
 Controller strategy selection은 관찰 가능한 steering event입니다. 짧은 guidance를 agent prompt에 더할 수는

@@ -90,21 +90,23 @@ type Server struct {
 	partEditDrafts               map[string]*partEditDraft
 	longFormEditDrafts           map[string]*longFormEditDraft
 	longFormStageEditDrafts      map[string]*longFormStageEditDraft
+	readOnlyValidationDrafts     map[string]*readOnlyValidationDraft
 	reportPlanParsedCalls        int
 	reportRequirementParsedCalls int
 }
 
 func NewServer(service Service, options ...Option) *Server {
 	server := &Server{
-		service:                 service,
-		connectors:              map[string]app.Liquid2SourceConnector{},
-		idempotency:             map[string]idempotencyEntry{},
-		reportDrafts:            map[string]*experimentReportDraft{},
-		reportPatches:           map[string]*reportPatchDraft{},
-		partAssemblyDrafts:      map[string]*partAssemblyDraft{},
-		partEditDrafts:          map[string]*partEditDraft{},
-		longFormEditDrafts:      map[string]*longFormEditDraft{},
-		longFormStageEditDrafts: map[string]*longFormStageEditDraft{},
+		service:                  service,
+		connectors:               map[string]app.Liquid2SourceConnector{},
+		idempotency:              map[string]idempotencyEntry{},
+		reportDrafts:             map[string]*experimentReportDraft{},
+		reportPatches:            map[string]*reportPatchDraft{},
+		partAssemblyDrafts:       map[string]*partAssemblyDraft{},
+		partEditDrafts:           map[string]*partEditDraft{},
+		longFormEditDrafts:       map[string]*longFormEditDraft{},
+		longFormStageEditDrafts:  map[string]*longFormStageEditDraft{},
+		readOnlyValidationDrafts: map[string]*readOnlyValidationDraft{},
 	}
 	for _, option := range options {
 		option(server)

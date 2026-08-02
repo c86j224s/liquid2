@@ -397,15 +397,61 @@ func (executor *w4BRestartExecutor) Run(ctx context.Context, req AgentRequest) (
 		if req.LongFormFinalize == nil {
 			return AgentResult{}, fmt.Errorf("gate run missing final binding")
 		}
-		_, err := reporting.SubmitFinalEditGate(ctx, executor.service, reporting.FinalEditGateSubmitRequest{
+		markdown := string(source.Content)
+		comparison, err := reporting.FinalEditSemanticComparison(ctx, executor.service, binding, markdown)
+		if err != nil {
+			return AgentResult{}, err
+		}
+		semanticAcceptance := make([]reporting.FinalEditSemanticAcceptance, 0, len(comparison))
+		for _, item := range comparison {
+			semanticAcceptance = append(semanticAcceptance, reporting.FinalEditSemanticAcceptance{
+				ParagraphOrdinal:      item.ParagraphOrdinal,
+				FinalParagraphOrdinal: item.ParagraphOrdinal,
+				Verdict:               reporting.FinalEditSemanticAcceptedEquivalent,
+			})
+		}
+		_, err = reporting.SubmitFinalEditGate(ctx, executor.service, reporting.FinalEditGateSubmitRequest{
 			StageBinding:       binding,
 			FinalBinding:       *req.LongFormFinalize,
 			StageEventID:       fmt.Sprintf("evt_w4b_restart_submit_%d", len(executor.requests)),
 			CanonicalEventID:   fmt.Sprintf("evt_w4b_restart_final_%d", len(executor.requests)),
-			ManuscriptMarkdown: string(source.Content),
+			ManuscriptMarkdown: markdown,
 			OperationCount:     0,
+			SemanticAcceptance: semanticAcceptance,
 		})
 		if err != nil {
+			return AgentResult{}, err
+		}
+		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+	}
+	if binding.Stage == reporting.FinalEditStageStyleSemanticValidation {
+		comparison, err := reporting.FinalEditSemanticComparison(ctx, executor.service, binding, string(source.Content))
+		if err != nil {
+			return AgentResult{}, err
+		}
+		semanticAcceptance := make([]reporting.FinalEditSemanticAcceptance, 0, len(comparison))
+		for _, item := range comparison {
+			semanticAcceptance = append(semanticAcceptance, reporting.FinalEditSemanticAcceptance{
+				ParagraphOrdinal: item.ParagraphOrdinal,
+				Verdict:          reporting.FinalEditSemanticAcceptedEquivalent,
+			})
+		}
+		if _, err := reporting.SubmitFinalEditStyleSemanticValidation(ctx, executor.service, binding, fmt.Sprintf("evt_w4b_restart_submit_%d", len(executor.requests)), semanticAcceptance); err != nil {
+			return AgentResult{}, err
+		}
+		return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+	}
+	if binding.Stage == reporting.FinalEditStageEvidenceGate {
+		if req.LongFormFinalize == nil {
+			return AgentResult{}, fmt.Errorf("evidence gate run missing final binding")
+		}
+		if _, err := reporting.SubmitFinalEditEvidenceGate(ctx, executor.service, reporting.FinalEditEvidenceGateSubmitRequest{
+			StageBinding:     binding,
+			FinalBinding:     *req.LongFormFinalize,
+			StageEventID:     fmt.Sprintf("evt_w4b_restart_submit_%d", len(executor.requests)),
+			CanonicalEventID: fmt.Sprintf("evt_w4b_restart_final_%d", len(executor.requests)),
+			Findings:         nil,
+		}); err != nil {
 			return AgentResult{}, err
 		}
 		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
@@ -589,7 +635,7 @@ func w4BSubmitStyle(t *testing.T, ctx context.Context, svc *app.Service, req lon
 	if markdown == string(reader.Artifact.Content) {
 		t.Fatalf("style fixture could not produce conservative changed artifact")
 	}
-	result, err := reporting.SubmitFinalEditStage(ctx, svc, binding, "evt_w4b_style_"+suffix+"_submit", markdown, 1)
+	result, err := reporting.SubmitFinalEditStyleStage(ctx, svc, binding, "evt_w4b_style_"+suffix+"_submit", markdown, 1, finalEditStyleDiagnosesForWebTest(1))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/sourcediagnostics"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
@@ -15,13 +16,51 @@ func CreateFetchedURLSourceWithEvent(ctx context.Context, store Store, req Creat
 	if fetchedAt.IsZero() {
 		fetchedAt = time.Now().UTC()
 	}
-	locators, err := json.Marshal([]map[string]string{{
+	locator := map[string]string{
 		"locator_type": SourceLocatorTypeFullDocument,
 		"url":          req.URL,
 		"fetched_at":   fetchedAt.Format(time.RFC3339Nano),
-	}})
+	}
+	if req.Fetched.FinalURL != "" {
+		locator["final_url"] = req.Fetched.FinalURL
+	}
+	if req.Fetched.RetrievalMethod != "" {
+		locator["retrieval_method"] = req.Fetched.RetrievalMethod
+	}
+	if !req.Fetched.RenderedAt.IsZero() {
+		locator["rendered_at"] = req.Fetched.RenderedAt.UTC().Format(time.RFC3339Nano)
+	}
+	locators, err := json.Marshal([]map[string]string{locator})
 	if err != nil {
 		return URLSourceSnapshotResult{}, err
+	}
+	payload := map[string]any{
+		"snapshot_id":  req.SnapshotID,
+		"artifact_ids": []string{req.ArtifactID},
+		"source_kind":  "url",
+		"title":        title,
+		"url":          req.URL,
+	}
+	if req.Fetched.RetrievalMethod != "" {
+		payload["retrieval_method"] = req.Fetched.RetrievalMethod
+	}
+	if req.Fetched.FinalURL != "" {
+		payload["final_url"] = req.Fetched.FinalURL
+	}
+	if !req.Fetched.RenderedAt.IsZero() {
+		payload["rendered_at"] = req.Fetched.RenderedAt.UTC().Format(time.RFC3339Nano)
+	}
+	if req.Fetched.RawFetchSHA256 != "" {
+		payload["raw_fetch_sha256"] = req.Fetched.RawFetchSHA256
+	}
+	if req.Fetched.RawFetchArtifactID != "" {
+		payload["raw_fetch_artifact_id"] = req.Fetched.RawFetchArtifactID
+	}
+	if req.SourceCandidateProposalEventID != "" {
+		payload["source_candidate_proposal_event_id"] = req.SourceCandidateProposalEventID
+	}
+	if diagnosis := sourcediagnostics.DiagnoseBrowserRenderCandidate(req.Fetched.Content, req.Fetched.MediaType); diagnosis.Candidate {
+		payload["browser_render_candidate"] = diagnosis
 	}
 	result, err := store.CreateSourceSnapshotWithEvent(ctx, CreateSourceSnapshotWithEventRequest{
 		Artifact: CreateRawArtifactRequest{
@@ -53,13 +92,7 @@ func CreateFetchedURLSourceWithEvent(ctx context.Context, store Store, req Creat
 			MissionID: req.MissionID,
 			EventType: sourceevents.SourceSnapshottedEventType,
 			Producer:  req.Producer,
-			Payload: mustMarshalJSON(map[string]any{
-				"snapshot_id":  req.SnapshotID,
-				"artifact_ids": []string{req.ArtifactID},
-				"source_kind":  "url",
-				"title":        title,
-				"url":          req.URL,
-			}),
+			Payload:   mustMarshalJSON(payload),
 		},
 	})
 	if err != nil {

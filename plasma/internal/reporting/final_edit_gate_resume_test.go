@@ -2,6 +2,7 @@ package reporting
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestResumeFinalEditGateUsesStoredSubmissionAfterRestart(t *testing.T) {
 		Classification:  FinalEditGateClassUnverifiedExternalFact,
 		RepairAction:    FinalEditRepairRemove,
 	}}
-	gate, err := submitFinalEditStage(ctx, svc, gateBinding, "evt_gate_resume_submit", string(reader.Artifact.Content), 0, storedFindings)
+	gate, err := submitFinalEditStage(ctx, svc, gateBinding, "evt_gate_resume_submit", string(reader.Artifact.Content), 0, storedFindings, FinalEditSemanticAttestation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +71,7 @@ func TestResumeFinalEditGatePreservesV2PipelineAfterRestart(t *testing.T) {
 	if _, created, err := StartFinalEditStage(ctx, svc, "evt_gate_resume_v2_start", gateBinding); err != nil || !created {
 		t.Fatalf("v2 gate start created=%t err=%v", created, err)
 	}
-	gate, err := submitFinalEditStage(ctx, svc, gateBinding, "evt_gate_resume_v2_submit", string(reader.Artifact.Content), 0, nil)
+	gate, err := submitFinalEditStage(ctx, svc, gateBinding, "evt_gate_resume_v2_submit", string(reader.Artifact.Content), 0, nil, FinalEditSemanticAttestation{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,6 +104,128 @@ func TestResumeFinalEditGatePreservesV2PipelineAfterRestart(t *testing.T) {
 	}
 	if _, err := app.NewService(store).GetRawArtifact(ctx, binding.ArtifactID); err == nil {
 		t.Fatal("v2 no-op gate resume created duplicate planned final artifact")
+	}
+}
+
+func TestResumeFinalEditEvidenceGateCanonicalizesStoredV3SubmissionAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "plasma.db")
+	svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, path, FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+	binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+	reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "resume_evidence")
+	evidenceBinding := finalEditStageStoreStageBinding(binding, FinalEditStageEvidenceGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+	finalBinding := finalEditStageStoreFinalBindingForStage(binding, evidenceBinding)
+	approvedSvc := finalEditApprovedEvidenceStoreForFinalEditTest(svc, binding.MissionID, "evd_evidence_resume")
+	if _, created, err := StartFinalEditStage(ctx, approvedSvc, "evt_evidence_resume_start", evidenceBinding); err != nil || !created {
+		t.Fatalf("evidence gate start created=%t err=%v", created, err)
+	}
+	passages, err := FinalEditEvidenceGatePassages(string(reader.Artifact.Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedFindings := []StoredFinalEditGateFinding{{
+		StatementSHA256: passages[0].StatementSHA256,
+		Classification:  FinalEditGateClassUnverifiedExternalFact,
+		EvidenceIDs:     []string{"evd_evidence_resume"},
+	}}
+	gate, err := submitFinalEditStage(ctx, approvedSvc, evidenceBinding, "evt_evidence_resume_submit", string(reader.Artifact.Content), 0, storedFindings, FinalEditSemanticAttestation{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeStore()
+
+	store, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	reopenedApproved := finalEditApprovedEvidenceStoreForFinalEditTest(app.NewService(store), binding.MissionID, "evd_evidence_resume")
+	resumed, err := ResumeFinalEditGate(ctx, reopenedApproved, FinalEditGateResumeRequest{
+		StageBinding:     evidenceBinding,
+		FinalBinding:     finalBinding,
+		CanonicalEventID: "evt_evidence_resume_final",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resumed.Artifact.ArtifactID != gate.Artifact.ArtifactID || resumed.Event.EventID != "evt_evidence_resume_final" {
+		t.Fatalf("evidence resume result differs: %#v", resumed)
+	}
+	payload := eventPayload(resumed.Event)
+	if payload["final_edit_pipeline"] != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
+		payload["artifact_id"] != gate.Artifact.ArtifactID ||
+		payload["planned_final_artifact_id"] != binding.ArtifactID ||
+		payload["final_edit_gate_event_id"] != gate.Event.EventID ||
+		payload["final_edit_gate_changed"] != false ||
+		payload["artifact_sha256"] != gate.Artifact.SHA256 {
+		t.Fatalf("evidence canonical resume payload differs: %#v", payload)
+	}
+	if _, err := app.NewService(store).GetRawArtifact(ctx, binding.ArtifactID); err == nil {
+		t.Fatal("evidence no-op gate resume created duplicate planned final artifact")
+	}
+}
+
+func TestResumeFinalEditEvidenceGateRejectsTamperedReadOnlySubmissionAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name           string
+		operationCount int
+		changed        bool
+		changedContent bool
+	}{
+		{name: "changed_artifact", changed: true, changedContent: true},
+		{name: "nonzero_operation_count", operationCount: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "plasma.db")
+			svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, path, FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+			binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+			reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "resume_tamper_"+tc.name)
+			evidenceBinding := finalEditStageStoreStageBinding(binding, FinalEditStageEvidenceGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+			finalBinding := finalEditStageStoreFinalBindingForStage(binding, evidenceBinding)
+			if _, created, err := StartFinalEditStage(ctx, svc, "evt_evidence_resume_tamper_"+tc.name+"_start", evidenceBinding); err != nil || !created {
+				t.Fatalf("evidence gate start created=%t err=%v", created, err)
+			}
+			artifact := reader.Artifact
+			if tc.changedContent {
+				artifact = createFinalEditReplayArtifact(t, ctx, svc, evidenceBinding, evidenceBinding.EditedArtifactID, "# Report\n\nForged resume content.\n", evidenceBinding.Producer)
+			}
+			if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_evidence_resume_tamper_"+tc.name+"_submit", evidenceBinding, reader.Artifact, artifact, tc.operationCount, tc.changed, nil, FinalEditSemanticAttestation{})); err != nil {
+				t.Fatal(err)
+			}
+			closeStore()
+
+			store, err := sqlite.Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			_, err = ResumeFinalEditGate(ctx, app.NewService(store), FinalEditGateResumeRequest{
+				StageBinding:     evidenceBinding,
+				FinalBinding:     finalBinding,
+				CanonicalEventID: "evt_evidence_resume_tamper_" + tc.name + "_final",
+			})
+			if !errors.Is(err, app.ErrConflict) {
+				t.Fatalf("tampered evidence resume err=%v, want conflict", err)
+			}
+		})
+	}
+}
+
+func TestResumeFinalEditGateRejectsLegacyStageForV3Plan(t *testing.T) {
+	ctx := context.Background()
+	svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, filepath.Join(t.TempDir(), "plasma.db"), FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+	defer closeStore()
+	binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+	reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "resume_v3_legacy")
+	gateBinding := finalEditStageStoreStageBinding(binding, FinalEditStageGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+	_, err := ResumeFinalEditGate(ctx, svc, FinalEditGateResumeRequest{
+		StageBinding:     gateBinding,
+		FinalBinding:     binding,
+		CanonicalEventID: "evt_resume_v3_legacy_final",
+	})
+	if err == nil || !strings.Contains(err.Error(), "v3 final edit resume requires evidence gate stage") {
+		t.Fatalf("legacy gate resume error=%v, want v3 evidence gate rejection", err)
 	}
 }
 

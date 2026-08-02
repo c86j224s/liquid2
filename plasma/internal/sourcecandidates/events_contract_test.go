@@ -3,6 +3,7 @@ package sourcecandidates
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -171,6 +172,49 @@ func TestSourceCandidateTerminalEventsPreserveSurfaceSpecificAgentExecutor(t *te
 	assertJSONPayloadIncludes(t, sourceCandidateStagingFailedEventRequest(mcpJob, "evt_failed", errSourceCandidateTest).Payload, map[string]any{
 		"agent_executor": "codex",
 	})
+}
+
+func TestSourceCandidateStagedEventIncludesBrowserRenderCandidateDiagnosis(t *testing.T) {
+	artifact := app.RawArtifact{
+		ArtifactID: "art_1",
+		MissionID:  "mis_1",
+		MediaType:  "text/html; charset=utf-8",
+		ByteSize:   2000,
+		SHA256:     "abc",
+	}
+	fetched := SourceCandidateFetched{
+		Content:         []byte(sourceCandidateBrowserRenderHTMLFixture()),
+		MediaType:       "text/html; charset=utf-8",
+		TextLengthKnown: true,
+	}
+	job := SourceCandidateStagingJob{
+		MissionID:       "mis_1",
+		ProposalEventID: "evt_proposed",
+		Candidate: SourceCandidateProposal{
+			URL:   "https://example.com/app",
+			Title: "Client app",
+		},
+		Producer:       app.Producer{Type: "agent", ID: "codex"},
+		StartedEventID: "evt_started",
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(sourceCandidateStagedEventRequest(job, "evt_staged", artifact, "Client app", fetched).Payload, &payload); err != nil {
+		t.Fatalf("payload is not JSON: %v", err)
+	}
+	diagnosis, ok := payload["browser_render_candidate"].(map[string]any)
+	if !ok || diagnosis["candidate"] != true {
+		t.Fatalf("expected browser render candidate diagnosis, got %#v", payload)
+	}
+	if reason, _ := diagnosis["reason"].(string); !strings.Contains(reason, "브라우저 렌더링") {
+		t.Fatalf("expected Korean browser-render reason, got %#v", diagnosis)
+	}
+}
+
+func sourceCandidateBrowserRenderHTMLFixture() string {
+	return `<html><head><title>Client App</title>` +
+		strings.Repeat(`<script src="/assets/chunk.js"></script>`, 5) +
+		`<script>window.__INITIAL_STATE__={};` + strings.Repeat("bundle();", 300) + `</script>` +
+		`</head><body><div id="root" data-reactroot=""></div><noscript>Please enable JavaScript to view this page.</noscript></body></html>`
 }
 
 func assertJSONPayload(t *testing.T, raw []byte, want map[string]any) {

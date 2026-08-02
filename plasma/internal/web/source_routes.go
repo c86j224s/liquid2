@@ -664,6 +664,12 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 		writeAppError(w, err)
 		return
 	}
+	fetched, browserRendered, err := server.renderFetchedURLIfBrowserCandidate(r.Context(), normalizedURL, fetched)
+	if err != nil {
+		server.recordSourceSnapshotFailure(r.Context(), missionID, "url_browser_render", normalizedURL, err)
+		writeAppError(w, err)
+		return
+	}
 	contentSHA := sha256Hex(fetched.Content)
 	unlockContent := server.sources.lock(missionID + "\x00sha\x00" + contentSHA)
 	defer unlockContent()
@@ -692,14 +698,21 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 		writeAppError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
+	response := map[string]any{
 		"artifact": rawArtifactResponse(result.Artifact),
 		"snapshot": result.Snapshot,
 		"event":    result.Event,
-	})
+	}
+	if browserRendered {
+		response["browser_rendered"] = true
+	}
+	writeJSON(w, http.StatusCreated, response)
 }
 
 func (server *Server) createURLSourceFromStagedCandidate(w http.ResponseWriter, r *http.Request, missionID string, normalizedURL string, requestedTitle string, staged sourceingest.StagedSourceCandidate) (map[string]any, bool) {
+	if stagedURLNeedsBrowserRender(staged) {
+		return server.createBrowserRenderedURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, requestedTitle, staged), true
+	}
 	contentSHA := staged.Artifact.SHA256
 	if contentSHA == "" {
 		contentSHA = sha256Hex(staged.Artifact.Content)
@@ -738,6 +751,51 @@ func (server *Server) createURLSourceFromStagedCandidate(w http.ResponseWriter, 
 		"event":                   result.Event,
 		"reused_source_candidate": true,
 	}, true
+}
+
+func (server *Server) createBrowserRenderedURLSourceFromStagedCandidate(w http.ResponseWriter, r *http.Request, missionID string, normalizedURL string, requestedTitle string, staged sourceingest.StagedSourceCandidate) map[string]any {
+	fetched, err := server.renderStagedURLCandidate(r.Context(), normalizedURL, staged)
+	if err != nil {
+		server.recordSourceSnapshotFailure(r.Context(), missionID, "url_browser_render", normalizedURL, err)
+		writeAppError(w, err)
+		return nil
+	}
+	contentSHA := sha256Hex(fetched.Content)
+	unlockContent := server.sources.lock(missionID + "\x00sha\x00" + contentSHA)
+	defer unlockContent()
+	if existing, ok, err := sourceingest.ExistingSourceSnapshotForContentHash(r.Context(), server.service, missionID, contentSHA); err != nil {
+		writeAppError(w, err)
+		return nil
+	} else if ok {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"existing": true,
+			"snapshot": existing,
+		})
+		return nil
+	}
+	result, err := sourceingest.CreateFetchedURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateFetchedURLSourceRequest{
+		MissionID:                      missionID,
+		URL:                            normalizedURL,
+		Title:                          sourceFirstNonEmpty(requestedTitle, staged.Title),
+		ArtifactID:                     newID("art"),
+		SnapshotID:                     newID("src"),
+		EventID:                        newID("evt"),
+		Producer:                       app.Producer{Type: "user", ID: "plasma-ui"},
+		Fetched:                        appFetchedURLSource(fetched),
+		FetchedAt:                      time.Now().UTC(),
+		SourceCandidateProposalEventID: staged.ProposalEventID,
+	})
+	if err != nil {
+		writeAppError(w, err)
+		return nil
+	}
+	return map[string]any{
+		"artifact":                rawArtifactResponse(result.Artifact),
+		"snapshot":                result.Snapshot,
+		"event":                   result.Event,
+		"browser_rendered":        true,
+		"reused_source_candidate": false,
+	}
 }
 
 func (server *Server) createPDFURLSourceFromStagedCandidate(w http.ResponseWriter, r *http.Request, missionID string, normalizedURL string, requestedTitle string, staged sourceingest.StagedSourceCandidate) map[string]any {

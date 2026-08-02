@@ -7,7 +7,7 @@ import (
 )
 
 // ValidateFinalEditGateBindingsCompatible checks the plan-independent
-// contract shared by the corrective gate and canonical finalization.
+// contract shared by the final evidence/corrective gate and canonical finalization.
 func ValidateFinalEditGateBindingsCompatible(stage FinalEditStageBinding, final LongFormFinalizeBinding) error {
 	stage = normalizeFinalEditStageBinding(stage)
 	final = normalizeLongFormFinalizeBinding(final)
@@ -17,8 +17,8 @@ func ValidateFinalEditGateBindingsCompatible(stage FinalEditStageBinding, final 
 	if err := validateLongFormFinalizeBinding(final); err != nil {
 		return err
 	}
-	if stage.Stage != FinalEditStageGate || final.CompositionStrategy != LongFormCompositionNarrativeEdit {
-		return fmt.Errorf("%w: corrective gate requires narrative final edit bindings", app.ErrInvalidInput)
+	if (stage.Stage != FinalEditStageGate && stage.Stage != FinalEditStageEvidenceGate) || final.CompositionStrategy != LongFormCompositionNarrativeEdit {
+		return fmt.Errorf("%w: final edit gate requires narrative final edit bindings", app.ErrInvalidInput)
 	}
 	if stage.MissionID != final.MissionID ||
 		stage.PendingEventID != final.PendingEventID ||

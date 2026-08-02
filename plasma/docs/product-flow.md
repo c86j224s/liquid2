@@ -33,6 +33,12 @@ staged 후보 artifact는 승인된 소스가 아니며, 기본 소스 목록과
 제외된다. 에이전트는 전용 candidate read 도구로만 이 본문을 읽을 수 있고, 그
 응답에는 미승인 후보라는 경계가 함께 들어가야 한다.
 
+성공한 URL 후보나 직접 승인된 URL 소스가 HTML이지만 실제 visible text가 매우
+짧고 JavaScript app shell 신호가 강하면 source event payload에
+`browser_render_candidate` 진단을 붙일 수 있다. 이 진단은 나중에 브라우저
+렌더링 실험 후보를 모으기 위한 표시이며, 차단 우회, 자동 재시도, 자동 소스
+승격을 의미하지 않는다.
+
 2026-06-26 C0/PAL2/NAV 실험은 강한 상시 controller를 제품 기본값으로 채택할
 근거를 만들지 못했다. NAV는 C0-like baseline보다 나빴고 PAL2는 결론이 약했다.
 따라서 현재 제품 흐름은 같은 에이전트 세션을 이어가는 C0-like 기본 흐름을 유지한다.
@@ -217,13 +223,11 @@ ID는 상세 보기에서만 펼친다.
 Markdown 리포트를 작성한다. 실험명, 프롬프트명, tool session id, 임시 경로 같은
 내부 실행 정보는 리포트에 노출하지 않는다.
 
-이 작성 계약은 별도 글쓰기 선택지가 아니다. 화면의 `시각자료 계획`, `섹션 중심`,
-`섹션 중심 + 풍부하게`는 보고서 구성 방식을 고르고, 세 선택 모두 같은 독자 중심
-작성 계약을 사용한다. 새 장문 요청에서 `시각자료 계획`이 기본으로 선택되면 위의
-읽기 흐름과 Part 연결 절제 규칙도 함께 적용한다. 다른 구성 선택지에는 실험하지 않은
-조합을 자동으로 덧붙이지 않는다. 이전 profile 값은 저장된 과거 이벤트와 중단 작업을
-같은 의미로 복구하기 위해 유지하며, profile이 기록된 이벤트는 새 기본값으로
-재해석하지 않는다.
+브라우저에는 더 이상 보고서 글쓰기 선택지가 없다. 새 장문 Web 요청은
+`section-brief-cluster-memory-narrative-contract`를 사용하고, 장문이 아닌 요청은
+`narrative-contract`를 사용한다. older explicit profile과 저장된 profile 값은
+저장된 과거 이벤트, direct API 호출, 중단 작업을 같은 의미로 복구하기 위해
+호환되며, profile이 기록된 이벤트는 새 기본값으로 재해석하지 않는다.
 
 리포트 생성은 요청 수명에 묶인 일회성 작업이 아니다. 요청 시
 `report.draft.pending` 이벤트를 먼저 남기고, 장문 리포트는
@@ -253,24 +257,28 @@ generation worker를 시작하지 않는다. 별도 terminal-write-pending outbo
 저장된 보고서는 C4의 `sectional_preserve_markdown` 의미를 유지하며 새 요청의
 공통 편집 계약으로 재해석하지 않는다.
 
-기본 Markdown report artifact가 저장된 뒤에는 Web과 CLI report runner가 같은 H5
-기반 한국어 말투 보정 pass를 후처리로 실행할 수 있다. 이 pass는 planner, source
-selector, content model, AST, Designed HTML 경로가 아니며, 전체 Markdown을
-프롬프트에 붙여 다시 쓰게 하지 않는다. 대신 report session에
-`plasma.report.patch.*` MCP 도구만 열어 저장된 Markdown artifact를 bounded read로
-읽고 작은 patch operation으로 보정한다. 원본 Markdown artifact를 덮어쓰지 않는다.
-보정본이 구조와 충실도 guard를 통과하면 `report.artifact.exported` 이벤트로 원본
-`source_artifact_id`를 가리키는 별도 Markdown artifact를 저장하고
-`humanize_transport: mcp_patch`를 남긴다. 보정할 안전한 변경이 없으면 에이전트는
-`NO_H5_CHANGES`를 반환하고, Plasma는 `report.humanize.skipped`로 닫아 중복 artifact를
-만들지 않는다. 보정 실패, 컨텍스트 취소, MCP finalize 누락, guard 실패가 발생하면
-`report.humanize.failed` 이벤트만 남기고 원본 Markdown artifact를 그대로 유지한다.
-guard 실패 전에 patch artifact가 이미 finalize되었다면 Plasma는 `report.patch.rejected`
-이벤트를 남기고, 그 rejected artifact를 기본 연구 raw artifact 목록과 읽기 표면에서
-제외해 이후 에이전트 작업이 실패한 중간 산출물을 다시 소비하지 않게 한다.
-MCP report-composition 도구는 provider 실행 주체가 아니므로 H5 pass를 직접 실행하지
-않는다. 대신 finalize 시 `experiment.report.humanize.ready`를 기록해, 해당 Markdown
-artifact가 같은 H5 pass의 대상임을 명시한다.
+Manual/post-canonical H5 Web initiation은 deprecated이며 direct API와 historical
+artifact compatibility로만 남는다. 새 브라우저 흐름에서 `말투 보정`은 장문 보고서
+생성 요청이 항상 켜는 pre-canonical 단계이며 사용자 토글은 없다. `post_report_humanize`가 enabled일 때 canonical
+artifact 생성 전 style edit과 read-only `말투 의미 검증`으로만 실행된다. Disabled인
+장문 실행은 reader edit 뒤 곧바로 read-only `근거 연결 검증`으로 간다. 장문이 아닌
+브라우저 요청은 이 값을 disabled로 보낸다. 이 pass는 planner, source selector,
+content model, AST, Designed HTML 경로가 아니며, 전체 Markdown을 프롬프트에 붙여
+다시 쓰게 하지 않는다. 대신 stage/report session에 bounded patch 도구만 열어 작은
+patch operation으로 보정하고, 의미 검증 agent는 verdict만 제출한다.
+원본 Markdown artifact를 덮어쓰지 않는다. legacy post-canonical 보정본이 구조와
+충실도 guard를 통과하면 `report.artifact.exported` 이벤트로 원본 `source_artifact_id`를
+가리키는 별도 Markdown artifact를 저장하고 `humanize_transport: mcp_patch`를 남긴다.
+보정할 안전한 변경이 없으면 에이전트는 `NO_H5_CHANGES`를 반환하고, Plasma는
+`report.humanize.skipped`로 닫아 중복 artifact를 만들지 않는다. 보정 실패, 컨텍스트
+취소, MCP finalize 누락, guard 실패가 발생하면 `report.humanize.failed` 이벤트만
+남기고 원본 Markdown artifact를 그대로 유지한다. guard 실패 전에 patch artifact가
+이미 finalize되었다면 Plasma는 `report.patch.rejected` 이벤트를 남기고, 그 rejected
+artifact를 기본 연구 raw artifact 목록과 읽기 표면에서 제외해 이후 에이전트 작업이
+실패한 중간 산출물을 다시 소비하지 않게 한다. MCP report-composition 도구는 provider
+실행 주체가 아니므로 H5 pass를 직접 실행하지 않는다. 대신 finalize 시
+`experiment.report.humanize.ready`를 기록해, 해당 Markdown artifact가 같은 legacy H5
+pass의 대상임을 명시한다.
 
 사용자는 Web의 Markdown 보고서 미리보기에서 빨간펜 편집을 시작하고, 주변 문맥을 보면서
 한 문단·제목·단순 목록 항목을 제자리에서 고칠 수 있다. 블록 수정 반영은 브라우저 안의

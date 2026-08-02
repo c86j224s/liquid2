@@ -63,7 +63,7 @@ func TestLoadFinalEditStageProgressRejectsMalformedSubmissionPayload(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	request := buildFinalEditSubmittedAppendRequest("evt_reader_malformed_progress_submit", readerBinding, source, source, 0, false, nil)
+	request := buildFinalEditSubmittedAppendRequest("evt_reader_malformed_progress_submit", readerBinding, source, source, 0, false, nil, FinalEditSemanticAttestation{})
 	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
 	payload["operation_count"] = "invalid"
 	request.Payload = finalEditStageStoreJSON(payload)
@@ -130,7 +130,7 @@ func TestLoadFinalEditStageProgressRejectsUnapprovedGateEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	submitted := buildFinalEditSubmittedAppendRequest("evt_gate_progress_submit", gateBinding, source, source, 0, false, []StoredFinalEditGateFinding{finding})
+	submitted := buildFinalEditSubmittedAppendRequest("evt_gate_progress_submit", gateBinding, source, source, 0, false, []StoredFinalEditGateFinding{finding}, FinalEditSemanticAttestation{})
 	if _, err := svc.AppendEvent(ctx, submitted); err != nil {
 		t.Fatal(err)
 	}

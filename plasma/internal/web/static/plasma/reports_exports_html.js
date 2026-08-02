@@ -112,6 +112,8 @@ async function exportReportArtifactDesignedHTML(artifactID, options = {}) {
 }
 
 async function exportReportArtifactHumanizedMarkdown(artifactID) {
+  // Deprecated UI boundary: new artifact cards no longer initiate manual H5
+  // exports. Keep this for historical events and direct API compatibility.
   if (!state.missionId || !artifactID) return;
   if (state.reportPending) return;
   const owner = captureMissionSelection();

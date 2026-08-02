@@ -116,10 +116,42 @@ func startFinalEditReaderStage(ctx context.Context, store FinalEditStageStore, e
 }
 
 func SubmitFinalEditStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int) (FinalEditStageResult, error) {
-	if normalizeFinalEditStageBinding(binding).Stage == FinalEditStageGate {
+	switch normalizeFinalEditStageBinding(binding).Stage {
+	case FinalEditStageGate:
 		return FinalEditStageResult{}, fmt.Errorf("%w: corrective gate completion must use SubmitFinalEditGate", app.ErrInvalidInput)
+	case FinalEditStageStyleSemanticValidation:
+		return FinalEditStageResult{}, fmt.Errorf("%w: style semantic validation completion must use SubmitFinalEditStyleSemanticValidation", app.ErrInvalidInput)
+	case FinalEditStageEvidenceGate:
+		return FinalEditStageResult{}, fmt.Errorf("%w: evidence gate completion must use SubmitFinalEditEvidenceGate", app.ErrInvalidInput)
 	}
-	return submitFinalEditStage(ctx, store, binding, eventID, markdown, operationCount, nil)
+	return submitFinalEditStage(ctx, store, binding, eventID, markdown, operationCount, nil, FinalEditSemanticAttestation{})
+}
+
+func SubmitFinalEditStyleStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis) (FinalEditStageResult, error) {
+	if normalizeFinalEditStageBinding(binding).Stage != FinalEditStageStyle {
+		return FinalEditStageResult{}, fmt.Errorf("%w: style operation diagnoses are only valid for style edit", app.ErrInvalidInput)
+	}
+	return submitFinalEditStageWithStyleDiagnoses(ctx, store, binding, eventID, markdown, operationCount, diagnoses, nil, FinalEditSemanticAttestation{})
+}
+
+func SubmitFinalEditStyleSemanticValidation(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, reviews []FinalEditSemanticAcceptance) (FinalEditStageResult, error) {
+	binding = normalizeFinalEditStageBinding(binding)
+	markdown, semanticReview, err := BuildFinalEditStyleSemanticValidation(ctx, store, binding, reviews)
+	if err != nil {
+		return FinalEditStageResult{}, err
+	}
+	events, err := store.ListEvents(ctx, binding.MissionID)
+	if err != nil {
+		return FinalEditStageResult{}, err
+	}
+	style, ok, err := finalEditStyleSubmissionForGate(ctx, store, events, binding)
+	if err != nil {
+		return FinalEditStageResult{}, err
+	}
+	if ok && style.Artifact.ArtifactID != style.SourceArtifact.ArtifactID && markdown == string(style.SourceArtifact.Content) {
+		return submitFinalEditStageExistingArtifact(ctx, store, binding, eventID, style.Artifact, style.SourceArtifact, markdown, 0, true, nil, nil, semanticReview)
+	}
+	return submitFinalEditStage(ctx, store, binding, eventID, markdown, 0, nil, semanticReview)
 }
 
 func LoadFinalEditStageSubmission(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding) (FinalEditStageResult, bool, error) {
@@ -136,7 +168,7 @@ func LoadFinalEditStageSubmission(ctx context.Context, store FinalEditStageStore
 		return FinalEditStageResult{}, false, err
 	}
 	binding = finalEditStageBindingForPlan(binding, plan)
-	if err := validateFinalEditStageLineage(ctx, store, events, binding, binding.Stage == FinalEditStageGate); err != nil {
+	if err := validateFinalEditStageLineage(ctx, store, events, binding, finalEditStageAllowsCanonicalLoad(binding.Stage)); err != nil {
 		return FinalEditStageResult{}, false, err
 	}
 	event, ok, err := finalEditStageSubmittedEvent(events, binding)
@@ -147,7 +179,11 @@ func LoadFinalEditStageSubmission(ctx context.Context, store FinalEditStageStore
 	return result, err == nil, err
 }
 
-func submitFinalEditStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int, findings []StoredFinalEditGateFinding) (FinalEditStageResult, error) {
+func submitFinalEditStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
+	return submitFinalEditStageWithStyleDiagnoses(ctx, store, binding, eventID, markdown, operationCount, nil, findings, semanticReview)
+}
+
+func submitFinalEditStageWithStyleDiagnoses(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
 	binding = normalizeFinalEditStageBinding(binding)
 	if err := validateFinalEditStageBinding(binding); err != nil {
 		return FinalEditStageResult{}, err
@@ -155,13 +191,15 @@ func submitFinalEditStage(ctx context.Context, store FinalEditStageStore, bindin
 	if strings.TrimSpace(markdown) == "" || operationCount < 0 {
 		return FinalEditStageResult{}, fmt.Errorf("%w: final edit stage Markdown is invalid", app.ErrInvalidInput)
 	}
-	if existing, ok, err := LoadFinalEditStageSubmission(ctx, store, binding); err != nil {
-		return FinalEditStageResult{}, err
-	} else if ok {
-		if err := validateFinalEditStageReplayInput(existing, markdown, operationCount, findings); err != nil {
+	if binding.Stage != FinalEditStageStyle {
+		if existing, ok, err := LoadFinalEditStageSubmission(ctx, store, binding); err != nil {
 			return FinalEditStageResult{}, err
+		} else if ok {
+			if err := validateFinalEditStageReplayInput(existing, markdown, operationCount, diagnoses, findings, semanticReview); err != nil {
+				return FinalEditStageResult{}, err
+			}
+			return existing, nil
 		}
-		return existing, nil
 	}
 	events, err := store.ListEvents(ctx, binding.MissionID)
 	if err != nil {
@@ -172,7 +210,7 @@ func submitFinalEditStage(ctx context.Context, store FinalEditStageStore, bindin
 		return FinalEditStageResult{}, err
 	}
 	binding = finalEditStageBindingForPlan(binding, plan)
-	if err := validateFinalEditStageLineage(ctx, store, events, binding, binding.Stage == FinalEditStageGate); err != nil {
+	if err := validateFinalEditStageLineage(ctx, store, events, binding, finalEditStageAllowsCanonicalLoad(binding.Stage)); err != nil {
 		return FinalEditStageResult{}, err
 	}
 	if _, ok, err := finalEditStageStartedEvent(events, binding); err != nil {
@@ -187,15 +225,44 @@ func submitFinalEditStage(ctx context.Context, store FinalEditStageStore, bindin
 	if source.MissionID != binding.MissionID || source.MediaType != "text/markdown; charset=utf-8" || source.SHA256 != contentSHA256(source.Content) {
 		return FinalEditStageResult{}, fmt.Errorf("%w: source final edit artifact is foreign or not Markdown", app.ErrConflict)
 	}
-	if string(source.Content) == markdown {
-		return submitFinalEditStageNoOp(ctx, store, binding, eventID, source, operationCount, findings)
+	if binding.Stage == FinalEditStageStyle {
+		if err := ValidateFinalEditStyleMarkdown(string(source.Content), markdown); err != nil {
+			markdown = string(source.Content)
+			operationCount = 0
+			diagnoses = nil
+		}
+		if string(source.Content) == markdown {
+			operationCount = 0
+			diagnoses = nil
+		}
+		if string(source.Content) != markdown && operationCount <= 0 {
+			return FinalEditStageResult{}, fmt.Errorf("%w: changed style edit requires at least one operation diagnosis", app.ErrInvalidInput)
+		}
+		if err := ValidateFinalEditStyleOperationDiagnoses(operationCount, diagnoses, true); err != nil {
+			return FinalEditStageResult{}, err
+		}
+		if existing, ok, err := LoadFinalEditStageSubmission(ctx, store, binding); err != nil {
+			return FinalEditStageResult{}, err
+		} else if ok {
+			if err := validateFinalEditStageReplayInput(existing, markdown, operationCount, diagnoses, findings, semanticReview); err != nil {
+				return FinalEditStageResult{}, err
+			}
+			return existing, nil
+		}
 	}
-	return submitFinalEditStageChanged(ctx, store, binding, eventID, source, markdown, operationCount, findings)
+	if string(source.Content) == markdown {
+		if binding.Stage == FinalEditStageStyle {
+			operationCount = 0
+			diagnoses = nil
+		}
+		return submitFinalEditStageNoOp(ctx, store, binding, eventID, source, operationCount, diagnoses, findings, semanticReview)
+	}
+	return submitFinalEditStageChanged(ctx, store, binding, eventID, source, markdown, operationCount, diagnoses, findings, semanticReview)
 }
 
-func submitFinalEditStageNoOp(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, source app.RawArtifact, operationCount int, findings []StoredFinalEditGateFinding) (FinalEditStageResult, error) {
+func submitFinalEditStageNoOp(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, source app.RawArtifact, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
 	event, created, err := store.AppendEventConditionally(ctx, binding.MissionID, func(events []app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
-		if err := validateFinalEditStageLineage(ctx, store, events, binding, binding.Stage == FinalEditStageGate); err != nil {
+		if err := validateFinalEditStageLineage(ctx, store, events, binding, finalEditStageAllowsCanonicalLoad(binding.Stage)); err != nil {
 			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
 		}
 		if _, ok, err := finalEditStageStartedEvent(events, binding); err != nil {
@@ -206,7 +273,7 @@ func submitFinalEditStageNoOp(ctx context.Context, store FinalEditStageStore, bi
 		if existing, ok, err := finalEditStageSubmittedEvent(events, binding); ok || err != nil {
 			return app.AppendEventRequest{}, existing, false, err
 		}
-		return buildFinalEditSubmittedAppendRequest(eventID, binding, source, source, operationCount, false, findings), app.LedgerEvent{}, true, nil
+		return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, source, operationCount, false, diagnoses, findings, semanticReview), app.LedgerEvent{}, true, nil
 	})
 	if err != nil {
 		return FinalEditStageResult{}, err
@@ -215,14 +282,49 @@ func submitFinalEditStageNoOp(ctx context.Context, store FinalEditStageStore, bi
 	if err != nil {
 		return FinalEditStageResult{}, err
 	}
-	if err := validateFinalEditStageReplayInput(result, string(source.Content), operationCount, findings); err != nil {
+	if err := validateFinalEditStageReplayInput(result, string(source.Content), operationCount, diagnoses, findings, semanticReview); err != nil {
 		return FinalEditStageResult{}, err
 	}
 	return result, nil
 }
 
-func validateFinalEditStageReplayInput(result FinalEditStageResult, markdown string, operationCount int, findings []StoredFinalEditGateFinding) error {
-	if string(result.Artifact.Content) != markdown || result.OperationCount != operationCount || !equalStoredFinalEditGateFindings(result.GateFindings, findings) {
+func submitFinalEditStageExistingArtifact(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, source app.RawArtifact, artifact app.RawArtifact, markdown string, operationCount int, changed bool, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
+	event, created, err := store.AppendEventConditionally(ctx, binding.MissionID, func(events []app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+		if err := validateFinalEditStageLineage(ctx, store, events, binding, finalEditStageAllowsCanonicalLoad(binding.Stage)); err != nil {
+			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+		}
+		if _, ok, err := finalEditStageStartedEvent(events, binding); err != nil {
+			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+		} else if !ok {
+			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: matching final edit stage start is missing", app.ErrConflict)
+		}
+		if existing, ok, err := finalEditStageSubmittedEvent(events, binding); ok || err != nil {
+			return app.AppendEventRequest{}, existing, false, err
+		}
+		return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, artifact, operationCount, changed, diagnoses, findings, semanticReview), app.LedgerEvent{}, true, nil
+	})
+	if err != nil {
+		return FinalEditStageResult{}, err
+	}
+	result, err := finalEditStageResultFromEvent(ctx, store, binding, event, !created)
+	if err != nil {
+		return FinalEditStageResult{}, err
+	}
+	if err := validateFinalEditStageReplayInput(result, markdown, operationCount, diagnoses, findings, semanticReview); err != nil {
+		return FinalEditStageResult{}, err
+	}
+	return result, nil
+}
+
+func finalEditStageAllowsCanonicalLoad(stage string) bool {
+	return stage == FinalEditStageGate || stage == FinalEditStageEvidenceGate
+}
+
+func validateFinalEditStageReplayInput(result FinalEditStageResult, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) error {
+	if string(result.Artifact.Content) != markdown || result.OperationCount != operationCount || !equalStoredFinalEditGateFindings(result.GateFindings, findings) || !equalStoredFinalEditSemanticAcceptance(result.SemanticReview.Records, semanticReview.Records) || result.SemanticReview.Digest != semanticReview.Digest || result.SemanticReview.Count != semanticReview.Count {
+		return fmt.Errorf("%w: final edit stage replay input differs", app.ErrConflict)
+	}
+	if result.StyleOperationDiagnosesPresent && !equalFinalEditStyleOperationDiagnosesForReplay(result.StyleOperationDiagnoses, diagnoses) {
 		return fmt.Errorf("%w: final edit stage replay input differs", app.ErrConflict)
 	}
 	return nil

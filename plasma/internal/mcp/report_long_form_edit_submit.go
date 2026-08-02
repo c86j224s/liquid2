@@ -106,6 +106,7 @@ func (server *Server) submitLongFormDurableStageEdit(ctx context.Context, call T
 	draft.Finalizing = true
 	manuscript := draft.Content
 	operationCount := len(draft.Operations)
+	styleDiagnoses := styleOperationDiagnosesFromOperations(draft.Operations)
 	server.mu.Unlock()
 	if binding.Stage == reporting.FinalEditStageStyle {
 		source, err := server.service.GetRawArtifact(ctx, binding.SourceArtifactID)
@@ -116,9 +117,16 @@ func (server *Server) submitLongFormDurableStageEdit(ctx context.Context, call T
 		if err := reporting.ValidateFinalEditStyleMarkdown(string(source.Content), manuscript); err != nil {
 			manuscript = string(source.Content)
 			operationCount = 0
+			styleDiagnoses = nil
 		}
 	}
-	result, err := reporting.SubmitFinalEditStage(ctx, server.service, binding, newMCPID("evt"), manuscript, operationCount)
+	var result reporting.FinalEditStageResult
+	var err error
+	if binding.Stage == reporting.FinalEditStageStyle {
+		result, err = reporting.SubmitFinalEditStyleStage(ctx, server.service, binding, newMCPID("evt"), manuscript, operationCount, styleDiagnoses)
+	} else {
+		result, err = reporting.SubmitFinalEditStage(ctx, server.service, binding, newMCPID("evt"), manuscript, operationCount)
+	}
 	if err != nil {
 		server.clearStageFinalizing(draftID)
 		return errorFromErr(call.Name, common.MissionID, err, []string{draftID})
@@ -126,10 +134,33 @@ func (server *Server) submitLongFormDurableStageEdit(ctx context.Context, call T
 	return server.stageSubmitResult(call, common.MissionID, draftID, binding.Stage, result.Artifact.ArtifactID, result.Event.EventID, string(result.Artifact.Content), result.OperationCount)
 }
 
+func styleOperationDiagnosesFromOperations(operations []reportPatchOperation) []reporting.FinalEditStyleOperationDiagnosis {
+	diagnoses := make([]reporting.FinalEditStyleOperationDiagnosis, 0, len(operations))
+	for index, operation := range operations {
+		diagnoses = append(diagnoses, reporting.FinalEditStyleOperationDiagnosis{
+			OperationOrdinal: index + 1,
+			Category:         strings.TrimSpace(operation.Category),
+			Reason:           strings.TrimSpace(operation.Reason),
+			MatchText:        operation.MatchText,
+			Replacement:      operation.Replacement,
+			Occurrence:       operation.Occurrence,
+		})
+	}
+	return diagnoses
+}
+
 func (server *Server) submitLongFormGateEdit(ctx context.Context, call ToolCall, common commonMutatingInput, input reportLongFormStageEditSubmitInput, binding reporting.FinalEditStageBinding) ToolResult {
 	findings, err := gateFindingsFromInput(input.GateFindings)
 	if err != nil {
 		return errorResult(call.Name, common.MissionID, "validation", "final edit gate findings are invalid", false, nil)
+	}
+	semanticAcceptance, err := semanticAcceptanceFromInput(input.SemanticAcceptance)
+	if err != nil {
+		return errorResult(call.Name, common.MissionID, "validation", "final edit semantic acceptance is invalid", false, nil)
+	}
+	semanticReviewEnabled := binding.PostReportHumanize == reporting.FinalEditHumanizeEnabled
+	if !semanticReviewEnabled && len(semanticAcceptance) != 0 {
+		return errorResult(call.Name, common.MissionID, "validation", "semantic acceptance is only valid when post_report_humanize is enabled", false, nil)
 	}
 	draftID := strings.TrimSpace(input.DraftID)
 	if err := validateID("rfe_", draftID); err != nil {
@@ -155,11 +186,23 @@ func (server *Server) submitLongFormGateEdit(ctx context.Context, call ToolCall,
 	if draft.StageSubmitted {
 		operationCount = draft.StageOperationCount
 	}
+	styleReviewComplete := draft.StyleReviewComplete
 	server.mu.Unlock()
+	if semanticReviewEnabled {
+		comparison, err := reporting.FinalEditSemanticComparison(ctx, server.service, binding, manuscript)
+		if err != nil {
+			server.clearStageFinalizing(draftID)
+			return errorFromErr(call.Name, common.MissionID, err, []string{draftID})
+		}
+		if len(comparison) > 0 && !styleReviewComplete {
+			server.clearStageFinalizing(draftID)
+			return errorResult(call.Name, common.MissionID, "conflict", "changed style paragraphs must be read to completion before corrective gate submit", false, []string{draftID})
+		}
+	}
 	result, err := reporting.SubmitFinalEditGate(ctx, server.service, reporting.FinalEditGateSubmitRequest{
 		StageBinding: binding, FinalBinding: server.longFormFinalizeBinding,
 		StageEventID: newMCPID("evt"), CanonicalEventID: newMCPID("evt"),
-		ManuscriptMarkdown: manuscript, OperationCount: operationCount, Findings: findings,
+		ManuscriptMarkdown: manuscript, OperationCount: operationCount, Findings: findings, SemanticAcceptance: semanticAcceptance,
 	})
 	if err != nil {
 		server.clearStageFinalizing(draftID)

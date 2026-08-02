@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	FinalEditPipelineReaderStyleGateV1               = "reader_style_gate_v1"
-	FinalEditPipelineAssemblyWriterReaderStyleGateV2 = "assembly_writer_reader_style_gate_v2"
+	FinalEditPipelineReaderStyleGateV1                                 = "reader_style_gate_v1"
+	FinalEditPipelineAssemblyWriterReaderStyleGateV2                   = "assembly_writer_reader_style_gate_v2"
+	FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 = "assembly_writer_reader_style_validation_evidence_gate_v3"
 )
 
 const (
@@ -61,55 +62,63 @@ type FinalEditStageBinding struct {
 }
 
 type FinalEditStageResult struct {
-	Binding        FinalEditStageBinding
-	Artifact       app.RawArtifact
-	Event          app.LedgerEvent
-	Replay         bool
-	OperationCount int
-	Changed        bool
-	GateFindings   []StoredFinalEditGateFinding
+	Binding                        FinalEditStageBinding
+	Artifact                       app.RawArtifact
+	Event                          app.LedgerEvent
+	Replay                         bool
+	OperationCount                 int
+	Changed                        bool
+	GateFindings                   []StoredFinalEditGateFinding
+	SemanticReview                 FinalEditSemanticAttestation
+	StyleOperationDiagnoses        []FinalEditStyleOperationDiagnosis
+	StyleOperationDiagnosesPresent bool
 }
 
 type finalEditSubmittedPayload struct {
-	Kind                         string                       `json:"kind"`
-	PendingEventID               string                       `json:"pending_event_id"`
-	PlanEventID                  string                       `json:"plan_event_id"`
-	FinalEditPipeline            string                       `json:"final_edit_pipeline"`
-	Title                        string                       `json:"title"`
-	Stage                        string                       `json:"stage"`
-	StageID                      string                       `json:"stage_id"`
-	SourceArtifactID             string                       `json:"source_artifact_id"`
-	ArtifactID                   string                       `json:"artifact_id"`
-	EditedArtifactID             string                       `json:"edited_artifact_id"`
-	Filename                     string                       `json:"filename"`
-	ToolSessionID                string                       `json:"tool_session_id"`
-	ProviderSessionID            string                       `json:"provider_session_id"`
-	PreviousProviderSessionID    string                       `json:"previous_provider_session_id"`
-	IdempotencyKey               string                       `json:"idempotency_key"`
-	AgentExecutor                string                       `json:"agent_executor"`
-	AgentModel                   string                       `json:"agent_model,omitempty"`
-	AgentReasoningEffort         string                       `json:"agent_reasoning_effort,omitempty"`
-	AgentSelectionSource         string                       `json:"agent_selection_source,omitempty"`
-	MCPMode                      string                       `json:"mcp_mode,omitempty"`
-	RigorLevel                   string                       `json:"rigor_level,omitempty"`
-	RigorLabel                   string                       `json:"rigor_label,omitempty"`
-	ReportSessionPolicy          string                       `json:"report_session_policy,omitempty"`
-	ReportSessionPolicySelection string                       `json:"report_session_policy_selection,omitempty"`
-	PostReportHumanize           string                       `json:"post_report_humanize,omitempty"`
-	GenerationGuidanceProfile    string                       `json:"generation_guidance_profile,omitempty"`
-	GenerationGuidanceSHA256     string                       `json:"generation_guidance_sha256,omitempty"`
-	SessionChainKind             string                       `json:"session_chain_kind,omitempty"`
-	PreReportResearchSessionID   string                       `json:"pre_report_research_session_id,omitempty"`
-	ReportPlanSessionID          string                       `json:"report_plan_session_id,omitempty"`
-	ForkSourceAgentSessionID     string                       `json:"fork_source_agent_session_id,omitempty"`
-	OperationCount               int                          `json:"operation_count"`
-	SourceWordCount              int                          `json:"source_word_count"`
-	EditedWordCount              int                          `json:"edited_word_count"`
-	SourceSHA256                 string                       `json:"source_sha256"`
-	ArtifactSHA256               string                       `json:"artifact_sha256"`
-	Changed                      bool                         `json:"changed"`
-	GateFindings                 []StoredFinalEditGateFinding `json:"gate_findings,omitempty"`
-	Text                         string                       `json:"text"`
+	Kind                         string                              `json:"kind"`
+	PendingEventID               string                              `json:"pending_event_id"`
+	PlanEventID                  string                              `json:"plan_event_id"`
+	FinalEditPipeline            string                              `json:"final_edit_pipeline"`
+	Title                        string                              `json:"title"`
+	Stage                        string                              `json:"stage"`
+	StageID                      string                              `json:"stage_id"`
+	SourceArtifactID             string                              `json:"source_artifact_id"`
+	ArtifactID                   string                              `json:"artifact_id"`
+	EditedArtifactID             string                              `json:"edited_artifact_id"`
+	Filename                     string                              `json:"filename"`
+	ToolSessionID                string                              `json:"tool_session_id"`
+	ProviderSessionID            string                              `json:"provider_session_id"`
+	PreviousProviderSessionID    string                              `json:"previous_provider_session_id"`
+	IdempotencyKey               string                              `json:"idempotency_key"`
+	AgentExecutor                string                              `json:"agent_executor"`
+	AgentModel                   string                              `json:"agent_model,omitempty"`
+	AgentReasoningEffort         string                              `json:"agent_reasoning_effort,omitempty"`
+	AgentSelectionSource         string                              `json:"agent_selection_source,omitempty"`
+	MCPMode                      string                              `json:"mcp_mode,omitempty"`
+	RigorLevel                   string                              `json:"rigor_level,omitempty"`
+	RigorLabel                   string                              `json:"rigor_label,omitempty"`
+	ReportSessionPolicy          string                              `json:"report_session_policy,omitempty"`
+	ReportSessionPolicySelection string                              `json:"report_session_policy_selection,omitempty"`
+	PostReportHumanize           string                              `json:"post_report_humanize,omitempty"`
+	GenerationGuidanceProfile    string                              `json:"generation_guidance_profile,omitempty"`
+	GenerationGuidanceSHA256     string                              `json:"generation_guidance_sha256,omitempty"`
+	SessionChainKind             string                              `json:"session_chain_kind,omitempty"`
+	PreReportResearchSessionID   string                              `json:"pre_report_research_session_id,omitempty"`
+	ReportPlanSessionID          string                              `json:"report_plan_session_id,omitempty"`
+	ForkSourceAgentSessionID     string                              `json:"fork_source_agent_session_id,omitempty"`
+	OperationCount               int                                 `json:"operation_count"`
+	StyleDiagnosesVersion        int                                 `json:"style_operation_diagnoses_version,omitempty"`
+	SourceWordCount              int                                 `json:"source_word_count"`
+	EditedWordCount              int                                 `json:"edited_word_count"`
+	SourceSHA256                 string                              `json:"source_sha256"`
+	ArtifactSHA256               string                              `json:"artifact_sha256"`
+	Changed                      bool                                `json:"changed"`
+	StyleOperationDiagnoses      *[]FinalEditStyleOperationDiagnosis `json:"style_operation_diagnoses,omitempty"`
+	GateFindings                 []StoredFinalEditGateFinding        `json:"gate_findings,omitempty"`
+	SemanticAcceptance           []StoredFinalEditSemanticAcceptance `json:"semantic_acceptance,omitempty"`
+	SemanticAcceptanceDigest     string                              `json:"semantic_acceptance_digest,omitempty"`
+	SemanticAcceptanceCount      int                                 `json:"semantic_acceptance_count,omitempty"`
+	Text                         string                              `json:"text"`
 }
 
 func longFormCanonicalRequestForFinalEdit(eventID string, binding LongFormFinalizeBinding, artifact app.RawArtifact, finalWords int, req LongFormFinalizeRequest) app.AppendEventRequest {
@@ -121,6 +130,7 @@ func longFormCanonicalRequestForFinalEdit(eventID string, binding LongFormFinali
 	putFinalEditCanonicalFields(payload, binding, artifact, finalEditCanonicalFields{
 		Pipeline:         strings.TrimSpace(req.FinalEditPipeline),
 		GateFindings:     req.GateFindings,
+		SemanticReview:   req.SemanticReview,
 		ActualArtifactID: strings.TrimSpace(req.FinalEditActualArtifactID),
 		GateEventID:      strings.TrimSpace(req.FinalEditGateEventID),
 		GateChanged:      req.FinalEditGateChanged,
@@ -143,6 +153,11 @@ func putFinalEditCanonicalFields(payload map[string]any, binding LongFormFinaliz
 	}
 	if len(fields.GateFindings) > 0 {
 		payload["final_edit_gate_findings"] = fields.GateFindings
+	}
+	if fields.SemanticReview.Count > 0 {
+		payload["final_edit_semantic_acceptance"] = fields.SemanticReview.Records
+		payload["final_edit_semantic_acceptance_digest"] = fields.SemanticReview.Digest
+		payload["final_edit_semantic_acceptance_count"] = fields.SemanticReview.Count
 	}
 }
 
@@ -191,7 +206,7 @@ func FinalEditPipelineFromPlanEvent(event app.LedgerEvent) (FinalEditPipelinePla
 
 func isSupportedFinalEditPipeline(value string) bool {
 	switch strings.TrimSpace(value) {
-	case FinalEditPipelineReaderStyleGateV1, FinalEditPipelineAssemblyWriterReaderStyleGateV2:
+	case FinalEditPipelineReaderStyleGateV1, FinalEditPipelineAssemblyWriterReaderStyleGateV2, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3:
 		return true
 	default:
 		return false

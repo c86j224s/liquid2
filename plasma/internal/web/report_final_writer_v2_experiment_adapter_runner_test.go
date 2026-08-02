@@ -65,7 +65,12 @@ func (executor *finalWriterV2FixtureExecutor) Run(ctx context.Context, req Agent
 		}
 		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
 	}
-	if _, err := reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_exp55_submit_%d", len(executor.requests)), markdown, operationCount); err != nil {
+	if binding.Stage == reporting.FinalEditStageStyle {
+		_, err = reporting.SubmitFinalEditStyleStage(ctx, executor.service, binding, fmt.Sprintf("evt_exp55_submit_%d", len(executor.requests)), markdown, operationCount, finalEditStyleDiagnosesForWebTest(operationCount))
+	} else {
+		_, err = reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_exp55_submit_%d", len(executor.requests)), markdown, operationCount)
+	}
+	if err != nil {
 		return AgentResult{}, err
 	}
 	return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil

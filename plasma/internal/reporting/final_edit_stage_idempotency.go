@@ -17,6 +17,10 @@ func FinalEditStageIdempotencyKey(stage string, pendingEventID string, planEvent
 		return "report-final-edit-style:" + strings.TrimSpace(pendingEventID) + ":" + strings.TrimSpace(planEventID)
 	case FinalEditStageGate:
 		return "report-final-edit-gate:" + strings.TrimSpace(pendingEventID) + ":" + strings.TrimSpace(planEventID)
+	case FinalEditStageStyleSemanticValidation:
+		return "report-final-edit-style-semantic-validation:" + strings.TrimSpace(pendingEventID) + ":" + strings.TrimSpace(planEventID)
+	case FinalEditStageEvidenceGate:
+		return "report-final-edit-evidence-gate:" + strings.TrimSpace(pendingEventID) + ":" + strings.TrimSpace(planEventID)
 	default:
 		return ""
 	}
@@ -90,8 +94,10 @@ func validateFinalEditStageBinding(value FinalEditStageBinding) error {
 	if value.FinalEditPipeline != "" && !isSupportedFinalEditPipeline(value.FinalEditPipeline) {
 		return fmt.Errorf("%w: unsupported final edit pipeline", app.ErrInvalidInput)
 	}
-	if value.Stage == FinalEditStageWriter && value.FinalEditPipeline != "" && value.FinalEditPipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		return fmt.Errorf("%w: final writer stage requires assembly_writer_reader_style_gate_v2", app.ErrInvalidInput)
+	if value.Stage == FinalEditStageWriter && value.FinalEditPipeline != "" &&
+		value.FinalEditPipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 &&
+		value.FinalEditPipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return fmt.Errorf("%w: final writer stage requires an assembly final edit pipeline", app.ErrInvalidInput)
 	}
 	if value.IdempotencyKey != FinalEditStageIdempotencyKey(value.Stage, value.PendingEventID, value.PlanEventID) {
 		return fmt.Errorf("%w: final edit stage idempotency key differs from contract", app.ErrInvalidInput)

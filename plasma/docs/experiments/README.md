@@ -198,6 +198,33 @@ large artifacts live outside the repository under `research-artifacts/`.
       finalization responsibilities and preserve room for later improvement,
       without claiming immediate quality superiority or completed blind human
       adjudication.
+57. [`57-report-natural-voice-selective-acceptance-2026-07-30.md`](57-report-natural-voice-selective-acceptance-2026-07-30.md)
+    - Completed the issue #207 tone-and-word-choice experiment on eight sealed
+      final manuscripts. All eight selectively assembled candidates passed the
+      deterministic guards and won the locked blind reading, while a post-decode
+      review found no semantic or citation drift. The sealed prompt advances as
+      a productization candidate, not a product default.
+58. [`58-report-natural-voice-examples-2026-07-30.md`](58-report-natural-voice-examples-2026-07-30.md)
+    - Tested whether six concrete target-voice example sets could amplify the
+      safe but subtle experiment 57 correction. The example prompt split the
+      eight blind readings 4-4, with four clear wins and four slight losses.
+      One of four audited meaning drifts belonged to the example arm; the other
+      three belonged to the control. The prompt was not adopted, but the signal
+      was retained for a narrower follow-up rather than discarded.
+59. [`59-report-natural-voice-contrastive-examples-2026-07-31.md`](59-report-natural-voice-contrastive-examples-2026-07-31.md)
+    - Replaced experiment 58's simple example block with category-matched edit,
+      preserve, and forbidden contrast cases. The contrastive prompt won two of
+      eight blind readings, including one large win, but lost six, with four
+      clear losses and two candidate-arm meaning drifts. The approach was not
+      adopted; the result shows an unstable example-imitation effect rather
+      than proving that examples are categorically ineffective.
+60. [`60-report-natural-voice-examples-replication-2026-07-31.md`](60-report-natural-voice-examples-replication-2026-07-31.md)
+    - Repeated experiment 58's exact simple-example prompt on eight fresh
+      manuscripts. The example arm won three blind readings and lost five, with
+      a signed magnitude score of `-2`; it also produced three semantic and
+      claim-scope drifts versus one semantic drift in the control. The earlier
+      promising signal did not replicate, and product readiness remains
+      unevaluated because this experiment did not run the product path.
 
 ## Controller Experiment Sequence
 

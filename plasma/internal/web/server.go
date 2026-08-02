@@ -36,6 +36,7 @@ type Server struct {
 	confluenceAPIBaseURL        string
 	confluenceOAuthStates       confluenceOAuthStates
 	fetchURLSource              urlSourceFetchFunc
+	renderBrowserURLSource      browserURLSourceRenderFunc
 	fetchMedia                  mediaSourceFetchFunc
 	fetchPDF                    pdfSourceFetchFunc
 	environmentLabel            string
@@ -48,6 +49,7 @@ type Options struct {
 	AgentExecutor               AgentExecutor
 	AgentExecutors              map[string]AgentExecutor
 	urlFetcher                  urlSourceFetchFunc
+	browserRenderer             browserURLSourceRenderFunc
 	mediaFetcher                mediaSourceFetchFunc
 	pdfFetcher                  pdfSourceFetchFunc
 	WorkflowGoalModel           string
@@ -62,6 +64,7 @@ type Options struct {
 }
 
 type urlSourceFetchFunc func(context.Context, string) (fetchedURLSource, error)
+type browserURLSourceRenderFunc func(context.Context, string) (fetchedURLSource, error)
 type mediaSourceFetchFunc func(context.Context, string) (fetchedMediaSource, error)
 type pdfSourceFetchFunc func(context.Context, string) (fetchedPDFSource, error)
 
@@ -69,6 +72,10 @@ func NewServer(service *app.Service, options Options) http.Handler {
 	urlFetcher := options.urlFetcher
 	if urlFetcher == nil {
 		urlFetcher = fetchURLSource
+	}
+	browserRenderer := options.browserRenderer
+	if browserRenderer == nil {
+		browserRenderer = renderBrowserURLSource
 	}
 	mediaFetcher := options.mediaFetcher
 	if mediaFetcher == nil {
@@ -99,6 +106,7 @@ func NewServer(service *app.Service, options Options) http.Handler {
 		confluenceOAuthDiscoveryURL: strings.TrimSpace(options.ConfluenceOAuthDiscoveryURL),
 		confluenceAPIBaseURL:        strings.TrimSpace(options.ConfluenceAPIBaseURL),
 		fetchURLSource:              urlFetcher,
+		renderBrowserURLSource:      browserRenderer,
 		fetchMedia:                  mediaFetcher,
 		fetchPDF:                    pdfFetcher,
 		environmentLabel:            strings.TrimSpace(options.EnvironmentLabel),

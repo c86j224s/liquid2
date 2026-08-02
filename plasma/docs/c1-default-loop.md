@@ -63,6 +63,12 @@ candidate-read MCP tool to avoid duplicate or low-value proposals, but default
 source lists, normal raw artifact reads, and report generation exclude it until
 the user accepts the candidate and Plasma creates a source snapshot.
 
+When the staged or directly accepted URL is a successful HTML fetch but looks
+like a thin JavaScript application shell, Plasma may attach a
+`browser_render_candidate` diagnostic to the source event payload. This is only
+a review signal for later browser-rendering experiments; it does not run a
+browser fallback or promote the candidate.
+
 Controller strategy selection is an observable steering event. It may add short
 guidance to the agent prompt, but the strategy selection event itself must not
 create sources, evidence, claims, confidence updates, source candidates,

@@ -217,13 +217,13 @@ func (server *Server) validateFinalEditConfiguration() error {
 		if finalProvided {
 			return fmt.Errorf("%w: final writer final edit stage MCP server must not carry a final binding", app.ErrInvalidInput)
 		}
-	case reporting.FinalEditStageReader, reporting.FinalEditStageStyle:
+	case reporting.FinalEditStageReader, reporting.FinalEditStageStyle, reporting.FinalEditStageStyleSemanticValidation:
 		if finalProvided {
-			return fmt.Errorf("%w: reader/style final edit stage MCP servers must not carry a final binding", app.ErrInvalidInput)
+			return fmt.Errorf("%w: reader/style validation final edit stage MCP servers must not carry a final binding", app.ErrInvalidInput)
 		}
-	case reporting.FinalEditStageGate:
+	case reporting.FinalEditStageGate, reporting.FinalEditStageEvidenceGate:
 		if !finalProvided {
-			return fmt.Errorf("%w: corrective gate final edit MCP server requires a final binding", app.ErrInvalidInput)
+			return fmt.Errorf("%w: final edit gate MCP server requires a final binding", app.ErrInvalidInput)
 		}
 		if err := ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding); err != nil {
 			return err

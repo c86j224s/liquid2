@@ -526,16 +526,15 @@ Agent-backed report generation forks the current
 research provider session when possible for every report mode except
 `one_take`, keeps report planning and Markdown generation in that report-only
 session, and stores returned Markdown as Plasma-owned report artifacts. The
-default report path uses the adopted G2 generation-time guidance and leaves the
-H5 Korean tone pass disabled unless the user or caller explicitly requests a
-humanized Markdown export. When requested, browser and CLI report runners run H5
-as a shared post-report Markdown transformation. It does not replace the
+default report path uses the adopted G2 generation-time guidance. Manual
+post-canonical H5 export is deprecated in the browser and remains only for
+historical artifacts and direct API compatibility. It does not replace the
 original artifact and does not participate in planning, source selection, AST
-shaping, content-model generation, or Designed HTML rendering. Staged long-form
-final-edit pipelines are the exception to the post-canonical placement only:
-the existing `post_report_humanize` setting controls an optional pre-canonical
-style edit before the corrective gate, and the old post-canonical H5 export is
-suppressed for those stored pipelines.
+shaping, content-model generation, or Designed HTML rendering. For new
+long-form reports, the browser always sends `post_report_humanize=enabled` to
+run the pre-canonical style edit plus read-only semantic validation before the
+read-only evidence gate; there is no user toggle, and non-long-form browser
+requests keep it disabled.
 Manual or legacy humanized Markdown export keeps the post-report H5 meaning. The H5 pass
 resumes the report session and exposes only the bounded
 `plasma.report.patch.*` MCP tools, so it reads the saved Markdown artifact in
@@ -603,7 +602,7 @@ canonical brief; it does not compare a retry request's newly generated brief to
 that canonical brief.
 
 New planned narrative long-form plans carry
-`final_edit_pipeline: assembly_writer_reader_style_gate_v2`. After reviewed
+`final_edit_pipeline: assembly_writer_reader_style_validation_evidence_gate_v3`. After reviewed
 Part outputs exist, the runner creates a deterministic final assembly in product
 code with no agent session, then forks a final writer from the report-plan
 provider session. The writer receives only
@@ -615,26 +614,39 @@ consumes the writer artifact without inheriting the writer session. If
 normalized `post_report_humanize` is enabled, a pre-canonical style stage forks
 from the reader provider session with style-edit tools only and may make small
 tone/fluency patches without changing claims, citations, structure, or
-requirement coverage. The corrective gate is another sibling fork from the
-report-plan session, receives approved read tools plus the existing
-`plasma.report.long_form.final_edit.*` tool surface, and is the only canonical
-producer. The gate is not a mandatory shrink or censorship pass; it fixes only
-source/evidence boundary failures, owner-bound requirement failures, and
-unsupported claims that need an approved repair. It records hashed gate findings
-without raw statement text, submits the gate stage, and creates exactly one
-canonical `report.artifact.created` event. A no-op gate canonicalizes the prior
-durable artifact, while a changed gate creates the planned final artifact.
+requirement coverage. Its submitted ledger event stores ordered
+`style_operation_diagnoses` records with `style_operation_diagnoses_version=1`;
+each record carries the 1-based operation ordinal, validated category token,
+concrete summary reason, exact match text, exact replacement text, and effective
+occurrence used for the accepted patch. It still omits broader document
+excerpts and prompt/provider output. A separate read-only
+`style_semantic_validation` stage
+then receives only reader/style comparison and verdict-submit tools. The server
+applies `accepted_equivalent` or `rejected_revert_to_reader` verdicts
+deterministically from durable paragraph lineage. The read-only `evidence_gate`
+is another sibling fork from the report-plan session, receives approved read
+tools plus evidence read/submit tools only, and judges report-to-evidence
+connections without prose repair authority. Its read packet pairs deterministic
+report-owned Markdown blocks with server-computed `statement_sha256` values.
+The reporting layer reloads the bound source artifact, verifies lineage/SHA,
+rejects submitted hashes outside that exact content, stores connection judgments
+without raw passages, and canonicalizes the byte-identical artifact with
+`operation_count=0`.
 
-This v2 path is the adopted default finalization path for new planned narrative
-long-form reports. The Web progress view shows the actual sequence as
-`최종 조립`, `최종 작성`, `독자 편집`, optional `말투 편집`, and `근거·요구 교정`.
-When `post_report_humanize` is disabled, only the `말투 편집` node is omitted.
+This v3 path is the adopted default finalization path for new planned narrative
+long-form reports. For new browser long-form requests, the Web progress view
+shows the actual sequence as `최종 조립`, `최종 작성`, `독자 편집`, `말투 편집`,
+`말투 의미 검증`, and `근거 연결 검증`. Direct API or legacy/replay runs whose
+stored `post_report_humanize` is disabled omit both style nodes and flow from
+reader edit directly to `evidence_gate`.
 
 Stored plans with `final_edit_pipeline: reader_style_gate_v1` keep their
 existing replay semantics: reviewed Parts are assembled into an immutable
 reader-source Markdown artifact, then reader edit, optional style edit, and the
 same corrective gate run without deterministic final assembly or final writer
 stages.
+Stored `assembly_writer_reader_style_gate_v2` plans also keep their historical
+corrective-gate repair semantics for decode, replay, and interrupted recovery.
 
 Recovery derives Part planning only from the stored plan payload, rejects
 missing, duplicate, malformed, wrong-Part, wrong-plan, wrong-session, or stale

@@ -29,6 +29,23 @@ func TestFinalEditStageReplayRejectsChangedInputForSameIdempotencyKey(t *testing
 	}
 }
 
+func TestFinalEditStageDisabledReplayUsesExistingSubmissionBeforeDuplicateSourceRead(t *testing.T) {
+	ctx := context.Background()
+	svc, closeStore := newFinalEditStageStoreFixture(t, ctx, FinalEditHumanizeDisabled)
+	defer closeStore()
+	binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+	reader := startAndSubmitFinalEditReaderForStoreTest(t, ctx, svc, binding, "disabled_read_surface")
+
+	guarded := &finalEditStageDuplicateReadGuardStore{Service: svc, failAfterEventLists: 1}
+	result, err := SubmitFinalEditStage(ctx, guarded, reader.Binding, "evt_reader_disabled_read_surface_replay", string(reader.Artifact.Content), 0)
+	if err != nil {
+		t.Fatalf("disabled reader replay performed duplicate source read: %v", err)
+	}
+	if result.Artifact.ArtifactID != reader.Artifact.ArtifactID {
+		t.Fatalf("reader replay artifact=%q, want %q", result.Artifact.ArtifactID, reader.Artifact.ArtifactID)
+	}
+}
+
 func TestFinalEditGateReplayRejectsChangedFindingsForStoredSubmission(t *testing.T) {
 	ctx := context.Background()
 	svc, closeStore := newFinalEditStageStoreFixture(t, ctx, FinalEditHumanizeDisabled)
@@ -141,7 +158,7 @@ func TestFinalEditCanonicalReplayRejectsGateFindingMismatch(t *testing.T) {
 		Classification:  FinalEditGateClassUnverifiedExternalFact,
 		RepairAction:    FinalEditRepairRemove,
 	}}
-	gateSubmitted, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_canonical_mismatch_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, gateFindings))
+	gateSubmitted, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_gate_canonical_mismatch_submit", gateBinding, reader.Artifact, finalArtifact, 1, true, gateFindings, FinalEditSemanticAttestation{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,17 +183,185 @@ func TestFinalEditCanonicalReplayRejectsGateFindingMismatch(t *testing.T) {
 	}
 }
 
+func TestSubmitFinalEditEvidenceGateCanonicalLoadAndIdempotentReplay(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "plasma.db")
+	svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, path, FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+	binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+	reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "evidence_canonical")
+	evidenceBinding := finalEditStageStoreStageBinding(binding, FinalEditStageEvidenceGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+	finalBinding := finalEditStageStoreFinalBindingForStage(binding, evidenceBinding)
+	approvedSvc := finalEditApprovedEvidenceStoreForFinalEditTest(svc, binding.MissionID, "evd_evidence_canonical")
+	if _, created, err := StartFinalEditStage(ctx, approvedSvc, "evt_evidence_canonical_start", evidenceBinding); err != nil || !created {
+		t.Fatalf("evidence gate start created=%t err=%v", created, err)
+	}
+	passages, err := FinalEditEvidenceGatePassages(string(reader.Artifact.Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	badFinding := FinalEditGateFinding{StatementSHA256: strings.Repeat("0", 64), Classification: FinalEditGateClassDerivedSynthesis}
+	if _, err := SubmitFinalEditEvidenceGate(ctx, approvedSvc, FinalEditEvidenceGateSubmitRequest{
+		StageBinding:     evidenceBinding,
+		FinalBinding:     finalBinding,
+		StageEventID:     "evt_evidence_bad_hash_submit",
+		CanonicalEventID: "evt_evidence_bad_hash_final",
+		Findings:         []FinalEditGateFinding{badFinding},
+	}); !errors.Is(err, app.ErrInvalidInput) {
+		t.Fatalf("foreign evidence hash error=%v, want invalid input", err)
+	}
+
+	finding := FinalEditGateFinding{
+		StatementSHA256: passages[0].StatementSHA256,
+		Classification:  FinalEditGateClassUnverifiedExternalFact,
+		EvidenceIDs:     []string{"evd_evidence_canonical"},
+	}
+	finalized, err := SubmitFinalEditEvidenceGate(ctx, approvedSvc, FinalEditEvidenceGateSubmitRequest{
+		StageBinding:     evidenceBinding,
+		FinalBinding:     finalBinding,
+		StageEventID:     "evt_evidence_canonical_submit",
+		CanonicalEventID: "evt_evidence_canonical_final",
+		Findings:         []FinalEditGateFinding{finding},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finalized.Artifact.ArtifactID != reader.Artifact.ArtifactID || string(finalized.Artifact.Content) != string(reader.Artifact.Content) {
+		t.Fatalf("evidence gate canonicalized different content: %#v", finalized.Artifact)
+	}
+	loaded, ok, err := LoadFinalEditStageSubmission(ctx, approvedSvc, evidenceBinding)
+	if err != nil || !ok {
+		t.Fatalf("LoadFinalEditStageSubmission after canonical ok=%t err=%v", ok, err)
+	}
+	if loaded.Artifact.ArtifactID != reader.Artifact.ArtifactID || loaded.OperationCount != 0 || loaded.Changed {
+		t.Fatalf("loaded evidence gate submission differs: %#v", loaded)
+	}
+	replayed, err := SubmitFinalEditEvidenceGate(ctx, approvedSvc, FinalEditEvidenceGateSubmitRequest{
+		StageBinding:     evidenceBinding,
+		FinalBinding:     finalBinding,
+		StageEventID:     "evt_evidence_canonical_submit_again",
+		CanonicalEventID: "evt_evidence_canonical_final_again",
+		Findings:         []FinalEditGateFinding{finding},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.Replay || replayed.Event.EventID != finalized.Event.EventID || replayed.Artifact.ArtifactID != finalized.Artifact.ArtifactID {
+		t.Fatalf("evidence gate idempotent replay differs: %#v", replayed)
+	}
+	closeStore()
+
+	reopened, closeReopened := newFinalEditStageStoreFixtureFromExistingDB(t, ctx, path)
+	defer closeReopened()
+	reopenedApproved := finalEditApprovedEvidenceStoreForFinalEditTest(reopened, binding.MissionID, "evd_evidence_canonical")
+	restartedStage, ok, err := LoadFinalEditStageSubmission(ctx, reopenedApproved, evidenceBinding)
+	if err != nil || !ok || restartedStage.Artifact.ArtifactID != finalized.Artifact.ArtifactID {
+		t.Fatalf("restarted evidence stage load ok=%t stage=%#v err=%v", ok, restartedStage, err)
+	}
+	restartedFinal, ok, err := LoadLongFormFinalization(ctx, reopenedApproved, finalBinding)
+	if err != nil || !ok || restartedFinal.Artifact.ArtifactID != finalized.Artifact.ArtifactID {
+		t.Fatalf("restarted canonical load ok=%t final=%#v err=%v", ok, restartedFinal, err)
+	}
+}
+
+func TestFinalEditEvidenceGateReplayRejectsDurableRepairActionAndForeignHash(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name           string
+		finding        StoredFinalEditGateFinding
+		operationCount int
+		changed        bool
+		changedContent bool
+		want           error
+	}{
+		{
+			name: "repair_action",
+			finding: StoredFinalEditGateFinding{
+				StatementSHA256: contentSHA256([]byte("# Report")),
+				Classification:  FinalEditGateClassUnverifiedExternalFact,
+				RepairAction:    FinalEditRepairRemove,
+			},
+			want: app.ErrConflict,
+		},
+		{
+			name: "foreign_hash",
+			finding: StoredFinalEditGateFinding{
+				StatementSHA256: strings.Repeat("0", 64),
+				Classification:  FinalEditGateClassDerivedSynthesis,
+			},
+			want: app.ErrInvalidInput,
+		},
+		{
+			name:           "changed_artifact",
+			operationCount: 0,
+			changed:        true,
+			changedContent: true,
+			want:           app.ErrConflict,
+		},
+		{
+			name:           "nonzero_operation_count",
+			operationCount: 1,
+			want:           app.ErrConflict,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, closeStore := newFinalEditStageStoreFixtureWithPipeline(t, ctx, filepath.Join(t.TempDir(), "plasma.db"), FinalEditHumanizeDisabled, FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3)
+			defer closeStore()
+			binding := finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled)
+			reader := startAndSubmitV3FinalEditReaderForStoreTest(t, ctx, svc, binding, "evidence_reject_"+tc.name)
+			evidenceBinding := finalEditStageStoreStageBinding(binding, FinalEditStageEvidenceGate, reader.Artifact.ArtifactID, binding.ArtifactID)
+			evidenceBinding.FinalEditPipeline = FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
+			if _, created, err := StartFinalEditStage(ctx, svc, "evt_evidence_reject_"+tc.name+"_start", evidenceBinding); err != nil || !created {
+				t.Fatalf("evidence gate start created=%t err=%v", created, err)
+			}
+			artifact := reader.Artifact
+			if tc.changedContent {
+				artifact = createFinalEditReplayArtifact(t, ctx, svc, evidenceBinding, evidenceBinding.EditedArtifactID, "# Report\n\nChanged by forged evidence gate.\n", evidenceBinding.Producer)
+			}
+			findings := []StoredFinalEditGateFinding{tc.finding}
+			if tc.finding.Classification == "" {
+				findings = nil
+			}
+			if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_evidence_reject_"+tc.name+"_submit", evidenceBinding, reader.Artifact, artifact, tc.operationCount, tc.changed, findings, FinalEditSemanticAttestation{})); err != nil {
+				t.Fatal(err)
+			}
+			_, ok, err := LoadFinalEditStageSubmission(ctx, svc, evidenceBinding)
+			if !errors.Is(err, tc.want) || ok {
+				t.Fatalf("durable evidence replay ok=%t err=%v, want %v", ok, err, tc.want)
+			}
+		})
+	}
+}
+
 type finalEditStageStoreReaderResult struct {
 	Binding  FinalEditStageBinding
 	Artifact app.RawArtifact
 }
 
+type finalEditStageDuplicateReadGuardStore struct {
+	*app.Service
+	eventLists          int
+	failAfterEventLists int
+}
+
+func (s *finalEditStageDuplicateReadGuardStore) ListEvents(ctx context.Context, missionID string) ([]app.LedgerEvent, error) {
+	s.eventLists++
+	if s.failAfterEventLists > 0 && s.eventLists > s.failAfterEventLists {
+		return nil, errors.New("unexpected duplicate lineage event read")
+	}
+	return s.Service.ListEvents(ctx, missionID)
+}
+
 func newFinalEditStageStoreFixture(t *testing.T, ctx context.Context, humanize string) (*app.Service, func()) {
 	t.Helper()
-	return newFinalEditStageStoreFixtureAt(t, ctx, filepath.Join(t.TempDir(), "plasma.db"), humanize)
+	return newFinalEditStageStoreFixtureWithPipeline(t, ctx, filepath.Join(t.TempDir(), "plasma.db"), humanize, FinalEditPipelineReaderStyleGateV1)
 }
 
 func newFinalEditStageStoreFixtureAt(t *testing.T, ctx context.Context, path string, humanize string) (*app.Service, func()) {
+	t.Helper()
+	return newFinalEditStageStoreFixtureWithPipeline(t, ctx, path, humanize, FinalEditPipelineReaderStyleGateV1)
+}
+
+func newFinalEditStageStoreFixtureWithPipeline(t *testing.T, ctx context.Context, path string, humanize string, pipeline string) (*app.Service, func()) {
 	t.Helper()
 	store, err := sqlite.Open(ctx, path)
 	if err != nil {
@@ -206,7 +391,7 @@ func newFinalEditStageStoreFixtureAt(t *testing.T, ctx context.Context, path str
 		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"report_mode": ModeLongForm})},
 		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{
 			"pending_event_id": binding.PendingEventID, "report_mode": ModeLongForm, "artifact_id": binding.ArtifactID,
-			"final_edit_pipeline": FinalEditPipelineReaderStyleGateV1, "post_report_humanize": humanize,
+			"final_edit_pipeline": pipeline, "post_report_humanize": humanize,
 			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"section 1"}}}},
 		})},
 		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
@@ -218,6 +403,35 @@ func newFinalEditStageStoreFixtureAt(t *testing.T, ctx context.Context, path str
 		}
 	}
 	return svc, func() { _ = store.Close() }
+}
+
+func newFinalEditStageStoreFixtureFromExistingDB(t *testing.T, ctx context.Context, path string) (*app.Service, func()) {
+	t.Helper()
+	store, err := sqlite.Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app.NewService(store), func() { _ = store.Close() }
+}
+
+type finalEditApprovedEvidenceStore struct {
+	*app.Service
+	evidence map[string]app.EvidenceRecord
+}
+
+func finalEditApprovedEvidenceStoreForFinalEditTest(svc *app.Service, missionID string, evidenceIDs ...string) finalEditApprovedEvidenceStore {
+	evidence := make(map[string]app.EvidenceRecord, len(evidenceIDs))
+	for _, evidenceID := range evidenceIDs {
+		evidence[evidenceID] = app.EvidenceRecord{EvidenceID: evidenceID, MissionID: missionID, State: "approved"}
+	}
+	return finalEditApprovedEvidenceStore{Service: svc, evidence: evidence}
+}
+
+func (s finalEditApprovedEvidenceStore) GetEvidenceRecord(ctx context.Context, evidenceID string) (app.EvidenceRecord, error) {
+	if record, ok := s.evidence[evidenceID]; ok {
+		return record, nil
+	}
+	return s.Service.GetEvidenceRecord(ctx, evidenceID)
 }
 
 func startAndSubmitFinalEditReaderForStoreTest(t *testing.T, ctx context.Context, svc *app.Service, binding LongFormFinalizeBinding, suffix string) finalEditStageStoreReaderResult {
@@ -233,6 +447,34 @@ func startAndSubmitFinalEditReaderForStoreTest(t *testing.T, ctx context.Context
 		t.Fatal(err)
 	}
 	return finalEditStageStoreReaderResult{Binding: readerBinding, Artifact: result.Artifact}
+}
+
+func startAndSubmitV3FinalEditReaderForStoreTest(t *testing.T, ctx context.Context, svc *app.Service, binding LongFormFinalizeBinding, suffix string) finalEditStageStoreReaderResult {
+	t.Helper()
+	assemblyID := FinalEditAssemblyArtifactID(binding.PlanEventID, binding.PartArtifactIDs)
+	writerBinding := finalEditStageStoreStageBinding(binding, FinalEditStageWriter, assemblyID, "art_writer_"+suffix)
+	writerBinding.FinalEditPipeline = FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
+	if _, created, err := EnsureFinalEditAssembly(ctx, svc, "evt_assembly_"+suffix, writerBinding); err != nil || !created {
+		t.Fatalf("assembly created=%t err=%v", created, err)
+	}
+	if _, created, err := StartFinalEditStage(ctx, svc, "evt_writer_"+suffix+"_start", writerBinding); err != nil || !created {
+		t.Fatalf("writer start created=%t err=%v", created, err)
+	}
+	markdown := AssembleLongFormFinalMarkdown(binding.Title, "", "", []string{"# Part 1\n\nPreserved body.\n"})
+	writer, err := SubmitFinalEditStage(ctx, svc, writerBinding, "evt_writer_"+suffix+"_submit", markdown, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readerBinding := finalEditStageStoreStageBinding(binding, FinalEditStageReader, writer.Artifact.ArtifactID, "art_reader_"+suffix)
+	readerBinding.FinalEditPipeline = FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
+	if _, created, err := StartFinalEditStage(ctx, svc, "evt_reader_"+suffix+"_start", readerBinding); err != nil || !created {
+		t.Fatalf("reader start created=%t err=%v", created, err)
+	}
+	reader, err := SubmitFinalEditStage(ctx, svc, readerBinding, "evt_reader_"+suffix+"_submit", string(writer.Artifact.Content), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return finalEditStageStoreReaderResult{Binding: readerBinding, Artifact: reader.Artifact}
 }
 
 func finalEditStageStoreFinalBinding(humanize string) LongFormFinalizeBinding {
@@ -267,6 +509,16 @@ func finalEditStageStoreStageBinding(binding LongFormFinalizeBinding, stage stri
 		SessionChainKind: binding.SessionChainKind, PreReportResearchSessionID: binding.PreReportResearchSessionID, ReportPlanSessionID: binding.ReportPlanSessionID,
 		ForkSourceAgentSessionID: binding.ReportPlanSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
 	}
+}
+
+func finalEditStageStoreFinalBindingForStage(binding LongFormFinalizeBinding, stage FinalEditStageBinding) LongFormFinalizeBinding {
+	binding.ToolSessionID = stage.ToolSessionID
+	binding.ProviderSessionID = stage.ProviderSessionID
+	binding.PreviousProviderSessionID = stage.PreviousProviderSessionID
+	binding.ForkSourceAgentSessionID = stage.ForkSourceAgentSessionID
+	binding.Producer = stage.Producer
+	binding.PostReportHumanize = stage.PostReportHumanize
+	return binding
 }
 
 func finalEditStageStoreJSON(value any) json.RawMessage {

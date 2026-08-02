@@ -182,7 +182,7 @@ func finalEditStageReplayArtifact(artifactID, missionID, filename string, produc
 }
 
 func finalEditStageReplaySubmittedEvent(binding FinalEditStageBinding, source, artifact app.RawArtifact, changed bool, findings []StoredFinalEditGateFinding) app.LedgerEvent {
-	request := buildFinalEditSubmittedAppendRequest("evt_stage_replay_submit", binding, source, artifact, 1, changed, findings)
+	request := buildFinalEditSubmittedAppendRequest("evt_stage_replay_submit", binding, source, artifact, 1, changed, findings, FinalEditSemanticAttestation{})
 	return app.LedgerEvent{
 		EventID:          request.EventID,
 		MissionID:        request.MissionID,

@@ -40,6 +40,7 @@ func FinalEditRepairActionsInOrder() []string {
 
 type FinalEditGateFinding struct {
 	Statement              string
+	StatementSHA256        string
 	Classification         string
 	RepairAction           string
 	EvidenceIDs            []string
@@ -78,6 +79,60 @@ func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidence
 		out = append(out, normalized)
 	}
 	return out, nil
+}
+
+func NormalizeFinalEditEvidenceGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
+	missionID = strings.TrimSpace(missionID)
+	if missionID == "" {
+		return nil, fmt.Errorf("%w: mission id is required", app.ErrInvalidInput)
+	}
+	out := make([]StoredFinalEditGateFinding, 0, len(findings))
+	seen := map[string]bool{}
+	for _, finding := range findings {
+		normalized, err := normalizeFinalEditEvidenceGateFinding(ctx, store, missionID, finding)
+		if err != nil {
+			return nil, err
+		}
+		if seen[normalized.StatementSHA256] {
+			return nil, fmt.Errorf("%w: duplicate evidence gate statement hash", app.ErrConflict)
+		}
+		seen[normalized.StatementSHA256] = true
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func normalizeFinalEditEvidenceGateFinding(ctx context.Context, store finalEditEvidenceStore, missionID string, finding FinalEditGateFinding) (StoredFinalEditGateFinding, error) {
+	if strings.TrimSpace(finding.Statement) != "" ||
+		strings.TrimSpace(finding.RepairAction) != "" ||
+		strings.TrimSpace(finding.RawPassage) != "" ||
+		len(finding.UnapprovedSourceIDs) > 0 ||
+		len(finding.UnapprovedCandidateIDs) > 0 {
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate findings cannot carry prose, repair actions, raw passages, or unapproved refs", app.ErrInvalidInput)
+	}
+	statementSHA := strings.TrimSpace(finding.StatementSHA256)
+	if !validStoredFinalEditStatementSHA256(statementSHA) {
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate statement hash is invalid", app.ErrInvalidInput)
+	}
+	classification := strings.TrimSpace(finding.Classification)
+	if !finalEditGateClasses[classification] {
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unsupported gate classification", app.ErrInvalidInput)
+	}
+	evidenceIDs := normalizeReportingIDs(finding.EvidenceIDs)
+	if len(evidenceIDs) > 0 && store == nil {
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate store is required", app.ErrInvalidInput)
+	}
+	for _, evidenceID := range evidenceIDs {
+		record, err := store.GetEvidenceRecord(ctx, evidenceID)
+		if err != nil || record.MissionID != missionID || strings.TrimSpace(record.State) != "approved" {
+			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate evidence ref is not approved", app.ErrInvalidInput)
+		}
+	}
+	return StoredFinalEditGateFinding{
+		StatementSHA256: statementSHA,
+		Classification:  classification,
+		EvidenceIDs:     evidenceIDs,
+	}, nil
 }
 
 func normalizeFinalEditGateFinding(ctx context.Context, store finalEditEvidenceStore, missionID string, finding FinalEditGateFinding) (StoredFinalEditGateFinding, error) {

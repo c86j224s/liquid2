@@ -258,6 +258,31 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 			return longFormEditDisabledResult(call)
 		}
 		return server.callReportLongFormEditRead(ctx, call)
+	case ToolReportLongFormStyleReviewRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormStyleReviewRead(ctx, call)
+	case ToolReportLongFormStyleSemanticValidationRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormStyleSemanticValidationRead(ctx, call)
+	case ToolReportLongFormStyleSemanticValidationSubmit:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportLongFormStyleSemanticValidationSubmit)
+	case ToolReportLongFormEvidenceGateRead:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.callReportLongFormEvidenceGateRead(ctx, call)
+	case ToolReportLongFormEvidenceGateSubmit:
+		if !server.finalEditStageToolEnabled(call.Name) {
+			return finalEditStageDisabledResult(call)
+		}
+		return server.withIdempotency(ctx, call, server.callReportLongFormEvidenceGateSubmit)
 	case ToolReportLongFormEditPatch:
 		if server.finalEditStageMode() == reporting.FinalEditStageGate {
 			if !server.finalEditStageToolEnabled(call.Name) {

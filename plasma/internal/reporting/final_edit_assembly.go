@@ -67,8 +67,8 @@ func EnsureFinalEditAssembly(ctx context.Context, store FinalEditStageStore, eve
 	if err != nil {
 		return FinalEditAssemblyResult{}, false, err
 	}
-	if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		return FinalEditAssemblyResult{}, false, fmt.Errorf("%w: final assembly requires assembly_writer_reader_style_gate_v2 plan", app.ErrConflict)
+	if !isFinalEditAssemblyPipeline(plan.Pipeline) {
+		return FinalEditAssemblyResult{}, false, fmt.Errorf("%w: final assembly requires assembly final edit plan", app.ErrConflict)
 	}
 	binding = finalEditStageBindingForPlan(binding, plan)
 	artifactReq, assembly, err := finalEditAssemblyRequest(ctx, store, events, binding)
@@ -93,8 +93,8 @@ func EnsureFinalEditAssembly(ctx context.Context, store FinalEditStageStore, eve
 		if err != nil {
 			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
 		}
-		if plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: final assembly requires assembly_writer_reader_style_gate_v2 plan", app.ErrConflict)
+		if !isFinalEditAssemblyPipeline(plan.Pipeline) {
+			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: final assembly requires assembly final edit plan", app.ErrConflict)
 		}
 		bound := finalEditStageBindingForPlan(binding, plan)
 		request, assembly, err := finalEditAssemblyRequest(ctx, store, events, bound)
@@ -160,7 +160,7 @@ func buildFinalEditAssemblyCreatedAppendRequest(eventID string, binding FinalEdi
 		"schema":              FinalEditAssemblySchema,
 		"pending_event_id":    binding.PendingEventID,
 		"plan_event_id":       binding.PlanEventID,
-		"final_edit_pipeline": FinalEditPipelineAssemblyWriterReaderStyleGateV2,
+		"final_edit_pipeline": binding.FinalEditPipeline,
 		"title":               binding.Title,
 		"artifact_id":         artifact.ArtifactID,
 		"filename":            binding.Filename,
@@ -219,7 +219,7 @@ func validateFinalEditAssemblyCreatedEvent(events []app.LedgerEvent, event app.L
 		payloadString(payload, "schema") != FinalEditAssemblySchema ||
 		!acceptedPending[payloadString(payload, "pending_event_id")] ||
 		payloadString(payload, "plan_event_id") != binding.PlanEventID ||
-		payloadString(payload, "final_edit_pipeline") != FinalEditPipelineAssemblyWriterReaderStyleGateV2 ||
+		payloadString(payload, "final_edit_pipeline") != binding.FinalEditPipeline ||
 		payloadString(payload, "title") != binding.Title ||
 		payloadString(payload, "artifact_id") != request.ArtifactID ||
 		payloadString(payload, "filename") != binding.Filename ||
@@ -230,6 +230,10 @@ func validateFinalEditAssemblyCreatedEvent(events []app.LedgerEvent, event app.L
 		return fmt.Errorf("%w: final assembly event differs from deterministic contract", app.ErrConflict)
 	}
 	return nil
+}
+
+func isFinalEditAssemblyPipeline(pipeline string) bool {
+	return pipeline == FinalEditPipelineAssemblyWriterReaderStyleGateV2 || pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
 }
 
 func validateFinalEditAssemblyArtifact(artifact app.RawArtifact, request app.CreateRawArtifactRequest) error {

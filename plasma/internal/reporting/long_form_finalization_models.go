@@ -55,6 +55,7 @@ type LongFormFinalizeRequest struct {
 	ManuscriptMarkdown        string
 	FinalEditPipeline         string
 	GateFindings              []StoredFinalEditGateFinding
+	SemanticReview            FinalEditSemanticAttestation
 	FinalEditActualArtifactID string
 	FinalEditGateEventID      string
 	FinalEditGateChanged      bool

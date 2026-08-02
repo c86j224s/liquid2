@@ -31,8 +31,17 @@
       site_url: locator?.site_url || locator?.SiteURL || "",
       page_id: locator?.page_id || locator?.PageID || (parts.length >= 2 ? parts.slice(1).join(":") : externalID),
       external_uri: externalURI,
-      version: connector.ExternalVersion || connector.external_version || ""
+      version: connector.ExternalVersion || connector.external_version || "",
+      partial: Boolean(locator && (locator.partial || locator.Partial || sourceLocatorType(locator) === "confluence_page_range")),
+      start: confluenceLocatorNumber(locator, "start", "Start"),
+      end: confluenceLocatorNumber(locator, "end", "End")
     };
+  }
+
+  function confluenceLocatorNumber(locator, lower, upper) {
+    if (!locator) return null;
+    const value = locator[lower] ?? locator[upper];
+    return Number.isFinite(Number(value)) ? Number(value) : null;
   }
 
   function confluenceUpdateState(source) {
@@ -73,11 +82,27 @@
     const parts = [];
     const externalURI = confluenceDisplayableExternalURI(info.external_uri);
     const siteHost = confluenceExternalURIHost(info.site_url || externalURI);
+    parts.push(confluenceScopeLabel(info));
+    const rangeText = confluenceRangeText(info);
+    if (rangeText) parts.push(rangeText);
     if (siteHost) parts.push(`site ${siteHost}`);
     if (info.page_id) parts.push(`page ${info.page_id}`);
     if (info.version) parts.push(`v${info.version}`);
     if (externalURI) parts.push(externalURI);
     return parts.join(" / ");
+  }
+
+  function confluenceScopeLabel(info) {
+    return info?.partial ? "선택 범위" : "전체 페이지";
+  }
+
+  function confluenceRangeText(info) {
+    if (!info?.partial || !Number.isFinite(info.start) || !Number.isFinite(info.end)) return "";
+    return `원문 문자 ${info.start + 1}–${info.end}`;
+  }
+
+  function confluenceDisplayTitle(title) {
+    return String(title || "").replace(/ \(Confluence range \d+-\d+\)$/, "");
   }
 
   function confluenceDisplayableExternalURI(uri) {
@@ -103,6 +128,9 @@
     confluenceUpdateText,
     confluenceUpdateFailureText,
     confluenceSourceText,
+    confluenceScopeLabel,
+    confluenceRangeText,
+    confluenceDisplayTitle,
     confluenceDisplayableExternalURI,
     confluenceExternalURIHost
   });

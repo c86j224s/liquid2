@@ -100,7 +100,7 @@ func ResumeFinalEditGate(ctx context.Context, store FinalEditStageStore, req Fin
 		return LongFormFinalizeResult{}, err
 	}
 	if !ok {
-		return LongFormFinalizeResult{}, fmt.Errorf("%w: corrective gate submission is missing", app.ErrConflict)
+		return LongFormFinalizeResult{}, fmt.Errorf("%w: final edit gate submission is missing", app.ErrConflict)
 	}
 	return finalizeLongForm(ctx, store, LongFormFinalizeRequest{
 		Binding:                   finalBinding,
@@ -108,6 +108,7 @@ func ResumeFinalEditGate(ctx context.Context, store FinalEditStageStore, req Fin
 		ManuscriptMarkdown:        string(stage.Artifact.Content),
 		FinalEditPipeline:         plan.Pipeline,
 		GateFindings:              stage.GateFindings,
+		SemanticReview:            stage.SemanticReview,
 		FinalEditActualArtifactID: stage.Artifact.ArtifactID,
 		FinalEditGateEventID:      stage.Event.EventID,
 		FinalEditGateChanged:      stage.Changed,
@@ -121,8 +122,8 @@ func validateFinalEditGateResumeRequest(ctx context.Context, store FinalEditStag
 	if err := validateLongFormFinalizeBinding(finalBinding); err != nil {
 		return FinalEditPipelinePlanState{}, err
 	}
-	if stageBinding.Stage != FinalEditStageGate {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate resume requires corrective gate stage", app.ErrInvalidInput)
+	if stageBinding.Stage != FinalEditStageGate && stageBinding.Stage != FinalEditStageEvidenceGate {
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate resume requires a gate stage", app.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, finalBinding.MissionID)
 	if err != nil {
@@ -134,6 +135,12 @@ func validateFinalEditGateResumeRequest(ctx context.Context, store FinalEditStag
 	}
 	if !ok || !isSupportedFinalEditPipeline(plan.Pipeline) {
 		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate resume requires active final edit plan", app.ErrConflict)
+	}
+	if stageBinding.Stage == FinalEditStageEvidenceGate && plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate resume requires active v3 final edit plan", app.ErrConflict)
+	}
+	if stageBinding.Stage == FinalEditStageGate && plan.Pipeline == FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: v3 final edit resume requires evidence gate stage", app.ErrConflict)
 	}
 	stageBinding = finalEditStageBindingForPlan(stageBinding, plan)
 	if err := validateLongFormFinalPipeline(events, finalBinding, true); err != nil {

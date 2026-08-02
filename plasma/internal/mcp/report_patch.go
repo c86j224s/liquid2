@@ -41,9 +41,14 @@ type reportPatchDraft struct {
 }
 
 type reportPatchOperation struct {
-	Operation string `json:"operation"`
-	Summary   string `json:"summary,omitempty"`
-	Bytes     int    `json:"bytes"`
+	Operation   string `json:"operation"`
+	Summary     string `json:"summary,omitempty"`
+	Bytes       int    `json:"bytes"`
+	Category    string `json:"category,omitempty"`
+	Reason      string `json:"-"`
+	MatchText   string `json:"-"`
+	Replacement string `json:"-"`
+	Occurrence  int    `json:"-"`
 }
 
 func (server *Server) callReportPatchStart(ctx context.Context, call ToolCall) ToolResult {

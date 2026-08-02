@@ -1,6 +1,9 @@
 package web
 
-import plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+import (
+	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+)
 
 // Report sessions may read accepted mission material, but source discovery and
 // source-candidate tools stay in conversation/research sessions.
@@ -80,11 +83,46 @@ func reportFinalEditStyleMCPTools() []string {
 }
 
 func reportFinalEditGateMCPTools() []string {
+	return reportFinalEditDisabledGateMCPTools()
+}
+
+func reportFinalEditDisabledGateMCPTools() []string {
 	return append(reportReadMCPTools(),
 		plasmamcp.ToolReportLongFormEditStart,
 		plasmamcp.ToolReportLongFormEditRead,
 		plasmamcp.ToolReportLongFormEditPatch,
 		plasmamcp.ToolReportLongFormEditSubmit,
+	)
+}
+
+func reportFinalEditSemanticGateMCPTools() []string {
+	return append(reportReadMCPTools(),
+		plasmamcp.ToolReportLongFormEditStart,
+		plasmamcp.ToolReportLongFormEditRead,
+		plasmamcp.ToolReportLongFormStyleReviewRead,
+		plasmamcp.ToolReportLongFormEditPatch,
+		plasmamcp.ToolReportLongFormEditSubmit,
+	)
+}
+
+func reportFinalEditGateMCPToolsForHumanize(humanize string) []string {
+	if humanize == reporting.FinalEditHumanizeEnabled {
+		return reportFinalEditSemanticGateMCPTools()
+	}
+	return reportFinalEditDisabledGateMCPTools()
+}
+
+func reportFinalEditStyleSemanticValidationMCPTools() []string {
+	return []string{
+		plasmamcp.ToolReportLongFormStyleSemanticValidationRead,
+		plasmamcp.ToolReportLongFormStyleSemanticValidationSubmit,
+	}
+}
+
+func reportFinalEditEvidenceGateMCPTools() []string {
+	return append(reportReadMCPTools(),
+		plasmamcp.ToolReportLongFormEvidenceGateRead,
+		plasmamcp.ToolReportLongFormEvidenceGateSubmit,
 	)
 }
 

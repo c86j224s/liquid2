@@ -373,12 +373,15 @@ func TestReaderStyleGatePipelineStagesAreDurableAndOnlyGateCreatesCanonical(t *t
 		t.Fatalf("reader stage replay loaded=%#v ok=%t err=%v", loaded, ok, err)
 	}
 
-	styleMarkdown := strings.Replace(readerMarkdown, "Preserved body.", "Styled body.", 1)
+	styleMarkdown := strings.Replace(readerMarkdown, "Preserved body.", "Preserved body!", 1)
 	styleBinding := longFormFinalEditStageBinding(binding, reporting.FinalEditStageStyle, reader.Artifact.ArtifactID, "art_style", "")
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_style_start", styleBinding); err != nil || !created {
 		t.Fatalf("style start created=%t err=%v", created, err)
 	}
-	style, err := reporting.SubmitFinalEditStage(ctx, svc, styleBinding, "evt_style_submit", styleMarkdown, 1)
+	style, err := reporting.SubmitFinalEditStyleStage(ctx, svc, styleBinding, "evt_style_submit", styleMarkdown, 1, []reporting.FinalEditStyleOperationDiagnosis{{
+		OperationOrdinal: 1, Category: "unnatural_collocation", Reason: "awkward local phrasing",
+		MatchText: "Preserved body.", Replacement: "Preserved body!", Occurrence: 1,
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,8 +397,12 @@ func TestReaderStyleGatePipelineStagesAreDurableAndOnlyGateCreatesCanonical(t *t
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_gate_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
+	manuscript := strings.Replace(styleMarkdown, "Preserved body!", "Gate-corrected body.", 1)
+	comparison, err := reporting.FinalEditSemanticComparison(ctx, svc, gateBinding, manuscript)
+	if err != nil || len(comparison) != 1 {
+		t.Fatalf("semantic comparison=%#v err=%v", comparison, err)
+	}
 	statement := "This unsupported external fact is removed."
-	manuscript := "# Report\n\nCorrected manuscript.\n"
 	finalized, err := reporting.SubmitFinalEditGate(ctx, svc, reporting.FinalEditGateSubmitRequest{
 		StageBinding:       gateBinding,
 		FinalBinding:       binding,
@@ -407,6 +414,11 @@ func TestReaderStyleGatePipelineStagesAreDurableAndOnlyGateCreatesCanonical(t *t
 			Statement:      statement,
 			Classification: reporting.FinalEditGateClassUnverifiedExternalFact,
 			RepairAction:   reporting.FinalEditRepairRemove,
+		}},
+		SemanticAcceptance: []reporting.FinalEditSemanticAcceptance{{
+			ParagraphOrdinal:      comparison[0].ParagraphOrdinal,
+			FinalParagraphOrdinal: comparison[0].ParagraphOrdinal,
+			Verdict:               reporting.FinalEditSemanticRepairedByGate,
 		}},
 	})
 	if err != nil {

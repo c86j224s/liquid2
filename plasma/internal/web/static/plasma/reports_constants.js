@@ -1,9 +1,9 @@
 (function reportsConstants(root) {
   "use strict";
   const reports = root.Plasma.reports;
-  const $ = root.Plasma.dom.$;
 const REPORT_RIGOR_LABELS = {
   exploratory: "탐색적",
+  // Deprecated for new UI selection; retained for stored events.
   balanced: "균형형",
   strict: "검증형"
 };
@@ -20,20 +20,7 @@ const REPORT_EXECUTION_STRATEGY_LABELS = {
 };
 
 const DEFAULT_REPORT_GENERATION_GUIDANCE = "narrative-contract";
-const DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE = "part-connective-economy-voice";
-// This includes the active long-form default plus older profiles retained for
-// stored events and API compatibility. Only index.html controls visible choices.
-const LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE = new Set([
-  "part-connective-economy-voice",
-  "part-assembly-edit-tools",
-  "section-brief",
-  "section-brief-cluster-memory",
-  "section-brief-visual-plan",
-  "section-brief-cluster-memory-visual-plan",
-  "section-brief-narrative-contract",
-  "section-brief-cluster-memory-narrative-contract"
-]);
-
+const DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE = "section-brief-cluster-memory-narrative-contract";
 // Labels include active UI choices plus legacy profiles that may appear in
 // historical report events. Do not infer that every label is a current selector
 // option.
@@ -59,14 +46,9 @@ function reportGenerationGuidanceLabel(value) {
 }
 
 function selectedReportGenerationGuidance(reportMode) {
-  const modeDefault = reportMode === "long_form"
+  return reportMode === "long_form"
     ? DEFAULT_LONG_FORM_REPORT_GENERATION_GUIDANCE
     : DEFAULT_REPORT_GENERATION_GUIDANCE;
-  const selected = String($("reportGenerationGuidance")?.value || modeDefault).trim() || modeDefault;
-  if (reportMode !== "long_form" && LONG_FORM_ONLY_REPORT_GENERATION_GUIDANCE.has(selected)) {
-    return DEFAULT_REPORT_GENERATION_GUIDANCE;
-  }
-  return selected;
 }
 
 

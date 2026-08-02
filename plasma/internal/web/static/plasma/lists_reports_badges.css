@@ -315,6 +315,15 @@ button.item.secondary {
   font-size: 12px;
 }
 
+.source-candidate-diagnostic {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.item-meta.source-candidate-diagnostic-note {
+  color: var(--amber);
+}
+
 .item-actions {
   display: flex;
   gap: 6px;

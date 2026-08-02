@@ -37,15 +37,20 @@ func (server *Server) recordSourceSnapshotFailure(ctx context.Context, missionID
 }
 
 type fetchedURLSource struct {
-	Content           []byte
-	MediaType         string
-	Title             string
-	ExternalVersion   string
-	ExternalUpdatedAt time.Time
-	ByteSize          int64
-	PageCount         int
-	TextLength        int
-	TextLengthKnown   bool
+	Content            []byte
+	MediaType          string
+	Title              string
+	ExternalVersion    string
+	ExternalUpdatedAt  time.Time
+	ByteSize           int64
+	PageCount          int
+	TextLength         int
+	TextLengthKnown    bool
+	RetrievalMethod    string
+	FinalURL           string
+	RenderedAt         time.Time
+	RawFetchSHA256     string
+	RawFetchArtifactID string
 }
 
 type fetchedMediaSource struct {

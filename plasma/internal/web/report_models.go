@@ -10,7 +10,8 @@ import (
 
 var errReportDraftRunning = errors.New("report draft is already running for this mission")
 
-const defaultReportRigorLevel = "balanced"
+const defaultReportRigorLevel = "strict"
+const legacyPendingReportRigorLevel = "balanced"
 
 const (
 	defaultReportMode   = reporting.DefaultMode
@@ -59,6 +60,8 @@ var reportRigorProfiles = map[string]reportRigorProfile{
 			"- Prefer richness and coverage over premature pruning, while preserving source references for claims that depend on saved evidence.",
 		}, "\n"),
 	},
+	// Deprecated for new UI selection. Retained for stored report events and
+	// explicit API compatibility.
 	"balanced": {
 		level:       "balanced",
 		label:       "균형형",

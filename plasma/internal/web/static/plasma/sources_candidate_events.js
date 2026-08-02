@@ -112,7 +112,8 @@
         eventID: event.EventID,
         sequence,
         artifactID: payload.artifact_id || "",
-        message: payload.message || ""
+        message: payload.message || "",
+        browserRenderCandidate: payload.browser_render_candidate || payload.browserRenderCandidate || null
       };
       for (const key of [proposalEventID, url].filter(Boolean)) {
         const existing = byKey.get(key);
@@ -126,13 +127,21 @@
 
   function sourceCandidateStagingLabel(staging) {
     if (!staging) return "";
+    const browserRender = sourceCandidateBrowserRenderLabel(staging.browserRenderCandidate);
     if (staging.state === "staged") {
-      return `<strong>본문 상태</strong> 미승인 후보 본문 준비됨`;
+      return `<strong>본문 상태</strong> 미승인 후보 본문 준비됨${browserRender}`;
     }
     if (staging.state === "failed") {
       return `<strong>본문 상태</strong> 가져오기 실패${staging.message ? ` · ${escapeHTML(staging.message)}` : ""}`;
     }
     return `<strong>본문 상태</strong> 가져오는 중`;
+  }
+
+  function sourceCandidateBrowserRenderLabel(diagnosis) {
+    if (!diagnosis || diagnosis.candidate !== true) return "";
+    const visible = Number(diagnosis.visible_text_length || 0);
+    const suffix = visible > 0 ? ` · 본문 ${visible}자` : "";
+    return ` · <span class="source-candidate-diagnostic">브라우저 렌더링 후보${suffix}</span>`;
   }
 
   function sourceCandidateDecisions(events) {
@@ -168,6 +177,7 @@
     sourceCandidatesFromEvents,
     sourceCandidateStagingByProposal,
     sourceCandidateStagingLabel,
+    sourceCandidateBrowserRenderLabel,
     sourceCandidateDecisions,
     sourceCandidateTitleForURL
   });

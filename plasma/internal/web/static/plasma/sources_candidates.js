@@ -37,12 +37,14 @@
       const normalized = normalizeSourceURL(candidate.url);
       const busy = state.sourceCandidateBusy.has(normalized);
       const selected = state.selectedSourceCandidates.has(normalized);
+      const browserRender = candidate.staging?.browserRenderCandidate?.candidate === true ? candidate.staging.browserRenderCandidate : null;
       return `
       <div class="item${selected ? " selected" : ""}">
         <input type="checkbox" class="item-select" data-select-source-url="${escapeAttr(normalized)}" data-source-candidate-title="${escapeAttr(candidate.title || "")}" aria-label="후보 선택" ${selected ? "checked" : ""}>
         <div class="item-title">${escapeHTML(candidate.title || candidate.url)}</div>
         <div class="item-meta"><a href="${escapeAttr(candidate.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(candidate.url)}</a></div>
         ${candidate.staging ? `<div class="item-meta">${sourceCandidateStagingLabel(candidate.staging)}</div>` : ""}
+        ${browserRender ? `<div class="item-meta source-candidate-diagnostic-note"><strong>진단</strong> ${escapeHTML(browserRender.reason || "브라우저 렌더링 검증 후보입니다.")}</div>` : ""}
         <div class="item-meta source-candidate-reason"><strong>채택 의견</strong> ${escapeHTML(candidate.reason)}</div>
         <div class="item-actions">
           <button type="button" class="secondary" data-detail-title="소스 후보 상세" data-detail-json="${escapeAttr(JSON.stringify(candidate))}">자세히</button>
