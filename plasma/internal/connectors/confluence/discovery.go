@@ -10,8 +10,11 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 )
 
+// DiscoveryClient는 Atlassian discovery API 호출에 필요한 base URL, HTTP client,
+// 인증 provider를 보관한다.
 type DiscoveryClient struct {
 	baseURL      *url.URL
 	httpClient   *http.Client
@@ -19,8 +22,10 @@ type DiscoveryClient struct {
 	optionErr    error
 }
 
+// DiscoveryOption는 Confluence 커넥터 실행 옵션이다. 0 값과 누락 값의 의미는 생성자나 Normalize 경계가 정한다.
 type DiscoveryOption func(*DiscoveryClient)
 
+// WithDiscoveryHTTPClient는 discovery 요청에 사용할 HTTP client를 주입한다.
 func WithDiscoveryHTTPClient(httpClient *http.Client) DiscoveryOption {
 	return func(client *DiscoveryClient) {
 		if httpClient != nil {
@@ -29,6 +34,7 @@ func WithDiscoveryHTTPClient(httpClient *http.Client) DiscoveryOption {
 	}
 }
 
+// WithDiscoveryBaseURL는 Atlassian discovery endpoint의 base URL을 검증해 교체한다.
 func WithDiscoveryBaseURL(baseURL string) DiscoveryOption {
 	return func(client *DiscoveryClient) {
 		if strings.TrimSpace(baseURL) == "" {
@@ -47,6 +53,7 @@ func WithDiscoveryBaseURL(baseURL string) DiscoveryOption {
 	}
 }
 
+// WithDiscoveryAccessTokenProvider는 access token provider를 Authorization header provider로 감싼다.
 func WithDiscoveryAccessTokenProvider(provider AccessTokenProvider) DiscoveryOption {
 	return func(client *DiscoveryClient) {
 		if provider != nil {
@@ -65,12 +72,14 @@ func WithDiscoveryAccessTokenProvider(provider AccessTokenProvider) DiscoveryOpt
 	}
 }
 
+// WithDiscoveryBearerToken는 고정 bearer token을 쓰는 discovery 인증 provider를 만든다.
 func WithDiscoveryBearerToken(token string) DiscoveryOption {
 	return WithDiscoveryAccessTokenProvider(AccessTokenProviderFunc(func(context.Context) (string, error) {
 		return strings.TrimSpace(token), nil
 	}))
 }
 
+// WithDiscoveryAuthorizationProvider는 완성된 Authorization header provider를 주입한다.
 func WithDiscoveryAuthorizationProvider(provider AuthorizationProvider) DiscoveryOption {
 	return func(client *DiscoveryClient) {
 		if provider != nil {
@@ -79,6 +88,7 @@ func WithDiscoveryAuthorizationProvider(provider AuthorizationProvider) Discover
 	}
 }
 
+// NewDiscoveryClient는 discovery 기본값과 option을 합쳐 호출 가능한 client를 만든다.
 func NewDiscoveryClient(options ...DiscoveryOption) (*DiscoveryClient, error) {
 	parsed, err := parseHTTPURL("https://api.atlassian.com", "confluence discovery base URL")
 	if err != nil {
@@ -97,25 +107,26 @@ func NewDiscoveryClient(options ...DiscoveryOption) (*DiscoveryClient, error) {
 	return client, nil
 }
 
-func (client *DiscoveryClient) ListConfluenceSites(ctx context.Context) (app.ConfluenceSiteListResult, error) {
+// ListConfluenceSites는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
+func (client *DiscoveryClient) ListConfluenceSites(ctx context.Context) (confluenceaccess.SiteListResult, error) {
 	var response []accessibleResource
 	if err := client.getJSON(ctx, "/oauth/token/accessible-resources", &response); err != nil {
-		return app.ConfluenceSiteListResult{}, err
+		return confluenceaccess.SiteListResult{}, err
 	}
-	sites := make([]app.ConfluenceSite, 0, len(response))
+	sites := make([]confluenceaccess.Site, 0, len(response))
 	for _, resource := range response {
 		cloudID := strings.TrimSpace(resource.ID)
 		if cloudID == "" || !resource.hasConfluenceScope() {
 			continue
 		}
-		sites = append(sites, app.ConfluenceSite{
+		sites = append(sites, confluenceaccess.Site{
 			CloudID: cloudID,
 			Name:    strings.TrimSpace(resource.Name),
 			URL:     strings.TrimRight(strings.TrimSpace(resource.URL), "/"),
 			Scopes:  resource.Scopes,
 		})
 	}
-	return app.ConfluenceSiteListResult{Sites: sites}, nil
+	return confluenceaccess.SiteListResult{Sites: sites}, nil
 }
 
 func (client *DiscoveryClient) getJSON(ctx context.Context, endpoint string, target any) error {

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
@@ -126,7 +126,7 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	pendingEvent := appendedEvents[1]
 	events, _ := svc.ListEvents(ctx, missionID)
 	previousSessionID := workflowruntime.LatestAgentSessionID(events, resolvedAgentName)
-	result, err := executor.Run(ctx, web.AgentRequest{
+	result, err := executor.Run(ctx, agentexec.AgentRequest{
 		UserText:          turnText,
 		Prompt:            cliTurnPrompt(missionID, turnText, toolSessionID),
 		MissionID:         missionID,

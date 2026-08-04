@@ -5,6 +5,7 @@ import (
 	"strings"
 )
 
+// ServeHTTP는 Plasma 웹 서버의 HTTP 진입점이며, 라우팅과 프로토콜 적응만 수행하고 제품 정책의 source of truth가 되지 않는다.
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "same-origin")

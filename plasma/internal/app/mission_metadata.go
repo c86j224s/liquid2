@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// UpdateMissionMetadataRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type UpdateMissionMetadataRequest struct {
 	EventID   string
 	MissionID string
@@ -16,11 +17,13 @@ type UpdateMissionMetadataRequest struct {
 	Scope     *MissionScope
 }
 
+// UpdateMissionMetadataResult는 미션 metadata 변경 이벤트와 갱신된 미션을 함께 반환한다.
 type UpdateMissionMetadataResult struct {
 	Event      LedgerEvent       `json:"event"`
 	Projection MissionProjection `json:"projection"`
 }
 
+// UpdateMissionMetadata는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) UpdateMissionMetadata(ctx context.Context, req UpdateMissionMetadataRequest) (UpdateMissionMetadataResult, error) {
 	if req.Title == nil && req.Objective == nil && req.Scope == nil {
 		return UpdateMissionMetadataResult{}, fmt.Errorf("%w: at least one metadata field is required", ErrInvalidInput)

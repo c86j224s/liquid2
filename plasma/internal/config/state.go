@@ -5,12 +5,17 @@ import (
 	"strings"
 )
 
+// FromEnv는 파일과 명령행 인자를 배제하고 환경 변수만 적용한 Config를 만든다.
+//
+// 테스트나 작은 adapter에서 환경 기반 설정만 확인할 때 쓰며, 일반 서버 시작은
+// Load를 사용해야 config 파일 우선순위까지 유지된다.
 func FromEnv() Config {
 	var cfg Config
 	cfg.applyEnv()
 	return cfg
 }
 
+// EffectiveDBPath는 빈 DBPath를 SQLite in-memory database 계약으로 변환한다.
 func (c Config) EffectiveDBPath() string {
 	if strings.TrimSpace(c.DBPath) == "" {
 		return ":memory:"
@@ -18,6 +23,10 @@ func (c Config) EffectiveDBPath() string {
 	return c.DBPath
 }
 
+// DisplayDBPath는 사용자와 로그에 보여 줄 DB 위치 표현을 반환한다.
+//
+// 빈 DBPath는 실제 SQLite DSN인 ":memory:" 대신 사람이 읽기 쉬운 "memory"로
+// 표시한다.
 func (c Config) DisplayDBPath() string {
 	if strings.TrimSpace(c.DBPath) == "" {
 		return "memory"

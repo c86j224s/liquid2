@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/mcp"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
+	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 )
 
 func codexEnabledTools() []string {
@@ -18,21 +18,21 @@ func codexEnabledTools() []string {
 
 func agentMCPEnabledTools() []string {
 	return []string{
-		mcp.ToolResearchOutline,
-		mcp.ToolResearchList,
-		mcp.ToolResearchGrep,
-		mcp.ToolResearchRead,
-		mcp.ToolResearchRefs,
-		mcp.ToolMermaidValidate,
-		mcp.ToolSourcesList,
-		mcp.ToolSourcesRead,
-		mcp.ToolSourcesTree,
-		mcp.ToolSourcesGrep,
-		mcp.ToolSourcesSearch,
-		mcp.ToolSourceCandidatesPropose,
-		mcp.ToolSourceCandidatesRead,
-		mcp.ToolWorkflowStatus,
-		mcp.ToolWorkflowStop,
+		mcptools.ToolResearchOutline,
+		mcptools.ToolResearchList,
+		mcptools.ToolResearchGrep,
+		mcptools.ToolResearchRead,
+		mcptools.ToolResearchRefs,
+		mcptools.ToolMermaidValidate,
+		mcptools.ToolSourcesList,
+		mcptools.ToolSourcesRead,
+		mcptools.ToolSourcesTree,
+		mcptools.ToolSourcesGrep,
+		mcptools.ToolSourcesSearch,
+		mcptools.ToolSourceCandidatesPropose,
+		mcptools.ToolSourceCandidatesRead,
+		mcptools.ToolWorkflowStatus,
+		mcptools.ToolWorkflowStop,
 	}
 }
 
@@ -95,12 +95,12 @@ type cliAgentConfig struct {
 
 var newCLIAgentExecutor = buildCLIAgentExecutor
 
-func buildAgentExecutorMap(ctx context.Context, cfg cliAgentConfig) (map[string]web.AgentExecutor, error) {
+func buildAgentExecutorMap(ctx context.Context, cfg cliAgentConfig) (map[string]agentexec.AgentExecutor, error) {
 	names, err := parseAgentExecutorList(cfg.AgentName)
 	if err != nil {
 		return nil, err
 	}
-	agents := map[string]web.AgentExecutor{}
+	agents := map[string]agentexec.AgentExecutor{}
 	for _, name := range names {
 		itemCfg := cfg
 		itemCfg.AgentName = name
@@ -142,7 +142,7 @@ func parseAgentExecutorList(value string) ([]string, error) {
 	return names, nil
 }
 
-func buildCLIAgentExecutor(_ context.Context, cfg cliAgentConfig) (web.AgentExecutor, error) {
+func buildCLIAgentExecutor(_ context.Context, cfg cliAgentConfig) (agentexec.AgentExecutor, error) {
 	agentName := strings.TrimSpace(cfg.AgentName)
 	if agentName == "" {
 		agentName = "codex"
@@ -168,11 +168,11 @@ func buildCLIAgentExecutor(_ context.Context, cfg cliAgentConfig) (web.AgentExec
 			}
 		}
 		mcpArgs = appendAgentMCPEnabledToolArgs(mcpArgs)
-		return web.CodexExecutor{
+		return agentexec.CodexExecutor{
 			Command: strings.TrimSpace(cfg.CodexCommand),
 			WorkDir: workDir,
 			Timeout: cfg.AgentTimeout,
-			MCPServer: web.CodexMCPServer{
+			MCPServer: agentexec.CodexMCPServer{
 				Name:              "plasma",
 				Command:           plasmaExecutablePath(),
 				Args:              mcpArgs,
@@ -191,14 +191,14 @@ func buildCLIAgentExecutor(_ context.Context, cfg cliAgentConfig) (web.AgentExec
 		if err != nil {
 			return nil, err
 		}
-		return web.ClaudeExecutor{
+		return agentexec.ClaudeExecutor{
 			Command:      strings.TrimSpace(cfg.ClaudeCommand),
 			WorkDir:      workDir,
 			Model:        firstNonEmptyString(strings.TrimSpace(cfg.ClaudeModel), "haiku"),
 			Timeout:      cfg.AgentTimeout,
 			Permission:   "dontAsk",
 			MaxBudgetUSD: strings.TrimSpace(cfg.ClaudeMaxBudgetUSD),
-			MCPServer: web.ClaudeMCPServer{
+			MCPServer: agentexec.ClaudeMCPServer{
 				Name:    "plasma",
 				Command: plasmaExecutablePath(),
 				Args:    agentMCPArgs(sharedDBPath, cfg.Liquid2URL, cfg.LocalRoots),

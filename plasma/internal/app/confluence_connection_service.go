@@ -7,15 +7,14 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 )
 
-type ConfluenceConnectionStore interface {
-	UpsertConfluenceConnection(context.Context, ConfluenceConnection) error
-	GetConfluenceConnection(context.Context, string) (ConfluenceConnection, error)
-	ListConfluenceConnections(context.Context) ([]ConfluenceConnection, error)
-	DeleteConfluenceConnection(context.Context, string) error
-}
+// ConfluenceConnectionStore는 Confluence 연결 저장과 조회를 Service 뒤에 숨기는 저장소 포트다.
+type ConfluenceConnectionStore = confluenceaccess.ConnectionStore
 
+// UpsertConfluenceConnection는 Confluence 연결 설정을 저장하거나 갱신한다.
 func (s *Service) UpsertConfluenceConnection(ctx context.Context, req UpsertConfluenceConnectionRequest) (ConfluenceConnection, error) {
 	store, err := s.confluenceConnectionStore()
 	if err != nil {
@@ -36,6 +35,7 @@ func (s *Service) UpsertConfluenceConnection(ctx context.Context, req UpsertConf
 	return connection, nil
 }
 
+// GetConfluenceConnection는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetConfluenceConnection(ctx context.Context, connectionID string) (ConfluenceConnection, error) {
 	store, err := s.confluenceConnectionStore()
 	if err != nil {
@@ -48,6 +48,7 @@ func (s *Service) GetConfluenceConnection(ctx context.Context, connectionID stri
 	return store.GetConfluenceConnection(ctx, trimmed)
 }
 
+// ListConfluenceConnections는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListConfluenceConnections(ctx context.Context) ([]ConfluenceConnection, error) {
 	store, err := s.confluenceConnectionStore()
 	if err != nil {
@@ -56,6 +57,7 @@ func (s *Service) ListConfluenceConnections(ctx context.Context) ([]ConfluenceCo
 	return store.ListConfluenceConnections(ctx)
 }
 
+// DeleteConfluenceConnection는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) DeleteConfluenceConnection(ctx context.Context, connectionID string) error {
 	store, err := s.confluenceConnectionStore()
 	if err != nil {
@@ -68,6 +70,7 @@ func (s *Service) DeleteConfluenceConnection(ctx context.Context, connectionID s
 	return store.DeleteConfluenceConnection(ctx, trimmed)
 }
 
+// RenameConfluenceConnection는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RenameConfluenceConnection(ctx context.Context, connectionID string, displayName string) (ConfluenceConnection, error) {
 	connection, err := s.GetConfluenceConnection(ctx, connectionID)
 	if err != nil {
@@ -89,6 +92,7 @@ func (s *Service) RenameConfluenceConnection(ctx context.Context, connectionID s
 	return connection, nil
 }
 
+// RevokeConfluenceConnection는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RevokeConfluenceConnection(ctx context.Context, connectionID string) (ConfluenceConnection, error) {
 	connection, err := s.GetConfluenceConnection(ctx, connectionID)
 	if err != nil {
@@ -109,6 +113,7 @@ func (s *Service) RevokeConfluenceConnection(ctx context.Context, connectionID s
 	return connection, nil
 }
 
+// RefreshConfluenceConnectionSites는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RefreshConfluenceConnectionSites(
 	ctx context.Context,
 	connectionID string,
@@ -240,6 +245,7 @@ func normalizeConfluenceSites(sites []ConfluenceSite, authType string) ([]Conflu
 	return normalized, nil
 }
 
+// NormalizeConfluenceAPITokenSiteURL는 애플리케이션 서비스 계층 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeConfluenceAPITokenSiteURL(value string) (string, error) {
 	normalized, err := normalizeConfluenceAPITokenTrustedURL(value, "confluence api token site URL")
 	if err != nil {
@@ -255,6 +261,7 @@ func NormalizeConfluenceAPITokenSiteURL(value string) (string, error) {
 	return normalized, nil
 }
 
+// ConfluenceAPITokenSiteCloudID는 API token 연결에 저장된 site cloud ID를 반환한다.
 func ConfluenceAPITokenSiteCloudID(siteURL string) (string, error) {
 	normalized, err := NormalizeConfluenceAPITokenSiteURL(siteURL)
 	if err != nil {
@@ -267,10 +274,12 @@ func ConfluenceAPITokenSiteCloudID(siteURL string) (string, error) {
 	return "site_" + host, nil
 }
 
+// NormalizeConfluenceAPITokenAPIBaseURL는 애플리케이션 서비스 계층 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeConfluenceAPITokenAPIBaseURL(value string) (string, error) {
 	return normalizeConfluenceAPITokenTrustedURL(value, "confluence api token API base URL")
 }
 
+// NormalizeConfluenceAPITokenAPIBaseURLForSite는 애플리케이션 서비스 계층 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeConfluenceAPITokenAPIBaseURLForSite(value string, siteURL string) (string, error) {
 	normalizedBaseURL, err := NormalizeConfluenceAPITokenAPIBaseURL(value)
 	if err != nil {

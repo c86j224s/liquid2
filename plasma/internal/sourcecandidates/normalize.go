@@ -9,6 +9,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// NormalizeSourceCandidateProposals는 MCP/API 경계에서 들어온 후보 제안을
+// 저장 가능한 형태로 정규화한다. 중복 URL은 하나로 합치지만, URL 형식과
+// 제안 사유가 부실한 입력은 호출자가 고칠 수 있도록 invalid input으로 거절한다.
 func NormalizeSourceCandidateProposals(input []SourceCandidateProposalInput) ([]SourceCandidateProposal, error) {
 	if len(input) == 0 {
 		return nil, fmt.Errorf("%w: at least one source candidate is required", app.ErrInvalidInput)
@@ -51,6 +54,9 @@ func NormalizeSourceCandidateProposals(input []SourceCandidateProposalInput) ([]
 	return candidates, nil
 }
 
+// NormalizeSourceCandidateURL은 소스 후보 URL의 공개 정규화 계약이다.
+// http/https 절대 URL만 허용하고 credentials와 fragment는 저장 식별자가
+// 되지 않도록 제거한다.
 func NormalizeSourceCandidateURL(raw string) (string, string, error) {
 	return normalizeSourceCandidateURL(raw, "source candidate URL")
 }

@@ -16,8 +16,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
 )
 
 const (
@@ -1964,8 +1964,8 @@ type cliArtifactRead struct {
 }
 
 func cliReadSourceArtifact(artifact app.RawArtifact, offset int64, maxBytes int64) (cliArtifactRead, error) {
-	if pdftext.IsPDFMediaType(artifact.MediaType) || pdftext.IsPDFBytes(artifact.Content) {
-		chunk, err := pdftext.ExtractChunk(artifact.Content, int(offset), int(maxBytes))
+	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
+		chunk, err := pdfdocument.ExtractChunk(artifact.Content, int(offset), int(maxBytes))
 		if err != nil {
 			return cliArtifactRead{}, fmt.Errorf("%w: PDF text extraction failed: %v", app.ErrInvalidInput, err)
 		}

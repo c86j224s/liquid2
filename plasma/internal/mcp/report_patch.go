@@ -607,8 +607,8 @@ func reportPatchBoundValue(name string, provided string, bound string, required 
 	provided = strings.TrimSpace(provided)
 	bound = strings.TrimSpace(bound)
 	if bound != "" {
-		// The MCP process is already bound to one report patch request. Use the
-		// server-side lineage metadata even when the model echoes a stale value.
+		// MCP 프로세스는 이미 하나의 report patch 요청에 묶여 있다. 모델이 stale 값을
+		// 되풀이하더라도 서버 쪽 lineage metadata를 사용한다.
 		return bound, nil
 	}
 	if required && provided == "" {

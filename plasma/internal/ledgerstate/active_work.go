@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// OpenAgentPendingEvent returns the newest agent turn that has no terminal response.
+// OpenAgentPendingEvent는 아직 terminal 응답을 갖지 않은 최신 에이전트 턴을
+// 반환한다. 같은 user_event_id에 대한 turn.agent.response가 이미 있으면 그
+// pending 이벤트는 닫힌 것으로 본다.
 func OpenAgentPendingEvent(events []Event) (Event, bool) {
 	completed := CompletedUserEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -24,6 +26,9 @@ func OpenAgentPendingEvent(events []Event) (Event, bool) {
 	return Event{}, false
 }
 
+// Event는 원장 상태 판정에 필요한 최소 이벤트 형태다. Payload는 원본 JSON을
+// 보존해야 하며, 이 패키지는 필요한 필드를 읽을 수 없는 이벤트를 상태 변화로
+// 간주하지 않는다.
 type Event struct {
 	EventID   string
 	Sequence  int64
@@ -32,11 +37,15 @@ type Event struct {
 	CreatedAt time.Time
 }
 
+// HasOpenAgentPending은 미완료 에이전트 턴이 하나라도 남아 있는지 판정한다.
 func HasOpenAgentPending(events []Event) bool {
 	_, ok := OpenAgentPendingEvent(events)
 	return ok
 }
 
+// HasAgentTerminalEventForUser는 특정 사용자 이벤트에 대해 terminal 응답이
+// 기록됐는지 판정한다. 빈 userEventID는 호출자가 더 진행하지 않도록 이미
+// 닫힌 상태로 취급한다.
 func HasAgentTerminalEventForUser(events []Event, userEventID string) bool {
 	userEventID = strings.TrimSpace(userEventID)
 	if userEventID == "" {
@@ -46,6 +55,9 @@ func HasAgentTerminalEventForUser(events []Event, userEventID string) bool {
 	return ok
 }
 
+// ValidateWorkflowStartAfterEvent는 workflow 재개 기준 이벤트가 이 미션의
+// 열린 사용자 턴인지 검증한다. 반환 문자열이 비어 있으면 재개 가능하고,
+// 비어 있지 않으면 호출자가 그대로 사용자에게 전달할 수 있는 안정된 오류다.
 func ValidateWorkflowStartAfterEvent(events []Event, startAfterEventID string) string {
 	startAfterEventID = strings.TrimSpace(startAfterEventID)
 	if startAfterEventID == "" {
@@ -82,6 +94,8 @@ func ValidateWorkflowStartAfterEvent(events []Event, startAfterEventID string) s
 	return ""
 }
 
+// CompletedUserEventIDs는 turn.agent.response가 닫은 user_event_id 집합을
+// 만든다. payload를 읽을 수 없는 응답은 닫힘 근거로 사용하지 않는다.
 func CompletedUserEventIDs(events []Event) map[string]struct{} {
 	completed := map[string]struct{}{}
 	for _, event := range events {
@@ -96,12 +110,16 @@ func CompletedUserEventIDs(events []Event) map[string]struct{} {
 	return completed
 }
 
+// HasOpenReportPending은 아직 terminal report 이벤트가 연결되지 않은 보고서
+// 작업이 남아 있는지 판정한다.
 func HasOpenReportPending(events []Event) bool {
 	_, ok := OpenReportPendingEvent(events)
 	return ok
 }
 
-// OpenReportPendingEvent returns the newest report operation that has no terminal event.
+// OpenReportPendingEvent는 terminal 이벤트가 아직 연결되지 않은 최신 보고서
+// 작업을 반환한다. pending 이벤트의 EventID가 완료/실패/스킵 이벤트 payload에
+// 참조되면 닫힌 것으로 본다.
 func OpenReportPendingEvent(events []Event) (Event, bool) {
 	completed := CompletedReportPendingEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -116,6 +134,9 @@ func OpenReportPendingEvent(events []Event) (Event, bool) {
 	return Event{}, false
 }
 
+// CompletedReportPendingEventIDs는 보고서 terminal 이벤트가 닫은 pending
+// 이벤트 ID 집합을 만든다. 과거 payload 필드명이 여러 개라서 ReportPendingEventID
+// 계약을 통해 호환 필드를 한 곳에서 해석한다.
 func CompletedReportPendingEventIDs(events []Event) map[string]struct{} {
 	completed := map[string]struct{}{}
 	for _, event := range events {
@@ -139,6 +160,9 @@ func CompletedReportPendingEventIDs(events []Event) map[string]struct{} {
 	return completed
 }
 
+// ReportPendingEventID는 보고서 terminal 이벤트 payload에서 원래 pending
+// 이벤트 ID를 추출한다. 새 필드와 과거 호환 필드를 모두 읽되, 찾지 못하면
+// 빈 문자열로 돌려 상태 변경 근거에서 제외한다.
 func ReportPendingEventID(event Event) string {
 	var payload struct {
 		PendingEventID       string `json:"pending_event_id"`

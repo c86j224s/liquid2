@@ -19,6 +19,7 @@ const (
 	workflowStaleAfter       = workflowruns.StaleAfter
 )
 
+// RequestWorkflowRun은 워크플로우 실행 요청 이벤트를 장부에 남긴다. 실제 실행은 runner가 별도로 claim한다.
 func (s *Service) RequestWorkflowRun(ctx context.Context, req RequestWorkflowRunRequest) (WorkflowRunView, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
@@ -27,6 +28,7 @@ func (s *Service) RequestWorkflowRun(ctx context.Context, req RequestWorkflowRun
 	return view, translateWorkflowRunError(err)
 }
 
+// RequestWorkflowStop은 실행 중인 워크플로우에 대한 중단 요청 이벤트를 기록한다.
 func (s *Service) RequestWorkflowStop(ctx context.Context, req RequestWorkflowStopRequest) (WorkflowRunView, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
@@ -35,6 +37,7 @@ func (s *Service) RequestWorkflowStop(ctx context.Context, req RequestWorkflowSt
 	return view, translateWorkflowRunError(err)
 }
 
+// BuildWorkflowRunTerminalAppendRequest는 애플리케이션 서비스 계층에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildWorkflowRunTerminalAppendRequest(events []LedgerEvent, req WorkflowRunTerminalEventRequest) (AppendEventRequest, bool, error) {
 	eventReq, ok, err := workflowruns.BuildTerminalAppendRequest(workflowEventsFromApp(events), req, newAppID, time.Now().UTC())
 	if err != nil || !ok {
@@ -43,6 +46,7 @@ func BuildWorkflowRunTerminalAppendRequest(events []LedgerEvent, req WorkflowRun
 	return workflowAppendRequestToApp(eventReq), true, nil
 }
 
+// ClaimWorkflowRunStart는 workflow run 시작 claim 결과를 app view로 변환한다.
 func (s *Service) ClaimWorkflowRunStart(ctx context.Context, missionID string, workflowRunID string, startedAt time.Time) (WorkflowRunView, bool, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
@@ -51,11 +55,13 @@ func (s *Service) ClaimWorkflowRunStart(ctx context.Context, missionID string, w
 	return view, claimed, translateWorkflowRunError(err)
 }
 
+// ListWorkflowRuns는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListWorkflowRuns(ctx context.Context, missionID string) ([]WorkflowRunView, error) {
 	runs, err := workflowruns.ListRuns(ctx, workflowRunStore{service: s}, missionID)
 	return runs, translateWorkflowRunError(err)
 }
 
+// GetWorkflowRun는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetWorkflowRun(ctx context.Context, missionID string, workflowRunID string) (WorkflowRunView, error) {
 	view, err := workflowruns.GetRun(ctx, workflowRunStore{service: s}, missionID, workflowRunID)
 	return view, translateWorkflowRunError(err)
@@ -104,6 +110,7 @@ type workflowRunStore struct {
 	service *Service
 }
 
+// ListEvents는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (store workflowRunStore) ListEvents(ctx context.Context, missionID string) ([]workflowruns.Event, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
@@ -115,6 +122,7 @@ func (store workflowRunStore) ListEvents(ctx context.Context, missionID string) 
 	return workflowEventsFromApp(events), nil
 }
 
+// AppendRequestsConditionally는 조건 함수가 승인한 append 요청만 장부에 반영한다.
 func (store workflowRunStore) AppendRequestsConditionally(ctx context.Context, missionID string, build func([]workflowruns.Event) ([]workflowruns.AppendEventRequest, error)) ([]workflowruns.Event, error) {
 	appended, err := store.service.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
 		workflowRequests, err := build(workflowEventsFromApp(events))

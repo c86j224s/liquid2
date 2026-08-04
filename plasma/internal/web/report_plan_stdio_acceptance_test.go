@@ -14,6 +14,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -240,7 +241,7 @@ func TestWebReportRoutesUseRealPlasmaMCPStdio(t *testing.T) {
 			missionID := nestedString(t, mission, "projection", "mission_id")
 			postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 				"title": "Report", "report_mode": test.mode, "agent_executor": test.executorName,
-				"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+				"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 			})
 			detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 			if countEvents(detail, "report.plan.submitted") != 1 || countEvents(detail, "report.plan.created") != 1 {

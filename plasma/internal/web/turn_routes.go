@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
+	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
 )
@@ -175,7 +176,7 @@ func (server *Server) handleCancelMissionTurn(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if strings.TrimSpace(pending.WorkflowRunID) != "" {
-		canceled := server.runningWorkflow.cancel(pending.WorkflowRunID)
+		canceled := server.workflowSupervisor.Cancel(pending.WorkflowRunID)
 		event, err := server.appendAgentCanceledWithWorkflowTerminal(
 			r.Context(),
 			missionID,
@@ -1199,13 +1200,13 @@ func (server *Server) reconcileStaleAgentTurn(ctx context.Context, missionID str
 	if server.runningTurns.has(missionID) {
 		return nil
 	}
-	if strings.TrimSpace(pending.WorkflowRunID) != "" && server.runningWorkflow.has(pending.WorkflowRunID) {
+	if strings.TrimSpace(pending.WorkflowRunID) != "" && server.workflowSupervisor.Has(pending.WorkflowRunID) {
 		return nil
 	}
 	workflowTerminalEventType := ""
 	if strings.TrimSpace(pending.WorkflowRunID) != "" {
 		workflowTerminalEventType = app.WorkflowRunInterruptedEvent
-		server.runningWorkflow.cancel(pending.WorkflowRunID)
+		server.workflowSupervisor.Cancel(pending.WorkflowRunID)
 	}
 	_, err := server.appendAgentCanceledWithWorkflowTerminal(ctx, missionID, pending.UserEventID, pending.AgentExecutor, "서버 재시작 또는 연결 중단 뒤 장부에 남은 오래된 에이전트 대기 상태를 자동 정리했습니다.", workflowTerminalEventType)
 	if err != nil {
@@ -1296,33 +1297,6 @@ func reportAgentFailure(cause error, result AgentResult, surface string, duratio
 	return reportFailureWithPayload{cause: cause, payload: payload}
 }
 
-func (server *Server) stopWorkflowRunNow(ctx context.Context, missionID string, workflowRunID string, reason string) (app.LedgerEvent, error) {
-	events, err := server.service.ListEvents(ctx, missionID)
-	if err != nil {
-		return app.LedgerEvent{}, err
-	}
-	if pending, ok := latestOpenAgentPendingInEvents(events, workflowRunID); ok {
-		return server.appendAgentCanceledWithWorkflowTerminal(ctx, missionID, pending.UserEventID, pending.AgentExecutor, reason, app.WorkflowRunStoppedEvent)
-	}
-	req, ok, err := app.BuildWorkflowRunTerminalAppendRequest(events, app.WorkflowRunTerminalEventRequest{
-		WorkflowRunID: workflowRunID,
-		MissionID:     missionID,
-		EventType:     app.WorkflowRunStoppedEvent,
-		Reason:        reason,
-	})
-	if err != nil || !ok {
-		return app.LedgerEvent{}, err
-	}
-	appended, err := server.service.AppendEvents(ctx, missionID, []app.AppendEventRequest{req})
-	if err != nil {
-		return app.LedgerEvent{}, err
-	}
-	if len(appended) == 0 {
-		return app.LedgerEvent{}, nil
-	}
-	return appended[0], nil
-}
-
 func (server *Server) appendAgentCanceled(ctx context.Context, missionID string, userEventID string, executor string, text string) (app.LedgerEvent, error) {
 	return server.appendAgentCanceledWithWorkflowTerminal(ctx, missionID, userEventID, executor, text, "")
 }
@@ -1406,7 +1380,7 @@ func hasOpenReportDraftPending(events []app.LedgerEvent) bool {
 }
 
 func latestOpenReportDraftPendingEvent(events []app.LedgerEvent) (app.LedgerEvent, bool) {
-	completed := reporting.CompletedPendingEventIDs(events)
+	completed := reportexecution.CompletedPendingEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
 		if event.EventType != "report.draft.pending" && event.EventType != "report.design.pending" && event.EventType != "report.humanize.pending" && event.EventType != "report.patch.pending" {
@@ -1562,7 +1536,7 @@ func (server *Server) validateMissionAgentExecutor(ctx context.Context, missionI
 	if err != nil {
 		return err
 	}
-	return app.ValidateMissionAgentExecutorForEvents(events, requested)
+	return agentpolicy.ValidateMissionExecutor(events, requested)
 }
 
 func normalizeAgentExecutorName(value string) (string, error) {

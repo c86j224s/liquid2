@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// MarkdownReportEventBase는 Markdown report 생성 terminal 이벤트들이 공유하는 payload 핵심이다.
 type MarkdownReportEventBase struct {
 	EventID                      string
 	MissionID                    string
@@ -47,6 +48,7 @@ type MarkdownReportEventBase struct {
 	Producer                     app.Producer
 }
 
+// MarkdownReportPlanCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportPlanCreatedEventRequest struct {
 	MarkdownReportEventBase
 	ArtifactID          string
@@ -59,6 +61,7 @@ type MarkdownReportPlanCreatedEventRequest struct {
 	PlanReviewState     string
 }
 
+// MarkdownReportArtifactCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportArtifactCreatedEventRequest struct {
 	MarkdownReportEventBase
 	Artifact              app.RawArtifact
@@ -79,6 +82,7 @@ type MarkdownReportArtifactCreatedEventRequest struct {
 	IncludeLongFormFields bool
 }
 
+// MarkdownReportStageEventBase는 sectional report stage 이벤트들이 공유하는 stage 좌표와 artifact metadata다.
 type MarkdownReportStageEventBase struct {
 	EventID                      string
 	MissionID                    string
@@ -119,6 +123,7 @@ type MarkdownReportStageEventBase struct {
 	Producer                     app.Producer
 }
 
+// MarkdownReportSectionCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportSectionCreatedEventRequest struct {
 	MarkdownReportStageEventBase
 	PartIndex    int
@@ -126,6 +131,7 @@ type MarkdownReportSectionCreatedEventRequest struct {
 	WordCount    int
 }
 
+// MarkdownReportPartCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportPartCreatedEventRequest struct {
 	MarkdownReportStageEventBase
 	PartIndex    int
@@ -133,6 +139,7 @@ type MarkdownReportPartCreatedEventRequest struct {
 	WordCount    int
 }
 
+// PromotedMarkdownReportArtifactEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type PromotedMarkdownReportArtifactEventRequest struct {
 	EventID             string
 	MissionID           string
@@ -141,6 +148,7 @@ type PromotedMarkdownReportArtifactEventRequest struct {
 	Producer            app.Producer
 }
 
+// BuildMarkdownReportPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportEventBase
 	payload := markdownReportBasePayload(base)
@@ -165,6 +173,7 @@ func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEv
 	}
 }
 
+// BuildMarkdownReportArtifactCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactCreatedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportEventBase
 	artifact := req.Artifact
@@ -204,6 +213,7 @@ func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactC
 	}
 }
 
+// BuildMarkdownReportSectionCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCreatedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
@@ -223,6 +233,7 @@ func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCre
 	}
 }
 
+// BuildMarkdownReportPartCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
@@ -242,6 +253,7 @@ func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEv
 	}
 }
 
+// BuildPromotedMarkdownReportArtifactAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildPromotedMarkdownReportArtifactAppendRequest(req PromotedMarkdownReportArtifactEventRequest) app.AppendEventRequest {
 	payload := copyReportPayload(req.Payload)
 	payload["kind"] = "markdown_report_artifact"

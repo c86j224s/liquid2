@@ -20,6 +20,7 @@ const (
 
 var finalEditAssemblyProducer = app.Producer{Type: "system", ID: FinalEditAssemblyProducerID}
 
+// FinalEditAssemblyResult는 최종 조립 artifact와 조립 metadata를 함께 반환한다.
 type FinalEditAssemblyResult struct {
 	Artifact app.RawArtifact
 	Event    app.LedgerEvent
@@ -37,6 +38,7 @@ type finalEditPartAssembly struct {
 	PartArtifactIDs []string
 }
 
+// FinalEditAssemblyArtifactID는 final edit binding에서 deterministic artifact ID를 만든다.
 func FinalEditAssemblyArtifactID(planEventID string, partArtifactIDs []string) string {
 	encoded, _ := json.Marshal(finalEditAssemblyIdentity{
 		Schema:          FinalEditAssemblySchema,
@@ -47,10 +49,12 @@ func FinalEditAssemblyArtifactID(planEventID string, partArtifactIDs []string) s
 	return "art_" + hex.EncodeToString(sum[:])
 }
 
+// FinalEditAssemblyIdempotencyKey는 final edit assembly 재실행을 같은 결과로 묶는 key를 만든다.
 func FinalEditAssemblyIdempotencyKey(planEventID string, partArtifactIDs []string) string {
 	return "report-final-assembly:" + FinalEditAssemblyArtifactID(planEventID, partArtifactIDs)
 }
 
+// EnsureFinalEditAssembly는 final edit 결과를 같은 binding 기준의 canonical artifact로 확정한다.
 func EnsureFinalEditAssembly(ctx context.Context, store FinalEditStageStore, eventID string, binding FinalEditStageBinding) (FinalEditAssemblyResult, bool, error) {
 	binding = normalizeFinalEditStageBinding(binding)
 	if err := validateFinalEditStageBinding(binding); err != nil {

@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"strings"
 	"sync"
 )
 
@@ -84,76 +83,5 @@ func (turns *runningAgentTurns) has(missionID string) bool {
 		return false
 	}
 	_, ok := turns.turns[missionID]
-	return ok
-}
-
-type runningWorkflowRuns struct {
-	mu   sync.Mutex
-	runs map[string]runningWorkflowRun
-}
-
-type runningWorkflowRun struct {
-	id     string
-	cancel context.CancelFunc
-}
-
-func (runs *runningWorkflowRuns) start(workflowRunID string, cancel context.CancelFunc) (string, bool) {
-	workflowRunID = strings.TrimSpace(workflowRunID)
-	if workflowRunID == "" {
-		return "", false
-	}
-	runs.mu.Lock()
-	defer runs.mu.Unlock()
-	if runs.runs == nil {
-		runs.runs = map[string]runningWorkflowRun{}
-	}
-	if _, ok := runs.runs[workflowRunID]; ok {
-		return "", false
-	}
-	id := newID("run")
-	runs.runs[workflowRunID] = runningWorkflowRun{id: id, cancel: cancel}
-	return id, true
-}
-
-func (runs *runningWorkflowRuns) finish(workflowRunID string, id string) {
-	runs.mu.Lock()
-	defer runs.mu.Unlock()
-	if runs.runs == nil {
-		return
-	}
-	if current, ok := runs.runs[workflowRunID]; ok && current.id == id {
-		delete(runs.runs, workflowRunID)
-	}
-}
-
-func (runs *runningWorkflowRuns) cancel(workflowRunID string) bool {
-	workflowRunID = strings.TrimSpace(workflowRunID)
-	if workflowRunID == "" {
-		return false
-	}
-	runs.mu.Lock()
-	defer runs.mu.Unlock()
-	if runs.runs == nil {
-		return false
-	}
-	current, ok := runs.runs[workflowRunID]
-	if !ok || current.cancel == nil {
-		return false
-	}
-	current.cancel()
-	return true
-}
-
-func (runs *runningWorkflowRuns) has(workflowRunID string) bool {
-	workflowRunID = strings.TrimSpace(workflowRunID)
-	if workflowRunID == "" {
-		return false
-	}
-	runs.mu.Lock()
-	defer runs.mu.Unlock()
-	if runs.runs == nil {
-		return false
-	}
-	_, ok := runs.runs[workflowRunID]
 	return ok
 }

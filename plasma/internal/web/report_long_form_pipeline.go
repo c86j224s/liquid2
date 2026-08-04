@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -474,9 +474,9 @@ Final-writer responsibilities:
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormFinalWriteStart, draftID,
-		plasmamcp.ToolReportLongFormFinalWriteRead, plasmamcp.ToolReportLongFormFinalWritePatch,
-		plasmamcp.ToolReportLongFormFinalWriteSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormFinalWriteStart, draftID,
+		mcptools.ToolReportLongFormFinalWriteRead, mcptools.ToolReportLongFormFinalWritePatch,
+		mcptools.ToolReportLongFormFinalWriteSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormReaderEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -509,9 +509,9 @@ Reader-edit responsibilities:
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormReaderEditStart, draftID,
-		plasmamcp.ToolReportLongFormReaderEditRead, plasmamcp.ToolReportLongFormReaderEditPatch,
-		plasmamcp.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormReaderEditStart, draftID,
+		mcptools.ToolReportLongFormReaderEditRead, mcptools.ToolReportLongFormReaderEditPatch,
+		mcptools.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormV2ReaderEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -539,9 +539,9 @@ Reader-edit responsibilities:
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormReaderEditStart, draftID,
-		plasmamcp.ToolReportLongFormReaderEditRead, plasmamcp.ToolReportLongFormReaderEditPatch,
-		plasmamcp.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormReaderEditStart, draftID,
+		mcptools.ToolReportLongFormReaderEditRead, mcptools.ToolReportLongFormReaderEditPatch,
+		mcptools.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormStyleEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -576,9 +576,9 @@ Use exactly this workflow:
 
 Do not summarize, add facts, call research/source tools, or expose IDs in the manuscript.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormStyleEditStart, draftID,
-		plasmamcp.ToolReportLongFormStyleEditRead, plasmamcp.ToolReportLongFormStyleEditPatch,
-		plasmamcp.ToolReportLongFormStyleEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormStyleEditStart, draftID,
+		mcptools.ToolReportLongFormStyleEditRead, mcptools.ToolReportLongFormStyleEditPatch,
+		mcptools.ToolReportLongFormStyleEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormGatePrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -608,9 +608,9 @@ Gate responsibilities:
 - Do not include raw statement text anywhere except the transient gate_findings tool input.%s`,
 		req.title, req.missionID, req.rigor.level, req.rigor.label, agentReportAnyJSON(binding),
 		agentReportAnyJSON(reporting.ReportOwnerBoundRequirements(req.requirementMap)),
-		plasmamcp.ToolReportLongFormEditStart, draftID,
-		plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch,
-		plasmamcp.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormEditStart, draftID,
+		mcptools.ToolReportLongFormEditRead, mcptools.ToolReportLongFormEditPatch,
+		mcptools.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormSemanticGatePrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -641,9 +641,9 @@ Gate responsibilities:
 - Do not include raw statement text anywhere except the transient gate_findings tool input.%s`,
 		req.title, req.missionID, req.rigor.level, req.rigor.label, agentReportAnyJSON(binding),
 		agentReportAnyJSON(reporting.ReportOwnerBoundRequirements(req.requirementMap)),
-		plasmamcp.ToolReportLongFormEditStart, draftID,
-		plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormStyleReviewRead, plasmamcp.ToolReportLongFormEditPatch,
-		plasmamcp.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
+		mcptools.ToolReportLongFormEditStart, draftID,
+		mcptools.ToolReportLongFormEditRead, mcptools.ToolReportLongFormStyleReviewRead, mcptools.ToolReportLongFormEditPatch,
+		mcptools.ToolReportLongFormEditSubmit, finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
 func agentLongFormStyleSemanticValidationPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
@@ -664,8 +664,8 @@ Validation responsibilities:
 - Do not submit prose, patches, final paragraph ordinals, repaired_by_gate, manuscript Markdown, or repair instructions.
 - When uncertain, use rejected_revert_to_reader.%s`,
 		req.title, req.missionID, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormStyleSemanticValidationRead,
-		plasmamcp.ToolReportLongFormStyleSemanticValidationSubmit,
+		mcptools.ToolReportLongFormStyleSemanticValidationRead,
+		mcptools.ToolReportLongFormStyleSemanticValidationSubmit,
 		finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
 }
 
@@ -691,8 +691,8 @@ Evidence gate responsibilities:
 - Do not submit prose, patches, repair actions, manuscript Markdown, semantic acceptance, or operation counts.
 - Evidence judgments do not trigger automatic repair; the server canonicalizes the exact bound source artifact with zero operations.%s`,
 		req.title, req.missionID, req.rigor.level, req.rigor.label, agentReportAnyJSON(binding),
-		plasmamcp.ToolReportLongFormEvidenceGateRead,
-		plasmamcp.ToolReportLongFormEvidenceGateSubmit,
+		mcptools.ToolReportLongFormEvidenceGateRead,
+		mcptools.ToolReportLongFormEvidenceGateSubmit,
 		finalEditGateSubmittedSentinel, finalEditRetryNote(attempt))
 }
 

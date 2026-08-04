@@ -9,21 +9,25 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// ReportRequirementMapLifecycleService는 요구사항 map 제출과 조회에 필요한 service 포트다.
 type ReportRequirementMapLifecycleService interface {
 	SelectReportRequirementMap(context.Context, app.ReportRequirementMapQuery) (app.ReportRequirementMapSelection, error)
 }
 
+// ReportRequirementMapAgentResult는 agent가 제출한 요구사항 map artifact와 실행 metadata다.
 type ReportRequirementMapAgentResult struct {
 	Text      string
 	SessionID string
 }
 
+// ReportRequirementMapLifecycleRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type ReportRequirementMapLifecycleRequest struct {
 	MissionID, PendingEventID, PlanEventID, AgentExecutor, AgentModel, AgentReasoningEffort, PreviousProviderSessionID string
 	Plan                                                                                                               SectionalReportPlan
 	Invoke                                                                                                             func(context.Context, ReportRequirementMapBinding) (ReportRequirementMapAgentResult, error)
 }
 
+// ReportRequirementMapLifecycleResult는 요구사항 map 제출 이벤트와 agent 결과를 함께 반환한다.
 type ReportRequirementMapLifecycleResult struct {
 	RequirementMap ReportRequirementMap
 	Event          app.LedgerEvent
@@ -31,6 +35,7 @@ type ReportRequirementMapLifecycleResult struct {
 	Agent          ReportRequirementMapAgentResult
 }
 
+// RunReportRequirementMapLifecycle는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func (runner Runner) RunReportRequirementMapLifecycle(ctx context.Context, req ReportRequirementMapLifecycleRequest) (ReportRequirementMapLifecycleResult, error) {
 	service, ok := runner.Service.(ReportRequirementMapLifecycleService)
 	if !ok {

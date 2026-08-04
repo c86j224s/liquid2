@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// HumanizeEventBase는 H5 보정 이벤트들이 공유하는 artifact와 agent 실행 metadata다.
 type HumanizeEventBase struct {
 	EventID                string
 	MissionID              string
@@ -29,15 +30,18 @@ type HumanizeEventBase struct {
 	Producer               app.Producer
 }
 
+// HumanizePendingEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type HumanizePendingEventRequest struct {
 	HumanizeEventBase
 }
 
+// HumanizeSkippedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type HumanizeSkippedEventRequest struct {
 	HumanizeEventBase
 	DurationMS int64
 }
 
+// HumanizeFailedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type HumanizeFailedEventRequest struct {
 	HumanizeEventBase
 	Kind         string
@@ -49,6 +53,7 @@ type HumanizeFailedEventRequest struct {
 	FailedAt     string
 }
 
+// HumanizePatchRejectedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type HumanizePatchRejectedEventRequest struct {
 	HumanizeEventBase
 	PatchEventID string
@@ -56,6 +61,7 @@ type HumanizePatchRejectedEventRequest struct {
 	Reason       string
 }
 
+// HumanizedMarkdownExportEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type HumanizedMarkdownExportEventRequest struct {
 	HumanizeEventBase
 	PatchEventID           string
@@ -71,6 +77,7 @@ type HumanizedMarkdownExportEventRequest struct {
 	Text                   string
 }
 
+// BuildHumanizePendingAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildHumanizePendingAppendRequest(req HumanizePendingEventRequest) app.AppendEventRequest {
 	base := req.HumanizeEventBase
 	pendingEventID := strings.TrimSpace(base.EventID)
@@ -87,6 +94,7 @@ func BuildHumanizePendingAppendRequest(req HumanizePendingEventRequest) app.Appe
 	}
 }
 
+// BuildHumanizeSkippedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildHumanizeSkippedAppendRequest(req HumanizeSkippedEventRequest) app.AppendEventRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	payload["kind"] = "humanized_markdown_report_skipped"
@@ -103,6 +111,7 @@ func BuildHumanizeSkippedAppendRequest(req HumanizeSkippedEventRequest) app.Appe
 	}
 }
 
+// BuildHumanizeFailedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) app.AppendEventRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	kind := strings.TrimSpace(req.Kind)
@@ -133,6 +142,7 @@ func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) app.Append
 	}
 }
 
+// BuildHumanizePatchRejectedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventRequest) app.AppendEventRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	payload["kind"] = "markdown_report_patch_rejected"
@@ -151,6 +161,7 @@ func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventReque
 	}
 }
 
+// BuildHumanizedMarkdownExportAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildHumanizedMarkdownExportAppendRequest(req HumanizedMarkdownExportEventRequest) app.AppendEventRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	agentSessionID := req.AgentSessionID

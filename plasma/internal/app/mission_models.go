@@ -1,100 +1,35 @@
 package app
 
 import (
-	"encoding/json"
-	"time"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 )
 
-type Mission struct {
-	MissionID      string
-	Title          string
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	LifecycleState string                 `json:"lifecycle_state"`
-	Activity       MissionActivitySummary `json:"activity"`
-}
-
-type ListMissionsRequest struct {
-	IncludeArchived bool
-}
-
-// MissionActivityInput is the minimum durable ledger input needed to derive a
-// mission-list activity summary. LastSequence includes every ledger event;
-// Events contains only activity-relevant event types.
-type MissionActivityInput struct {
-	MissionID    string
-	LastSequence int64
-	Events       []LedgerEvent
-}
-
-// MissionActivitySummary is the lightweight, mission-scoped activity view for
-// lists. It is derived from the durable ledger and never stores read state.
-type MissionActivitySummary struct {
-	LastSequence           int64                 `json:"last_sequence"`
-	ActiveWork             ActiveWorkState       `json:"active_work"`
-	LatestTerminalActivity *TerminalActivityView `json:"latest_terminal_activity,omitempty"`
-}
-
-type TerminalActivityKind string
-
-type TerminalActivityOutcome string
-
-type TerminalActivityView struct {
-	EventID  string                  `json:"event_id"`
-	Sequence int64                   `json:"sequence"`
-	Kind     TerminalActivityKind    `json:"kind"`
-	Outcome  TerminalActivityOutcome `json:"outcome"`
-}
+// Deprecated: capability code should import internal/mission directly.
+type Mission = mission.Mission
+type ListMissionsRequest = mission.ListRequest
+type MissionActivityInput = mission.ActivityInput
+type MissionActivitySummary = mission.ActivitySummary
+type TerminalActivityKind = mission.TerminalActivityKind
+type TerminalActivityOutcome = mission.TerminalActivityOutcome
+type TerminalActivityView = mission.TerminalActivityView
 
 const (
-	TerminalActivityTurn     TerminalActivityKind = ActiveWorkTurn
-	TerminalActivityReport   TerminalActivityKind = ActiveWorkReport
-	TerminalActivityWorkflow TerminalActivityKind = ActiveWorkWorkflow
-
-	TerminalActivityCompleted TerminalActivityOutcome = "completed"
-	TerminalActivityFailed    TerminalActivityOutcome = "failed"
-	TerminalActivityCanceled  TerminalActivityOutcome = "canceled"
-	TerminalActivityPaused    TerminalActivityOutcome = "paused"
-	TerminalActivityStopped   TerminalActivityOutcome = "stopped"
+	TerminalActivityTurn      = mission.TerminalActivityTurn
+	TerminalActivityReport    = mission.TerminalActivityReport
+	TerminalActivityWorkflow  = mission.TerminalActivityWorkflow
+	TerminalActivityCompleted = mission.TerminalActivityCompleted
+	TerminalActivityFailed    = mission.TerminalActivityFailed
+	TerminalActivityCanceled  = mission.TerminalActivityCanceled
+	TerminalActivityPaused    = mission.TerminalActivityPaused
+	TerminalActivityStopped   = mission.TerminalActivityStopped
 )
 
-type Producer struct {
-	Type string `json:"type"`
-	ID   string `json:"id"`
-}
+// Deprecated: capability code should import internal/ledger directly.
+type Producer = ledger.Producer
+type LedgerEvent = ledger.Event
+type AppendEventRequest = ledger.AppendRequest
 
-type LedgerEvent struct {
-	EventID          string
-	MissionID        string
-	Sequence         int64
-	EventType        string
-	Producer         Producer
-	CausationEventID string
-	CorrelationID    string
-	Payload          json.RawMessage
-	CreatedAt        time.Time
-}
-
-type CreateMissionRequest struct {
-	MissionID string
-	Title     string
-}
-
-type MissionCreatedEventRequest struct {
-	EventID   string
-	MissionID string
-	Title     string
-	Objective string
-	Scope     MissionScope
-	Producer  Producer
-}
-
-type AppendEventRequest struct {
-	EventID          string
-	MissionID        string
-	EventType        string
-	Producer         Producer
-	CausationEventID string
-	CorrelationID    string
-	Payload          json.RawMessage
-}
+// Deprecated: capability code should import internal/mission directly.
+type CreateMissionRequest = mission.CreateRequest
+type MissionCreatedEventRequest = mission.CreatedEventRequest

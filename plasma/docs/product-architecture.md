@@ -35,26 +35,20 @@ failure mode is validated.
 
 ## Implementation Layer Shape
 
-The current Go package layout is layered, but `internal/app` is still a broad
-service facade rather than a fully split application service layer.
+Start with the [Architecture Map](architecture/README.md) to locate capability
+owners and the [Package Boundaries](architecture/package-boundaries.md) to
+decide whether an import or package shape is allowed. Those documents are the
+normative implementation map; this document records the detailed product and
+feature boundaries below.
 
-- `cmd/plasma`, `internal/web`, and `internal/mcp` are external entrypoints.
-  They parse CLI, HTTP, and MCP requests and map product results back to those
-  transports.
-- `internal/app` coordinates storage calls, domain package calls, provider
-  execution, and compatibility contracts used by Web, CLI, and MCP. It may later
-  split into narrower source, report, workflow, connector, and provider
-  services.
-- Domain and feature packages such as `workflowruns`, `workflowstate`,
-  `sourceevents`, `sourcecandidates`, `sourceingest`, `reporting`, and
-  `ledgerstate` own product rules, state transitions, and event payload shape.
-- `storage/sqlite` persists the ledger, raw artifacts, source snapshots, and
-  projections. `connectors/*` and `sources/*` handle replaceable external access
-  or source-reading implementations.
-
-New work should keep this direction: transport packages adapt requests, domain
-packages define product meaning, app-level services orchestrate use cases, and
-storage/connectors remain replaceable implementations.
+The Go package is the primary independent implementation unit. Technical
+umbrellas such as Web, MCP, CLI, reporting, or SQLite must still be partitioned
+when their product features have different contracts or reasons to change.
+Issue #66 tracks the current broad `internal/app`, `internal/web`,
+`internal/mcp`, and `internal/reporting` boundaries. They are migration debt,
+not precedent for new work. SQLite persistence has a stable root facade for
+connection and cross-capability transaction ownership, with SQL split into
+root-only feature repositories.
 
 ## Browser Frontend Composition Boundary
 

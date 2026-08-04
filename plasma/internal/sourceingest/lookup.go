@@ -11,6 +11,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
 )
 
+// ExistingSourceSnapshotForURL은 같은 미션에 이미 등록된 URL source snapshot을
+// 찾는다. Confluence page URL은 connector URI뿐 아니라 locator의 site/page ID도
+// 비교해 직접 URL 추가와 connector 기반 추가가 같은 문서를 중복 등록하지 않게 한다.
 func ExistingSourceSnapshotForURL(ctx context.Context, store Store, missionID string, normalizedURL string) (SourceSnapshot, bool, error) {
 	sources, err := store.ListSourceSnapshots(ctx, missionID)
 	if err != nil {
@@ -86,6 +89,8 @@ func confluenceLocatorKey(siteURL string, pageID string) (string, bool) {
 	return strings.ToLower(parsed.Hostname()) + "\x00" + pageID, true
 }
 
+// ExistingSourceSnapshotForContentHash는 같은 미션에서 동일 content hash를 가진
+// snapshot을 찾는다. 빈 hash는 조회 실패가 아니라 중복 판정 불가로 취급한다.
 func ExistingSourceSnapshotForContentHash(ctx context.Context, store Store, missionID string, sha string) (SourceSnapshot, bool, error) {
 	sha = strings.ToLower(strings.TrimSpace(sha))
 	if sha == "" {
@@ -103,6 +108,9 @@ func ExistingSourceSnapshotForContentHash(ctx context.Context, store Store, miss
 	return SourceSnapshot{}, false, nil
 }
 
+// LatestStagedSourceCandidateForURL은 특정 URL에 대해 가장 최근 staged 후보
+// artifact를 찾아 승인 흐름에서 재사용할 수 있게 한다. artifact가 다른 mission에
+// 속하면 후보 경계 위반으로 거절한다.
 func LatestStagedSourceCandidateForURL(ctx context.Context, store Store, missionID string, normalizedURL string) (StagedSourceCandidate, bool, error) {
 	events, err := store.ListEvents(ctx, missionID)
 	if err != nil {

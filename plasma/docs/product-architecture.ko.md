@@ -31,23 +31,15 @@ telemetry에 근거한 약한 conditional behavior로 유지합니다.
 
 ## 구현 계층의 모양
 
-현재 Go package 구조는 계층을 나누는 방향으로 정리되어 있습니다. 다만 `internal/app`은 아직 잘게
-분리된 application service layer라기보다, 여러 use case를 조율하는 넓은 service facade에 가깝습니다.
+기능 소유자를 찾을 때는 [아키텍처 지도](architecture/README.ko.md)를 먼저 보고, import와 package 모양이
+허용되는지는 [패키지 경계 규칙](architecture/package-boundaries.ko.md)으로 판단합니다. 두 문서가 구현의 기준
+지도이며, 이 문서는 아래에서 제품과 기능별 상세 경계를 설명합니다.
 
-- `cmd/plasma`, `internal/web`, `internal/mcp`는 외부 entrypoint입니다. CLI, HTTP, MCP 요청을 해석하고,
-  product result를 각 transport에 맞게 돌려줍니다.
-- `internal/app`은 storage 호출, domain package 호출, provider 실행, Web/CLI/MCP가 공유하는
-  compatibility contract를 조율합니다. 나중에는 source, report, workflow, connector, provider service로
-  더 나뉠 수 있습니다.
-- `workflowruns`, `workflowstate`, `sourceevents`, `sourcecandidates`, `sourceingest`, `reporting`,
-  `ledgerstate` 같은 domain/feature package는 product rule, state transition, event payload shape를
-  소유합니다.
-- `storage/sqlite`는 ledger, raw artifact, source snapshot, projection을 저장합니다. `connectors/*`와
-  `sources/*`는 교체 가능한 external access 또는 source-reading 구현입니다.
-
-새 작업은 이 방향을 유지해야 합니다. Transport package는 request를 adapt하고, domain package는 제품
-의미를 정의하고, app-level service는 use case를 조율합니다. Storage와 connector는 교체 가능한
-implementation으로 남아야 합니다.
+Go package는 독립 구현의 기본 단위입니다. Web, MCP, CLI, reporting, SQLite 같은 기술적 상위 분류도
+제품 기능의 contract와 변경 이유가 다르면 나눠야 합니다. Issue #66은 현재 넓은 `internal/app`,
+`internal/web`, `internal/mcp`, `internal/reporting` 경계를 추적합니다. 이것들은 새 작업의 선례가 아니라
+이행 부채입니다. SQLite persistence는 connection과 기능 간 transaction을 안정된 루트 facade가 소유하고,
+SQL은 루트 전용 기능별 repository로 분리되었습니다.
 
 ## 브라우저 프런트엔드 조립 경계
 

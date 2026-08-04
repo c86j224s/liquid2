@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 func (server *Server) handleMissionWorkflows(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -84,8 +83,8 @@ func (server *Server) handleMissionWorkflows(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if view.Status == app.WorkflowStatusStopping {
-			server.runningWorkflow.cancel(view.WorkflowRunID)
-			if _, err := server.stopWorkflowRunNow(r.Context(), missionID, view.WorkflowRunID, reason); err != nil {
+			server.workflowSupervisor.Cancel(view.WorkflowRunID)
+			if _, err := server.workflowSupervisor.StopRunNow(r.Context(), missionID, view.WorkflowRunID, reason); err != nil {
 				writeAppError(w, err)
 				return
 			}
@@ -255,36 +254,7 @@ func (server *Server) startWorkflow(ctx context.Context, missionID string, req w
 }
 
 func (server *Server) startWorkflowRunner(missionID string, workflowRunID string, executorName string) {
-	executor := server.agentExecutor(executorName)
-	if executor == nil {
-		return
-	}
-	workerCtx, cancel := context.WithCancel(context.Background())
-	runID, ok := server.runningWorkflow.start(workflowRunID, cancel)
-	if !ok {
-		cancel()
-		return
-	}
-	go func() {
-		defer cancel()
-		defer server.runningWorkflow.finish(workflowRunID, runID)
-		previousSessionID := server.latestAgentSessionID(context.Background(), missionID, executorName)
-		model, effort, err := resolveAgentSettings(executorName,
-			server.latestAgentSessionModel(context.Background(), missionID, executorName),
-			server.latestAgentReasoningEffort(context.Background(), missionID, executorName), previousSessionID)
-		if err != nil {
-			return
-		}
-		runner := workflowruntime.Runner{
-			Service:               server.service,
-			Agent:                 workflowAgentAdapter{executor: executor},
-			AgentModel:            model,
-			ReasoningEffort:       effort,
-			NewID:                 newID,
-			SourceCandidateStager: server.stageSourceCandidateProposalEvent,
-		}
-		_, _ = runner.Run(workerCtx, missionID, workflowRunID)
-	}()
+	server.workflowSupervisor.Start(missionID, workflowRunID, executorName)
 }
 
 func (server *Server) drainQueuedWorkflows(ctx context.Context, missionID string) {
@@ -292,46 +262,7 @@ func (server *Server) drainQueuedWorkflows(ctx context.Context, missionID string
 }
 
 func (server *Server) reconcileWorkflowState(ctx context.Context, missionID string) {
-	unlock := server.workflows.lock(missionID)
-	defer unlock()
-	runs, err := server.service.ListWorkflowRuns(ctx, missionID)
-	if err != nil {
-		return
-	}
-	events, err := server.service.ListEvents(ctx, missionID)
-	if err != nil {
-		return
-	}
-	for _, run := range runs {
-		switch run.Status {
-		case app.WorkflowStatusInterrupted, app.WorkflowStatusFailed, app.WorkflowStatusStopped:
-			server.closeWorkflowOpenPending(ctx, run, events)
-		case app.WorkflowStatusStopping:
-			server.runningWorkflow.cancel(run.WorkflowRunID)
-			if _, err := server.stopWorkflowRunNow(ctx, missionID, run.WorkflowRunID, firstNonEmpty(run.StopReason, "workflow stop requested")); err == nil {
-				return
-			}
-		case app.WorkflowStatusQueued:
-			if strings.TrimSpace(run.StartAfterEventID) == "" || !hasAgentTerminalEventInEvents(events, run.StartAfterEventID) {
-				continue
-			}
-			if server.agentExecutor(run.AgentExecutor) == nil {
-				continue
-			}
-			server.startWorkflowRunner(missionID, run.WorkflowRunID, run.AgentExecutor)
-			return
-		}
-	}
-}
-
-func (server *Server) closeWorkflowOpenPending(ctx context.Context, run app.WorkflowRunView, events []app.LedgerEvent) {
-	pending, ok := latestOpenAgentPendingInEvents(events, run.WorkflowRunID)
-	if !ok {
-		return
-	}
-	executor := firstNonEmpty(pending.AgentExecutor, run.AgentExecutor, "codex")
-	text := fmt.Sprintf("자동조사 실행자가 사라져 열린 대기 상태를 정리했습니다. workflow=%s status=%s", run.WorkflowRunID, run.Status)
-	_, _ = server.appendAgentCanceled(ctx, run.MissionID, pending.UserEventID, executor, text)
+	_ = server.workflowSupervisor.Reconcile(ctx, missionID)
 }
 
 type workflowAgentAdapter struct {

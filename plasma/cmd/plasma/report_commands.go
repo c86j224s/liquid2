@@ -7,12 +7,14 @@ import (
 	"io"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
@@ -38,7 +40,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	dbPath := fs.String("db", "", "Plasma SQLite database path")
 	title := fs.String("title", "Mission report", "report title")
 	directionHint := fs.String("direction-hint", "", "request-specific weak editorial direction")
-	mode := fs.String("mode", reporting.DefaultMode, "report mode: planned or one_take; long_form is browser/API-only until the CLI section runner is added")
+	mode := fs.String("mode", reportexecution.DefaultMode, "report mode: planned or one_take; long_form is browser/API-only until the CLI section runner is added")
 	agentName := fs.String("agent", "", "agent executor")
 	agentModel := fs.String("agent-model", "", "report agent model for this request")
 	agentReasoningEffort := fs.String("agent-reasoning-effort", "", "report reasoning effort for this request")
@@ -82,12 +84,12 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	if reportTitle == "" {
 		reportTitle = "Mission report"
 	}
-	reportMode, err := reporting.NormalizeMode(*mode)
+	reportMode, err := reportexecution.NormalizeMode(*mode)
 	if err != nil {
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 2
 	}
-	if reportMode == reporting.ModeLongForm {
+	if reportMode == reportexecution.ModeLongForm {
 		fmt.Fprintln(stderr, "reports draft: --mode long_form requires the browser/report API section runner; CLI reports currently support planned or one_take")
 		return 2
 	}
@@ -159,28 +161,28 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 2
 	}
-	_, canFork := executor.(web.AgentSessionForker)
-	_, canCheckFork := executor.(web.AgentSessionForkReadiness)
-	reportSessionPolicy, reportSessionPolicySelection, err := reporting.SelectSessionPolicy(reporting.SessionPolicySelectionInput{
+	_, canFork := executor.(agentexec.AgentSessionForker)
+	_, canCheckFork := executor.(agentexec.AgentSessionForkReadiness)
+	reportSessionPolicy, reportSessionPolicySelection, err := reportexecution.SelectSessionPolicy(reportexecution.SessionPolicySelectionInput{
 		RequestedPolicy:             cliRequestedReportSessionPolicy(*reportSessionPolicyFlag),
 		ReportMode:                  reportMode,
 		CanForkSession:              canFork,
 		HasPreReportResearchSession: strings.TrimSpace(preReportSessionID) != "",
-		ForkReady:                   canFork && canCheckFork && web.AgentSessionForkReady(ctx, executor, preReportSessionID),
+		ForkReady:                   canFork && canCheckFork && agentexec.AgentSessionForkReady(ctx, executor, preReportSessionID),
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 1
 	}
-	inFlight := &reporting.InFlight{}
+	inFlight := &reportexecution.InFlight{}
 	inFlight.SetNewID(cliNewID)
 	resultCh := make(chan cliReportDraftRunResult, 1)
-	var runner reporting.Runner
-	runner = reporting.Runner{
+	var runner reportexecution.Runner
+	runner = reportexecution.Runner{
 		Service:  svc,
 		InFlight: inFlight,
 		NewID:    cliNewID,
-		GenerateDraft: func(runCtx context.Context, runMissionID string, req reporting.DraftRequest, pendingEventID string) error {
+		GenerateDraft: func(runCtx context.Context, runMissionID string, req reportexecution.DraftRequest, pendingEventID string) error {
 			result := createCLIReportDraftArtifact(runCtx, svc, executor, runMissionID, pendingEventID, req)
 			if result.Err != nil {
 				_, _ = runner.AppendDraftFailed(runCtx, runMissionID, pendingEventID, req.AgentExecutor, req.ReportMode, result.Err)
@@ -189,7 +191,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 			return nil
 		},
 	}
-	pendingEvent, err := runner.StartDraft(ctx, missionID, reporting.DraftRequest{
+	pendingEvent, err := runner.StartDraft(ctx, missionID, reportexecution.DraftRequest{
 		Title:                        reportTitle,
 		DirectionHint:                *directionHint,
 		AgentExecutor:                resolvedAgentName,
@@ -314,7 +316,7 @@ func runReportsPatch(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "agent: %v\n", err)
 		return 2
 	}
-	selection, err := web.SelectReportPatchSession(ctx, executor, info.ReportSessionID, *reportSessionPolicy)
+	selection, err := reportpatch.SelectSession(ctx, executor, info.ReportSessionID, *reportSessionPolicy)
 	if err != nil {
 		fmt.Fprintf(stderr, "reports patch: %v\n", err)
 		return 1
@@ -323,15 +325,15 @@ func runReportsPatch(ctx context.Context, args []string, stdout, stderr io.Write
 	if patchTitle == "" {
 		patchTitle = firstNonEmptyString(info.Title+" 수정본", "Patched report")
 	}
-	inFlight := &reporting.InFlight{}
+	inFlight := &reportexecution.InFlight{}
 	inFlight.SetNewID(cliNewID)
 	resultCh := make(chan cliReportPatchRunResult, 1)
-	var runner reporting.Runner
-	runner = reporting.Runner{
+	var runner reportexecution.Runner
+	runner = reportexecution.Runner{
 		Service:  svc,
 		InFlight: inFlight,
 		NewID:    cliNewID,
-		GeneratePatch: func(runCtx context.Context, runMissionID string, req reporting.PatchRequest, pendingEventID string) error {
+		GeneratePatch: func(runCtx context.Context, runMissionID string, req reportexecution.PatchRequest, pendingEventID string) error {
 			result := createCLIReportPatchArtifact(runCtx, svc, executor, runMissionID, pendingEventID, req)
 			if result.Err != nil {
 				_, _ = runner.AppendPatchFailed(runCtx, runMissionID, pendingEventID, req.AgentExecutor, req.BaseArtifactID, result.Err)
@@ -340,7 +342,7 @@ func runReportsPatch(ctx context.Context, args []string, stdout, stderr io.Write
 			return nil
 		},
 	}
-	pendingEvent, err := runner.StartPatch(ctx, missionID, reporting.PatchRequest{
+	pendingEvent, err := runner.StartPatch(ctx, missionID, reportexecution.PatchRequest{
 		BaseArtifactID:               strings.TrimSpace(*baseArtifactID),
 		Instruction:                  strings.TrimSpace(*instruction),
 		Title:                        patchTitle,

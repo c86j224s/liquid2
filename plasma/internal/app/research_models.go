@@ -6,6 +6,8 @@ import (
 )
 
 const (
+	// Evidence/Claim/Question/Option/Proposal schema 상수는 legacy research object의
+	// stable JSON identity다.
 	EvidenceRecordSchemaVersion = "plasma.evidence_record.v1"
 	EvidenceRecordObjectKind    = "evidence_record"
 	ClaimRecordSchemaVersion    = "plasma.claim_record.v1"
@@ -19,6 +21,9 @@ const (
 	ProposalBundleObjectKind    = "proposal_bundle"
 )
 
+// Confidence는 agent 또는 사용자가 남긴 claim/evidence 신뢰도 설명이다.
+//
+// 보고서 생성의 gate가 아니라 참고자료와 추적성을 위한 내부 metadata로 취급한다.
 type Confidence struct {
 	Level             string   `json:"level"`
 	Rationale         string   `json:"rationale"`
@@ -26,6 +31,7 @@ type Confidence struct {
 	NeedsVerification bool     `json:"needs_verification"`
 }
 
+// Approval은 record나 block이 승인됐는지 여부와 승인 event를 기록한다.
 type Approval struct {
 	State           string    `json:"state"`
 	Required        bool      `json:"required"`
@@ -33,17 +39,20 @@ type Approval struct {
 	ApprovedAt      time.Time `json:"approved_at,omitempty"`
 }
 
+// SnapshotRef는 evidence가 참조하는 source snapshot artifact 위치다.
 type SnapshotRef struct {
 	SnapshotID string          `json:"snapshot_id"`
 	ArtifactID string          `json:"artifact_id"`
 	Locator    json.RawMessage `json:"locator"`
 }
 
+// ObjectRef는 proposal bundle이 포함하는 후보 객체의 stable reference다.
 type ObjectRef struct {
 	ObjectKind string `json:"object_kind"`
 	ObjectID   string `json:"object_id"`
 }
 
+// EvidenceRecord는 source snapshot의 특정 내용에서 뽑힌 evidence 후보/기록이다.
 type EvidenceRecord struct {
 	SchemaVersion  string        `json:"schema_version"`
 	ObjectKind     string        `json:"object_kind"`
@@ -59,6 +68,7 @@ type EvidenceRecord struct {
 	CreatedAt      time.Time     `json:"created_at"`
 }
 
+// ClaimRecord는 mission 안에서 다루는 주장 또는 중간 결론이다.
 type ClaimRecord struct {
 	SchemaVersion         string     `json:"schema_version"`
 	ObjectKind            string     `json:"object_kind"`
@@ -77,6 +87,7 @@ type ClaimRecord struct {
 	CreatedAt             time.Time  `json:"created_at"`
 }
 
+// ClaimConfidenceUpdatePayload는 claim confidence 변경 event payload다.
 type ClaimConfidenceUpdatePayload struct {
 	ClaimID          string     `json:"claim_id"`
 	Confidence       Confidence `json:"confidence"`
@@ -84,6 +95,7 @@ type ClaimConfidenceUpdatePayload struct {
 	Origin           string     `json:"origin"`
 }
 
+// ClaimConfidenceUpdate는 장부 event에서 읽은 claim confidence 변경 projection이다.
 type ClaimConfidenceUpdate struct {
 	EventID          string     `json:"event_id"`
 	MissionID        string     `json:"mission_id"`
@@ -96,6 +108,7 @@ type ClaimConfidenceUpdate struct {
 	CreatedAt        time.Time  `json:"created_at"`
 }
 
+// QuestionRecord는 조사 중 남겨 둔 질문 또는 미해결 쟁점이다.
 type QuestionRecord struct {
 	SchemaVersion      string    `json:"schema_version"`
 	ObjectKind         string    `json:"object_kind"`
@@ -112,6 +125,7 @@ type QuestionRecord struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
+// OptionRecord는 비교/의사결정형 조사에서 검토하는 선택지다.
 type OptionRecord struct {
 	SchemaVersion      string    `json:"schema_version"`
 	ObjectKind         string    `json:"object_kind"`
@@ -128,6 +142,7 @@ type OptionRecord struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
+// ProposalBundle은 evidence/claim/question 후보를 사용자 승인 대상으로 묶은 record다.
 type ProposalBundle struct {
 	SchemaVersion     string      `json:"schema_version"`
 	ObjectKind        string      `json:"object_kind"`
@@ -144,6 +159,7 @@ type ProposalBundle struct {
 	UpdatedAt         time.Time   `json:"updated_at"`
 }
 
+// CreateEvidenceRecordRequest는 evidence record 생성 입력이다.
 type CreateEvidenceRecordRequest struct {
 	EvidenceID     string
 	MissionID      string
@@ -156,6 +172,7 @@ type CreateEvidenceRecordRequest struct {
 	CreatedEventID string
 }
 
+// CreateClaimRecordRequest는 claim record 생성 입력이다.
 type CreateClaimRecordRequest struct {
 	ClaimID               string
 	MissionID             string
@@ -171,6 +188,7 @@ type CreateClaimRecordRequest struct {
 	CreatedEventID        string
 }
 
+// UpdateClaimConfidenceRequest는 claim confidence 변경 요청이다.
 type UpdateClaimConfidenceRequest struct {
 	EventID          string
 	MissionID        string
@@ -183,6 +201,7 @@ type UpdateClaimConfidenceRequest struct {
 	CorrelationID    string
 }
 
+// CreateQuestionRecordRequest는 question record 생성 입력이다.
 type CreateQuestionRecordRequest struct {
 	QuestionID         string
 	MissionID          string
@@ -196,6 +215,7 @@ type CreateQuestionRecordRequest struct {
 	CreatedEventID     string
 }
 
+// CreateOptionRecordRequest는 option record 생성 입력이다.
 type CreateOptionRecordRequest struct {
 	OptionID           string
 	MissionID          string
@@ -209,6 +229,7 @@ type CreateOptionRecordRequest struct {
 	CreatedEventID     string
 }
 
+// CreateProposalBundleRequest는 proposal bundle 생성 입력이다.
 type CreateProposalBundleRequest struct {
 	ProposalID        string
 	MissionID         string
@@ -219,12 +240,14 @@ type CreateProposalBundleRequest struct {
 	CreatedEventID    string
 }
 
+// UpdateProposalBundleStateRequest는 proposal bundle의 승인/기각 상태 변경 입력이다.
 type UpdateProposalBundleStateRequest struct {
 	ProposalID      string
 	State           string
 	DecisionEventID string
 }
 
+// ProposalBundleStateUpdate는 proposal state transition 결과다.
 type ProposalBundleStateUpdate struct {
 	ProposalID      string
 	FromState       string

@@ -12,6 +12,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -152,7 +153,7 @@ func TestRunSectionFanoutTasksUsesReportOnlyMCPTools(t *testing.T) {
 		agentReasoningEffort:      "medium",
 		pendingEventID:            "evt_pending_fanout_tools",
 		postReportHumanize:        "disabled",
-		generationGuidanceProfile: reportGenerationGuidanceProfileVisualPlan,
+		generationGuidanceProfile: reportprompt.ProfileVisualPlan,
 	}
 	state := sectionFanoutPlanState{
 		planEvent:           app.LedgerEvent{EventID: "evt_plan_fanout_tools"},

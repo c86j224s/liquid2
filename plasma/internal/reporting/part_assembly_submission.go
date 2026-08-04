@@ -13,17 +13,20 @@ const (
 	PartAssemblySubmittedSentinel  = "PART_ASSEMBLY_SUBMITTED"
 )
 
+// PartTransition는 part assembly가 section 사이에 삽입할 전환 문단이다.
 type PartTransition struct {
 	AfterSectionIndex int    `json:"after_section_index"`
 	Markdown          string `json:"markdown"`
 }
 
+// PartAssembly는 section artifact들을 하나의 part로 엮을 intro, transition, closing 문장 묶음이다.
 type PartAssembly struct {
 	Intro       string           `json:"intro"`
 	Transitions []PartTransition `json:"transitions"`
 	Closing     string           `json:"closing"`
 }
 
+// PartAssemblyBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type PartAssemblyBinding struct {
 	MissionID                    string       `json:"mission_id"`
 	PendingEventID               string       `json:"pending_event_id"`
@@ -51,12 +54,14 @@ type PartAssemblyBinding struct {
 	Producer                     app.Producer `json:"producer"`
 }
 
+// PartAssemblySubmittedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type PartAssemblySubmittedEventRequest struct {
 	EventID  string
 	Binding  PartAssemblyBinding
 	Assembly PartAssembly
 }
 
+// PartAssemblySubmission는 저장된 part assembly 이벤트와 binding, assembly 본문을 함께 돌려준다.
 type PartAssemblySubmission struct {
 	Event    app.LedgerEvent
 	Binding  PartAssemblyBinding
@@ -91,10 +96,12 @@ type partAssemblySubmittedPayload struct {
 	Text                         string       `json:"text"`
 }
 
+// PartAssemblySubmissionStore는 part assembly 제출 복원에 필요한 조회 포트다.
 type PartAssemblySubmissionStore interface {
 	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
 }
 
+// BuildPartAssemblySubmittedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildPartAssemblySubmittedAppendRequest(req PartAssemblySubmittedEventRequest) app.AppendEventRequest {
 	binding := normalizePartAssemblyBinding(req.Binding)
 	payload := partAssemblySubmittedPayload{

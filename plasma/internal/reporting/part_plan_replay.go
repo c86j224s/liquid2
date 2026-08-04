@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// StoredPartPlanExpectation는 저장된 part plan이 어느 parent plan과 stage에 속하는지 검증하는 값이다.
 type StoredPartPlanExpectation struct {
 	MissionID                    string
 	PendingEventID               string
@@ -45,6 +46,7 @@ func matchingPartPlanEvents(events []app.LedgerEvent, pendingEventID string, pla
 	return matches
 }
 
+// DecodeStoredPartPlan는 저장된 part plan artifact를 재실행 가능한 plan 값으로 복원한다.
 func DecodeStoredPartPlan(event app.LedgerEvent, expected StoredPartPlanExpectation) (PartPlanResult, bool, error) {
 	expected = normalizeStoredPartPlanExpectation(expected)
 	if event.EventType != PartPlanCreatedEventType {

@@ -5,21 +5,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func TestReportDirectionPromptAllowlist(t *testing.T) {
 	hint := "DIRECTION_SENTINEL"
 	allowed := withReportDirection("base prompt", hint)
-	if !strings.Contains(allowed, reporting.DirectionAdvisory) || !strings.Contains(allowed, hint) {
+	if !strings.Contains(allowed, reportexecution.DirectionAdvisory) || !strings.Contains(allowed, hint) {
 		t.Fatalf("allowed prompt = %q", allowed)
 	}
 	for name, prompt := range map[string]string{
-		"patch": AgentReportPatchPrompt("t", "mis_1", "ses_1", "evt_1", "art_1", "edit", reporting.PatchRequest{}),
+		"patch": AgentReportPatchPrompt("t", "mis_1", "ses_1", "evt_1", "art_1", "edit", reportexecution.PatchRequest{}),
 		"part":  agentPartAssemblyPrompt("t", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, agentReportPart{}, nil, 0, ""),
 		"final": agentLongFormFinalizePrompt("t", "mis_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, nil, "", reporting.LongFormFinalizeBinding{ToolSessionID: "ses_1", PendingEventID: "evt_1", PlanEventID: "evt_2", IdempotencyKey: "key"}, 1, false, reporting.LongFormFinalizationHint{}),
 	} {
-		if strings.Contains(prompt, hint) || strings.Contains(prompt, reporting.DirectionAdvisory) {
+		if strings.Contains(prompt, hint) || strings.Contains(prompt, reportexecution.DirectionAdvisory) {
 			t.Fatalf("%s leaked direction", name)
 		}
 	}

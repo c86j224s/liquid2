@@ -10,6 +10,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// CreateFetchedURLSourceWithEvent는 새로 가져온 URL 본문을 artifact와 source
+// snapshot으로 저장하고 같은 전이를 원장 이벤트로 남긴다. browser render 진단은
+// 표시용 payload에만 기록하며, 여기서 자동 재시도 정책을 실행하지 않는다.
 func CreateFetchedURLSourceWithEvent(ctx context.Context, store Store, req CreateFetchedURLSourceRequest) (URLSourceSnapshotResult, error) {
 	title := firstNonEmptyString(req.Title, req.Fetched.Title, req.URL)
 	fetchedAt := req.FetchedAt.UTC()
@@ -101,6 +104,9 @@ func CreateFetchedURLSourceWithEvent(ctx context.Context, store Store, req Creat
 	return URLSourceSnapshotResult{Artifact: result.Artifact, Snapshot: result.Snapshot, Event: result.Event}, nil
 }
 
+// BuildSourceSnapshotFailureAppendRequest는 소스 스냅샷 실패 이벤트를 같은
+// payload 계약으로 조립한다. 호출자가 실제 AppendEvent 실행 시점과 재시도 정책을
+// 소유한다.
 func BuildSourceSnapshotFailureAppendRequest(req SourceSnapshotFailureAppendRequest) AppendEventRequest {
 	return AppendEventRequest{
 		EventID:   strings.TrimSpace(req.EventID),
@@ -116,6 +122,9 @@ func BuildSourceSnapshotFailureAppendRequest(req SourceSnapshotFailureAppendRequ
 	}
 }
 
+// CreateStagedURLSourceWithEvent는 staged 후보 artifact를 새 fetch 없이 승인된
+// URL source snapshot으로 승격한다. 후보 제안 이벤트 ID는 나중에 왜 이 artifact를
+// 재사용했는지 추적할 수 있도록 locator와 payload에 보존한다.
 func CreateStagedURLSourceWithEvent(ctx context.Context, store Store, req CreateStagedURLSourceRequest) (URLSourceSnapshotResult, error) {
 	title := firstNonEmptyString(req.Title, req.Staged.Title, req.URL)
 	locators, err := json.Marshal([]map[string]string{{

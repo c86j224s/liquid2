@@ -9,6 +9,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// LongFormFinalizationStore는 장문 보고서 최종화 입력을 복원하는 조회 포트다.
 type LongFormFinalizationStore interface {
 	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
 	GetRawArtifact(context.Context, string) (app.RawArtifact, error)

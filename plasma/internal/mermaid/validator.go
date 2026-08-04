@@ -8,10 +8,14 @@ import (
 )
 
 const (
+	// RendererVersion은 현재 browser bundle에서 기대하는 Mermaid version 설명이다.
 	RendererVersion = "mermaid 11.16.0"
 	maxSourceBytes  = 50000
 )
 
+// Issue는 Mermaid preflight에서 발견한 오류나 경고 하나를 나타낸다.
+//
+// Expectation은 agent가 다음 시도에서 어떻게 고치면 되는지 설명하는 안전한 문구다.
 type Issue struct {
 	Kind        string `json:"kind"`
 	Message     string `json:"message"`
@@ -20,6 +24,10 @@ type Issue struct {
 	Expectation string `json:"expectation,omitempty"`
 }
 
+// Result는 Mermaid source에 대한 정적 사전 검증 결과다.
+//
+// OK가 true여도 browser render 성공을 보장하지 않는다. CanConfirmRender가 false인
+// 이유는 이 패키지가 browser를 실행하지 않고 known-risk rule만 검사하기 때문이다.
 type Result struct {
 	OK               bool     `json:"ok"`
 	DiagramType      string   `json:"diagram_type"`
@@ -34,6 +42,10 @@ type Result struct {
 	ExpectedBehavior string   `json:"expected_behavior"`
 }
 
+// Validate는 Mermaid source를 정규화하고 알려진 parser 위험 규칙을 검사한다.
+//
+// 이 함수는 source를 자동 수정하지 않는다. agent나 caller가 Result의 Expectation을
+// 읽고 새 source를 제출해야 한다.
 func Validate(source string) Result {
 	result := Result{
 		RendererVersion:  RendererVersion,

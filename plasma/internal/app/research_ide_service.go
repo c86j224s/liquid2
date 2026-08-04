@@ -9,8 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
 )
 
 const (
@@ -22,6 +22,7 @@ const (
 	researchIDEMaxSuggestions = 6
 )
 
+// ResearchIDEReader는 Research IDE 화면이 필요한 읽기 기능만 노출하는 조회 포트다.
 type ResearchIDEReader interface {
 	OutlineMission(context.Context, string) (ResearchIDEOutline, error)
 	ListMissionObjects(context.Context, string, string, int, string) (ResearchIDEPage, error)
@@ -30,14 +31,17 @@ type ResearchIDEReader interface {
 	ListObjectReferences(context.Context, string, string, string, int, string) (ResearchIDEReferences, error)
 }
 
+// RawArtifactListStore는 artifact 목록 조회를 화면 조립에서 분리하는 저장소 포트다.
 type RawArtifactListStore interface {
 	ListRawArtifacts(context.Context, string) ([]RawArtifact, error)
 }
 
+// OutlineMission는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) OutlineMission(ctx context.Context, missionID string) (ResearchIDEOutline, error) {
 	return s.outlineMission(ctx, missionID, false)
 }
 
+// OutlineMissionLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) OutlineMissionLegacy(ctx context.Context, missionID string) (ResearchIDEOutline, error) {
 	return s.outlineMission(ctx, missionID, true)
 }
@@ -137,10 +141,12 @@ func (s *Service) outlineMission(ctx context.Context, missionID string, legacy b
 	}, nil
 }
 
+// ListMissionObjects는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListMissionObjects(ctx context.Context, missionID, objectKind string, limit int, cursor string) (ResearchIDEPage, error) {
 	return s.listMissionObjects(ctx, missionID, objectKind, limit, cursor, false)
 }
 
+// ListMissionObjectsLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListMissionObjectsLegacy(ctx context.Context, missionID, objectKind string, limit int, cursor string) (ResearchIDEPage, error) {
 	return s.listMissionObjects(ctx, missionID, objectKind, limit, cursor, true)
 }
@@ -171,6 +177,7 @@ func (s *Service) listMissionObjects(ctx context.Context, missionID, objectKind 
 	}, nil
 }
 
+// ReadMissionObject는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ReadMissionObject(ctx context.Context, req ResearchIDEReadRequest) (ResearchIDEObjectRead, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", missionID); err != nil {
@@ -298,10 +305,10 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 			metadata["note"] = "binary artifact content is not returned through research.read"
 			return ResearchIDEObjectRead{ObjectKind: objectKind, ObjectID: objectID, MissionID: missionID, Summary: summary.Summary, Refs: summary.Refs, Data: string(mustJSON(metadata))}, true, nil
 		}
-		if !pdftext.IsPDFMediaType(record.MediaType) && !pdftext.IsPDFBytes(record.Content) {
+		if !pdfdocument.IsPDFMediaType(record.MediaType) && !pdfdocument.IsPDFBytes(record.Content) {
 			return ResearchIDEObjectRead{}, false, nil
 		}
-		chunk, err := pdftext.ExtractChunk(record.Content, offset, maxBytes)
+		chunk, err := pdfdocument.ExtractChunk(record.Content, offset, maxBytes)
 		if err != nil {
 			data := mustJSON(map[string]any{
 				"artifact_id": record.ArtifactID,
@@ -332,8 +339,8 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 			"next_offset":          chunk.NextOffset,
 			"extraction_type":      "pdf_text",
 			"page_count":           chunk.PageCount,
-			"suggested_read_bytes": pdftext.DefaultChunkMaxBytes,
-			"max_read_bytes":       pdftext.MaxChunkBytes,
+			"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
+			"max_read_bytes":       pdfdocument.MaxChunkBytes,
 		})
 		return ResearchIDEObjectRead{
 			ObjectKind: objectKind,
@@ -375,13 +382,13 @@ func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID st
 	if artifact.MissionID != missionID {
 		return researchIDEReadPayload{}, true, fmt.Errorf("%w: source artifact %s belongs to another mission", ErrInvalidInput, artifactID)
 	}
-	if !pdftext.IsPDFMediaType(artifact.MediaType) && !pdftext.IsPDFBytes(artifact.Content) {
+	if !pdfdocument.IsPDFMediaType(artifact.MediaType) && !pdfdocument.IsPDFBytes(artifact.Content) {
 		return researchIDEReadPayload{}, false, nil
 	}
 	summary := summarizeSourceSnapshot(snapshot)
 	artifactMetadata := UploadedArtifactMetadata(artifact)
 	sourceMetadata := sourceSnapshotReadMetadata(snapshot, summary)
-	chunk, err := pdftext.ExtractChunk(artifact.Content, offset, maxBytes)
+	chunk, err := pdfdocument.ExtractChunk(artifact.Content, offset, maxBytes)
 	if err != nil {
 		data := mustJSON(map[string]any{
 			"source":    sourceMetadata,
@@ -403,7 +410,7 @@ func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID st
 		"next_offset":          chunk.NextOffset,
 		"extraction_type":      "pdf_text",
 		"page_count":           chunk.PageCount,
-		"suggested_read_bytes": pdftext.DefaultChunkMaxBytes,
+		"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
 		"max_read_bytes":       researchIDEMaxBytes,
 		"read_kind":            "source_pdf_text",
 	})
@@ -434,10 +441,12 @@ func sourceSnapshotReadMetadata(snapshot SourceSnapshot, summary ResearchIDEObje
 	return metadata
 }
 
+// GrepMissionObjects는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GrepMissionObjects(ctx context.Context, missionID, query string, limit int, cursor string) (ResearchIDEGrepResult, error) {
 	return s.grepMissionObjects(ctx, missionID, query, limit, cursor, false)
 }
 
+// GrepMissionObjectsLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GrepMissionObjectsLegacy(ctx context.Context, missionID, query string, limit int, cursor string) (ResearchIDEGrepResult, error) {
 	return s.grepMissionObjects(ctx, missionID, query, limit, cursor, true)
 }
@@ -480,10 +489,12 @@ func (s *Service) grepMissionObjects(ctx context.Context, missionID, query strin
 	return ResearchIDEGrepResult{MissionID: missionID, Query: query, Matches: page, NextCursor: next, Limit: limit, Truncated: truncated}, nil
 }
 
+// ListObjectReferences는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListObjectReferences(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (ResearchIDEReferences, error) {
 	return s.listObjectReferences(ctx, missionID, objectKind, objectID, limit, cursor, false)
 }
 
+// ListObjectReferencesLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListObjectReferencesLegacy(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (ResearchIDEReferences, error) {
 	return s.listObjectReferences(ctx, missionID, objectKind, objectID, limit, cursor, true)
 }
@@ -571,6 +582,7 @@ func (s *Service) listRawArtifacts(ctx context.Context, missionID string) ([]Raw
 	return store.ListRawArtifacts(ctx, missionID)
 }
 
+// ListRawArtifacts는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListRawArtifacts(ctx context.Context, missionID string) ([]RawArtifact, error) {
 	missionID = strings.TrimSpace(missionID)
 	if err := validateID("mis_", missionID); err != nil {
@@ -867,8 +879,8 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 			metadata["note"] = "binary artifact content is not returned through research.read"
 			return summarizeRawArtifact(record), mustJSON(metadata), nil
 		}
-		if pdftext.IsPDFMediaType(record.MediaType) || pdftext.IsPDFBytes(record.Content) {
-			chunk, err := pdftext.ExtractChunk(record.Content, 0, researchIDEDefaultBytes)
+		if pdfdocument.IsPDFMediaType(record.MediaType) || pdfdocument.IsPDFBytes(record.Content) {
+			chunk, err := pdfdocument.ExtractChunk(record.Content, 0, researchIDEDefaultBytes)
 			if err != nil {
 				return summarizeRawArtifact(record), mustJSON(map[string]any{
 					"artifact_id": record.ArtifactID,
@@ -897,8 +909,8 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 				"next_offset":          chunk.NextOffset,
 				"extraction_type":      "pdf_text",
 				"page_count":           chunk.PageCount,
-				"suggested_read_bytes": pdftext.DefaultChunkMaxBytes,
-				"max_read_bytes":       pdftext.MaxChunkBytes,
+				"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
+				"max_read_bytes":       pdfdocument.MaxChunkBytes,
 			}), nil
 		}
 		if !utf8.Valid(record.Content) {

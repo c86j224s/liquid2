@@ -19,8 +19,10 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func (server *Server) handleMissionReports(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -180,8 +182,8 @@ func (server *Server) handleMissionArtifacts(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if len(rest) == 2 && rest[1] == "humanized_markdown_export" {
-		// Deprecated UI initiation path. The route remains for historical
-		// artifacts/events and direct API compatibility.
+		// deprecated된 UI 시작 경로다. 과거 artifact/event와 직접 API 호환성을 위해
+		// route만 유지한다.
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -360,14 +362,8 @@ type reportArtifactSessionInfo struct {
 	ReportPendingEventID         string
 }
 
-type ReportPatchSessionSelection struct {
-	SessionID                    string
-	PreviousAgentSessionID       string
-	ForkSourceAgentSessionID     string
-	ReportSessionPolicy          string
-	ReportSessionPolicySelection string
-	SessionChainKind             string
-}
+// ReportPatchSessionSelection는 patch 실행에 사용할 report session과 fork 출처 선택 결과다.
+type ReportPatchSessionSelection = reportpatch.PatchSessionSelection
 
 type reportPatchSessionSelection = ReportPatchSessionSelection
 
@@ -431,86 +427,9 @@ func selectReportPatchSession(ctx context.Context, executor AgentExecutor, sourc
 	return SelectReportPatchSession(ctx, executor, sourceSessionID, requestedPolicy)
 }
 
+// SelectReportPatchSession는 patch 요청에 사용할 report session과 fork 출처를 선택한다.
 func SelectReportPatchSession(ctx context.Context, executor AgentExecutor, sourceSessionID string, requestedPolicy string) (ReportPatchSessionSelection, error) {
-	sourceSessionID = strings.TrimSpace(sourceSessionID)
-	if sourceSessionID == "" {
-		return ReportPatchSessionSelection{}, fmt.Errorf("%w: report patch requires a previous report session", app.ErrInvalidInput)
-	}
-	requestedPolicy = strings.TrimSpace(requestedPolicy)
-	if requestedPolicy != "" {
-		policy, err := normalizeReportSessionPolicy(requestedPolicy)
-		if err != nil {
-			return ReportPatchSessionSelection{}, err
-		}
-		if policy == reportSessionPolicySameSession {
-			return ReportPatchSessionSelection{
-				SessionID:                    sourceSessionID,
-				PreviousAgentSessionID:       sourceSessionID,
-				ReportSessionPolicy:          reportSessionPolicySameSession,
-				ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-				SessionChainKind:             "same_report_session_patch",
-			}, nil
-		}
-		forker, ok := executor.(AgentSessionForker)
-		if !ok {
-			return ReportPatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session requires a forkable executor", app.ErrInvalidInput)
-		}
-		if !AgentSessionForkReady(ctx, executor, sourceSessionID) {
-			return ReportPatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session is not ready for fork", app.ErrInvalidInput)
-		}
-		fork, err := forker.ForkSession(ctx, sourceSessionID)
-		if err != nil {
-			return ReportPatchSessionSelection{}, fmt.Errorf("report patch session fork failed: %w", err)
-		}
-		forkSource := firstNonEmpty(fork.SourceSessionID, sourceSessionID)
-		return ReportPatchSessionSelection{
-			SessionID:                    fork.SessionID,
-			PreviousAgentSessionID:       fork.SessionID,
-			ForkSourceAgentSessionID:     forkSource,
-			ReportSessionPolicy:          reportSessionPolicyIsolatedFork,
-			ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitIsolatedFork,
-			SessionChainKind:             "isolated_fork_report_patch",
-		}, nil
-	}
-
-	forker, canFork := executor.(AgentSessionForker)
-	if !canFork {
-		return ReportPatchSessionSelection{
-			SessionID:                    sourceSessionID,
-			PreviousAgentSessionID:       sourceSessionID,
-			ReportSessionPolicy:          reportSessionPolicySameSession,
-			ReportSessionPolicySelection: reporting.SessionPolicySelectionAutoSameSessionNoForker,
-			SessionChainKind:             "same_report_session_patch",
-		}, nil
-	}
-	if !AgentSessionForkReady(ctx, executor, sourceSessionID) {
-		return ReportPatchSessionSelection{
-			SessionID:                    sourceSessionID,
-			PreviousAgentSessionID:       sourceSessionID,
-			ReportSessionPolicy:          reportSessionPolicySameSession,
-			ReportSessionPolicySelection: reporting.SessionPolicySelectionAutoSameSessionForkFailed,
-			SessionChainKind:             "same_report_session_patch",
-		}, nil
-	}
-	fork, err := forker.ForkSession(ctx, sourceSessionID)
-	if err != nil {
-		return ReportPatchSessionSelection{
-			SessionID:                    sourceSessionID,
-			PreviousAgentSessionID:       sourceSessionID,
-			ReportSessionPolicy:          reportSessionPolicySameSession,
-			ReportSessionPolicySelection: reporting.SessionPolicySelectionAutoSameSessionForkFailed,
-			SessionChainKind:             "same_report_session_patch",
-		}, nil
-	}
-	forkSource := firstNonEmpty(fork.SourceSessionID, sourceSessionID)
-	return ReportPatchSessionSelection{
-		SessionID:                    fork.SessionID,
-		PreviousAgentSessionID:       fork.SessionID,
-		ForkSourceAgentSessionID:     forkSource,
-		ReportSessionPolicy:          reportSessionPolicyIsolatedFork,
-		ReportSessionPolicySelection: reporting.SessionPolicySelectionAutoIsolatedFork,
-		SessionChainKind:             "isolated_fork_report_patch",
-	}, nil
+	return reportpatch.SelectSession(ctx, executor, sourceSessionID, requestedPolicy)
 }
 
 func (server *Server) exportMarkdownArtifactAsHTML(ctx context.Context, missionID string, sourceArtifact app.RawArtifact) (app.ReportExportResult, error) {
@@ -537,7 +456,7 @@ func (server *Server) exportMarkdownArtifactAsHTML(ctx context.Context, missionI
 	if err != nil {
 		return app.ReportExportResult{}, err
 	}
-	event, err := server.service.AppendEvent(ctx, reporting.BuildSelfContainedHTMLExportAppendRequest(reporting.SelfContainedHTMLExportEventRequest{
+	event, err := server.service.AppendEvent(ctx, reportexecution.BuildSelfContainedHTMLExportAppendRequest(reportexecution.SelfContainedHTMLExportEventRequest{
 		EventID:          newID("evt"),
 		MissionID:        missionID,
 		SourceArtifactID: sourceArtifact.ArtifactID,
@@ -571,9 +490,9 @@ func (server *Server) existingMarkdownArtifactHTMLExport(ctx context.Context, mi
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			continue
 		}
-		if strings.TrimSpace(payload.Kind) != reporting.ExportKindSelfContainedHTML ||
+		if strings.TrimSpace(payload.Kind) != reportexecution.ExportKindSelfContainedHTML ||
 			strings.TrimSpace(payload.SourceArtifactID) != sourceArtifactID ||
-			strings.TrimSpace(payload.Target) != reporting.ExportTargetSelfContainedHTML ||
+			strings.TrimSpace(payload.Target) != reportexecution.ExportTargetSelfContainedHTML ||
 			strings.TrimSpace(payload.RendererVersion) != selfContainedReportRendererVersion {
 			continue
 		}
@@ -645,7 +564,7 @@ func (server *Server) startDesignedReportHTMLExport(ctx context.Context, mission
 	}
 	agentModel := server.latestAgentSessionModel(ctx, missionID, executorName)
 	agentReasoningEffort := server.latestAgentReasoningEffort(ctx, missionID, executorName)
-	pendingEvent, err := server.reportRunner().StartDesign(ctx, missionID, reporting.DesignRequest{
+	pendingEvent, err := server.reportRunner().StartDesign(ctx, missionID, reportexecution.DesignRequest{
 		SourceArtifactID:     sourceArtifact.ArtifactID,
 		SourceMediaType:      sourceArtifact.MediaType,
 		Title:                reportArtifactTitle(sourceArtifact),
@@ -743,7 +662,7 @@ func (server *Server) createDesignedReportHTMLExport(ctx context.Context, missio
 	if err != nil {
 		return app.ReportExportResult{}, err
 	}
-	terminal := reporting.BuildDesignedHTMLExportAppendRequest(reporting.DesignedHTMLExportEventRequest{
+	terminal := reportexecution.BuildDesignedHTMLExportAppendRequest(reportexecution.DesignedHTMLExportEventRequest{
 		EventID:                newID("evt"),
 		MissionID:              missionID,
 		PendingEventID:         pendingEventID,
@@ -779,7 +698,7 @@ func (server *Server) reconcileStaleDesignedReportExports(ctx context.Context, m
 	if err != nil {
 		return err
 	}
-	completed := reporting.CompletedPendingEventIDs(events)
+	completed := reportexecution.CompletedPendingEventIDs(events)
 	for _, event := range events {
 		if event.EventType != "report.design.pending" {
 			continue
@@ -813,9 +732,9 @@ func (server *Server) existingDesignedReportHTMLExport(ctx context.Context, miss
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			continue
 		}
-		if strings.TrimSpace(payload.Kind) != reporting.ExportKindDesignedHTML ||
+		if strings.TrimSpace(payload.Kind) != reportexecution.ExportKindDesignedHTML ||
 			strings.TrimSpace(payload.SourceArtifactID) != sourceArtifactID ||
-			strings.TrimSpace(payload.Target) != reporting.ExportTargetDesignedHTML ||
+			strings.TrimSpace(payload.Target) != reportexecution.ExportTargetDesignedHTML ||
 			strings.TrimSpace(payload.RendererVersion) != designedReportRendererVersion ||
 			strings.TrimSpace(payload.ImageSet) != imageSetFingerprint {
 			continue
@@ -969,7 +888,7 @@ func (server *Server) isReportArtifact(ctx context.Context, missionID string, ar
 			continue
 		}
 		kind := strings.TrimSpace(payload.Kind)
-		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reporting.ExportKindSelfContainedHTML || kind == reporting.ExportKindDesignedHTML || kind == reporting.ExportKindHumanizedMarkdown || kind == app.ReportRedpenArtifactKind) {
+		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reportexecution.ExportKindSelfContainedHTML || kind == reportexecution.ExportKindDesignedHTML || kind == reportexecution.ExportKindHumanizedMarkdown || kind == app.ReportRedpenArtifactKind) {
 			return true, nil
 		}
 	}
@@ -1019,7 +938,7 @@ func (server *Server) hasReportDraftTerminalEvent(ctx context.Context, missionID
 	if err != nil {
 		return false
 	}
-	_, ok := reporting.CompletedPendingEventIDs(events)[strings.TrimSpace(pendingEventID)]
+	_, ok := reportexecution.CompletedPendingEventIDs(events)[strings.TrimSpace(pendingEventID)]
 	return ok
 }
 
@@ -1056,11 +975,11 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	req.RigorLevel = rigor.level
 	req.ReportMode = reportMode
 	req.ExecutionStrategy = executionStrategy
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
+	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
 		return nil, err
 	}
-	postReportHumanize := normalizePostReportHumanize(req.PostReportHumanize)
+	postReportHumanize := reportprompt.NormalizePostReportHumanize(req.PostReportHumanize)
 
 	unlockReports := server.reports.lock(missionID)
 	defer unlockReports()
@@ -1095,7 +1014,7 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	}
 	req.ReportSessionPolicy = reportSessionPolicy
 	req.ReportSessionPolicySelection = reportSessionPolicySelection
-	pendingEvent, err := server.reportRunner().StartDraft(ctx, missionID, reporting.DraftRequest{
+	pendingEvent, err := server.reportRunner().StartDraft(ctx, missionID, reportexecution.DraftRequest{
 		Title:                        title,
 		DirectionHint:                req.DirectionHint,
 		ExecutionStrategy:            storedReportExecutionStrategy(req.ExecutionStrategy),
@@ -1202,7 +1121,7 @@ func (server *Server) startReportPatch(ctx context.Context, missionID string, re
 	if err != nil {
 		return nil, err
 	}
-	pendingEvent, err := server.reportRunner().StartPatch(ctx, missionID, reporting.PatchRequest{
+	pendingEvent, err := server.reportRunner().StartPatch(ctx, missionID, reportexecution.PatchRequest{
 		BaseArtifactID:               baseArtifact.ArtifactID,
 		Instruction:                  instruction,
 		Title:                        title,
@@ -1291,7 +1210,7 @@ func (server *Server) startReportHumanize(ctx context.Context, missionID string,
 	if active := server.activeWorkflowRun(ctx, missionID); active != nil {
 		return nil, fmt.Errorf("%w: workflow %s is %s for this mission", app.ErrInvalidInput, active.WorkflowRunID, active.Status)
 	}
-	pendingEvent, err := server.reportRunner().StartHumanize(ctx, missionID, reporting.HumanizeRequest{
+	pendingEvent, err := server.reportRunner().StartHumanize(ctx, missionID, reportexecution.HumanizeRequest{
 		SourceArtifactID:       sourceArtifact.ArtifactID,
 		SourceArtifactSHA256:   sourceArtifact.SHA256,
 		SourceMediaType:        sourceArtifact.MediaType,
@@ -1314,12 +1233,12 @@ func (server *Server) startReportHumanize(ctx context.Context, missionID string,
 	}, nil
 }
 
-func (server *Server) reportRunner() reporting.Runner {
-	return reporting.Runner{
+func (server *Server) reportRunner() reportexecution.Runner {
+	return reportexecution.Runner{
 		Service:  server.service,
 		InFlight: &server.runningReports,
 		NewID:    newID,
-		GenerateDraft: func(ctx context.Context, missionID string, req reporting.DraftRequest, pendingEventID string) error {
+		GenerateDraft: func(ctx context.Context, missionID string, req reportexecution.DraftRequest, pendingEventID string) error {
 			_, err := server.createReportDraft(ctx, missionID, reportDraftRequest{
 				Title:                        req.Title,
 				DirectionHint:                req.DirectionHint,
@@ -1339,7 +1258,7 @@ func (server *Server) reportRunner() reporting.Runner {
 			}, pendingEventID)
 			return err
 		},
-		GenerateDesign: func(ctx context.Context, missionID string, req reporting.DesignRequest, pendingEventID string) error {
+		GenerateDesign: func(ctx context.Context, missionID string, req reportexecution.DesignRequest, pendingEventID string) error {
 			_, err := server.createDesignedReportHTMLExport(ctx, missionID, req.SourceArtifactID, reportDesignRequest{
 				AgentExecutor:        req.AgentExecutor,
 				AgentModel:           req.AgentModel,
@@ -1347,7 +1266,7 @@ func (server *Server) reportRunner() reporting.Runner {
 			}, pendingEventID)
 			return err
 		},
-		GenerateHumanize: func(ctx context.Context, missionID string, req reporting.HumanizeRequest, pendingEventID string) error {
+		GenerateHumanize: func(ctx context.Context, missionID string, req reportexecution.HumanizeRequest, pendingEventID string) error {
 			_, err := server.createReportHumanize(ctx, missionID, reportHumanizeRequest{
 				Title:                req.Title,
 				AgentExecutor:        req.AgentExecutor,
@@ -1357,7 +1276,7 @@ func (server *Server) reportRunner() reporting.Runner {
 			}, pendingEventID, req)
 			return err
 		},
-		GeneratePatch: func(ctx context.Context, missionID string, req reporting.PatchRequest, pendingEventID string) error {
+		GeneratePatch: func(ctx context.Context, missionID string, req reportexecution.PatchRequest, pendingEventID string) error {
 			_, err := server.createReportPatch(ctx, missionID, reportPatchRequest{
 				BaseArtifactID:       req.BaseArtifactID,
 				Instruction:          req.Instruction,
@@ -1378,7 +1297,7 @@ func (server *Server) reconcileStaleReportDrafts(ctx context.Context, missionID 
 	if err != nil {
 		return err
 	}
-	completed := reporting.CompletedPendingEventIDs(events)
+	completed := reportexecution.CompletedPendingEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
 		if _, ok := completed[event.EventID]; ok {
@@ -1452,8 +1371,8 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	if err := server.validateReportSessionPolicy(ctx, missionID, executorName, reportMode, reportSessionPolicy, executor, false); err != nil {
 		return nil, err
 	}
-	postReportHumanize := normalizePostReportHumanize(req.PostReportHumanize)
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
+	postReportHumanize := reportprompt.NormalizePostReportHumanize(req.PostReportHumanize)
+	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
 		return nil, err
 	}
@@ -1473,7 +1392,7 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	}
 }
 
-func (server *Server) createReportHumanize(ctx context.Context, missionID string, req reportHumanizeRequest, pendingEventID string, humanizeReq reporting.HumanizeRequest) (map[string]any, error) {
+func (server *Server) createReportHumanize(ctx context.Context, missionID string, req reportHumanizeRequest, pendingEventID string, humanizeReq reportexecution.HumanizeRequest) (map[string]any, error) {
 	sourceArtifact, err := server.reportArtifact(ctx, missionID, humanizeReq.SourceArtifactID)
 	if err != nil {
 		return nil, err
@@ -1527,7 +1446,7 @@ func (server *Server) createReportHumanize(ctx context.Context, missionID string
 	return map[string]any{"source_artifact": sourceArtifact, "humanized": humanized}, nil
 }
 
-func (server *Server) createReportPatch(ctx context.Context, missionID string, req reportPatchRequest, pendingEventID string, patchReq reporting.PatchRequest) (map[string]any, error) {
+func (server *Server) createReportPatch(ctx context.Context, missionID string, req reportPatchRequest, pendingEventID string, patchReq reportexecution.PatchRequest) (map[string]any, error) {
 	baseArtifact, err := server.reportArtifact(ctx, missionID, req.BaseArtifactID)
 	if err != nil {
 		return nil, err
@@ -1704,12 +1623,7 @@ func (server *Server) promoteReportPatchFinalizedArtifact(ctx context.Context, m
 }
 
 func reportPatchMCPTools() []string {
-	return []string{
-		plasmamcp.ToolReportPatchStart,
-		plasmamcp.ToolReportPatchRead,
-		plasmamcp.ToolReportPatchApply,
-		plasmamcp.ToolReportPatchFinalize,
-	}
+	return reportpatch.MCPTools()
 }
 
 func (server *Server) createOneTakeReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {
@@ -1840,7 +1754,7 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 		}
 		forker, ok := executor.(AgentSessionForker)
 		if !ok {
-			return nil, reporting.ValidateSessionPolicy(reportSessionPolicy, reportModePlanned, false, strings.TrimSpace(previousSessionID) != "", false)
+			return nil, reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportModePlanned, false, strings.TrimSpace(previousSessionID) != "", false)
 		}
 		fork, err := forker.ForkSession(ctx, previousSessionID)
 		if err != nil {
@@ -1857,14 +1771,14 @@ func (server *Server) createPlannedReportDraft(ctx context.Context, missionID st
 	var planResult AgentResult
 	var returnedPlanSessionID string
 	var planDurationMS int64
-	lifecycle, err := server.reportRunner().RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+	lifecycle, err := reporting.Runner(server.reportRunner()).RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
 		MissionID: missionID, PendingEventID: pendingEventID, ReportMode: reportModePlanned, AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, PreviousProviderSessionID: reportStartSessionID,
 		Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 			planStarted := time.Now()
 			result, runErr := executor.Run(ctx, AgentRequest{
 				UserText: "plan markdown report artifact", Prompt: withReportDirection(agentReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 				Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-				ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: requireReportWritingContract(generationGuidanceProfile)},
+				ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModePlanned, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: reportprompt.RequireReportWritingContract(generationGuidanceProfile)},
 			})
 			planDurationMS = time.Since(planStarted).Milliseconds()
 			planResult = result
@@ -2082,7 +1996,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			}
 			forker, ok := executor.(AgentSessionForker)
 			if !ok {
-				return nil, reporting.ValidateSessionPolicy(reportSessionPolicy, reportModeLongForm, false, strings.TrimSpace(previousSessionID) != "", false)
+				return nil, reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportModeLongForm, false, strings.TrimSpace(previousSessionID) != "", false)
 			}
 			fork, err := forker.ForkSession(ctx, previousSessionID)
 			if err != nil {
@@ -2098,14 +2012,14 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		var planResult AgentResult
 		var returnedPlanSessionID string
 		var planDurationMS int64
-		lifecycle, lifecycleErr := server.reportRunner().RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+		lifecycle, lifecycleErr := reporting.Runner(server.reportRunner()).RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
 			MissionID: missionID, PendingEventID: pendingEventID, ReportMode: reportModeLongForm, AgentExecutor: executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, PreviousProviderSessionID: reportStartSessionID,
 			Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 				planStarted := time.Now()
 				result, runErr := executor.Run(ctx, AgentRequest{
 					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), ""),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
-					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: requireReportWritingContract(generationGuidanceProfile)},
+					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: reportprompt.RequireReportWritingContract(generationGuidanceProfile)},
 				})
 				planDurationMS = time.Since(planStarted).Milliseconds()
 				planResult = result
@@ -2519,7 +2433,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 		IdempotencyKey:    "report-long-form-finalize:" + pendingEventID + ":" + planEvent.EventID,
 		ProviderSessionID: previousStageSessionID, PreviousProviderSessionID: previousStageSessionID,
 		PartArtifactIDs: partArtifactIDs, SectionArtifactIDs: sectionArtifactIDs, SectionWordCount: sectionWordTotal,
-		CompositionStrategy: longFormCompositionStrategy(generationGuidanceProfile),
+		CompositionStrategy: reportprompt.LongFormCompositionStrategy(generationGuidanceProfile),
 		AgentExecutor:       executorName, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, AgentSelectionSource: agentSelectionSource,
 		MCPMode: mcpMode, RigorLevel: rigor.level, RigorLabel: rigor.label,
 		ReportSessionPolicy: reportSessionPolicy, ReportSessionPolicySelection: reportSessionPolicySelection,
@@ -2618,7 +2532,7 @@ func logLongFormFinalObservation(missionID, pendingEventID, planEventID string, 
 }
 
 func agentOneTakeMarkdownReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(ReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.ReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2646,12 +2560,12 @@ Rules:
 - Do not create evidence, claims, confidence updates, source candidates, report blocks, report plans, or report AST JSON.
 - Cite source titles, URLs, and human-readable locators when useful. Do not expose internal evidence, claim, or report block IDs as public citations.
 - Do not mention this prompt, prompt variant names, experiment labels, tool session IDs, run identifiers, temporary paths, or working directories. Code/source file paths may be cited only when they are original source locators relevant to the user's topic.
-- Return only the Markdown report body.`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
+- Return only the Markdown report body.`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportprompt.MermaidValidationRuleText)
 }
 
 func agentMarkdownReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan, generationGuidanceProfile string) string {
 	planJSON := agentReportPlanJSON(plan)
-	guidance := strings.TrimSpace(ReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.ReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2686,75 +2600,20 @@ Rules:
 - Return only the Markdown report body.
 
 	Visible generation plan:
-	%s`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule, planJSON)
+	%s`, missionID, title, missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportprompt.MermaidValidationRuleText, planJSON)
 }
 
-func agentReportPatchPrompt(title string, missionID string, toolSessionID string, pendingEventID string, baseArtifactID string, instruction string, req reporting.PatchRequest) string {
+func agentReportPatchPrompt(title string, missionID string, toolSessionID string, pendingEventID string, baseArtifactID string, instruction string, req reportexecution.PatchRequest) string {
 	return AgentReportPatchPrompt(title, missionID, toolSessionID, pendingEventID, baseArtifactID, instruction, req)
 }
 
-func AgentReportPatchPrompt(title string, missionID string, toolSessionID string, pendingEventID string, baseArtifactID string, instruction string, req reporting.PatchRequest) string {
-	return fmt.Sprintf(`You are patching an existing Plasma Markdown report artifact.
-
-Do not rewrite the full report in your response. Use the report patch MCP tools to read and modify the report in bounded chunks, then finalize the patched report into a new artifact version.
-
-Mission ID: %s
-Base report artifact ID: %s
-Patched report title: %s
-Patch instruction: %s
-
-Plasma tool binding:
-- Use mission_id %s.
-- Use session_id %s and producer {"type":"agent_session","id":"%s"} for all report patch tool calls.
-
-Required MCP flow:
-1. Call %s with base_artifact_id %s, title %s, and the patch instruction. Do not provide patch_id; use the patch_id returned by this call for later patch tool calls.
-2. Use %s to inspect the relevant report ranges. Read more chunks when needed; do not assume the whole report is in the prompt.
-3. Use %s with small replace, insert_after, or append operations. Prefer exact targeted edits over broad rewrites.
-4. Call %s exactly once after edits are complete.
-
-Finalize metadata is server-bound Plasma lineage. Do not infer it from the report text, previous pending events, or tool responses. When the finalize schema asks for these fields, use these exact values:
-- pending_event_id: %s
-- agent_executor: %s
-- agent_model: %s
-- agent_reasoning_effort: %s
-- mcp_mode: %s
-- agent_session_id: %s
-- previous_agent_session_id: %s
-- returned_agent_session_id: %s
-- report_session_id: %s
-- fork_source_agent_session_id: %s
-- report_session_policy: %s
-- report_session_policy_selection: %s
-- session_chain_kind: %s
-
-Rules:
-- Keep the source and citation structure intact unless the user explicitly asked to change it.
-- Preserve useful detail. Do not compress the report just because you are editing it.
-- This patch session only exposes report patch tools. If the requested change requires source verification that cannot be done from the current artifact, stop and explain the blocker briefly instead of guessing.
-- If you cannot make the requested change safely, do not finalize a fake artifact; explain the blocker briefly.
-- After successful finalization, return only a short Korean summary of what changed and the new artifact ID if the tool returned one.`, missionID, baseArtifactID, strconv.Quote(title), strconv.Quote(instruction), missionID, toolSessionID, toolSessionID,
-		plasmamcp.ToolReportPatchStart, baseArtifactID, strconv.Quote(title),
-		plasmamcp.ToolReportPatchRead,
-		plasmamcp.ToolReportPatchApply,
-		plasmamcp.ToolReportPatchFinalize,
-		pendingEventID,
-		req.AgentExecutor,
-		req.AgentModel,
-		req.AgentReasoningEffort,
-		req.MCPMode,
-		req.ReportSessionID,
-		req.PreviousAgentSessionID,
-		req.ReportSessionID,
-		req.ReportSessionID,
-		req.ForkSourceAgentSessionID,
-		req.ReportSessionPolicy,
-		req.ReportSessionPolicySelection,
-		req.SessionChainKind)
+// AgentReportPatchPrompt는 patch agent에게 전달할 report 수정 지시문을 조립한다.
+func AgentReportPatchPrompt(title string, missionID string, toolSessionID string, pendingEventID string, baseArtifactID string, instruction string, req reportexecution.PatchRequest) string {
+	return reportpatch.Prompt(title, missionID, toolSessionID, pendingEventID, baseArtifactID, instruction, req)
 }
 
 func agentSectionalReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile, generationGuidanceProfile string) string {
-	experimentalGuidance := strings.TrimSpace(longFormExperimentalPlanningGuidance(generationGuidanceProfile))
+	experimentalGuidance := strings.TrimSpace(reportprompt.LongFormExperimentalPlanningGuidance(generationGuidanceProfile))
 	if experimentalGuidance != "" {
 		experimentalGuidance = "\n" + experimentalGuidance + "\n"
 	}
@@ -2809,9 +2668,9 @@ After the tool succeeds, return exactly PLAN_SUBMITTED as the complete final res
 
 func agentSectionDraftPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, section agentReportSection, partIndex int, sectionIndex int, generationGuidanceProfile string) string {
 	guidance := strings.TrimSpace(strings.Join([]string{
-		LongFormReportGenerationGuidance(generationGuidanceProfile),
-		reportSectionDirectWritingGuidance(generationGuidanceProfile),
-		reportSubjectDirectSynthesisSectionGuidance(generationGuidanceProfile),
+		reportprompt.LongFormReportGenerationGuidance(generationGuidanceProfile),
+		reportprompt.SectionDirectWritingGuidance(generationGuidanceProfile),
+		reportprompt.SubjectDirectSynthesisSectionGuidance(generationGuidanceProfile),
 	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
@@ -2845,13 +2704,13 @@ Rules:
 - Include concrete detail where the sources support it: events, mechanisms, examples, comparisons, tensions, caveats, weak signals, code, formulas, or benchmarks when relevant.
 - Preserve uncertainty and competing interpretations instead of flattening them.
 - Do not mention prompts, internal run labels, tool session IDs, or temporary implementation details.
-- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
+- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportprompt.MermaidValidationRuleText)
 }
 
 func agentPartAssemblyPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, drafts []sectionalReportDraft, partIndex int, generationGuidanceProfile string) string {
 	guidance := strings.TrimSpace(strings.Join([]string{
-		LongFormReportGenerationGuidance(generationGuidanceProfile),
-		reportPartConnectiveEconomyGuidance(generationGuidanceProfile),
+		reportprompt.LongFormReportGenerationGuidance(generationGuidanceProfile),
+		reportprompt.PartConnectiveEconomyGuidance(generationGuidanceProfile),
 	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
@@ -2891,7 +2750,7 @@ Rules:
 - Do not summarize the Section bodies into a replacement overview.
 - %s
 - Transitions are optional, but when useful they should connect adjacent Sections without compressing them.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, partIndex+1, part.Title, sectionalDraftInventoryJSON(drafts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, partIndex+1, part.Title, sectionalDraftInventoryJSON(drafts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportprompt.MermaidValidationRuleText)
 }
 
 func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
@@ -2899,10 +2758,10 @@ func agentLongFormFinalizePrompt(title string, missionID string, rigor reportRig
 }
 
 func agentLongFormFinalizePromptWithRequirements(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, parts []sectionalReportPartDraft, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, requirementMap reporting.ReportRequirementMap, attempt int, canonical bool, hint reporting.LongFormFinalizationHint) string {
-	if isReportGenerationGuidanceProfileNarrativeContract(generationGuidanceProfile) {
+	if reportprompt.IsNarrativeContract(generationGuidanceProfile) {
 		return agentLongFormFinalEditPrompt(title, missionID, rigor, plan, generationGuidanceProfile, binding, requirementMap, attempt, canonical)
 	}
-	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.LongFormReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2950,11 +2809,11 @@ Rules:
 - %s
 - The server owns ordered Part assembly. Do not submit Part bodies, artifact IDs, title, full Markdown, or metadata.
 - After the tool succeeds or durably replays, return exactly REPORT_FINALIZED as the entire response. Do not add text or fences.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, agentReportAnyJSON(binding.ToolSessionID), sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportMermaidValidationRule)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, agentReportAnyJSON(binding.ToolSessionID), sectionalPartInventoryJSON(parts), agentReportAnyJSON(plan), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
 }
 
 func normalizeReportMode(mode string) (string, error) {
-	return reporting.NormalizeMode(mode)
+	return reportexecution.NormalizeMode(mode)
 }
 
 func normalizeReportExecutionStrategy(strategy string, reportMode string) (string, error) {
@@ -2988,7 +2847,7 @@ func reportEventString(event app.LedgerEvent, key string) string {
 }
 
 func normalizeReportSessionPolicy(policy string) (string, error) {
-	return reporting.NormalizeSessionPolicy(policy)
+	return reportexecution.NormalizeSessionPolicy(policy)
 }
 
 func (server *Server) selectReportSessionPolicy(ctx context.Context, missionID string, executorName string, reportMode string, requestedPolicy string, executor AgentExecutor) (string, string, error) {
@@ -3000,7 +2859,7 @@ func (server *Server) selectReportSessionPolicy(ctx context.Context, missionID s
 		preReportSessionID = strings.TrimSpace(server.latestAgentSessionID(ctx, missionID, executorName))
 		forkReady = canCheckFork && AgentSessionForkReady(ctx, executor, preReportSessionID)
 	}
-	return reporting.SelectSessionPolicy(reporting.SessionPolicySelectionInput{
+	return reportexecution.SelectSessionPolicy(reportexecution.SessionPolicySelectionInput{
 		RequestedPolicy:             requestedPolicy,
 		ReportMode:                  reportMode,
 		CanForkSession:              canFork,
@@ -3016,23 +2875,11 @@ func (server *Server) validateReportSessionPolicy(ctx context.Context, missionID
 	_, canFork := executor.(AgentSessionForker)
 	_, canCheckFork := executor.(AgentSessionForkReadiness)
 	preReportSessionID := strings.TrimSpace(server.latestAgentSessionID(ctx, missionID, executorName))
-	return reporting.ValidateSessionPolicy(policy, reportMode, canFork, !requireReady || preReportSessionID != "", !requireReady || (canCheckFork && AgentSessionForkReady(ctx, executor, preReportSessionID)))
-}
-
-func AgentSessionForkReady(ctx context.Context, executor AgentExecutor, sourceSessionID string) bool {
-	sourceSessionID = strings.TrimSpace(sourceSessionID)
-	if sourceSessionID == "" {
-		return false
-	}
-	readiness, ok := executor.(AgentSessionForkReadiness)
-	if !ok {
-		return false
-	}
-	return readiness.CheckForkSession(ctx, sourceSessionID) == nil
+	return reportexecution.ValidateSessionPolicy(policy, reportMode, canFork, !requireReady || preReportSessionID != "", !requireReady || (canCheckFork && AgentSessionForkReady(ctx, executor, preReportSessionID)))
 }
 
 func reportModeLabel(mode string) string {
-	return reporting.ModeLabel(mode)
+	return reportexecution.ModeLabel(mode)
 }
 
 func normalizeReportRigorProfile(level string) (reportRigorProfile, error) {
@@ -3056,7 +2903,7 @@ func normalizeReportRigorProfile(level string) (reportRigorProfile, error) {
 }
 
 func agentReportPlanPrompt(title string, missionID string, toolSessionID string, pendingEventID string, idempotencyKey string, rigor reportRigorProfile, generationGuidanceProfile string) string {
-	experimentalGuidance := strings.TrimSpace(ReportGenerationPlanningGuidance(generationGuidanceProfile))
+	experimentalGuidance := strings.TrimSpace(reportprompt.ReportGenerationPlanningGuidance(generationGuidanceProfile))
 	if experimentalGuidance != "" {
 		experimentalGuidance = "\n" + experimentalGuidance + "\n"
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
+// Call은 MCP tool 이름과 raw JSON 입력을 서버의 typed dispatcher로 전달한다.
 func (server *Server) Call(ctx context.Context, call ToolCall) ToolResult {
 	if server.service == nil {
 		return errorResult(call.Name, "", "internal", "service is required", false, nil)
@@ -65,15 +66,15 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		}
 		return server.withIdempotency(ctx, call, server.callSourcesRestore)
 	case ToolResearchOutline:
-		return server.callResearchOutline(ctx, call)
+		return server.research.CallOutline(ctx, call)
 	case ToolResearchList:
-		return server.callResearchList(ctx, call)
+		return server.research.CallList(ctx, call)
 	case ToolResearchRead:
-		return server.callResearchRead(ctx, call)
+		return server.research.CallRead(ctx, call)
 	case ToolResearchGrep:
-		return server.callResearchGrep(ctx, call)
+		return server.research.CallGrep(ctx, call)
 	case ToolResearchRefs:
-		return server.callResearchReferences(ctx, call)
+		return server.research.CallReferences(ctx, call)
 	case ToolMermaidValidate:
 		return server.callMermaidValidate(ctx, call)
 	case ToolWorkflowStart:
@@ -335,27 +336,27 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		if !server.legacyResearchLoop {
 			return legacyMutationDisabledResult(call)
 		}
-		return server.withIdempotency(ctx, call, server.callEvidencePropose)
+		return server.withIdempotency(ctx, call, server.research.CallEvidencePropose)
 	case ToolQuestionsPropose:
 		if !server.legacyResearchLoop {
 			return legacyMutationDisabledResult(call)
 		}
-		return server.withIdempotency(ctx, call, server.callQuestionsPropose)
+		return server.withIdempotency(ctx, call, server.research.CallQuestionsPropose)
 	case ToolClaimsPropose:
 		if !server.legacyResearchLoop {
 			return legacyMutationDisabledResult(call)
 		}
-		return server.withIdempotency(ctx, call, server.callClaimsPropose)
+		return server.withIdempotency(ctx, call, server.research.CallClaimsPropose)
 	case ToolClaimConfidence:
 		if !server.legacyResearchLoop {
 			return legacyMutationDisabledResult(call)
 		}
-		return server.withIdempotency(ctx, call, server.callClaimConfidence)
+		return server.withIdempotency(ctx, call, server.research.CallClaimConfidence)
 	case ToolProposalsSubmit:
 		if !server.legacyResearchLoop {
 			return legacyMutationDisabledResult(call)
 		}
-		return server.withIdempotency(ctx, call, server.callProposalsSubmit)
+		return server.withIdempotency(ctx, call, server.research.CallProposalsSubmit)
 	default:
 		return errorResult(call.Name, "", "validation", "unknown tool", false, nil)
 	}

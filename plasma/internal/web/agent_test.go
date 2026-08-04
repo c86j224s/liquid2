@@ -13,6 +13,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func TestCodexEnvironmentUsesAllowlist(t *testing.T) {
@@ -533,17 +534,17 @@ func TestAgentSectionalReportPlanPromptContainsConcreteBinding(t *testing.T) {
 
 func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "narrative-contract")
-		if err != nil || profile != reportGenerationGuidanceProfileNarrativeContract || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "narrative-contract")
+		if err != nil || profile != reportprompt.ProfileNarrativeContract || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected narrative contract profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	oneTakeWrite := agentOneTakeMarkdownReportPrompt("Quick", "mis_1", "ses_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
+	oneTakeWrite := agentOneTakeMarkdownReportPrompt("Quick", "mis_1", "ses_1", reportRigorProfiles["balanced"], reportprompt.ProfileNarrativeContract)
 	if !strings.Contains(oneTakeWrite, "Reader-facing explanation guidance:") || !strings.Contains(oneTakeWrite, "reader who may read only this report") {
 		t.Fatalf("one-take writing prompt lost reader-facing guidance:\n%s", oneTakeWrite)
 	}
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileNarrativeContract)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileNarrativeContract)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileNarrativeContract)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Reader-facing writing-contract guidance:", `"writing_contract"`, "central_question", "must_keep"} {
 			if !strings.Contains(prompt, expected) {
@@ -552,8 +553,8 @@ func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
 		}
 	}
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"path"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileNarrativeContract)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section"}, 0, 0, reportGenerationGuidanceProfileNarrativeContract)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileNarrativeContract)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section"}, 0, 0, reportprompt.ProfileNarrativeContract)
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite} {
 		for _, expected := range []string{"Reader-facing explanation guidance:", "reader who may read only this report", `"must_keep"`, `"detail"`} {
 			if !strings.Contains(prompt, expected) {
@@ -565,18 +566,18 @@ func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
 
 func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "direct_explanation_contract")
-		if err != nil || profile != reportGenerationGuidanceProfileReaderParagraphContract || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "direct_explanation_contract")
+		if err != nil || profile != reportprompt.ProfileReaderParagraphContract || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected reader paragraph contract profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	if !requireReportWritingContract(reportGenerationGuidanceProfileReaderParagraphContract) ||
-		longFormCompositionStrategy(reportGenerationGuidanceProfileReaderParagraphContract) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(reportprompt.ProfileReaderParagraphContract) ||
+		reportprompt.LongFormCompositionStrategy(reportprompt.ProfileReaderParagraphContract) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("reader paragraph contract must share the narrative contract writing and final-edit path")
 	}
 
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileReaderParagraphContract)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileReaderParagraphContract)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileReaderParagraphContract)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileReaderParagraphContract)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Reader-facing writing-contract guidance:", "Reader paragraph-contract planning guidance:", "Keep the submitted plan schema unchanged", "compact claim-source memory"} {
 			if !strings.Contains(prompt, expected) {
@@ -591,13 +592,13 @@ func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *test
 	}
 
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"path"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileReaderParagraphContract)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "opening promise, controlling idea, evidence path"}, 0, 0, reportGenerationGuidanceProfileReaderParagraphContract)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileReaderParagraphContract)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "opening promise, controlling idea, evidence path"}, 0, 0, reportprompt.ProfileReaderParagraphContract)
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileReaderParagraphContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileReaderParagraphContract, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Reader-facing explanation guidance:", "Reader paragraph-contract writing guidance:", "paragraph_quality_pass", "Do not mention reader_brief"} {
 			if !strings.Contains(prompt, expected) {
@@ -606,26 +607,26 @@ func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		}
 	}
 
-	if slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileReaderParagraphContract), plasmamcp.ToolReportPartSectionRead) != true ||
-		slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileReaderParagraphContract), plasmamcp.ToolReportLongFormEditStart) != true {
+	if slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportPartSectionRead) != true ||
+		slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportLongFormEditStart) != true {
 		t.Fatalf("reader paragraph contract lost narrative Part/final editor tools")
 	}
 }
 
 func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "processed_reading_artifact")
-		if err != nil || profile != reportGenerationGuidanceProfileCuriosityLedExplanation || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "processed_reading_artifact")
+		if err != nil || profile != reportprompt.ProfileCuriosityLedExplanation || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected curiosity-led explanation profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityLedExplanation) ||
-		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityLedExplanation) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(reportprompt.ProfileCuriosityLedExplanation) ||
+		reportprompt.LongFormCompositionStrategy(reportprompt.ProfileCuriosityLedExplanation) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("curiosity-led explanation must share the narrative contract writing and final-edit path")
 	}
 
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityLedExplanation)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityLedExplanation)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityLedExplanation)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityLedExplanation)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "processed reading artifact", "curiosity path", "source-detail memory"} {
 			if !strings.Contains(prompt, expected) {
@@ -640,13 +641,13 @@ func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *test
 	}
 
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityLedExplanation)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityLedExplanation)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileCuriosityLedExplanation)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportprompt.ProfileCuriosityLedExplanation)
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityLedExplanation, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityLedExplanation, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "reader's reason to care", "Do not organize the surface as", "Do not mention curiosity-led explanation"} {
 			if !strings.Contains(prompt, expected) {
@@ -655,26 +656,26 @@ func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityLedExplanation), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityLedExplanation), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity-led explanation lost narrative Part/final editor tools")
 	}
 }
 
 func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "natural_curiosity")
-		if err != nil || profile != reportGenerationGuidanceProfileCuriosityNaturalVoice || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "natural_curiosity")
+		if err != nil || profile != reportprompt.ProfileCuriosityNaturalVoice || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected curiosity natural voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityNaturalVoice) ||
-		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityNaturalVoice) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(reportprompt.ProfileCuriosityNaturalVoice) ||
+		reportprompt.LongFormCompositionStrategy(reportprompt.ProfileCuriosityNaturalVoice) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("curiosity natural voice must share the narrative contract writing and final-edit path")
 	}
 
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityNaturalVoice)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityNaturalVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityNaturalVoice)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "fewer visible signposts", "Keep the submitted plan schema unchanged"} {
 			if !strings.Contains(prompt, expected) {
@@ -689,13 +690,13 @@ func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testin
 	}
 
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityNaturalVoice)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityNaturalVoice)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileCuriosityNaturalVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportprompt.ProfileCuriosityNaturalVoice)
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityNaturalVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityNaturalVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "stock emphasis frames", "Do not include horizontal-rule separators", "Do not mention natural curiosity voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -704,26 +705,26 @@ func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testin
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityNaturalVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityNaturalVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity natural voice lost narrative Part/final editor tools")
 	}
 }
 
 func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "compact_curiosity")
-		if err != nil || profile != reportGenerationGuidanceProfileCuriosityTightVoice || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "compact_curiosity")
+		if err != nil || profile != reportprompt.ProfileCuriosityTightVoice || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected curiosity tight voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	if !requireReportWritingContract(reportGenerationGuidanceProfileCuriosityTightVoice) ||
-		longFormCompositionStrategy(reportGenerationGuidanceProfileCuriosityTightVoice) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(reportprompt.ProfileCuriosityTightVoice) ||
+		reportprompt.LongFormCompositionStrategy(reportprompt.ProfileCuriosityTightVoice) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("curiosity tight voice must share the narrative contract writing and final-edit path")
 	}
 
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityTightVoice)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileCuriosityTightVoice)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityTightVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileCuriosityTightVoice)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "Tight curiosity-voice planning guidance:", "Use writing_contract.can_summarize"} {
 			if !strings.Contains(prompt, expected) {
@@ -738,13 +739,13 @@ func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.
 	}
 
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileCuriosityTightVoice)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileCuriosityTightVoice)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileCuriosityTightVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportprompt.ProfileCuriosityTightVoice)
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileCuriosityTightVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityTightVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Tight curiosity-voice writing guidance:", "Natural voice means less framing", "Do not mention tight curiosity voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -753,26 +754,26 @@ func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileCuriosityTightVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileCuriosityTightVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity tight voice lost narrative Part/final editor tools")
 	}
 }
 
 func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {
 	for _, mode := range []string{reportModeOneTake, reportModePlanned, reportModeLongForm} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "reading_editor")
-		if err != nil || profile != reportGenerationGuidanceProfileEditedReadingVoice || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "reading_editor")
+		if err != nil || profile != reportprompt.ProfileEditedReadingVoice || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s rejected edited reading voice profile: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	if !requireReportWritingContract(reportGenerationGuidanceProfileEditedReadingVoice) ||
-		longFormCompositionStrategy(reportGenerationGuidanceProfileEditedReadingVoice) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(reportprompt.ProfileEditedReadingVoice) ||
+		reportprompt.LongFormCompositionStrategy(reportprompt.ProfileEditedReadingVoice) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("edited reading voice must share the narrative contract writing and final-edit path")
 	}
 
-	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileEditedReadingVoice)
-	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportGenerationGuidanceProfileEditedReadingVoice)
+	plannedPlan := agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileEditedReadingVoice)
+	longPlan := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileEditedReadingVoice)
 	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
 		for _, expected := range []string{"Curiosity-led explanation planning guidance:", "Natural curiosity-voice planning guidance:", "Edited reading-voice planning guidance:", "plan the artifact as edited reading material"} {
 			if !strings.Contains(prompt, expected) {
@@ -787,13 +788,13 @@ func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T
 	}
 
 	contract := &reporting.ReportWritingContract{CentralQuestion: "question", ReaderTakeaway: "takeaway", ReadingPath: []string{"gap", "resolution"}, MustKeep: []string{"detail"}, VisualRole: "none needed", ToneAndShape: "direct"}
-	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportGenerationGuidanceProfileEditedReadingVoice)
-	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportGenerationGuidanceProfileEditedReadingVoice)
+	plannedWrite := agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{Summary: "plan", WritingContract: contract}, reportprompt.ProfileEditedReadingVoice)
+	sectionWrite := agentSectionDraftPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, agentReportPart{Title: "Part"}, agentReportSection{Title: "Section", Purpose: "question, contrast, payoff"}, 0, 0, reportprompt.ProfileEditedReadingVoice)
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportGenerationGuidanceProfileEditedReadingVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileEditedReadingVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Edited reading-voice writing guidance:", "Avoid self-framing sentences", "Do not mention edited reading voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -802,8 +803,8 @@ func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileEditedReadingVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportGenerationGuidanceProfileEditedReadingVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("edited reading voice lost narrative Part/final editor tools")
 	}
 }
@@ -814,7 +815,7 @@ func TestNarrativeContractPartEditorMustReadBoundSections(t *testing.T) {
 		plan: agentSectionalReportPlan{Summary: "Plan", Parts: []agentReportPart{{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}}}},
 		part: agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}}, partIndex: 0,
 		drafts:                    []sectionalReportDraft{{Title: "Section", ArtifactID: "art_section_1"}},
-		generationGuidanceProfile: reportGenerationGuidanceProfileNarrativeContract,
+		generationGuidanceProfile: reportprompt.ProfileNarrativeContract,
 	}
 	binding := request.partAssemblyBinding()
 	if !slices.Equal(binding.SectionArtifactIDs, []string{"art_section_1"}) {
@@ -829,11 +830,11 @@ func TestNarrativeContractPartEditorMustReadBoundSections(t *testing.T) {
 	if strings.Contains(prompt, "art_section_1") || strings.Contains(prompt, "section_artifact_ids") {
 		t.Fatalf("narrative Part prompt leaked internal Section artifact identity:\n%s", prompt)
 	}
-	tools := reportPartAssemblyMCPTools(reportGenerationGuidanceProfileNarrativeContract)
+	tools := reportPartAssemblyMCPTools(reportprompt.ProfileNarrativeContract)
 	if !slices.Contains(tools, plasmamcp.ToolReportPartSectionRead) {
 		t.Fatalf("narrative Part tool allowlist lost Section read: %#v", tools)
 	}
-	if slices.Contains(reportPartAssemblyMCPTools(reportGenerationGuidanceProfileVisualPlan), plasmamcp.ToolReportPartSectionRead) {
+	if slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileVisualPlan), plasmamcp.ToolReportPartSectionRead) {
 		t.Fatal("legacy visual-plan unexpectedly exposes Part Section reads")
 	}
 }
@@ -845,7 +846,7 @@ func TestNarrativeContractFinalEditorUsesBoundManuscriptTools(t *testing.T) {
 	}
 	prompt := agentLongFormFinalizePrompt("Report", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{
 		Summary: "Plan", WritingContract: &reporting.ReportWritingContract{CentralQuestion: "question", MustKeep: []string{"detail"}},
-	}, []sectionalReportPartDraft{{Title: "private inventory marker"}}, reportGenerationGuidanceProfileNarrativeContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	}, []sectionalReportPartDraft{{Title: "private inventory marker"}}, reportprompt.ProfileNarrativeContract, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for _, expected := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit, "Read the entire manuscript", "returned next_offset", "restart at offset 0", "must_keep", "source scarcity", ":patch-N"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("narrative final prompt missing %q:\n%s", expected, prompt)
@@ -854,17 +855,17 @@ func TestNarrativeContractFinalEditorUsesBoundManuscriptTools(t *testing.T) {
 	if strings.Contains(prompt, "private inventory marker") || strings.Contains(prompt, plasmamcp.ToolReportLongFormFinalize) {
 		t.Fatalf("narrative final prompt leaked Part inventory or legacy tool:\n%s", prompt)
 	}
-	candidateTools := reportFinalizeMCPTools(reportGenerationGuidanceProfileNarrativeContract)
+	candidateTools := reportFinalizeMCPTools(reportprompt.ProfileNarrativeContract)
 	for _, name := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit} {
 		if !slices.Contains(candidateTools, name) {
 			t.Fatalf("candidate final tools missing %s: %#v", name, candidateTools)
 		}
 	}
-	legacyTools := reportFinalizeMCPTools(reportGenerationGuidanceProfileVisualPlan)
+	legacyTools := reportFinalizeMCPTools(reportprompt.ProfileVisualPlan)
 	if !slices.Equal(legacyTools, []string{plasmamcp.ToolReportLongFormFinalize}) {
 		t.Fatalf("legacy final tools changed: %#v", legacyTools)
 	}
-	if longFormCompositionStrategy(reportGenerationGuidanceProfileNarrativeContract) != reporting.LongFormCompositionNarrativeEdit || longFormCompositionStrategy(reportGenerationGuidanceProfileVisualPlan) != reporting.LongFormCompositionPreserveMarkdown {
+	if reportprompt.LongFormCompositionStrategy(reportprompt.ProfileNarrativeContract) != reporting.LongFormCompositionNarrativeEdit || reportprompt.LongFormCompositionStrategy(reportprompt.ProfileVisualPlan) != reporting.LongFormCompositionPreserveMarkdown {
 		t.Fatal("long-form composition strategy selection changed")
 	}
 }
@@ -890,32 +891,32 @@ func TestLongFormGenerationGuidanceAcceptsSectionBriefOptions(t *testing.T) {
 		{
 			name:    "section brief",
 			input:   "section_brief",
-			profile: reportGenerationGuidanceProfileSectionBrief,
+			profile: reportprompt.ProfileSectionBrief,
 			marker:  "Long-form section-brief guidance:",
 		},
 		{
 			name:    "section brief cluster memory",
 			input:   "section_brief_cluster_memory",
-			profile: reportGenerationGuidanceProfileSectionBriefCluster,
+			profile: reportprompt.ProfileSectionBriefCluster,
 			marker:  "Long-form section-brief cluster-memory guidance:",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
 			if err != nil {
 				t.Fatalf("expected %s to be accepted for long-form reports: %v", tt.input, err)
 			}
 			if profile != tt.profile || strings.TrimSpace(sha) == "" {
 				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
 			}
-			guidance := LongFormReportGenerationGuidance(profile)
+			guidance := reportprompt.LongFormReportGenerationGuidance(profile)
 			if !strings.Contains(guidance, tt.marker) || !strings.Contains(guidance, "Long-form human-writer guidance:") {
 				t.Fatalf("long-form guidance for %s missing expected markers:\n%s", profile, guidance)
 			}
 		})
 	}
-	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief"); err == nil {
+	if _, _, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief"); err == nil {
 		t.Fatalf("section_brief must remain long-form-only")
 	}
 }
@@ -931,34 +932,34 @@ func TestLongFormGenerationGuidanceCombinesSectionBriefAndVisualPlan(t *testing.
 		{
 			name:          "section brief with visual plan",
 			input:         "section_brief_visual_plan",
-			profile:       reportGenerationGuidanceProfileSectionBriefVisualPlan,
+			profile:       reportprompt.ProfileSectionBriefVisualPlan,
 			sectionMarker: "Long-form section-brief guidance:",
 			planMarker:    "Section-brief planning guidance:",
 		},
 		{
 			name:          "section brief cluster memory with visual plan",
 			input:         "section_brief_cluster_memory_visual_plan",
-			profile:       reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+			profile:       reportprompt.ProfileSectionBriefClusterVisualPlan,
 			sectionMarker: "Long-form section-brief cluster-memory guidance:",
 			planMarker:    "Section-brief cluster-memory planning guidance:",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
 			if err != nil {
 				t.Fatalf("expected %s to be accepted for long-form reports: %v", tt.input, err)
 			}
 			if profile != tt.profile || strings.TrimSpace(sha) == "" {
 				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
 			}
-			planGuidance := longFormExperimentalPlanningGuidance(profile)
+			planGuidance := reportprompt.LongFormExperimentalPlanningGuidance(profile)
 			for _, expected := range []string{"Visual-aid planning guidance:", tt.planMarker} {
 				if !strings.Contains(planGuidance, expected) {
 					t.Fatalf("combined long-form planning guidance missing %q:\n%s", expected, planGuidance)
 				}
 			}
-			writeGuidance := LongFormReportGenerationGuidance(profile)
+			writeGuidance := reportprompt.LongFormReportGenerationGuidance(profile)
 			for _, expected := range []string{"Report visual-aid guidance:", tt.sectionMarker, "Long-form human-writer guidance:"} {
 				if !strings.Contains(writeGuidance, expected) {
 					t.Fatalf("combined long-form writing guidance missing %q:\n%s", expected, writeGuidance)
@@ -966,7 +967,7 @@ func TestLongFormGenerationGuidanceCombinesSectionBriefAndVisualPlan(t *testing.
 			}
 		})
 	}
-	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief_visual_plan"); err == nil {
+	if _, _, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModePlanned, "section_brief_visual_plan"); err == nil {
 		t.Fatalf("section_brief_visual_plan must remain long-form-only")
 	}
 }
@@ -975,17 +976,17 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 	tests := []struct {
 		name, input, profile, sectionMarker string
 	}{
-		{name: "visual plan", input: reportGenerationGuidanceProfileNarrativeContract, profile: reportGenerationGuidanceProfileNarrativeContract},
-		{name: "section brief", input: reportGenerationGuidanceProfileSectionBriefNarrativeContract, profile: reportGenerationGuidanceProfileSectionBriefNarrativeContract, sectionMarker: "Long-form section-brief guidance:"},
-		{name: "section brief cluster", input: reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, profile: reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract, sectionMarker: "Long-form section-brief cluster-memory guidance:"},
+		{name: "visual plan", input: reportprompt.ProfileNarrativeContract, profile: reportprompt.ProfileNarrativeContract},
+		{name: "section brief", input: reportprompt.ProfileSectionBriefNarrativeContract, profile: reportprompt.ProfileSectionBriefNarrativeContract, sectionMarker: "Long-form section-brief guidance:"},
+		{name: "section brief cluster", input: reportprompt.ProfileSectionBriefClusterNarrativeContract, profile: reportprompt.ProfileSectionBriefClusterNarrativeContract, sectionMarker: "Long-form section-brief cluster-memory guidance:"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
+			profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, tt.input)
 			if err != nil || profile != tt.profile || strings.TrimSpace(sha) == "" {
 				t.Fatalf("active choice selection profile=%q sha=%q err=%v", profile, sha, err)
 			}
-			guidance := LongFormReportGenerationGuidance(profile)
+			guidance := reportprompt.LongFormReportGenerationGuidance(profile)
 			for _, marker := range []string{"Report visual-aid guidance:", "Reader-facing explanation guidance:", "Long-form human-writer guidance:"} {
 				if !strings.Contains(guidance, marker) {
 					t.Fatalf("active choice %q missing %q:\n%s", profile, marker, guidance)
@@ -994,7 +995,7 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 			if tt.sectionMarker != "" && !strings.Contains(guidance, tt.sectionMarker) {
 				t.Fatalf("active choice %q lost section behavior %q:\n%s", profile, tt.sectionMarker, guidance)
 			}
-			if !requireReportWritingContract(profile) || longFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
+			if !reportprompt.RequireReportWritingContract(profile) || reportprompt.LongFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
 				t.Fatalf("active choice %q lost the common editorial contract", profile)
 			}
 			if !slices.Contains(reportPartAssemblyMCPTools(profile), plasmamcp.ToolReportPartSectionRead) || !slices.Contains(reportFinalizeMCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
@@ -1003,11 +1004,11 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 		})
 	}
 	for _, legacy := range []string{
-		reportGenerationGuidanceProfileVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+		reportprompt.ProfileVisualPlan,
+		reportprompt.ProfileSectionBriefVisualPlan,
+		reportprompt.ProfileSectionBriefClusterVisualPlan,
 	} {
-		if requireReportWritingContract(legacy) || longFormCompositionStrategy(legacy) != reporting.LongFormCompositionPreserveMarkdown {
+		if reportprompt.RequireReportWritingContract(legacy) || reportprompt.LongFormCompositionStrategy(legacy) != reporting.LongFormCompositionPreserveMarkdown {
 			t.Fatalf("legacy profile %q was reinterpreted through the new contract", legacy)
 		}
 		if slices.Contains(reportPartAssemblyMCPTools(legacy), plasmamcp.ToolReportPartSectionRead) || slices.Contains(reportFinalizeMCPTools(legacy), plasmamcp.ToolReportLongFormEditStart) {
@@ -1017,35 +1018,35 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 }
 
 func TestLongFormGenerationGuidanceAcceptsPartAssemblyEditTools(t *testing.T) {
-	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "part-assembly-tools")
+	profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "part-assembly-tools")
 	if err != nil {
 		t.Fatalf("expected part assembly edit tools to be accepted for long-form reports: %v", err)
 	}
-	if profile != reportGenerationGuidanceProfilePartAssemblyEditTools || strings.TrimSpace(sha) == "" {
+	if profile != reportprompt.ProfilePartAssemblyEditTools || strings.TrimSpace(sha) == "" {
 		t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
 	}
-	if _, _, err := SelectReportGenerationGuidanceForMode(reportModePlanned, "part-assembly-tools"); err == nil {
+	if _, _, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModePlanned, "part-assembly-tools"); err == nil {
 		t.Fatalf("part assembly edit tools must remain long-form-only")
 	}
 	for _, productProfile := range []string{
-		reportGenerationGuidanceProfileVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
+		reportprompt.ProfileVisualPlan,
+		reportprompt.ProfileSectionBriefVisualPlan,
+		reportprompt.ProfileSectionBriefClusterVisualPlan,
 	} {
 		if !usePartAssemblyEditTools(productProfile) {
 			t.Fatalf("part assembly tools must be active for product profile %q", productProfile)
 		}
 	}
-	for _, inactiveProfile := range []string{reportGenerationGuidanceProfileG2, reportGenerationGuidanceProfileNone, reportGenerationGuidanceProfileVisualSupplement} {
+	for _, inactiveProfile := range []string{reportprompt.ProfileG2, reportprompt.ProfileNone, reportprompt.ProfileVisualSupplement} {
 		if usePartAssemblyEditTools(inactiveProfile) {
 			t.Fatalf("part assembly tools must not be active for profile %q", inactiveProfile)
 		}
 	}
-	planGuidance := longFormExperimentalPlanningGuidance(profile)
+	planGuidance := reportprompt.LongFormExperimentalPlanningGuidance(profile)
 	if !strings.Contains(planGuidance, "Visual-aid planning guidance:") || strings.Contains(planGuidance, "Section-brief planning guidance:") {
 		t.Fatalf("part assembly profile must keep the visual-plan planning surface only:\n%s", planGuidance)
 	}
-	writeGuidance := LongFormReportGenerationGuidance(profile)
+	writeGuidance := reportprompt.LongFormReportGenerationGuidance(profile)
 	for _, expected := range []string{"Report visual-aid guidance:", "Long-form human-writer guidance:"} {
 		if !strings.Contains(writeGuidance, expected) {
 			t.Fatalf("part assembly profile missing %q:\n%s", expected, writeGuidance)
@@ -1083,7 +1084,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned default",
 			mode:       reportModePlanned,
 			input:      "",
-			profile:    reportGenerationGuidanceProfileNarrativeContract,
+			profile:    reportprompt.ProfileNarrativeContract,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1091,14 +1092,14 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual supplement",
 			mode:       reportModePlanned,
 			input:      "visual_supplement",
-			profile:    reportGenerationGuidanceProfileVisualSupplement,
+			profile:    reportprompt.ProfileVisualSupplement,
 			hasWriting: true,
 		},
 		{
 			name:       "planned visual plan",
 			mode:       reportModePlanned,
 			input:      "visual_plan",
-			profile:    reportGenerationGuidanceProfileVisualPlan,
+			profile:    reportprompt.ProfileVisualPlan,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1106,7 +1107,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual type manual",
 			mode:       reportModePlanned,
 			input:      "visual_type_manual",
-			profile:    reportGenerationGuidanceProfileVisualTypeManual,
+			profile:    reportprompt.ProfileVisualTypeManual,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1114,7 +1115,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual evidence fit",
 			mode:       reportModePlanned,
 			input:      "visual_evidence_fit",
-			profile:    reportGenerationGuidanceProfileVisualEvidenceFit,
+			profile:    reportprompt.ProfileVisualEvidenceFit,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1122,7 +1123,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual reading aid preferred",
 			mode:       reportModePlanned,
 			input:      "visual_reading_aid_preferred",
-			profile:    reportGenerationGuidanceProfileVisualReadingAidPreferred,
+			profile:    reportprompt.ProfileVisualReadingAidPreferred,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1130,7 +1131,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual reader intent",
 			mode:       reportModePlanned,
 			input:      "reader-intent-visuals",
-			profile:    reportGenerationGuidanceProfileVisualReaderIntent,
+			profile:    reportprompt.ProfileVisualReaderIntent,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1138,7 +1139,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual clarity seeking",
 			mode:       reportModePlanned,
 			input:      "clarity-seeking-visuals",
-			profile:    reportGenerationGuidanceProfileVisualClaritySeeking,
+			profile:    reportprompt.ProfileVisualClaritySeeking,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1146,7 +1147,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "planned visual affordance priming",
 			mode:       reportModePlanned,
 			input:      "affordance-primed-visuals",
-			profile:    reportGenerationGuidanceProfileVisualAffordancePriming,
+			profile:    reportprompt.ProfileVisualAffordancePriming,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1154,7 +1155,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form default",
 			mode:       reportModeLongForm,
 			input:      "",
-			profile:    reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract,
+			profile:    reportprompt.ProfileSectionBriefClusterNarrativeContract,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1162,7 +1163,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual type manual",
 			mode:       reportModeLongForm,
 			input:      "visual-type-selection",
-			profile:    reportGenerationGuidanceProfileVisualTypeManual,
+			profile:    reportprompt.ProfileVisualTypeManual,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1170,7 +1171,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual evidence fit",
 			mode:       reportModeLongForm,
 			input:      "evidence-fit-visuals",
-			profile:    reportGenerationGuidanceProfileVisualEvidenceFit,
+			profile:    reportprompt.ProfileVisualEvidenceFit,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1178,7 +1179,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual reading aid preferred",
 			mode:       reportModeLongForm,
 			input:      "visual-preferred",
-			profile:    reportGenerationGuidanceProfileVisualReadingAidPreferred,
+			profile:    reportprompt.ProfileVisualReadingAidPreferred,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1186,7 +1187,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual reader intent",
 			mode:       reportModeLongForm,
 			input:      "visual_reader_intent",
-			profile:    reportGenerationGuidanceProfileVisualReaderIntent,
+			profile:    reportprompt.ProfileVisualReaderIntent,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1194,7 +1195,7 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual clarity seeking",
 			mode:       reportModeLongForm,
 			input:      "visual_clarity_seeking",
-			profile:    reportGenerationGuidanceProfileVisualClaritySeeking,
+			profile:    reportprompt.ProfileVisualClaritySeeking,
 			hasPlan:    true,
 			hasWriting: true,
 		},
@@ -1202,24 +1203,24 @@ func TestReportGenerationGuidanceAcceptsVisualAidExperimentProfiles(t *testing.T
 			name:       "long-form visual affordance priming",
 			mode:       reportModeLongForm,
 			input:      "visual_affordance_priming",
-			profile:    reportGenerationGuidanceProfileVisualAffordancePriming,
+			profile:    reportprompt.ProfileVisualAffordancePriming,
 			hasPlan:    true,
 			hasWriting: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			profile, sha, err := SelectReportGenerationGuidanceForMode(tt.mode, tt.input)
+			profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(tt.mode, tt.input)
 			if err != nil {
 				t.Fatalf("expected %s to be accepted for %s reports: %v", tt.input, tt.mode, err)
 			}
 			if profile != tt.profile || strings.TrimSpace(sha) == "" {
 				t.Fatalf("unexpected profile selection: profile=%q sha=%q", profile, sha)
 			}
-			if tt.hasWriting && !strings.Contains(ReportGenerationGuidance(profile), "Report visual-aid guidance:") {
+			if tt.hasWriting && !strings.Contains(reportprompt.ReportGenerationGuidance(profile), "Report visual-aid guidance:") {
 				t.Fatalf("visual profile %s missing writing guidance", profile)
 			}
-			if tt.hasPlan && !strings.Contains(reportVisualAidPlanningGuidance(profile), "Visual-aid planning guidance:") {
+			if tt.hasPlan && !strings.Contains(reportprompt.VisualAidPlanningGuidance(profile), "Visual-aid planning guidance:") {
 				t.Fatalf("visual profile %s missing planning guidance", profile)
 			}
 		})

@@ -6,24 +6,17 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 const (
-	ConfluenceUpdateStatusCurrent   = "current"
-	ConfluenceUpdateStatusAvailable = "update_available"
-	ConfluenceUpdateStatusFailed    = "check_failed"
+	ConfluenceUpdateStatusCurrent   = source.ConfluenceUpdateStatusCurrent
+	ConfluenceUpdateStatusAvailable = source.ConfluenceUpdateStatusAvailable
+	ConfluenceUpdateStatusFailed    = source.ConfluenceUpdateStatusFailed
 )
 
-type ConfluenceUpdateState struct {
-	Status          string     `json:"status"`
-	CheckedAt       time.Time  `json:"checked_at"`
-	CurrentVersion  int        `json:"current_version,omitempty"`
-	LatestVersion   int        `json:"latest_version,omitempty"`
-	LatestUpdatedAt *time.Time `json:"latest_updated_at,omitempty"`
-	ErrorCategory   string     `json:"error_category,omitempty"`
-	ErrorCode       string     `json:"error_code,omitempty"`
-	EventID         string     `json:"event_id,omitempty"`
-}
+type ConfluenceUpdateState = source.ConfluenceUpdateState
 
 type confluenceUpdateStateEventPayload struct {
 	OldSnapshotID string `json:"old_snapshot_id"`

@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// LoadPartEditOutcome는 part edit outcome artifact와 lineage 정보를 장부에서 복원한다.
 func LoadPartEditOutcome(ctx context.Context, store PartEditOutcomeStore, contract PartEditOutcomeContract) (PartEditResult, bool, error) {
 	contract = normalizePartEditOutcomeContract(contract)
 	if err := validatePartEditOutcomeContract(contract); err != nil {

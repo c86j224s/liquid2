@@ -2,8 +2,12 @@ package app
 
 import "encoding/json"
 
+// ReportRequirementMapSubmissionSchemaVersion은 report requirement map 제출 payload의
+// schema version이다.
 const ReportRequirementMapSubmissionSchemaVersion = "plasma.report_requirement_map_submission.v1"
 
+// ReportRequirementMapSubmissionRequest는 requirement mapping agent가 제출한 section별
+// 요구사항 검토 결과를 장부에 기록하는 입력이다.
 type ReportRequirementMapSubmissionRequest struct {
 	EventID                   string
 	MissionID                 string
@@ -23,16 +27,19 @@ type ReportRequirementMapSubmissionRequest struct {
 	ToolProducer              Producer
 }
 
+// ReportRequirementMapSubmission은 requirement map 제출 event와 replay 여부를 반환한다.
 type ReportRequirementMapSubmission struct {
 	Event  LedgerEvent
 	Replay bool
 }
 
+// ReportRequirementMapQuery는 이미 제출된 requirement map을 찾기 위한 binding query다.
 type ReportRequirementMapQuery struct {
 	MissionID, PendingEventID, PlanEventID, ToolSessionID, PreviousProviderSessionID string
 	AgentExecutor, AgentModel, AgentReasoningEffort, IdempotencyKey                  string
 }
 
+// ReportRequirementMapSelection은 선택된 requirement map event와 hash metadata다.
 type ReportRequirementMapSelection struct {
 	Event              LedgerEvent
 	RequirementMapHash string

@@ -1,7 +1,7 @@
 package web
 
-import "github.com/c86j224s/liquid2/plasma/internal/reporting"
+import "github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 
 func validateHumanizedMarkdown(original string, humanized string) error {
-	return reporting.ValidateHumanizedMarkdown(original, humanized)
+	return reporthumanize.ValidateMarkdown(original, humanized)
 }

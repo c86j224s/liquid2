@@ -5,12 +5,12 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func cliReportPlanPrompt(title string, missionID string, toolSessionID string, generationGuidanceProfile string) string {
-	guidance := strings.TrimSpace(web.ReportGenerationPlanningGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.ReportGenerationPlanningGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -30,7 +30,7 @@ Rules:
 }
 
 func cliPromptWithDirection(prompt, hint string) string {
-	block := reporting.FormatDirectionHint(hint)
+	block := reportexecution.FormatDirectionHint(hint)
 	if block == "" {
 		return prompt
 	}
@@ -38,7 +38,7 @@ func cliPromptWithDirection(prompt, hint string) string {
 }
 
 func cliReportGenerationGuidanceSelection(profile string) (string, string, error) {
-	return web.SelectReportGenerationGuidance(profile)
+	return reportprompt.SelectReportGenerationGuidance(profile)
 }
 
 func cliPostReportHumanizeFlag(enabled bool) string {
@@ -69,12 +69,12 @@ func cliRequestedReportSessionPolicy(value string) string {
 }
 
 func cliReportGenerationGuidance(profile string) string {
-	return web.ReportGenerationGuidance(profile)
+	return reportprompt.ReportGenerationGuidance(profile)
 }
 
 func cliReportPrompt(title string, missionID string, toolSessionID string, reportMode string, planEventID string, generationGuidanceProfile string) string {
 	modeLine := "This is an explicit one-take compatibility report. Do not create a separate plan."
-	if reportMode != reporting.ModeOneTake {
+	if reportMode != reportexecution.ModeOneTake {
 		modeLine = fmt.Sprintf("Follow the auto-accepted generation plan recorded as %s. Re-read original source material before writing; do not treat the plan itself as a source.", strings.TrimSpace(planEventID))
 	}
 	guidance := strings.TrimSpace(cliReportGenerationGuidance(generationGuidanceProfile))
@@ -100,12 +100,12 @@ Rules:
 - For live_reference local_path sources, use explicit source observations and cite observation_event_id, observed_at, relative_path, sha256, and git metadata when available.
 - Sources are original materials. This Markdown report is an output artifact, not a source.
 - Do not create evidence, claims, confidence updates, proposal bundles, report blocks, or report AST JSON.
-- Return only the Markdown report body.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID), strings.TrimSpace(reportMode), modeLine, guidance, web.ReportMermaidValidationRule())
+- Return only the Markdown report body.`, strings.TrimSpace(missionID), strings.TrimSpace(title), strings.TrimSpace(toolSessionID), strings.TrimSpace(reportMode), modeLine, guidance, reportprompt.ReportMermaidValidationRule())
 }
 
 func cliReportCompositionStrategy(reportMode string) string {
 	switch reportMode {
-	case reporting.ModeOneTake:
+	case reportexecution.ModeOneTake:
 		return "cli_one_take"
 	default:
 		return "cli_planned_markdown"

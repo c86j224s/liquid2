@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
 )
 
+// CreateFetchedPDFURLSourceWithEvent는 새로 fetch한 PDF를 artifact와 PDF source
+// snapshot으로 저장한다. PDF 본문 해석 가능 여부는 locators와 event payload에
+// 메타데이터로 남기지만, 보고서에서 어떻게 읽을지는 이후 계층의 책임이다.
 func CreateFetchedPDFURLSourceWithEvent(ctx context.Context, store Store, req CreateFetchedPDFURLSourceRequest) (URLSourceSnapshotResult, error) {
 	title := firstNonEmptyString(req.Title, req.Fetched.Title, req.URL)
 	fetchedAt := req.FetchedAt.UTC()
@@ -81,13 +84,16 @@ func CreateFetchedPDFURLSourceWithEvent(ctx context.Context, store Store, req Cr
 	return URLSourceSnapshotResult{Artifact: result.Artifact, Snapshot: result.Snapshot, Event: result.Event}, nil
 }
 
+// CreateStagedPDFURLSourceWithEvent는 staged PDF artifact를 승인된 PDF source
+// snapshot으로 승격한다. 승격 시점에 PDF 구조를 다시 검사해 잘못된 후보 artifact가
+// source로 들어오지 않도록 한다.
 func CreateStagedPDFURLSourceWithEvent(ctx context.Context, store Store, req CreateStagedPDFURLSourceRequest) (URLSourceSnapshotResult, error) {
 	title := firstNonEmptyString(req.Title, req.Staged.Title, req.URL)
 	contentSHA := req.Staged.Artifact.SHA256
 	if contentSHA == "" {
 		contentSHA = sha256HexBytes(req.Staged.Artifact.Content)
 	}
-	info, err := pdftext.Inspect(req.Staged.Artifact.Content)
+	info, err := pdfdocument.Inspect(req.Staged.Artifact.Content)
 	if err != nil {
 		return URLSourceSnapshotResult{}, fmt.Errorf("%w: PDF inspection failed: %v", ErrInvalidInput, err)
 	}
@@ -100,7 +106,7 @@ func CreateStagedPDFURLSourceWithEvent(ctx context.Context, store Store, req Cre
 		"url":                req.URL,
 		"fetched_at":         req.Staged.Artifact.CreatedAt.Format(time.RFC3339Nano),
 		"staged_from":        req.Staged.ProposalEventID,
-		"mime_type":          pdftext.MediaType,
+		"mime_type":          pdfdocument.MediaType,
 		"byte_size":          byteSize,
 		"sha256":             contentSHA,
 		"page_count":         info.PageCount,

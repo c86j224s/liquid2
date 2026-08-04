@@ -7,10 +7,16 @@ import (
 )
 
 const (
+	// LongFormCompositionPreserveMarkdown은 섹션/파트 markdown을 구조 보존 방식으로 조립한다.
 	LongFormCompositionPreserveMarkdown = "sectional_preserve_markdown"
-	LongFormCompositionNarrativeEdit    = "sectional_narrative_edit"
+	// LongFormCompositionNarrativeEdit은 조립 후 서사 흐름을 다듬는 최종 편집 전략이다.
+	LongFormCompositionNarrativeEdit = "sectional_narrative_edit"
 )
 
+// LongFormFinalizeBinding은 장문 보고서 최종화가 replay와 검증에 사용하는
+// 지속 계약이다. artifact, stage, session, 모델 선택, humanize 설정이 모두
+// 여기 묶여야 하며, 최종화 단계는 저장된 binding과 다른 결과를 canonical로
+// 승격하지 않는다.
 type LongFormFinalizeBinding struct {
 	MissionID                    string       `json:"mission_id"`
 	PendingEventID               string       `json:"pending_event_id"`
@@ -47,6 +53,9 @@ type LongFormFinalizeBinding struct {
 	Producer                     app.Producer `json:"producer"`
 }
 
+// LongFormFinalizeRequest는 장문 보고서 최종 artifact를 만들거나 replay하기 위한
+// 입력이다. Binding이 동일하면 같은 canonical event를 재사용해야 하고, final edit
+// pipeline 필드는 최종 편집 단계의 검증 결과를 함께 전달한다.
 type LongFormFinalizeRequest struct {
 	Binding                   LongFormFinalizeBinding
 	EventID                   string
@@ -61,6 +70,8 @@ type LongFormFinalizeRequest struct {
 	FinalEditGateChanged      bool
 }
 
+// LongFormFinalizeResult는 장문 보고서 최종화 결과다. Replay가 true이면 새
+// artifact/event를 만들지 않고 기존 canonical 결과를 반환했다는 뜻이다.
 type LongFormFinalizeResult struct {
 	Artifact app.RawArtifact
 	Event    app.LedgerEvent

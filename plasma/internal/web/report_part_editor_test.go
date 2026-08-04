@@ -10,33 +10,34 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
 func TestLongFormPartEditEnabledOnlyForAcceptedNarrativeContractProfile(t *testing.T) {
 	for _, profile := range []string{
-		reportGenerationGuidanceProfileNarrativeContract, "narrative_contract", "reader-first-editor", "reader_first_editor",
-		reportGenerationGuidanceProfileReaderParagraphContract,
-		reportGenerationGuidanceProfileCuriosityLedExplanation,
-		reportGenerationGuidanceProfileCuriosityNaturalVoice,
-		reportGenerationGuidanceProfileCuriosityTightVoice,
-		reportGenerationGuidanceProfileEditedReadingVoice,
-		reportGenerationGuidanceProfileSectionDirectReadingVoice,
-		reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
-		reportGenerationGuidanceProfilePartConnectiveSubjectDirectSynthesisVoice,
-		reportGenerationGuidanceProfileSectionBriefNarrativeContract,
-		reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract,
+		reportprompt.ProfileNarrativeContract, "narrative_contract", "reader-first-editor", "reader_first_editor",
+		reportprompt.ProfileReaderParagraphContract,
+		reportprompt.ProfileCuriosityLedExplanation,
+		reportprompt.ProfileCuriosityNaturalVoice,
+		reportprompt.ProfileCuriosityTightVoice,
+		reportprompt.ProfileEditedReadingVoice,
+		reportprompt.ProfileSectionDirectReadingVoice,
+		reportprompt.ProfilePartConnectiveEconomyVoice,
+		reportprompt.ProfilePartConnectiveSubjectDirectSynthesis,
+		reportprompt.ProfileSectionBriefNarrativeContract,
+		reportprompt.ProfileSectionBriefClusterNarrativeContract,
 	} {
 		if !longFormPartEditEnabled(profile) {
 			t.Fatalf("Part edit should be enabled for %q", profile)
 		}
 	}
 	for _, profile := range []string{
-		"", reportGenerationGuidanceProfileNone,
-		reportGenerationGuidanceProfileVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefVisualPlan,
-		reportGenerationGuidanceProfileSectionBriefClusterVisualPlan,
-		reportGenerationGuidanceProfilePartAssemblyEditTools,
+		"", reportprompt.ProfileNone,
+		reportprompt.ProfileVisualPlan,
+		reportprompt.ProfileSectionBriefVisualPlan,
+		reportprompt.ProfileSectionBriefClusterVisualPlan,
+		reportprompt.ProfilePartAssemblyEditTools,
 	} {
 		if longFormPartEditEnabled(profile) {
 			t.Fatalf("Part edit should stay disabled for %q", profile)
@@ -94,7 +95,7 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 			SourceEventIDs: []string{"evt_requirement"}, Owner: &reporting.ReportRequirementOwner{PartIndex: 1},
 		}},
 		reportSessionPolicy: reportSessionPolicyIsolatedFork, reportSessionPolicySelection: "default",
-		generationGuidanceProfile: reportGenerationGuidanceProfileNarrativeContract,
+		generationGuidanceProfile: reportprompt.ProfileNarrativeContract,
 		generationGuidanceSHA256:  "guidance-sha", sessionChainKind: "section_fanout_report",
 		reportPlanSessionID: "provider-plan", forkSourceAgentSessionID: "provider-plan",
 	}, agent)

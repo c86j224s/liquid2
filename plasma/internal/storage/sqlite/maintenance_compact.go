@@ -7,6 +7,7 @@ import (
 	"os"
 )
 
+// CompactStorageTo는 실행 중 DB를 변경하지 않고 별도 SQLite 파일로 compact 결과를 만든다.
 func CompactStorageTo(ctx context.Context, dbPath string, outputPath string) (StorageCompactResult, error) {
 	sourcePath, err := normalizeStorageMaintenancePath(dbPath)
 	if err != nil {
@@ -47,6 +48,7 @@ func CompactStorageTo(ctx context.Context, dbPath string, outputPath string) (St
 	}, nil
 }
 
+// CompactStorageDryRun은 compact 전후 통계를 예측하되 산출 파일을 만들지 않는다.
 func CompactStorageDryRun(ctx context.Context, dbPath string) (StorageCompactResult, error) {
 	sourcePath, err := normalizeStorageMaintenancePath(dbPath)
 	if err != nil {
@@ -65,6 +67,7 @@ func CompactStorageDryRun(ctx context.Context, dbPath string) (StorageCompactRes
 	return result, nil
 }
 
+// VerifyStorage는 compact 산출물이 열리고 기본 schema를 읽을 수 있는지 검사한다.
 func VerifyStorage(ctx context.Context, dbPath string) (string, error) {
 	path, err := normalizeStorageMaintenancePath(dbPath)
 	if err != nil {

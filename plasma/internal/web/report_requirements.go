@@ -29,8 +29,8 @@ func (server *Server) ensureReportRequirementMap(ctx context.Context, req report
 		return progress.requirementMap, progress.requirementMapEvent, nil
 	}
 	if !progress.hasRequirementStage && (progress.hasPostPlanSectionStarted || len(progress.sections) > 0 || len(progress.parts) > 0) {
-		// Reports interrupted before requirement mapping existed keep their
-		// already-durable stage provenance and resume without retroactive policy.
+		// requirement mapping이 생기기 전에 중단된 리포트는 이미 지속적인 stage provenance를
+		// 유지하고, 정책을 소급 적용하지 않은 채 재개한다.
 		return reporting.ReportRequirementMap{}, app.LedgerEvent{}, nil
 	}
 	events, err := server.service.ListEvents(ctx, req.missionID)
@@ -46,7 +46,7 @@ func (server *Server) ensureReportRequirementMap(ctx context.Context, req report
 		return reporting.ReportRequirementMap{}, app.LedgerEvent{}, longFormStageFailure("requirements", req.planEventID, 0, 0, fmt.Errorf("report requirement mapping requires a plan session"))
 	}
 	var durationMS int64
-	lifecycle, err := server.reportRunner().RunReportRequirementMapLifecycle(ctx, reporting.ReportRequirementMapLifecycleRequest{
+	lifecycle, err := reporting.Runner(server.reportRunner()).RunReportRequirementMapLifecycle(ctx, reporting.ReportRequirementMapLifecycleRequest{
 		MissionID: req.missionID, PendingEventID: req.pendingEventID, PlanEventID: req.planEventID,
 		AgentExecutor: req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: req.reasoningEffort,
 		PreviousProviderSessionID: planSessionID, Plan: req.plan,

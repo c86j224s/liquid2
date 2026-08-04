@@ -11,12 +11,18 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 //go:embed static/*
 var staticFiles embed.FS
 
+// Server는 Plasma browser/API HTTP route를 묶는 adapter state다.
+//
+// mission/report/source/workflow 제품 규칙은 app/reporting service로 위임하고, 이
+// 타입은 HTTP 요청 해석, agent executor wiring, in-flight UI lock, 정적 asset 제공에
+// 필요한 process-local 상태만 보관한다.
 type Server struct {
 	service                     *app.Service
 	liquid2                     app.Liquid2SourceConnector
@@ -26,9 +32,8 @@ type Server struct {
 	runningTurns                runningAgentTurns
 	sources                     missionTurnLocks
 	reports                     missionTurnLocks
-	runningReports              reporting.InFlight
-	workflows                   missionTurnLocks
-	runningWorkflow             runningWorkflowRuns
+	runningReports              reportexecution.InFlight
+	workflowSupervisor          *workflowruntime.Supervisor
 	workflowGoalModel           string
 	workflowGoalReasoningEffort string
 	confluenceOAuth             confluenceconnector.OAuthConfig
@@ -44,6 +49,10 @@ type Server struct {
 	activityServerID            string
 }
 
+// Options는 NewServer가 HTTP adapter를 구성할 때 받는 의존성이다.
+//
+// nil fetcher와 renderer는 제품 기본 구현으로 채워진다. Agent executor는 제공된
+// 값만 등록하므로, agent 실행이 필요한 테스트나 embedding은 명시적으로 주입해야 한다.
 type Options struct {
 	Liquid2Connector            app.Liquid2SourceConnector
 	AgentExecutor               AgentExecutor
@@ -58,8 +67,8 @@ type Options struct {
 	ConfluenceOAuthDiscoveryURL string
 	ConfluenceAPIBaseURL        string
 	EnvironmentLabel            string
-	// StaticDir, when set, serves static assets from disk instead of the
-	// embedded copy — for development (edit + refresh, no rebuild).
+	// StaticDir은 설정되면 embedded copy 대신 디스크의 정적 asset을 제공한다.
+	// 개발 중 edit + refresh를 위한 값이며, release 동작의 source of truth가 아니다.
 	StaticDir string
 }
 
@@ -68,6 +77,10 @@ type browserURLSourceRenderFunc func(context.Context, string) (fetchedURLSource,
 type mediaSourceFetchFunc func(context.Context, string) (fetchedMediaSource, error)
 type pdfSourceFetchFunc func(context.Context, string) (fetchedPDFSource, error)
 
+// NewServer는 Plasma HTTP handler tree와 process-local runtime 상태를 구성한다.
+//
+// 이 함수는 서버를 listen하지 않는다. 호출자는 반환된 http.Handler를 원하는 runtime
+// control script나 test server에 연결한다.
 func NewServer(service *app.Service, options Options) http.Handler {
 	urlFetcher := options.urlFetcher
 	if urlFetcher == nil {
@@ -114,5 +127,11 @@ func NewServer(service *app.Service, options Options) http.Handler {
 		activityServerID:            newID("act"),
 	}
 	server.runningReports.SetNewID(newID)
+	server.workflowSupervisor = workflowruntime.NewSupervisor(workflowruntime.SupervisorOptions{
+		Service:        service,
+		RunnerFactory:  server.workflowRunner,
+		AgentAvailable: func(name string) bool { return server.agentExecutor(name) != nil },
+		NewID:          newID,
+	})
 	return server
 }

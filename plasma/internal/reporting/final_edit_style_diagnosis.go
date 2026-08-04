@@ -15,6 +15,7 @@ const (
 	FinalEditStyleOperationDiagnosesVersion      = 1
 )
 
+// FinalEditStyleOperationDiagnosis는 문체 편집 operation 하나가 의미를 보존했는지 평가한 기록이다.
 type FinalEditStyleOperationDiagnosis struct {
 	OperationOrdinal int    `json:"operation_ordinal"`
 	Category         string `json:"category"`
@@ -39,6 +40,7 @@ var finalEditStyleDiagnosisCategories = map[string]bool{
 	"formulaic_transition":        true,
 }
 
+// ValidateFinalEditStyleDiagnosisCategory는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditStyleDiagnosisCategory(category string) error {
 	if category != strings.TrimSpace(category) || !finalEditStyleDiagnosisCategories[category] {
 		return fmt.Errorf("%w: style operation diagnosis category is invalid", app.ErrInvalidInput)
@@ -46,6 +48,7 @@ func ValidateFinalEditStyleDiagnosisCategory(category string) error {
 	return nil
 }
 
+// ValidateFinalEditStyleOperationDiagnoses는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditStyleOperationDiagnoses(operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, detailed bool) error {
 	if operationCount < 0 {
 		return fmt.Errorf("%w: style operation count is invalid", app.ErrInvalidInput)

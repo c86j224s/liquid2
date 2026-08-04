@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -525,9 +527,9 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 		}
 	}
 	events := []app.AppendEventRequest{
-		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: w4BJSON(map[string]any{"report_mode": reporting.ModeLongForm})},
+		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: w4BJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
 		{EventID: planID, MissionID: missionID, EventType: "report.plan.created", Producer: producer, Payload: w4BJSON(map[string]any{
-			"pending_event_id": pendingID, "report_mode": reporting.ModeLongForm, "artifact_id": finalID,
+			"pending_event_id": pendingID, "report_mode": reportexecution.ModeLongForm, "artifact_id": finalID,
 			"final_edit_pipeline": strings.TrimSpace(pipeline), "post_report_humanize": humanize,
 			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"section 1"}}}},
 		})},
@@ -548,7 +550,7 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 		missionID: missionID, title: title, executorName: "codex", agentModel: "model", agentReasoningEffort: "high",
 		agentSelectionSource: "request", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
 		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: "default",
-		postReportHumanize: humanize, generationGuidanceProfile: reportGenerationGuidanceProfileNarrativeContract,
+		postReportHumanize: humanize, generationGuidanceProfile: reportprompt.ProfileNarrativeContract,
 		generationGuidanceSHA256: "guidance-sha", pendingEventID: pendingID, artifactID: finalID, planEvent: planEvent,
 		plan: agentSectionalReportPlan{Summary: "plan"}, partArtifactIDs: []string{partID}, sectionArtifactIDs: []string{sectionID},
 		sectionWordTotal: 3, sessionChainKind: "same_session_report", preReportResearchSessionID: "provider-research",

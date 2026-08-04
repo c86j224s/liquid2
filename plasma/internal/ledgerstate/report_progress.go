@@ -7,11 +7,10 @@ import (
 	"time"
 )
 
-// ReportProgress is a conservative, ledger-derived view of report work.
-// Pending events are the durable at-least-once visibility boundary: a failed
-// terminal write remains pending and is projected conservatively. A durable
-// terminal-write-pending outbox is intentionally follow-up work, not part of
-// this projection.
+// ReportProgress는 장부에서 보수적으로 도출한 report work view다.
+// Pending event는 지속적인 at-least-once visibility 경계다. terminal write가 실패하면
+// pending 상태가 남고 projection도 보수적으로 계산한다. terminal-write-pending
+// outbox는 의도적으로 후속 작업이며, 이 projection의 책임이 아니다.
 type ReportProgress struct {
 	AttemptID string                `json:"attempt_id,omitempty"`
 	OriginID  string                `json:"origin_pending_event_id,omitempty"`
@@ -21,6 +20,7 @@ type ReportProgress struct {
 	Retry     ReportRetryCapability `json:"retry"`
 }
 
+// ReportProgressNode는 report pipeline 그래프의 단일 stage 표시 상태다.
 type ReportProgressNode struct {
 	ID         string     `json:"id"`
 	Kind       string     `json:"kind"`
@@ -33,6 +33,7 @@ type ReportProgressNode struct {
 	DurationMS *int64     `json:"duration_ms,omitempty"`
 }
 
+// ReportRetryCapability는 실패한 report 작업에 대해 사용자가 선택할 수 있는 재시도 범위다.
 type ReportRetryCapability struct {
 	ResumeFailed bool   `json:"resume_failed"`
 	Restart      bool   `json:"restart"`
@@ -71,8 +72,8 @@ const (
 	finalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 = "assembly_writer_reader_style_validation_evidence_gate_v3"
 )
 
-// ProjectReportProgress normalizes legacy report events and never infers a
-// completed stage without its corresponding ledger event.
+// ProjectReportProgress는 legacy report event를 정규화하되, 대응하는 장부 이벤트 없이
+// 완료된 stage를 추론하지 않는다.
 func ProjectReportProgress(events []Event) ReportProgress {
 	pending := map[string]Event{}
 	pendingTypes := map[string]string{}
@@ -152,7 +153,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	if canceledTerminal[selected] {
 		result.State = "skipped"
 	}
-	// Build the real graph shape from the plan, then apply only actual events.
+	// plan에서 실제 graph shape를 만든 다음, 실제 이벤트만 적용한다.
 	nodes := []ReportProgressNode{{ID: "plan", Kind: "plan", State: "pending"}}
 	lineage := map[string]bool{}
 	lineageValid := false
@@ -169,7 +170,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			return unknownReportProgress()
 		}
 		if item.RetryStrategy == "restart" {
-			// Restart has a direct failed parent but deliberately does not reuse it.
+			// Restart는 직접 실패한 parent를 갖지만 의도적으로 재사용하지 않는다.
 			if item.RetryOf == "" {
 				return unknownReportProgress()
 			}
@@ -262,7 +263,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		}
 	}
 	if pendingTypes[selected] != "report.draft.pending" || p.ReportMode != "long_form" {
-		// Non-sectional operations have one preparation boundary followed by finalization/artifact.
+		// non-sectional 작업은 preparation 경계 하나 뒤에 finalization/artifact가 이어진다.
 		nodes[0].ID, nodes[0].Kind = "start", "start"
 		nodes[0].State = "completed"
 	} else if partCount == 0 { // legacy / malformed plans: still provide final nodes safely.
@@ -420,7 +421,7 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			nodes[i].Error = safeText(failure.Error)
 		}
 	}
-	// The first incomplete stage is the only running node in an open attempt.
+	// 열린 attempt에서는 첫 번째 미완료 stage만 running node로 본다.
 	if result.State == "running" && !hasRunningReportNode(nodes) {
 		for i := range nodes {
 			if nodes[i].State == "pending" || nodes[i].State == "unknown" {
@@ -447,9 +448,8 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	return result
 }
 
-// applyReportNodeTiming derives stage boundaries solely from durable ledger
-// timestamps. Events without CreatedAt intentionally leave timing absent so
-// legacy projections do not present invented values.
+// applyReportNodeTiming은 저장된 장부 timestamp만으로 stage boundary를 계산한다.
+// CreatedAt이 없는 이벤트는 timing을 비워 두어 legacy projection이 지어낸 값을 보여 주지 않게 한다.
 func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Time, attemptTerminal Event, events []Event, lineage map[string]bool) {
 	starts := map[string]time.Time{}
 	terminals := map[string]time.Time{}
@@ -654,5 +654,5 @@ func safeText(value string) string {
 	return value
 }
 
-// Keep sort imported as a compile-time guard for stable future expansion.
+// sort import가 안정적인 확장 지점을 컴파일 시점에 계속 확인하게 한다.
 var _ = sort.Strings

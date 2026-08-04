@@ -10,6 +10,7 @@ import (
 
 type commonMutatingInput = CommonMutatingInput
 
+// CommonMutatingInput는 MCP transport 경계에 전달되는 요청 값이다.
 type CommonMutatingInput struct {
 	MissionID      string       `json:"mission_id"`
 	SessionID      string       `json:"session_id"`
@@ -195,50 +196,9 @@ type sourceCandidatesReadOutput struct {
 	Extraction         *sourceExtractionOutput `json:"extraction,omitempty"`
 }
 
-type researchOutlineInput struct {
-	MissionID string `json:"mission_id"`
-	Legacy    bool   `json:"legacy"`
-}
-
-type researchListInput struct {
-	MissionID  string `json:"mission_id"`
-	ObjectKind string `json:"object_kind"`
-	Limit      int    `json:"limit"`
-	Cursor     string `json:"cursor"`
-	Legacy     bool   `json:"legacy"`
-}
-
-type researchReadInput struct {
-	MissionID  string `json:"mission_id"`
-	ObjectKind string `json:"object_kind"`
-	ObjectID   string `json:"object_id"`
-	Offset     int    `json:"offset"`
-	MaxBytes   int    `json:"max_bytes"`
-	Limit      int    `json:"limit"`
-	Cursor     string `json:"cursor"`
-	Legacy     bool   `json:"legacy"`
-}
-
 type mermaidValidateInput struct {
 	MissionID string `json:"mission_id"`
 	Source    string `json:"source"`
-}
-
-type researchGrepInput struct {
-	MissionID string `json:"mission_id"`
-	Query     string `json:"query"`
-	Limit     int    `json:"limit"`
-	Cursor    string `json:"cursor"`
-	Legacy    bool   `json:"legacy"`
-}
-
-type researchReferencesInput struct {
-	MissionID  string `json:"mission_id"`
-	ObjectKind string `json:"object_kind"`
-	ObjectID   string `json:"object_id"`
-	Limit      int    `json:"limit"`
-	Cursor     string `json:"cursor"`
-	Legacy     bool   `json:"legacy"`
 }
 
 type workflowStartInput struct {
@@ -496,67 +456,6 @@ type sourceStateChangeOutput struct {
 	Snapshot   sourceSnapshotOutput `json:"snapshot"`
 	EventID    string               `json:"event_id,omitempty"`
 	Idempotent bool                 `json:"idempotent"`
-}
-
-type evidenceProposeInput struct {
-	CommonMutatingInput
-	EvidenceID      string            `json:"evidence_id"`
-	EventID         string            `json:"event_id"`
-	ProposalID      string            `json:"proposal_id"`
-	ProposalEventID string            `json:"proposal_event_id"`
-	ProposalTitle   string            `json:"proposal_title"`
-	Summary         string            `json:"summary"`
-	EvidenceType    string            `json:"evidence_type"`
-	SnapshotRefs    []app.SnapshotRef `json:"snapshot_refs"`
-	Confidence      app.Confidence    `json:"confidence"`
-}
-
-type questionsProposeInput struct {
-	CommonMutatingInput
-	QuestionID         string   `json:"question_id"`
-	EventID            string   `json:"event_id"`
-	ProposalID         string   `json:"proposal_id"`
-	ProposalEventID    string   `json:"proposal_event_id"`
-	ProposalTitle      string   `json:"proposal_title"`
-	Text               string   `json:"text"`
-	Priority           string   `json:"priority"`
-	Blocking           bool     `json:"blocking"`
-	RelatedEvidenceIDs []string `json:"related_evidence_ids"`
-	RelatedClaimIDs    []string `json:"related_claim_ids"`
-}
-
-type claimsProposeInput struct {
-	CommonMutatingInput
-	ClaimID               string         `json:"claim_id"`
-	EventID               string         `json:"event_id"`
-	ProposalID            string         `json:"proposal_id"`
-	ProposalEventID       string         `json:"proposal_event_id"`
-	ProposalTitle         string         `json:"proposal_title"`
-	Text                  string         `json:"text"`
-	ClaimType             string         `json:"claim_type"`
-	SupportingEvidenceIDs []string       `json:"supporting_evidence_ids"`
-	OpposingEvidenceIDs   []string       `json:"opposing_evidence_ids"`
-	DependsOnQuestionIDs  []string       `json:"depends_on_question_ids"`
-	UserAssertionEventID  string         `json:"user_assertion_event_id"`
-	Confidence            app.Confidence `json:"confidence"`
-}
-
-type claimConfidenceInput struct {
-	CommonMutatingInput
-	ClaimID          string         `json:"claim_id"`
-	EventID          string         `json:"event_id"`
-	Confidence       app.Confidence `json:"confidence"`
-	BasisEvidenceIDs []string       `json:"basis_evidence_ids"`
-	CausationEventID string         `json:"causation_event_id"`
-	CorrelationID    string         `json:"correlation_id"`
-}
-
-type proposalsSubmitInput struct {
-	CommonMutatingInput
-	ProposalID string          `json:"proposal_id"`
-	EventID    string          `json:"event_id"`
-	Title      string          `json:"title"`
-	ObjectRefs []app.ObjectRef `json:"object_refs"`
 }
 
 type connectorRefInput struct {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
@@ -70,7 +71,7 @@ func prepareFinalWriterV2FrozenReviewedManifest(ctx context.Context, cfg finalWr
 	if !ok {
 		return finalWriterV2FrozenManifest{}, "", fmt.Errorf("unknown rigor %q", pair.Rigor)
 	}
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfilePartConnectiveEconomyVoice)
+	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfilePartConnectiveEconomyVoice)
 	if err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
@@ -311,7 +312,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 	})); err != nil {
 		return longFormReaderStyleGatePipelineRequest{}, err
 	}
-	guidanceProfile, guidanceSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfilePartConnectiveEconomyVoice)
+	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfilePartConnectiveEconomyVoice)
 	if err != nil {
 		return longFormReaderStyleGatePipelineRequest{}, err
 	}

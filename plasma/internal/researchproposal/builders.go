@@ -7,18 +7,37 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// Producer는 app.Producer의 proposal builder용 alias다.
 type Producer = app.Producer
+
+// AppendEventRequest는 proposal builder가 app service에 넘길 event append 요청 alias다.
 type AppendEventRequest = app.AppendEventRequest
+
+// ObjectRef는 proposal이 가리키는 후보 객체 참조 alias다.
 type ObjectRef = app.ObjectRef
+
+// CreateProposalBundleRequest는 proposal bundle 생성 요청 alias다.
 type CreateProposalBundleRequest = app.CreateProposalBundleRequest
+
+// CreateEvidenceProposalRequest는 evidence proposal 생성을 한 번에 넘기는 요청 alias다.
 type CreateEvidenceProposalRequest = app.CreateEvidenceProposalRequest
+
+// CreateEvidenceRecordRequest는 evidence record 생성 요청 alias다.
 type CreateEvidenceRecordRequest = app.CreateEvidenceRecordRequest
+
+// SnapshotRef는 evidence 후보가 참조하는 source snapshot alias다.
 type SnapshotRef = app.SnapshotRef
+
+// Confidence는 proposal 단계 evidence의 신뢰도 설명 alias다.
 type Confidence = app.Confidence
+
+// ProposalBundle은 승인/기각 대기 중인 후보 묶음 alias다.
 type ProposalBundle = app.ProposalBundle
 
+// EvidenceRecordObjectKind는 evidence record proposal의 object kind wire 값이다.
 const EvidenceRecordObjectKind = app.EvidenceRecordObjectKind
 
+// EvidenceProposedEventRequest는 evidence.proposed event builder 입력이다.
 type EvidenceProposedEventRequest struct {
 	EventID    string
 	MissionID  string
@@ -28,6 +47,7 @@ type EvidenceProposedEventRequest struct {
 	Producer   Producer
 }
 
+// QuestionProposedEventRequest는 question.proposed event builder 입력이다.
 type QuestionProposedEventRequest struct {
 	EventID    string
 	MissionID  string
@@ -36,6 +56,7 @@ type QuestionProposedEventRequest struct {
 	Producer   Producer
 }
 
+// ClaimProposedEventRequest는 claim.proposed event builder 입력이다.
 type ClaimProposedEventRequest struct {
 	EventID    string
 	MissionID  string
@@ -44,6 +65,8 @@ type ClaimProposedEventRequest struct {
 	Producer   Producer
 }
 
+// ProposalSubmittedRequest는 proposal.submitted event와 proposal bundle을 함께 만들기
+// 위한 입력이다.
 type ProposalSubmittedRequest struct {
 	EventID                    string
 	MissionID                  string
@@ -55,11 +78,13 @@ type ProposalSubmittedRequest struct {
 	IncludeObjectRefsInPayload bool
 }
 
+// ProposalSubmittedBuildResult는 proposal 제출 시 함께 만들어야 하는 event와 bundle이다.
 type ProposalSubmittedBuildResult struct {
 	Event  AppendEventRequest
 	Bundle CreateProposalBundleRequest
 }
 
+// ProposalDecisionAppendRequest는 proposal 승인/기각 event builder 입력이다.
 type ProposalDecisionAppendRequest struct {
 	EventID  string
 	Proposal ProposalBundle
@@ -67,6 +92,8 @@ type ProposalDecisionAppendRequest struct {
 	Producer Producer
 }
 
+// ManualEvidenceCandidateProposalRequest는 대화에서 고른 source-backed candidate를
+// evidence proposal로 묶을 때의 입력이다.
 type ManualEvidenceCandidateProposalRequest struct {
 	MissionID       string
 	EvidenceID      string
@@ -80,6 +107,7 @@ type ManualEvidenceCandidateProposalRequest struct {
 	Producer        Producer
 }
 
+// BuildEvidenceProposedAppendRequest는 evidence.proposed append request를 만든다.
 func BuildEvidenceProposedAppendRequest(req EvidenceProposedEventRequest) AppendEventRequest {
 	payload := map[string]any{
 		"evidence_id": req.EvidenceID,
@@ -97,6 +125,7 @@ func BuildEvidenceProposedAppendRequest(req EvidenceProposedEventRequest) Append
 	}
 }
 
+// BuildQuestionProposedAppendRequest는 question.proposed append request를 만든다.
 func BuildQuestionProposedAppendRequest(req QuestionProposedEventRequest) AppendEventRequest {
 	return AppendEventRequest{
 		EventID:   req.EventID,
@@ -110,6 +139,7 @@ func BuildQuestionProposedAppendRequest(req QuestionProposedEventRequest) Append
 	}
 }
 
+// BuildClaimProposedAppendRequest는 claim.proposed append request를 만든다.
 func BuildClaimProposedAppendRequest(req ClaimProposedEventRequest) AppendEventRequest {
 	return AppendEventRequest{
 		EventID:   req.EventID,
@@ -123,6 +153,11 @@ func BuildClaimProposedAppendRequest(req ClaimProposedEventRequest) AppendEventR
 	}
 }
 
+// BuildProposalSubmitted는 proposal.submitted event와 pending proposal bundle을 함께
+// 만든다.
+//
+// 이 결과는 아직 승인된 saved knowledge가 아니다. decision event가 별도로 기록되어야
+// proposal state가 바뀐다.
 func BuildProposalSubmitted(req ProposalSubmittedRequest) ProposalSubmittedBuildResult {
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
@@ -156,6 +191,8 @@ func BuildProposalSubmitted(req ProposalSubmittedRequest) ProposalSubmittedBuild
 	}
 }
 
+// BuildProposalDecisionAppendRequest는 proposal 승인 또는 기각 event와 다음 bundle
+// state를 계산한다.
 func BuildProposalDecisionAppendRequest(req ProposalDecisionAppendRequest) (AppendEventRequest, string) {
 	proposal := req.Proposal
 	objectIDs := objectRefIDs(proposal.ObjectRefs)
@@ -180,6 +217,8 @@ func BuildProposalDecisionAppendRequest(req ProposalDecisionAppendRequest) (Appe
 	}, nextState
 }
 
+// BuildManualEvidenceCandidateProposalRequest는 source snapshot에 근거한 수동 evidence
+// 후보를 proposal 흐름에 넣기 위한 복합 요청을 만든다.
 func BuildManualEvidenceCandidateProposalRequest(req ManualEvidenceCandidateProposalRequest) CreateEvidenceProposalRequest {
 	proposal := BuildProposalSubmitted(ProposalSubmittedRequest{
 		EventID:           req.ProposalEventID,

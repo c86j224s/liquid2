@@ -3,6 +3,9 @@ package workflowstate
 import "time"
 
 const (
+	// WorkflowRunRequestedEvent부터 WorkflowRunInterruptedEvent까지는 workflow runner와
+	// UI projection이 공유하는 장부 event type이다. 기존 장부 해석을 위해 문자열은
+	// stable contract로 취급한다.
 	WorkflowRunRequestedEvent     = "workflow.run.requested"
 	WorkflowRunStartedEvent       = "workflow.run.started"
 	WorkflowRunStopRequestedEvent = "workflow.run.stop_requested"
@@ -17,6 +20,7 @@ const (
 )
 
 const (
+	// WorkflowStatus* 값은 WorkflowRunView.Status의 닫힌 집합이다.
 	WorkflowStatusQueued      = "queued"
 	WorkflowStatusRunning     = "running"
 	WorkflowStatusStopping    = "stopping"
@@ -28,6 +32,7 @@ const (
 )
 
 const (
+	// WorkflowSurface* 값은 workflow 요청이 들어온 제품 표면을 나타낸다.
 	WorkflowSurfaceWeb          = "web"
 	WorkflowSurfaceCLI          = "cli"
 	WorkflowSurfaceMCP          = "mcp"
@@ -35,10 +40,15 @@ const (
 )
 
 const (
+	// WorkflowStepInstructionMode* 값은 workflow step prompt를 구성하는 방식이다.
 	WorkflowStepInstructionModeCurrent = "current"
 	WorkflowStepInstructionModeLayered = "layered"
 )
 
+// RequestWorkflowRunRequest는 새 workflow run을 장부에 요청할 때의 application 입력이다.
+//
+// 이 타입은 실행 자체를 시작하지 않는다. workflowruns service가 조건부 append로
+// requested event를 기록하고, 별도 runner가 그 event를 보고 실행한다.
 type RequestWorkflowRunRequest struct {
 	WorkflowRunID             string
 	MissionID                 string
@@ -58,6 +68,7 @@ type RequestWorkflowRunRequest struct {
 	ContinueFromWorkflowRunID string
 }
 
+// RequestWorkflowStopRequest는 실행 중이거나 queued 상태인 workflow run의 중지 요청이다.
 type RequestWorkflowStopRequest struct {
 	WorkflowRunID            string
 	MissionID                string
@@ -66,6 +77,9 @@ type RequestWorkflowStopRequest struct {
 	Reason                   string
 }
 
+// WorkflowRunTerminalEventRequest는 runner가 run을 terminal 상태로 닫을 때 쓰는 입력이다.
+//
+// 같은 run에 terminal event가 이미 있으면 builder는 새 event를 만들지 않아야 한다.
 type WorkflowRunTerminalEventRequest struct {
 	WorkflowRunID string
 	MissionID     string
@@ -74,6 +88,7 @@ type WorkflowRunTerminalEventRequest struct {
 	Error         string
 }
 
+// WorkflowRunRequestedPayload는 workflow.run.requested event의 stable JSON payload다.
 type WorkflowRunRequestedPayload struct {
 	WorkflowRunID             string `json:"workflow_run_id"`
 	MissionID                 string `json:"mission_id"`
@@ -94,6 +109,7 @@ type WorkflowRunRequestedPayload struct {
 	ContinueFromWorkflowRunID string `json:"continue_from_workflow_run_id,omitempty"`
 }
 
+// WorkflowRunStopRequestedPayload는 workflow.run.stop_requested event payload다.
 type WorkflowRunStopRequestedPayload struct {
 	WorkflowRunID            string `json:"workflow_run_id"`
 	MissionID                string `json:"mission_id"`
@@ -103,12 +119,14 @@ type WorkflowRunStopRequestedPayload struct {
 	RequestedAt              string `json:"requested_at"`
 }
 
+// WorkflowRunStartedPayload는 runner가 run ownership을 claim한 시점의 payload다.
 type WorkflowRunStartedPayload struct {
 	WorkflowRunID string `json:"workflow_run_id"`
 	MissionID     string `json:"mission_id"`
 	StartedAt     string `json:"started_at,omitempty"`
 }
 
+// WorkflowStepStartedPayload는 단일 workflow step 실행 시작을 나타낸다.
 type WorkflowStepStartedPayload struct {
 	WorkflowRunID  string `json:"workflow_run_id"`
 	MissionID      string `json:"mission_id"`
@@ -119,6 +137,7 @@ type WorkflowStepStartedPayload struct {
 	ToolSessionID  string `json:"tool_session_id,omitempty"`
 }
 
+// WorkflowSourceSkippedPayload는 workflow가 source를 읽지 않고 넘어간 이유를 기록한다.
 type WorkflowSourceSkippedPayload struct {
 	WorkflowRunID   string `json:"workflow_run_id"`
 	MissionID       string `json:"mission_id"`
@@ -132,6 +151,7 @@ type WorkflowSourceSkippedPayload struct {
 	ConnectorType   string `json:"connector_type,omitempty"`
 }
 
+// WorkflowStepCompletedPayload는 한 step의 agent 판단과 다음 지시를 기록한다.
 type WorkflowStepCompletedPayload struct {
 	WorkflowRunID   string `json:"workflow_run_id"`
 	MissionID       string `json:"mission_id"`
@@ -145,6 +165,8 @@ type WorkflowStepCompletedPayload struct {
 	ResultEventID   string `json:"result_event_id,omitempty"`
 }
 
+// WorkflowRunTerminalPayload는 completed/paused/stopped/failed/interrupted event가
+// 공유하는 terminal payload다.
 type WorkflowRunTerminalPayload struct {
 	WorkflowRunID      string `json:"workflow_run_id"`
 	MissionID          string `json:"mission_id"`
@@ -156,6 +178,10 @@ type WorkflowRunTerminalPayload struct {
 	TerminalAt         string `json:"terminal_at,omitempty"`
 }
 
+// WorkflowRunView는 장부 event 열에서 계산한 workflow run의 읽기 전용 projection이다.
+//
+// View는 저장소의 source of truth가 아니며, ProjectRuns가 매번 event 순서대로 다시
+// 계산할 수 있어야 한다.
 type WorkflowRunView struct {
 	WorkflowRunID             string             `json:"workflow_run_id"`
 	MissionID                 string             `json:"mission_id"`
@@ -188,6 +214,7 @@ type WorkflowRunView struct {
 	UpdatedAt                 time.Time          `json:"updated_at,omitempty"`
 }
 
+// WorkflowStepView는 WorkflowRunView 안에서 한 step의 현재 또는 완료 상태를 나타낸다.
 type WorkflowStepView struct {
 	WorkflowStepID  string   `json:"workflow_step_id"`
 	StepIndex       int      `json:"step_index,omitempty"`

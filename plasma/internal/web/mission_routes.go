@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -388,7 +389,7 @@ func (server *Server) missionDetail(ctx context.Context, missionID string) (miss
 		WorkflowRuns:        workflowRuns,
 		Recall:              recall,
 		AgentExecutors:      server.agentStatuses(),
-		LockedAgentExecutor: app.LockedAgentExecutorFromEvents(events),
+		LockedAgentExecutor: agentpolicy.LockedExecutorFromEvents(events),
 		ActiveWork:          app.ActiveWorkFromMissionState(events, workflowRuns),
 		ReportProgress:      app.ReportProgressFromEvents(events),
 	}, nil

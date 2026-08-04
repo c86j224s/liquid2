@@ -3,11 +3,11 @@ package web
 import (
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 )
 
 func withReportDirection(prompt, hint string) string {
-	block := reporting.FormatDirectionHint(hint)
+	block := reportexecution.FormatDirectionHint(hint)
 	if block == "" {
 		return prompt
 	}

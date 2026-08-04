@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
-func drainCLIQueuedWorkflows(ctx context.Context, svc *app.Service, missionID string, executor web.AgentExecutor, executorName string) error {
+func drainCLIQueuedWorkflows(ctx context.Context, svc *app.Service, missionID string, executor agentexec.AgentExecutor, executorName string) error {
 	runs, err := svc.ListWorkflowRuns(ctx, missionID)
 	if err != nil {
 		return err
@@ -35,11 +35,11 @@ func drainCLIQueuedWorkflows(ctx context.Context, svc *app.Service, missionID st
 }
 
 type cliWorkflowAgentAdapter struct {
-	executor web.AgentExecutor
+	executor agentexec.AgentExecutor
 }
 
 func (adapter cliWorkflowAgentAdapter) Run(ctx context.Context, req workflowruntime.AgentRequest) (workflowruntime.AgentResult, error) {
-	result, err := adapter.executor.Run(ctx, web.AgentRequest{
+	result, err := adapter.executor.Run(ctx, agentexec.AgentRequest{
 		UserText:          req.UserText,
 		Prompt:            req.Prompt,
 		Model:             req.Model,

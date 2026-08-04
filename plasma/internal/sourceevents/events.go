@@ -5,8 +5,14 @@ import (
 	"strings"
 )
 
+// SourceSnapshottedEventType은 source snapshot이 mission source set에 추가됐음을
+// 나타내는 장부 event type이다.
 const SourceSnapshottedEventType = "source.snapshotted"
 
+// ConnectorRef는 외부 source와 Plasma snapshot을 연결하는 connector identity다.
+//
+// ExternalSourceID와 ExternalVersion은 connector 내부에서 stable해야 하며, 같은 외부
+// 문서를 다른 snapshot version으로 추적하는 데 쓰인다.
 type ConnectorRef struct {
 	ConnectorID      string
 	ConnectorType    string
@@ -16,6 +22,7 @@ type ConnectorRef struct {
 	ConnectorVersion string
 }
 
+// SourceSnapshottedPayloadRequest는 가장 일반적인 source snapshot payload 입력이다.
 type SourceSnapshottedPayloadRequest struct {
 	SnapshotID         string
 	ArtifactIDs        []string
@@ -23,6 +30,8 @@ type SourceSnapshottedPayloadRequest struct {
 	IncludeArtifactIDs bool
 }
 
+// ConnectorSourceSnapshottedPayloadRequest는 connector-backed source snapshot payload
+// 입력이다.
 type ConnectorSourceSnapshottedPayloadRequest struct {
 	SnapshotID  string
 	ArtifactIDs []string
@@ -30,6 +39,8 @@ type ConnectorSourceSnapshottedPayloadRequest struct {
 	Reason      string
 }
 
+// ConfluenceUpdateSourceSnapshottedPayloadRequest는 기존 Confluence source update가
+// 새 snapshot으로 기록될 때의 payload 입력이다.
 type ConfluenceUpdateSourceSnapshottedPayloadRequest struct {
 	SnapshotID         string
 	ArtifactIDs        []string
@@ -41,6 +52,8 @@ type ConfluenceUpdateSourceSnapshottedPayloadRequest struct {
 	PageID             string
 }
 
+// UploadedFileSourceSnapshottedPayloadRequest는 업로드 파일 source snapshot payload
+// 입력이다.
 type UploadedFileSourceSnapshottedPayloadRequest struct {
 	SnapshotID        string
 	ArtifactIDs       []string
@@ -53,6 +66,7 @@ type UploadedFileSourceSnapshottedPayloadRequest struct {
 	Deduplicated      bool
 }
 
+// BuildSourceSnapshottedPayload는 일반 source.snapshotted payload JSON을 만든다.
 func BuildSourceSnapshottedPayload(req SourceSnapshottedPayloadRequest) []byte {
 	payload := map[string]any{
 		"snapshot_id": strings.TrimSpace(req.SnapshotID),
@@ -64,6 +78,7 @@ func BuildSourceSnapshottedPayload(req SourceSnapshottedPayloadRequest) []byte {
 	return mustMarshalJSON(payload)
 }
 
+// BuildConnectorSourceSnapshottedPayload는 connector-backed snapshot payload JSON을 만든다.
 func BuildConnectorSourceSnapshottedPayload(req ConnectorSourceSnapshottedPayloadRequest) []byte {
 	return mustMarshalJSON(map[string]any{
 		"snapshot_id":  strings.TrimSpace(req.SnapshotID),
@@ -73,6 +88,8 @@ func BuildConnectorSourceSnapshottedPayload(req ConnectorSourceSnapshottedPayloa
 	})
 }
 
+// BuildConfluenceUpdateSourceSnapshottedPayload는 Confluence update snapshot payload
+// JSON을 만든다.
 func BuildConfluenceUpdateSourceSnapshottedPayload(req ConfluenceUpdateSourceSnapshottedPayloadRequest) []byte {
 	return mustMarshalJSON(map[string]any{
 		"snapshot_id":          strings.TrimSpace(req.SnapshotID),
@@ -86,6 +103,8 @@ func BuildConfluenceUpdateSourceSnapshottedPayload(req ConfluenceUpdateSourceSna
 	})
 }
 
+// BuildUploadedFileSourceSnapshottedPayload는 file upload source snapshot payload JSON을
+// 만든다.
 func BuildUploadedFileSourceSnapshottedPayload(req UploadedFileSourceSnapshottedPayloadRequest) []byte {
 	return mustMarshalJSON(map[string]any{
 		"snapshot_id":        strings.TrimSpace(req.SnapshotID),

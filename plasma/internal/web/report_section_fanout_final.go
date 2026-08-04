@@ -8,6 +8,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sectionFanoutLongFormRequest, state sectionFanoutPlanState, parts []sectionalReportPartDraft, sectionArtifactIDs []string, partArtifactIDs []string, sectionWordTotal int, finalSessionID string, finalForkSourceID string, started time.Time, executor AgentExecutor) (app.RawArtifact, app.LedgerEvent, AgentResult, error) {
@@ -18,7 +19,7 @@ func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sec
 		IdempotencyKey:    "report-long-form-finalize:" + req.pendingEventID + ":" + state.planEvent.EventID,
 		ProviderSessionID: finalSessionID, PreviousProviderSessionID: finalSessionID,
 		PartArtifactIDs: partArtifactIDs, SectionArtifactIDs: sectionArtifactIDs, SectionWordCount: sectionWordTotal,
-		CompositionStrategy: longFormCompositionStrategy(req.generationGuidanceProfile),
+		CompositionStrategy: reportprompt.LongFormCompositionStrategy(req.generationGuidanceProfile),
 		AgentExecutor:       req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: req.agentReasoningEffort, AgentSelectionSource: req.agentSelectionSource,
 		MCPMode: req.mcpMode, RigorLevel: req.rigor.level, RigorLabel: req.rigor.label,
 		ReportSessionPolicy: state.reportSessionPolicy, ReportSessionPolicySelection: state.reportSessionPolicySelection,

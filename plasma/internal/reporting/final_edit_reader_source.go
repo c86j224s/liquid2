@@ -24,6 +24,7 @@ type finalEditReaderSourceIdentity struct {
 	PartArtifactIDs []string `json:"part_artifact_ids"`
 }
 
+// FinalEditReaderSourceArtifactID는 최종 편집의 reader source artifact ID를 선택한다.
 func FinalEditReaderSourceArtifactID(planEventID string, partArtifactIDs []string) string {
 	encoded, _ := json.Marshal(finalEditReaderSourceIdentity{
 		Schema:          FinalEditReaderSourceSchema,

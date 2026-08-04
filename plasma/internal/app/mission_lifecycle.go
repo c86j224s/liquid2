@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 )
 
 const (
-	MissionLifecycleActive   = "active"
-	MissionLifecycleArchived = "archived"
+	MissionLifecycleActive   = mission.LifecycleActive
+	MissionLifecycleArchived = mission.LifecycleArchived
 
-	MissionArchivedEvent = "mission.archived"
-	MissionRestoredEvent = "mission.restored"
+	MissionArchivedEvent = mission.ArchivedEvent
+	MissionRestoredEvent = mission.RestoredEvent
 )
 
+// MissionLifecycleChangeRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type MissionLifecycleChangeRequest struct {
 	EventID   string
 	MissionID string
@@ -22,16 +25,19 @@ type MissionLifecycleChangeRequest struct {
 	Reason    string
 }
 
+// MissionLifecycleChangeResult는 archive/restore 이벤트와 갱신된 미션을 함께 반환한다.
 type MissionLifecycleChangeResult struct {
 	Event      *LedgerEvent      `json:"event,omitempty"`
 	Projection MissionProjection `json:"projection"`
 	Idempotent bool              `json:"idempotent,omitempty"`
 }
 
+// ArchiveMission는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) ArchiveMission(ctx context.Context, req MissionLifecycleChangeRequest) (MissionLifecycleChangeResult, error) {
 	return s.changeMissionLifecycle(ctx, req, MissionLifecycleArchived, MissionArchivedEvent)
 }
 
+// RestoreMission는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RestoreMission(ctx context.Context, req MissionLifecycleChangeRequest) (MissionLifecycleChangeResult, error) {
 	return s.changeMissionLifecycle(ctx, req, MissionLifecycleActive, MissionRestoredEvent)
 }

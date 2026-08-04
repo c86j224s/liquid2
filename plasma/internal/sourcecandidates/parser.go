@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+// Candidate는 대화 텍스트에서 감지한 임시 소스 후보다. 이 값은 승인된 소스가
+// 아니며, State는 후보 제안 흐름의 초기 표시값으로만 사용한다.
 type Candidate struct {
 	URL    string `json:"url"`
 	Title  string `json:"title"`
@@ -29,6 +31,9 @@ var (
 	}
 )
 
+// Parse는 대화 텍스트에서 명시적으로 라벨링된 소스 후보만 추출한다. URL만
+// 등장한 문장은 후보로 승격하지 않고, 채택 의견이 없으면 사용자가 승인할
+// 판단 근거가 부족한 것으로 보고 제외한다.
 func Parse(text string) []Candidate {
 	matches := urlPattern.FindAllStringIndex(text, -1)
 	if len(matches) == 0 {

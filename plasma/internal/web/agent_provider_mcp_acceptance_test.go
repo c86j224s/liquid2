@@ -16,6 +16,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -249,7 +250,7 @@ func TestAgentProviderMCPRealProviderExecutorsSpawnBoundPartEdit(t *testing.T) {
 				PreviousProviderSessionID: "provider-editor", IdempotencyKey: "report-part-edit:evt_pending:evt_plan:1", PartIndex: 1,
 				AgentExecutor: tc.executorName, AgentModel: "test-model", AgentReasoningEffort: "high",
 				MCPMode: "auto", ReportSessionPolicy: reportSessionPolicyIsolatedFork,
-				GenerationGuidanceProfile: reportGenerationGuidanceProfileNarrativeContract,
+				GenerationGuidanceProfile: reportprompt.ProfileNarrativeContract,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "provider-plan",
 				ForkSourceAgentSessionID: "provider-plan",
 			}
@@ -344,7 +345,7 @@ func TestWebReportAPIUsesRealProviderExecutorsAndBuiltMCP(t *testing.T) {
 			}
 			if tc.mode == reportModeLongForm {
 				reportRequest["execution_strategy"] = reportExecutionStrategySectionFanout
-				reportRequest["generation_guidance_profile"] = reportGenerationGuidanceProfilePartConnectiveEconomyVoice
+				reportRequest["generation_guidance_profile"] = reportprompt.ProfilePartConnectiveEconomyVoice
 				reportRequest["post_report_humanize"] = "disabled"
 			}
 			postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", reportRequest)

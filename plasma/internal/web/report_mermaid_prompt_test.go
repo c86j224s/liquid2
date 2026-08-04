@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -39,7 +40,7 @@ func TestMarkdownReportPromptsRequireMermaidValidation(t *testing.T) {
 func TestNonMarkdownReportPromptsDoNotRequireUnavailableMermaidValidation(t *testing.T) {
 	prompts := map[string]string{
 		"plan":  agentReportPlanPrompt("Report", "mis_1", "ses_1", "evt_pending", "key_1", reportRigorProfiles["balanced"], "visual-plan"),
-		"patch": AgentReportPatchPrompt("Report", "mis_1", "ses_1", "evt_pending", "art_1", "edit", reporting.PatchRequest{}),
+		"patch": AgentReportPatchPrompt("Report", "mis_1", "ses_1", "evt_pending", "art_1", "edit", reportexecution.PatchRequest{}),
 		"ast":   agentReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}),
 	}
 	for name, prompt := range prompts {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func agentReportRequirementMapPrompt(title, directionHint string, plan agentSectionalReportPlan, reviewEventIDs []string, binding reporting.ReportRequirementMapBinding) string {
@@ -85,9 +86,9 @@ func indexedReportRequirementDestinations(plan agentSectionalReportPlan) string 
 
 func agentSectionDraftPromptWithRequirements(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, part agentReportPart, section agentReportSection, partIndex int, sectionIndex int, generationGuidanceProfile string, requirements []reporting.ReportRequirement) string {
 	guidance := strings.TrimSpace(strings.Join([]string{
-		LongFormReportGenerationGuidance(generationGuidanceProfile),
-		reportSectionDirectWritingGuidance(generationGuidanceProfile),
-		reportSubjectDirectSynthesisSectionGuidance(generationGuidanceProfile),
+		reportprompt.LongFormReportGenerationGuidance(generationGuidanceProfile),
+		reportprompt.SectionDirectWritingGuidance(generationGuidanceProfile),
+		reportprompt.SubjectDirectSynthesisSectionGuidance(generationGuidanceProfile),
 	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
@@ -127,5 +128,5 @@ Rules:
 - Include concrete detail where the sources support it: events, mechanisms, examples, comparisons, tensions, caveats, weak signals, code, formulas, or benchmarks when relevant.
 - Preserve uncertainty and competing interpretations instead of flattening them.
 - Do not mention prompts, internal run labels, tool session IDs, or temporary implementation details.
-- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(requirements), agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportMermaidValidationRule)
+- Return only the Markdown body for this section.`, title, missionID, partIndex+1, part.Title, partIndex+1, sectionIndex+1, section.Title, section.Purpose, agentReportAnyJSON(requirements), agentReportAnyJSON(plan), missionID, toolSessionID, toolSessionID, rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, reportprompt.MermaidValidationRuleText)
 }

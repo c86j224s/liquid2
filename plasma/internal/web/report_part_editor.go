@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 type reportPartEditorRequest struct {
@@ -42,7 +43,7 @@ type reportPartEditorRequest struct {
 }
 
 func longFormPartEditEnabled(profile string) bool {
-	return isReportGenerationGuidanceProfileNarrativeContract(profile)
+	return reportprompt.IsNarrativeContract(profile)
 }
 
 func (server *Server) runPartEditorAgent(ctx context.Context, req reportPartEditorRequest, executor AgentExecutor) (sectionalReportPartDraft, AgentResult, error) {
@@ -168,8 +169,8 @@ Editing responsibility:
 		req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions,
 		agentReportAnyJSON(binding), binding.MissionID, binding.ToolSessionID, binding.ToolSessionID,
 		binding.IdempotencyKey+":start", binding.IdempotencyKey+":patch-1", binding.IdempotencyKey+":patch-2", binding.IdempotencyKey+":submit",
-		plasmamcp.ToolReportPartEditStart, draftID,
-		plasmamcp.ToolReportPartEditRead, plasmamcp.ToolReportPartEditPatch,
-		plasmamcp.ToolReportPartEditSubmit, reporting.PartEditSubmittedSentinel,
+		mcptools.ToolReportPartEditStart, draftID,
+		mcptools.ToolReportPartEditRead, mcptools.ToolReportPartEditPatch,
+		mcptools.ToolReportPartEditSubmit, reporting.PartEditSubmittedSentinel,
 	)
 }

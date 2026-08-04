@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// LoadPartEdit는 part edit 제출 이벤트와 artifact를 장부에서 복원한다.
 func LoadPartEdit(ctx context.Context, store PartEditStore, binding PartEditBinding) (PartEditResult, bool, error) {
 	binding = normalizePartEditBinding(binding)
 	if err := ValidatePartEditBinding(binding); err != nil {
@@ -49,6 +50,7 @@ func LoadPartEdit(ctx context.Context, store PartEditStore, binding PartEditBind
 	return result, err == nil, err
 }
 
+// FinalizePartEdit는 part edit 결과를 검증하고 저장용 이벤트 요청으로 만든다.
 func FinalizePartEdit(ctx context.Context, store PartEditStore, binding PartEditBinding, eventID string, markdown string, operationCount int) (PartEditResult, error) {
 	binding = normalizePartEditBinding(binding)
 	if err := ValidatePartEditBinding(binding); err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// TurnUserEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type TurnUserEventRequest struct {
 	EventID              string
 	MissionID            string
@@ -24,6 +25,7 @@ type TurnUserEventRequest struct {
 	Producer             app.Producer
 }
 
+// ControllerStrategySelectedEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type ControllerStrategySelectedEventRequest struct {
 	EventID           string
 	MissionID         string
@@ -40,6 +42,7 @@ type ControllerStrategySelectedEventRequest struct {
 	Producer          app.Producer
 }
 
+// TurnAgentPendingEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type TurnAgentPendingEventRequest struct {
 	EventID              string
 	MissionID            string
@@ -60,6 +63,7 @@ type TurnAgentPendingEventRequest struct {
 	Producer             app.Producer
 }
 
+// AgentSessionResetEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type AgentSessionResetEventRequest struct {
 	EventID                string
 	MissionID              string
@@ -70,6 +74,7 @@ type AgentSessionResetEventRequest struct {
 	Producer               app.Producer
 }
 
+// BuildTurnUserAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildTurnUserAppendRequest(req TurnUserEventRequest) app.AppendEventRequest {
 	payload := map[string]any{
 		"kind":            req.Kind,
@@ -92,6 +97,7 @@ func BuildTurnUserAppendRequest(req TurnUserEventRequest) app.AppendEventRequest
 	}
 }
 
+// BuildControllerStrategySelectedAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildControllerStrategySelectedAppendRequest(req ControllerStrategySelectedEventRequest) app.AppendEventRequest {
 	return app.AppendEventRequest{
 		EventID:   req.EventID,
@@ -114,6 +120,7 @@ func BuildControllerStrategySelectedAppendRequest(req ControllerStrategySelected
 	}
 }
 
+// BuildTurnAgentPendingAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) app.AppendEventRequest {
 	payload := map[string]any{
 		"kind":            "agent_pending",
@@ -139,6 +146,7 @@ func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) app.Ap
 	}
 }
 
+// BuildAgentSessionResetAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildAgentSessionResetAppendRequest(req AgentSessionResetEventRequest) app.AppendEventRequest {
 	return app.AppendEventRequest{
 		EventID:   req.EventID,

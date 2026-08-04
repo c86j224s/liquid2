@@ -6,12 +6,14 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// MarkdownReportSectionStartedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportSectionStartedEventRequest struct {
 	MarkdownReportStageEventBase
 	PartIndex    int
 	SectionIndex int
 }
 
+// BuildMarkdownReportSectionStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMarkdownReportSectionStartedAppendRequest(req MarkdownReportSectionStartedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStageStartedPayload(base)

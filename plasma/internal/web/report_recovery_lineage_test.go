@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -76,8 +78,8 @@ func TestApplyPartPlanProgressUsesReportingReplayValidation(t *testing.T) {
 			agentReasoningEffort:         "high",
 			agentSelectionSource:         "request",
 			reportSessionPolicy:          reportSessionPolicySameSession,
-			reportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-			generationGuidanceProfile:    reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+			generationGuidanceProfile:    reportprompt.ProfilePartConnectiveEconomyVoice,
 			generationGuidanceSHA256:     "guidance-sha",
 			sessionChainKind:             "section_fanout_report",
 			reportPlanSessionID:          "provider-plan",
@@ -161,8 +163,8 @@ func TestSectionFanoutPartPlanningParentUsesCanonicalEventProvenance(t *testing.
 		parent.AgentReasoningEffort != "stored-reasoning" ||
 		parent.AgentSelectionSource != "stored-selection" ||
 		parent.ReportSessionPolicy != reportSessionPolicySameSession ||
-		parent.ReportSessionPolicySelection != reporting.SessionPolicySelectionExplicitSameSession ||
-		parent.GenerationGuidanceProfile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice ||
+		parent.ReportSessionPolicySelection != reportexecution.SessionPolicySelectionExplicitSameSession ||
+		parent.GenerationGuidanceProfile != reportprompt.ProfilePartConnectiveEconomyVoice ||
 		parent.GenerationGuidanceSHA256 != "stored-guidance-sha" ||
 		parent.SessionChainKind != "section_fanout_report" ||
 		parent.ReportPlanSessionID != "stored-report-plan-session" {
@@ -193,7 +195,7 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 			"execution_strategy":          reportExecutionStrategySectionFanout,
 			"agent_executor":              "claude",
 			"mcp_mode":                    "auto",
-			"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 		}),
 	}); err != nil {
 		t.Fatal(err)
@@ -206,7 +208,7 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 		executorName: "claude", agentModel: "request-model", agentReasoningEffort: "request-reasoning",
 		agentSelectionSource: "request-selection", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
 		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: "request-policy-selection",
-		generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice, generationGuidanceSHA256: "request-guidance-sha",
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, generationGuidanceSHA256: "request-guidance-sha",
 	}
 	state, err := server.ensureSectionFanoutPlan(ctx, req, sectionalReportProgress{}, executor)
 	if err != nil {
@@ -217,7 +219,7 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 		state.agentModel != "stored-model" ||
 		state.agentReasoningEffort != "stored-reasoning" ||
 		state.agentSelectionSource != "stored-selection" ||
-		state.reportSessionPolicySelection != reporting.SessionPolicySelectionExplicitSameSession ||
+		state.reportSessionPolicySelection != reportexecution.SessionPolicySelectionExplicitSameSession ||
 		state.generationGuidanceSHA256 != "stored-guidance-sha" ||
 		!state.partPlanningEnabled {
 		t.Fatalf("fresh state did not use replayed lifecycle event provenance: %#v", state)
@@ -351,8 +353,8 @@ func partPlanRecoveryEvent(t *testing.T, mutate func(*app.AppendEventRequest)) a
 			AgentSelectionSource: "request", AgentSessionID: "provider-part-owner",
 			PreviousAgentSessionID: "provider-part-owner", ReturnedAgentSessionID: "provider-part-owner",
 			ToolSessionID: "ses_part_plan", ReportMode: reportModeLongForm,
-			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-			GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 			GenerationGuidanceSHA256:  "guidance-sha",
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "provider-plan",
 			ReportSessionID: "provider-part-owner", ForkSourceAgentSessionID: "provider-plan",
@@ -388,8 +390,8 @@ func sectionFanoutParentPlanEvent(t *testing.T, mutate func(map[string]any)) app
 			AgentReasoningEffort: "stored-reasoning", AgentSelectionSource: "stored-selection",
 			AgentSessionID: "stored-report-plan-session", ReturnedAgentSessionID: "stored-report-plan-session",
 			ToolSessionID: "ses_plan", MCPMode: "auto", ReportMode: reportModeLongForm,
-			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-			GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 			GenerationGuidanceSHA256:  "stored-guidance-sha",
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "stored-report-plan-session",
 			CompositionStrategy: "sectional_preserve_markdown", Producer: app.Producer{Type: "agent_session", ID: "stored-report-plan-session"},
@@ -441,8 +443,8 @@ func (executor *sectionFanoutPlanReplayExecutor) Run(ctx context.Context, req Ag
 				AgentSelectionSource: "stored-selection", AgentSessionID: "stored-report-plan-session",
 				ReturnedAgentSessionID: "stored-report-plan-session", ToolSessionID: req.ToolSessionID, MCPMode: req.MCPMode,
 				ReportMode: reportModeLongForm, ReportSessionPolicy: reportSessionPolicySameSession,
-				ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-				GenerationGuidanceProfile:    reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+				GenerationGuidanceProfile:    reportprompt.ProfilePartConnectiveEconomyVoice,
 				GenerationGuidanceSHA256:     "stored-guidance-sha",
 				SessionChainKind:             "section_fanout_report", ReportPlanSessionID: "stored-report-plan-session",
 				CompositionStrategy: "sectional_preserve_markdown", Producer: app.Producer{Type: "agent_session", ID: "stored-report-plan-session"},

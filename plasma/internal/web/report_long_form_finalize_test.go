@@ -9,6 +9,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -32,7 +33,7 @@ func TestLongFormFinalizationRetriesOnlyFinalStageWithNarrowHint(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Final retry"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title": "Report", "report_mode": "long_form", "generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"title": "Report", "report_mode": "long_form", "generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, "report.artifact.created") != 1 || countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.created") != 1 || countEvents(detail, "report.part.created") != 1 {

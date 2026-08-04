@@ -7,17 +7,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 type cliReportDraftRunResult struct {
 	Artifact  app.RawArtifact
 	Event     app.LedgerEvent
-	Humanized web.ReportHumanizeResult
+	Humanized reporthumanize.Result
 	SessionID string
 	Err       error
 }
@@ -90,11 +92,11 @@ func cliReportArtifactSessionInfo(ctx context.Context, svc *app.Service, mission
 	return cliReportArtifactInfo{}, fmt.Errorf("%w: report artifact event not found", app.ErrInvalidInput)
 }
 
-func createCLIReportPatchArtifact(ctx context.Context, svc *app.Service, executor web.AgentExecutor, missionID string, pendingEventID string, req reporting.PatchRequest) cliReportPatchRunResult {
+func createCLIReportPatchArtifact(ctx context.Context, svc *app.Service, executor agentexec.AgentExecutor, missionID string, pendingEventID string, req reportexecution.PatchRequest) cliReportPatchRunResult {
 	toolSessionID := cliNewID("ses")
-	result, err := executor.Run(ctx, web.AgentRequest{
+	result, err := executor.Run(ctx, agentexec.AgentRequest{
 		UserText:          "patch markdown report artifact with MCP",
-		Prompt:            web.AgentReportPatchPrompt(req.Title, missionID, toolSessionID, pendingEventID, req.BaseArtifactID, req.Instruction, req),
+		Prompt:            reportpatch.Prompt(req.Title, missionID, toolSessionID, pendingEventID, req.BaseArtifactID, req.Instruction, req),
 		Model:             req.AgentModel,
 		ReasoningEffort:   req.AgentReasoningEffort,
 		MissionID:         missionID,
@@ -102,14 +104,9 @@ func createCLIReportPatchArtifact(ctx context.Context, svc *app.Service, executo
 		PreviousSessionID: req.ReportSessionID,
 		AgentExecutor:     req.AgentExecutor,
 		MCPMode:           req.MCPMode,
-		ExtraMCPTools: []string{
-			mcp.ToolReportPatchStart,
-			mcp.ToolReportPatchRead,
-			mcp.ToolReportPatchApply,
-			mcp.ToolReportPatchFinalize,
-		},
-		ReplaceMCPTools: true,
-		ReportPatch: &web.AgentReportPatchContext{
+		ExtraMCPTools:     reportpatch.MCPTools(),
+		ReplaceMCPTools:   true,
+		ReportPatch: &agentexec.AgentReportPatchContext{
 			BaseArtifactID:               req.BaseArtifactID,
 			PendingEventID:               pendingEventID,
 			AgentExecutor:                req.AgentExecutor,
@@ -254,7 +251,7 @@ func cliPromoteReportPatchFinalizedArtifact(ctx context.Context, svc *app.Servic
 	return event, artifact, nil
 }
 
-func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executor web.AgentExecutor, missionID string, pendingEventID string, req reporting.DraftRequest) cliReportDraftRunResult {
+func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executor agentexec.AgentExecutor, missionID string, pendingEventID string, req reportexecution.DraftRequest) cliReportDraftRunResult {
 	reportTitle, directionHint, agentName := req.Title, req.DirectionHint, req.AgentExecutor
 	mcpMode, reportMode := req.MCPMode, req.ReportMode
 	reportSessionPolicy, reportSessionPolicySelection := req.ReportSessionPolicy, req.ReportSessionPolicySelection
@@ -268,13 +265,13 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	previousSessionID := preReportResearchSessionID
 	forkSourceSessionID := ""
 	sessionChainKind := "same_session_report"
-	if reportSessionPolicy == reporting.SessionPolicyIsolatedFork {
-		forker, ok := executor.(web.AgentSessionForker)
+	if reportSessionPolicy == reportexecution.SessionPolicyIsolatedFork {
+		forker, ok := executor.(agentexec.AgentSessionForker)
 		if !ok {
-			return cliReportDraftRunResult{Err: reporting.ValidateSessionPolicy(reportSessionPolicy, reportMode, false, strings.TrimSpace(preReportResearchSessionID) != "", false)}
+			return cliReportDraftRunResult{Err: reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportMode, false, strings.TrimSpace(preReportResearchSessionID) != "", false)}
 		}
 		if strings.TrimSpace(preReportResearchSessionID) == "" {
-			return cliReportDraftRunResult{Err: reporting.ValidateSessionPolicy(reportSessionPolicy, reportMode, true, false, false)}
+			return cliReportDraftRunResult{Err: reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportMode, true, false, false)}
 		}
 		fork, err := forker.ForkSession(ctx, preReportResearchSessionID)
 		if err != nil {
@@ -292,10 +289,10 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	planEventID := ""
 	planToolSessionID := ""
 	reportPlanSessionID := ""
-	if reportMode != reporting.ModeOneTake {
+	if reportMode != reportexecution.ModeOneTake {
 		planToolSessionID = toolSessionID
 		planPreviousSessionID := previousSessionID
-		planResult, err := executor.Run(ctx, web.AgentRequest{
+		planResult, err := executor.Run(ctx, agentexec.AgentRequest{
 			UserText:          "plan markdown report artifact",
 			Prompt:            cliPromptWithDirection(cliReportPlanPrompt(reportTitle, missionID, planToolSessionID, generationGuidanceProfile), directionHint),
 			MissionID:         missionID,
@@ -350,7 +347,7 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		toolSessionID = cliNewID("ses")
 	}
 	reportPreviousSessionID := previousSessionID
-	result, err := executor.Run(ctx, web.AgentRequest{
+	result, err := executor.Run(ctx, agentexec.AgentRequest{
 		UserText:          "generate markdown report artifact",
 		Prompt:            cliPromptWithDirection(cliReportPrompt(reportTitle, missionID, toolSessionID, reportMode, planEventID, generationGuidanceProfile), directionHint),
 		MissionID:         missionID,
@@ -421,7 +418,7 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	if postReportHumanize == "disabled" {
 		return cliReportDraftRunResult{Artifact: artifact, Event: event, SessionID: sessionID}
 	}
-	humanized, err := web.HumanizeMarkdownReport(ctx, svc, cliNewID, missionID, web.ReportHumanizeInput{
+	humanized, err := reporthumanize.HumanizeMarkdownReport(ctx, svc, cliNewID, missionID, reporthumanize.Input{
 		Title:             reportTitle,
 		Markdown:          markdown,
 		SourceArtifact:    artifact,

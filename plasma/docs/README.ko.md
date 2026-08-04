@@ -25,14 +25,20 @@ Plasma를 처음 이해하려면 아래 순서로 읽는 것이 좋습니다.
 2. [Glossary](glossary.md) / [용어집](glossary.ko.md) - 제품 용어와 실험 코드명을 설명합니다.
 3. [C1 Default Loop](c1-default-loop.md) /
    [C1 기본 루프](c1-default-loop.ko.md) - 현재 기본 제품 흐름을 설명합니다.
-4. [Product Architecture](product-architecture.md) /
-   [제품 아키텍처](product-architecture.ko.md) - 유지해야 할 제품 경계와 백엔드 경계를 설명합니다.
+4. [Architecture Map](architecture/README.md) /
+   [아키텍처 지도](architecture/README.ko.md) - package 소유권, 의존 방향, 현재 전환 경계를 보여줍니다.
+5. [Package Boundaries](architecture/package-boundaries.md) /
+   [패키지 경계 규칙](architecture/package-boundaries.ko.md) - 코드 배치, import, 분할 검토 기준을 정의합니다.
+6. [Product Architecture](product-architecture.md) /
+   [제품 아키텍처](product-architecture.ko.md) - 제품 동작과 기능별 상세 경계를 설명합니다.
 
 ## 현재 제품 규칙
 
 현재 Plasma가 따라야 하는 동작은 주로 아래 문서에 정리되어 있습니다.
 
 - [C1 Default Loop](c1-default-loop.md)
+- [Architecture Map](architecture/README.md)
+- [패키지 경계 규칙](architecture/package-boundaries.ko.md)
 - [Product Architecture](product-architecture.md)
 - [Product Flow](product-flow.md) - 제품 흐름의 변천을 보존하는 한국어 중심 연결 문서입니다. 별도 정리
   범위가 생기면 새 이슈에서 다룹니다.

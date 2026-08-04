@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 )
 
 type connectorAccessPayload struct {
@@ -14,6 +16,7 @@ type connectorAccessPayload struct {
 	SpaceKey     string `json:"space_key,omitempty"`
 }
 
+// GetMissionConnectorAccess는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetMissionConnectorAccess(ctx context.Context, missionID string, connectorID string) (ConnectorAccessProjection, error) {
 	if err := validateID("mis_", strings.TrimSpace(missionID)); err != nil {
 		return ConnectorAccessProjection{}, err
@@ -29,6 +32,7 @@ func (s *Service) GetMissionConnectorAccess(ctx context.Context, missionID strin
 	return s.projectConnectorAccess(ctx, strings.TrimSpace(missionID), connectorID, events), nil
 }
 
+// SetMissionConnectorAccess는 미션이 특정 connector를 사용할 수 있는지 장부에 기록한다.
 func (s *Service) SetMissionConnectorAccess(ctx context.Context, req SetConnectorAccessRequest) (ConnectorAccessChangeResult, error) {
 	req.MissionID = strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", req.MissionID); err != nil {
@@ -95,42 +99,7 @@ func (s *Service) SetMissionConnectorAccess(ctx context.Context, req SetConnecto
 }
 
 func (s *Service) projectConnectorAccess(ctx context.Context, missionID string, connectorID string, events []LedgerEvent) ConnectorAccessProjection {
-	projection := ConnectorAccessProjection{
-		MissionID:   missionID,
-		ConnectorID: connectorID,
-		Status:      ConnectorAccessStatusDisabled,
-	}
-	for _, event := range events {
-		switch event.EventType {
-		case ConnectorAccessEventEnabled, ConnectorAccessEventUpdated, ConnectorAccessEventDisabled:
-		default:
-			continue
-		}
-		var payload connectorAccessPayload
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			continue
-		}
-		if strings.TrimSpace(payload.ConnectorID) != connectorID {
-			continue
-		}
-		projection.LastEventID = event.EventID
-		projection.LastSequence = event.Sequence
-		if event.EventType == ConnectorAccessEventDisabled {
-			projection.Enabled = false
-			projection.ConnectionID = ""
-			projection.CloudID = ""
-			projection.SpaceKey = ""
-			projection.Status = ConnectorAccessStatusDisabled
-			projection.InvalidReason = ""
-			continue
-		}
-		projection.Enabled = true
-		projection.ConnectionID = strings.TrimSpace(payload.ConnectionID)
-		projection.CloudID = strings.TrimSpace(payload.CloudID)
-		projection.SpaceKey = strings.TrimSpace(payload.SpaceKey)
-		projection.Status = ConnectorAccessStatusEnabled
-		projection.InvalidReason = ""
-	}
+	projection := confluenceaccess.Project(missionID, connectorID, events)
 	if projection.Enabled {
 		if reason := s.confluenceConnectorAccessInvalidReason(ctx, projection.ConnectionID, projection.CloudID); reason != "" {
 			projection.Status = ConnectorAccessStatusInvalid

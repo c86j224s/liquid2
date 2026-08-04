@@ -5,6 +5,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// TurnAgentResponseEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type TurnAgentResponseEventRequest struct {
 	EventID                string
 	MissionID              string
@@ -35,6 +36,7 @@ type TurnAgentResponseEventRequest struct {
 	Producer               app.Producer
 }
 
+// TurnAgentCompactedEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type TurnAgentCompactedEventRequest struct {
 	EventID                string
 	MissionID              string
@@ -57,6 +59,7 @@ type TurnAgentCompactedEventRequest struct {
 	Producer               app.Producer
 }
 
+// BuildTurnAgentResponseAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.AppendEventRequest {
 	payload := map[string]any{
 		"kind":           req.Kind,
@@ -89,6 +92,7 @@ func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.
 	}
 }
 
+// BuildTurnAgentCompactedAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) app.AppendEventRequest {
 	payload := map[string]any{
 		"kind":                      "agent_session_compacted",

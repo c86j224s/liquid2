@@ -13,6 +13,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// NewOAuthClient는 OAuth URL과 필수 client 설정을 검증해 Confluence OAuth client를 만든다.
 func NewOAuthClient(cfg OAuthConfig) (*OAuthClient, error) {
 	clientID := strings.TrimSpace(cfg.ClientID)
 	clientSecret := strings.TrimSpace(cfg.ClientSecret)
@@ -55,6 +56,7 @@ func NewOAuthClient(cfg OAuthConfig) (*OAuthClient, error) {
 	}, nil
 }
 
+// AuthorizationURL은 OAuth state와 redirect URI를 검증해 Atlassian authorization URL을 만든다.
 func (client *OAuthClient) AuthorizationURL(req OAuthAuthorizationRequest) (string, error) {
 	state := strings.TrimSpace(req.State)
 	if state == "" {
@@ -84,6 +86,7 @@ func (client *OAuthClient) AuthorizationURL(req OAuthAuthorizationRequest) (stri
 	return u.String(), nil
 }
 
+// ExchangeCode는 OAuth authorization code를 token 응답으로 교환한다.
 func (client *OAuthClient) ExchangeCode(ctx context.Context, req OAuthCodeExchangeRequest) (OAuthTokenResult, error) {
 	code := strings.TrimSpace(req.Code)
 	if code == "" {
@@ -108,6 +111,7 @@ func (client *OAuthClient) ExchangeCode(ctx context.Context, req OAuthCodeExchan
 	})
 }
 
+// RefreshAccessToken는 refresh token으로 새 OAuth token 응답을 요청한다. 저장 여부는 호출자가 결정한다.
 func (client *OAuthClient) RefreshAccessToken(ctx context.Context, refreshToken string) (OAuthTokenResult, error) {
 	refreshToken = strings.TrimSpace(refreshToken)
 	if refreshToken == "" {
@@ -164,6 +168,7 @@ func (client *OAuthClient) exchangeToken(ctx context.Context, payload map[string
 	}, nil
 }
 
+// Config는 OAuth client의 현재 설정 사본을 반환한다.
 func (client *OAuthClient) Config() OAuthConfig {
 	return OAuthConfig{
 		ClientID:     client.clientID,

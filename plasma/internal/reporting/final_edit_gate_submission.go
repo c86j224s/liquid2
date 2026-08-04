@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditGateSubmitRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type FinalEditGateSubmitRequest struct {
 	StageBinding       FinalEditStageBinding
 	FinalBinding       LongFormFinalizeBinding
@@ -19,6 +20,7 @@ type FinalEditGateSubmitRequest struct {
 	SemanticAcceptance []FinalEditSemanticAcceptance
 }
 
+// FinalEditEvidenceGateSubmitRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type FinalEditEvidenceGateSubmitRequest struct {
 	StageBinding     FinalEditStageBinding
 	FinalBinding     LongFormFinalizeBinding
@@ -27,6 +29,7 @@ type FinalEditEvidenceGateSubmitRequest struct {
 	Findings         []FinalEditGateFinding
 }
 
+// SubmitFinalEditGate는 최종 편집 gate 결과 artifact와 이벤트를 기록한다.
 func SubmitFinalEditGate(ctx context.Context, store FinalEditStageStore, req FinalEditGateSubmitRequest) (LongFormFinalizeResult, error) {
 	stageBinding := normalizeFinalEditStageBinding(req.StageBinding)
 	finalBinding := normalizeLongFormFinalizeBinding(req.FinalBinding)
@@ -67,6 +70,7 @@ func SubmitFinalEditGate(ctx context.Context, store FinalEditStageStore, req Fin
 	}, true)
 }
 
+// SubmitFinalEditEvidenceGate는 evidence gate 결과 artifact와 이벤트를 기록한다.
 func SubmitFinalEditEvidenceGate(ctx context.Context, store FinalEditStageStore, req FinalEditEvidenceGateSubmitRequest) (LongFormFinalizeResult, error) {
 	stageBinding := normalizeFinalEditStageBinding(req.StageBinding)
 	finalBinding := normalizeLongFormFinalizeBinding(req.FinalBinding)

@@ -15,6 +15,9 @@ import (
 )
 
 const (
+	// DefaultMaxSteps와 MaxStepsLimit은 workflow 한 번이 자동으로 진행할 수 있는 step
+	// 수의 제품 경계다. provider 호출 timeout과 report generation timeout은 별도
+	// 계층에서 다룬다.
 	DefaultMaxSteps      = 20
 	DefaultMaxDurationMS = int64(0)
 	MaxStepsLimit        = 20
@@ -24,20 +27,26 @@ const (
 	StaleAfter           = 30 * time.Minute
 )
 
+// ErrInvalidInput은 workflow request가 제품 계약을 만족하지 않을 때 반환하는 안전한
+// 오류 class다.
 var ErrInvalidInput = errors.New("invalid workflow input")
 
 type invalidInputError struct {
 	message string
 }
 
+// Error는 호출자에게 노출 가능한 안정적인 오류 문자열을 반환하며, 민감한 원문이나 provider 응답을 포함하지 않아야 한다.
 func (err invalidInputError) Error() string {
 	return err.message
 }
 
+// Is는 워크플로우 실행 상태 경계 상태를 판정한다. 판정 외의 부작용을 만들지 않는다.
 func (err invalidInputError) Is(target error) bool {
 	return target == ErrInvalidInput
 }
 
+// InvalidInputMessage는 ErrInvalidInput 계열 오류에서 사용자에게 보여 줄 안전한
+// 상세 문구를 추출한다.
 func InvalidInputMessage(err error) string {
 	var invalid invalidInputError
 	if errors.As(err, &invalid) {
@@ -46,13 +55,16 @@ func InvalidInputMessage(err error) string {
 	return strings.TrimSpace(strings.TrimPrefix(err.Error(), ErrInvalidInput.Error()+":"))
 }
 
+// Event는 workflowstate projection에 필요한 장부 event alias다.
 type Event = workflowstate.Event
 
+// Producer는 workflow service가 append하는 event의 생산자를 표현한다.
 type Producer struct {
 	Type string `json:"type"`
 	ID   string `json:"id"`
 }
 
+// AppendEventRequest는 workflowruns service가 Store에 조건부로 append할 event 요청이다.
 type AppendEventRequest struct {
 	EventID          string
 	MissionID        string
@@ -63,13 +75,24 @@ type AppendEventRequest struct {
 	Payload          json.RawMessage
 }
 
+// Store는 workflow run state transition에 필요한 장부 저장소 port다.
+//
+// AppendRequestsConditionally는 같은 미션의 최신 events를 읽은 뒤 단일 transaction
+// 안에서 append 여부를 결정해야 한다.
 type Store interface {
 	ListEvents(context.Context, string) ([]Event, error)
 	AppendRequestsConditionally(context.Context, string, func([]Event) ([]AppendEventRequest, error)) ([]Event, error)
 }
 
+// IDGenerator는 workflow service가 event/run ID를 만들 때 쓰는 주입 가능한 함수다.
 type IDGenerator func(string) string
 
+// RequestRun은 workflow.run.requested event를 조건부로 기록하고 생성된 run view를
+// 반환한다.
+//
+// 같은 미션에 terminal이 아닌 workflow, report draft, agent turn이 남아 있으면 새
+// run을 거부한다. 이 함수는 provider를 호출하지 않고 runner가 처리할 지속 요청만
+// 남긴다.
 func RequestRun(ctx context.Context, store Store, req workflowstate.RequestWorkflowRunRequest, newID IDGenerator, now time.Time) (workflowstate.WorkflowRunView, error) {
 	if store == nil {
 		return workflowstate.WorkflowRunView{}, invalidInputf("workflow store is required")
@@ -139,6 +162,10 @@ func RequestRun(ctx context.Context, store Store, req workflowstate.RequestWorkf
 	return GetRun(ctx, store, normalized.MissionID, normalized.WorkflowRunID)
 }
 
+// RequestStop은 workflow run에 stop_requested event를 기록한다.
+//
+// 아직 runner가 시작하지 않은 queued run은 같은 transaction에서 stopped terminal
+// event도 함께 기록해 pending 상태가 남지 않게 한다.
 func RequestStop(ctx context.Context, store Store, req workflowstate.RequestWorkflowStopRequest, newID IDGenerator, now time.Time) (workflowstate.WorkflowRunView, error) {
 	if store == nil {
 		return workflowstate.WorkflowRunView{}, invalidInputf("workflow store is required")
@@ -215,6 +242,8 @@ func RequestStop(ctx context.Context, store Store, req workflowstate.RequestWork
 	return GetRun(ctx, store, payload.MissionID, payload.WorkflowRunID)
 }
 
+// BuildTerminalAppendRequest는 runner가 terminal event를 기록하기 전 service-level
+// event ID와 producer 계약을 적용한다.
 func BuildTerminalAppendRequest(events []Event, req workflowstate.WorkflowRunTerminalEventRequest, newID IDGenerator, now time.Time) (AppendEventRequest, bool, error) {
 	workflowRunID := strings.TrimSpace(req.WorkflowRunID)
 	eventReq, ok, err := workflowstate.BuildTerminalAppendRequest(events, nextID(newID, "evt"), req, now)
@@ -233,6 +262,7 @@ func BuildTerminalAppendRequest(events []Event, req workflowstate.WorkflowRunTer
 	}, true, nil
 }
 
+// ClaimStart는 pending workflow run을 started로 원자적으로 claim하고 최신 view를 반환한다.
 func ClaimStart(ctx context.Context, store Store, missionID string, workflowRunID string, startedAt time.Time, newID IDGenerator) (workflowstate.WorkflowRunView, bool, error) {
 	if store == nil {
 		return workflowstate.WorkflowRunView{}, false, invalidInputf("workflow store is required")
@@ -289,6 +319,7 @@ func ClaimStart(ctx context.Context, store Store, missionID string, workflowRunI
 	return view, true, nil
 }
 
+// ListRuns는 워크플로우 실행 상태 경계의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func ListRuns(ctx context.Context, store Store, missionID string) ([]workflowstate.WorkflowRunView, error) {
 	if store == nil {
 		return nil, invalidInputf("workflow store is required")
@@ -303,6 +334,7 @@ func ListRuns(ctx context.Context, store Store, missionID string) ([]workflowsta
 	return workflowstate.ProjectRuns(events), nil
 }
 
+// GetRun는 워크플로우 실행 상태 경계의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func GetRun(ctx context.Context, store Store, missionID string, workflowRunID string) (workflowstate.WorkflowRunView, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return workflowstate.WorkflowRunView{}, err
@@ -322,6 +354,7 @@ func GetRun(ctx context.Context, store Store, missionID string, workflowRunID st
 	return workflowstate.WorkflowRunView{}, invalidInputf("workflow run not found")
 }
 
+// ValidateEventPayload는 워크플로우 실행 상태 경계 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateEventPayload(eventType string, missionID string, payload json.RawMessage) error {
 	if !workflowstate.IsEventType(eventType) {
 		return nil

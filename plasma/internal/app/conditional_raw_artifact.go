@@ -13,6 +13,7 @@ type conditionalRawArtifactStore interface {
 	) (RawArtifact, LedgerEvent, bool, error)
 }
 
+// CreateRawArtifactWithEventConditionally는 조건이 맞을 때 raw artifact와 이벤트를 함께 기록한다.
 func (s *Service) CreateRawArtifactWithEventConditionally(
 	ctx context.Context,
 	artifactReq CreateRawArtifactRequest,

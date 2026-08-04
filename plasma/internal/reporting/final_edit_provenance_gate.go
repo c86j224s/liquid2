@@ -29,6 +29,7 @@ var finalEditGateClasses = map[string]bool{
 	FinalEditGateClassUnverifiedExternalFact: true,
 }
 
+// FinalEditRepairActionsInOrder는 gate finding을 repair action 실행 순서로 정렬한다.
 func FinalEditRepairActionsInOrder() []string {
 	return []string{
 		FinalEditRepairAttachApprovedEvidence,
@@ -38,6 +39,7 @@ func FinalEditRepairActionsInOrder() []string {
 	}
 }
 
+// FinalEditGateFinding는 final edit gate가 찾은 수정 필요 사항과 조치 지시다.
 type FinalEditGateFinding struct {
 	Statement              string
 	StatementSHA256        string
@@ -49,6 +51,7 @@ type FinalEditGateFinding struct {
 	UnapprovedCandidateIDs []string
 }
 
+// StoredFinalEditGateFinding는 gate finding과 대상 문단 해시를 함께 보존한 record다.
 type StoredFinalEditGateFinding struct {
 	StatementSHA256 string   `json:"statement_sha256"`
 	Classification  string   `json:"classification"`
@@ -60,6 +63,7 @@ type finalEditEvidenceStore interface {
 	GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error)
 }
 
+// NormalizeFinalEditGateFindings는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
 	missionID = strings.TrimSpace(missionID)
 	if missionID == "" {
@@ -81,6 +85,7 @@ func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidence
 	return out, nil
 }
 
+// NormalizeFinalEditEvidenceGateFindings는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeFinalEditEvidenceGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
 	missionID = strings.TrimSpace(missionID)
 	if missionID == "" {

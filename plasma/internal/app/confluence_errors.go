@@ -28,6 +28,7 @@ const (
 	ConfluenceErrorCodeUpstream      = "confluence_upstream_error"
 )
 
+// ConfluenceError는 애플리케이션 서비스 계층에서 호출자에게 안정적으로 노출하는 오류 타입이다. 사용자 메시지는 안전한 필드만 사용해야 한다.
 type ConfluenceError struct {
 	Category    string `json:"category"`
 	Code        string `json:"code"`
@@ -38,6 +39,7 @@ type ConfluenceError struct {
 	cause       error
 }
 
+// Error는 호출자에게 노출 가능한 안정적인 오류 문자열을 반환하며, 민감한 원문이나 provider 응답을 포함하지 않아야 한다.
 func (err *ConfluenceError) Error() string {
 	if err == nil {
 		return ""
@@ -51,6 +53,7 @@ func (err *ConfluenceError) Error() string {
 	return "Confluence 요청을 완료하지 못했습니다."
 }
 
+// Unwrap은 상위 계층이 오류 원인을 검사할 수 있게 내부 오류를 돌려주되, 사용자 노출 메시지의 안전성 계약은 바꾸지 않는다.
 func (err *ConfluenceError) Unwrap() error {
 	if err == nil {
 		return nil
@@ -58,6 +61,7 @@ func (err *ConfluenceError) Unwrap() error {
 	return err.cause
 }
 
+// NewConfluenceValidationError는 사용자 입력 문제를 안정 오류 code와 HTTP 400으로 감싼다.
 func NewConfluenceValidationError(code string, message string) *ConfluenceError {
 	return &ConfluenceError{
 		Category:    ConfluenceErrorCategoryValidation,
@@ -68,6 +72,7 @@ func NewConfluenceValidationError(code string, message string) *ConfluenceError 
 	}
 }
 
+// NewConfluenceConflictError는 상태 충돌을 안정 오류 code와 HTTP 409로 감싼다.
 func NewConfluenceConflictError(code string, message string) *ConfluenceError {
 	return &ConfluenceError{
 		Category:    ConfluenceErrorCategoryConflict,
@@ -78,6 +83,7 @@ func NewConfluenceConflictError(code string, message string) *ConfluenceError {
 	}
 }
 
+// NewConfluenceHTTPError는 upstream HTTP status를 사용자 행동이 가능한 오류 범주로 정규화한다.
 func NewConfluenceHTTPError(status int, retryAfter string, operation string) *ConfluenceError {
 	category := ConfluenceErrorCategoryUpstream
 	code := ConfluenceErrorCodeUpstream
@@ -113,6 +119,7 @@ func NewConfluenceHTTPError(status int, retryAfter string, operation string) *Co
 	}
 }
 
+// NewConfluenceTransportError는 요청 전송 실패를 upstream 오류 범주로 감싸고 원인은 Unwrap에 남긴다.
 func NewConfluenceTransportError(operation string, cause error) *ConfluenceError {
 	return &ConfluenceError{
 		Category:    ConfluenceErrorCategoryUpstream,
@@ -124,6 +131,7 @@ func NewConfluenceTransportError(operation string, cause error) *ConfluenceError
 	}
 }
 
+// ConfluenceErrorDetails는 Confluence 오류에서 사용자에게 안전한 상세 필드만 추출한다.
 func ConfluenceErrorDetails(err error) (*ConfluenceError, bool) {
 	var confluenceErr *ConfluenceError
 	if errors.As(err, &confluenceErr) && confluenceErr != nil {
@@ -132,6 +140,7 @@ func ConfluenceErrorDetails(err error) (*ConfluenceError, bool) {
 	return nil, false
 }
 
+// ConfluenceErrorStatus는 Confluence 오류를 HTTP 상태 코드로 변환한다.
 func ConfluenceErrorStatus(err error) int {
 	if confluenceErr, ok := ConfluenceErrorDetails(err); ok && confluenceErr.HTTPStatus > 0 {
 		return confluenceErr.HTTPStatus
@@ -145,6 +154,7 @@ func ConfluenceErrorStatus(err error) int {
 	return 500
 }
 
+// ConfluenceSafeErrorMessage는 Confluence 오류의 사용자 노출 문구를 안전한 형태로 반환한다.
 func ConfluenceSafeErrorMessage(err error) string {
 	if confluenceErr, ok := ConfluenceErrorDetails(err); ok {
 		return confluenceErr.Error()
@@ -152,6 +162,7 @@ func ConfluenceSafeErrorMessage(err error) string {
 	return "Confluence 요청을 완료하지 못했습니다. 연결 상태와 권한을 확인하세요."
 }
 
+// ConfluenceHTTPErrorString은 Confluence HTTP 오류의 짧은 진단 문자열을 만든다.
 func ConfluenceHTTPErrorString(status int, operation string) string {
 	operation = strings.TrimSpace(operation)
 	if operation == "" {

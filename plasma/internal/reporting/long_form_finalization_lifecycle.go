@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 )
 
-// LongFormFinalizationHint is a non-durable retry hint recovered from one
-// narrowly malformed legacy final response.
+// LongFormFinalizationHint는 좁게 정의된 malformed legacy final response 하나에서
+// 복구한 비저장 재시도 hint다.
 type LongFormFinalizationHint struct {
 	OpeningMarkdown string
 	ClosingMarkdown string
 	Available       bool
 }
 
-// RecoverLongFormFinalizationHint accepts only a single root object with
-// exactly one trailing comma immediately before its closing brace.
+// RecoverLongFormFinalizationHint는 닫는 중괄호 바로 앞에 trailing comma 하나만 있는
+// 단일 root object만 받아들인다.
 func RecoverLongFormFinalizationHint(text string) LongFormFinalizationHint {
 	raw := bytes.TrimSpace([]byte(text))
 	comma, ok := rootTrailingComma(raw)

@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// CreateRawArtifactWithEvent는 raw artifact와 causation 이벤트를 함께 기록한다.
 func (s *Service) CreateRawArtifactWithEvent(
 	ctx context.Context,
 	artifactReq CreateRawArtifactRequest,
@@ -33,6 +34,7 @@ func (s *Service) CreateRawArtifactWithEvent(
 	return artifact, committed.Events[0], nil
 }
 
+// CreateSourceSnapshotWithEvent는 source snapshot과 causation 이벤트를 함께 기록한다.
 func (s *Service) CreateSourceSnapshotWithEvent(
 	ctx context.Context,
 	req CreateSourceSnapshotWithEventRequest,
@@ -80,6 +82,7 @@ func (s *Service) CreateSourceSnapshotWithEvent(
 	}, nil
 }
 
+// CreateExistingArtifactSourceSnapshotWithEvent는 기존 artifact를 새 source snapshot으로 연결한다.
 func (s *Service) CreateExistingArtifactSourceSnapshotWithEvent(
 	ctx context.Context,
 	req CreateExistingArtifactSourceSnapshotWithEventRequest,
@@ -117,6 +120,7 @@ func (s *Service) CreateExistingArtifactSourceSnapshotWithEvent(
 	}, nil
 }
 
+// CreateLiveSourceSnapshotWithEvent는 live reference source snapshot과 이벤트를 함께 기록한다.
 func (s *Service) CreateLiveSourceSnapshotWithEvent(
 	ctx context.Context,
 	req CreateLiveSourceSnapshotWithEventRequest,
@@ -152,6 +156,7 @@ func (s *Service) CreateLiveSourceSnapshotWithEvent(
 	}, nil
 }
 
+// CreateEvidenceProposal는 evidence proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateEvidenceProposal(
 	ctx context.Context,
 	req CreateEvidenceProposalRequest,
@@ -196,6 +201,7 @@ func (s *Service) CreateEvidenceProposal(
 	}, nil
 }
 
+// CreateQuestionProposal는 question proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateQuestionProposal(
 	ctx context.Context,
 	req CreateQuestionProposalRequest,
@@ -240,6 +246,7 @@ func (s *Service) CreateQuestionProposal(
 	}, nil
 }
 
+// CreateClaimProposal는 claim proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateClaimProposal(
 	ctx context.Context,
 	req CreateClaimProposalRequest,
@@ -284,6 +291,7 @@ func (s *Service) CreateClaimProposal(
 	}, nil
 }
 
+// SubmitProposal는 proposal 제출 결정을 record와 이벤트로 남긴다.
 func (s *Service) SubmitProposal(
 	ctx context.Context,
 	req SubmitProposalRequest,

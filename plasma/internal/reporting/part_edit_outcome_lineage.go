@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// PartEditOutcomeContract는 재실행과 검증에 쓰는 binding 계약이다.
 type PartEditOutcomeContract struct {
 	MissionID                    string
 	CurrentPendingEventID        string

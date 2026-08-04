@@ -10,6 +10,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// SearchLiquid2Sources는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) SearchLiquid2Sources(
 	ctx context.Context,
 	connector Liquid2SourceConnector,
@@ -45,6 +46,7 @@ func (s *Service) SearchLiquid2Sources(
 	return result, nil
 }
 
+// SnapshotLiquid2Source는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) SnapshotLiquid2Source(
 	ctx context.Context,
 	connector Liquid2SourceConnector,
@@ -63,6 +65,7 @@ func (s *Service) SnapshotLiquid2Source(
 	return Liquid2SnapshotResult{Artifact: artifact, Snapshot: snapshot}, nil
 }
 
+// SnapshotLiquid2SourceWithEvent는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) SnapshotLiquid2SourceWithEvent(
 	ctx context.Context,
 	connector Liquid2SourceConnector,

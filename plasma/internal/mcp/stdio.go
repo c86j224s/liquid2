@@ -46,7 +46,7 @@ type promptGetParams struct {
 	Name string `json:"name"`
 }
 
-// ServeStdio exposes a Plasma MCP server over newline-delimited JSON-RPC stdio.
+// ServeStdio는 Plasma MCP 서버를 줄 단위 JSON-RPC stdio transport으로 노출한다.
 func ServeStdio(ctx context.Context, input io.Reader, output io.Writer, server *Server) error {
 	if server == nil {
 		return fmt.Errorf("mcp server is required")

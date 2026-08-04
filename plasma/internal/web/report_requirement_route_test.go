@@ -13,6 +13,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -49,7 +50,7 @@ func TestLongFormProductPathMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Report", "report_mode": reportModeLongForm, "direction_hint": "include a comparison table",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
@@ -223,7 +224,7 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Fanout Report", "report_mode": reportModeLongForm, "execution_strategy": reportExecutionStrategySectionFanout,
-		"direction_hint": "include calibrated risk register", "generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"direction_hint": "include calibrated risk register", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {

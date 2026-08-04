@@ -6,23 +6,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	htmlpkg "html"
 	"image"
 	"io"
 	"mime"
 	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"path"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 )
 
 func (server *Server) recordSourceSnapshotFailure(ctx context.Context, missionID string, sourceKind string, normalizedURL string, cause error) {
@@ -78,26 +76,7 @@ type fetchedPDFSource struct {
 }
 
 func normalizedHTTPURL(raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", fmt.Errorf("%w: source URL is required", app.ErrInvalidInput)
-	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%w: source URL must be absolute", app.ErrInvalidInput)
-	}
-	if parsed.User != nil {
-		return "", fmt.Errorf("%w: source URL must not include credentials", app.ErrInvalidInput)
-	}
-	parsed.Fragment = ""
-	switch strings.ToLower(parsed.Scheme) {
-	case "http", "https":
-		parsed.Scheme = strings.ToLower(parsed.Scheme)
-	default:
-		return "", fmt.Errorf("%w: source URL must use http or https", app.ErrInvalidInput)
-	}
-	parsed.Host = strings.ToLower(parsed.Host)
-	return parsed.String(), nil
+	return sourceretrieval.Normalize(raw)
 }
 
 type confluencePageURLTarget struct {
@@ -150,136 +129,40 @@ func isConfluencePageID(value string) bool {
 }
 
 func fetchURLSource(ctx context.Context, rawURL string) (fetchedURLSource, error) {
-	return fetchURLSourceWithClient(ctx, rawURL, secureURLSourceHTTPClient())
+	fetched, err := sourceretrieval.Fetch(ctx, rawURL)
+	return webFetchedURLSource(fetched), err
 }
 
 func fetchMediaSource(ctx context.Context, rawURL string) (fetchedMediaSource, error) {
-	return fetchMediaSourceWithClient(ctx, rawURL, secureURLSourceHTTPClient())
+	return fetchMediaSourceWithClient(ctx, rawURL, sourceretrieval.NewClient())
 }
 
 func fetchPDFSource(ctx context.Context, rawURL string) (fetchedPDFSource, error) {
-	return fetchPDFSourceWithClient(ctx, rawURL, secureURLSourceHTTPClient())
+	return fetchPDFSourceWithClient(ctx, rawURL, sourceretrieval.NewClient())
 }
 
 const (
-	maxURLSourceBytes              = 20 << 20
-	maxImageMediaSourceBytes       = 10 << 20
-	maxPDFSourceBytes              = 100 << 20
-	urlSourceDialTimeout           = 15 * time.Second
-	urlSourceTLSHandshakeTimeout   = 15 * time.Second
-	urlSourceResponseHeaderTimeout = 45 * time.Second
-	urlSourceFetchTimeout          = 60 * time.Second
+	maxImageMediaSourceBytes = 10 << 20
+	maxPDFSourceBytes        = 100 << 20
 )
 
 func fetchURLSourceWithClient(ctx context.Context, rawURL string, client *http.Client) (fetchedURLSource, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
-	if err != nil {
-		return fetchedURLSource{}, fmt.Errorf("%w: invalid source URL", app.ErrInvalidInput)
-	}
-	req.Header.Set("Accept", "application/pdf,text/html,text/plain,application/json,application/xml,text/*,*/*;q=0.1")
-	req.Header.Set("Accept-Language", "ko,en-US;q=0.9,en;q=0.8")
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PlasmaSourceFetcher/0.1; +https://github.com/c86j224s/liquid2)")
-	resp, err := client.Do(req)
-	if err != nil {
-		return fetchedURLSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLFetchFailureMessage(err))
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fetchedURLSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLHTTPStatusMessage(resp.StatusCode))
-	}
-	declaredType := responseHeaderMediaType(resp.Header.Get("Content-Type"))
-	pdfExpected := pdftext.IsPDFMediaType(declaredType) || strings.HasSuffix(strings.ToLower(resp.Request.URL.Path), ".pdf")
-	limit := maxURLSourceBytes
-	limitLabel := "20 MiB"
-	if pdfExpected {
-		limit = maxPDFSourceBytes
-		limitLabel = "100 MiB"
-	}
-	if resp.ContentLength > int64(limit) {
-		return fetchedURLSource{}, fmt.Errorf("%w: source URL response is larger than %s", app.ErrInvalidInput, limitLabel)
-	}
-	content, err := io.ReadAll(io.LimitReader(resp.Body, int64(limit)+1))
-	if err != nil {
-		return fetchedURLSource{}, err
-	}
-	if len(content) == 0 {
-		return fetchedURLSource{}, fmt.Errorf("%w: source URL returned empty content", app.ErrInvalidInput)
-	}
-	if len(content) > limit {
-		return fetchedURLSource{}, fmt.Errorf("%w: source URL response is larger than %s", app.ErrInvalidInput, limitLabel)
-	}
-	mediaType := responseMediaType(resp.Header.Get("Content-Type"), content)
-	if pdftext.IsPDFMediaType(mediaType) || pdftext.IsPDFBytes(content) {
-		info, err := pdftext.Inspect(content)
-		if err != nil {
-			return fetchedURLSource{}, fmt.Errorf("%w: PDF inspection failed: %v", app.ErrInvalidInput, err)
-		}
-		return fetchedURLSource{
-			Content:           content,
-			MediaType:         pdftext.MediaType,
-			Title:             urlTitleFromPath(resp.Request.URL),
-			ExternalVersion:   responseExternalVersion(resp.Header),
-			ExternalUpdatedAt: responseLastModified(resp.Header),
-			ByteSize:          int64(len(content)),
-			PageCount:         info.PageCount,
-			TextLengthKnown:   false,
-		}, nil
-	}
-	if !isTextualMediaType(mediaType) {
-		return fetchedURLSource{}, fmt.Errorf("%w: source URL content type %q is not supported", app.ErrInvalidInput, mediaType)
-	}
-	if looksLikeAtlassianAuthWall(resp.Request.URL, content, mediaType) {
-		return fetchedURLSource{}, fmt.Errorf("%w: URL 원문이 Atlassian 로그인 화면으로 확인되었습니다. Confluence 자료는 Settings에서 API token 연결을 만든 뒤 Sources의 Confluence에서 page를 검색해 추가하세요.", app.ErrInvalidInput)
-	}
-	var updatedAt time.Time
-	if lastModified := strings.TrimSpace(resp.Header.Get("Last-Modified")); lastModified != "" {
-		if parsed, err := http.ParseTime(lastModified); err == nil {
-			updatedAt = parsed
-		}
-	}
+	fetched, err := sourceretrieval.FetchWithClient(ctx, rawURL, client)
+	return webFetchedURLSource(fetched), err
+}
+
+func webFetchedURLSource(fetched sourceretrieval.Fetched) fetchedURLSource {
 	return fetchedURLSource{
-		Content:           content,
-		MediaType:         mediaType,
-		Title:             htmlTitle(content, mediaType),
-		ExternalVersion:   responseExternalVersion(resp.Header),
-		ExternalUpdatedAt: updatedAt,
-		ByteSize:          int64(len(content)),
-		TextLength:        len(content),
-		TextLengthKnown:   true,
-	}, nil
-}
-
-func urlTitleFromPath(parsed *url.URL) string {
-	if parsed == nil {
-		return ""
+		Content:           fetched.Content,
+		MediaType:         fetched.MediaType,
+		Title:             fetched.Title,
+		ExternalVersion:   fetched.ExternalVersion,
+		ExternalUpdatedAt: fetched.ExternalUpdatedAt,
+		ByteSize:          fetched.ByteSize,
+		PageCount:         fetched.PageCount,
+		TextLength:        fetched.TextLength,
+		TextLengthKnown:   fetched.TextLengthKnown,
 	}
-	path := strings.TrimRight(parsed.Path, "/")
-	if path == "" {
-		return parsed.String()
-	}
-	idx := strings.LastIndex(path, "/")
-	if idx >= 0 {
-		return path[idx+1:]
-	}
-	return path
-}
-
-func looksLikeAtlassianAuthWall(finalURL *url.URL, content []byte, mediaType string) bool {
-	if finalURL == nil || !strings.Contains(mediaType, "html") {
-		return false
-	}
-	host := strings.ToLower(finalURL.Hostname())
-	if host != "atlassian.com" && !strings.HasSuffix(host, ".atlassian.com") && host != "atlassian.net" && !strings.HasSuffix(host, ".atlassian.net") {
-		return false
-	}
-	path := strings.ToLower(finalURL.EscapedPath())
-	if strings.Contains(path, "login") {
-		return true
-	}
-	body := strings.ToLower(string(content))
-	return strings.Contains(body, "log in with atlassian") ||
-		strings.Contains(body, "atlassian account") && strings.Contains(body, "login") ||
-		strings.Contains(body, "id.atlassian.com/login")
 }
 
 func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http.Client) (fetchedMediaSource, error) {
@@ -388,16 +271,16 @@ func fetchPDFSourceWithClient(ctx context.Context, rawURL string, client *http.C
 		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source response is larger than 100 MiB", app.ErrInvalidInput)
 	}
 	mediaType := responseMediaType(resp.Header.Get("Content-Type"), content)
-	if !pdftext.IsPDFMediaType(mediaType) && !pdftext.IsPDFBytes(content) {
+	if !pdfdocument.IsPDFMediaType(mediaType) && !pdfdocument.IsPDFBytes(content) {
 		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source content type %q is not supported", app.ErrInvalidInput, mediaType)
 	}
-	info, err := pdftext.Inspect(content)
+	info, err := pdfdocument.Inspect(content)
 	if err != nil {
 		return fetchedPDFSource{}, fmt.Errorf("%w: PDF inspection failed: %v", app.ErrInvalidInput, err)
 	}
 	return fetchedPDFSource{
 		Content:           content,
-		MediaType:         pdftext.MediaType,
+		MediaType:         pdfdocument.MediaType,
 		Title:             pdfTitleFromURL(rawURL),
 		ExternalVersion:   responseExternalVersion(resp.Header),
 		ExternalUpdatedAt: responseLastModified(resp.Header),
@@ -438,78 +321,6 @@ func sourceURLHTTPStatusMessage(statusCode int) string {
 	default:
 		return fmt.Sprintf("URL 원문을 가져올 수 없습니다. 원본 서버가 HTTP %d 응답을 반환했습니다. 이 후보는 자동으로 소스 스냅샷을 만들 수 없습니다.", statusCode)
 	}
-}
-
-func secureURLSourceHTTPClient() *http.Client {
-	dialer := &net.Dialer{Timeout: urlSourceDialTimeout}
-	resolver := net.DefaultResolver
-	return &http.Client{
-		Timeout: urlSourceFetchTimeout,
-		Transport: &http.Transport{
-			Proxy:                  nil,
-			DialContext:            secureURLSourceDialContext(dialer, resolver),
-			TLSHandshakeTimeout:    urlSourceTLSHandshakeTimeout,
-			ResponseHeaderTimeout:  urlSourceResponseHeaderTimeout,
-			MaxResponseHeaderBytes: 64 << 10,
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
-				return fmt.Errorf("stopped after 5 redirects")
-			}
-			if req.URL == nil || (req.URL.Scheme != "http" && req.URL.Scheme != "https") {
-				return fmt.Errorf("redirected to a non-http URL")
-			}
-			if req.URL.User != nil {
-				return fmt.Errorf("redirected to a URL with credentials")
-			}
-			return nil
-		},
-	}
-}
-
-func secureURLSourceDialContext(dialer *net.Dialer, resolver *net.Resolver) func(context.Context, string, string) (net.Conn, error) {
-	return func(ctx context.Context, network string, address string) (net.Conn, error) {
-		host, port, err := net.SplitHostPort(address)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid source URL address", app.ErrInvalidInput)
-		}
-		ips, err := resolver.LookupNetIP(ctx, "ip", host)
-		if err != nil {
-			return nil, fmt.Errorf("%w: source URL host lookup failed: %v", app.ErrInvalidInput, err)
-		}
-		if len(ips) == 0 {
-			return nil, fmt.Errorf("%w: source URL host has no addresses", app.ErrInvalidInput)
-		}
-		for _, ip := range ips {
-			if isBlockedURLFetchIP(ip) {
-				return nil, fmt.Errorf("%w: source URL resolves to blocked address %s", app.ErrInvalidInput, ip.String())
-			}
-		}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
-	}
-}
-
-func isBlockedURLFetchIP(ip netip.Addr) bool {
-	ip = ip.Unmap()
-	if !ip.IsValid() {
-		return true
-	}
-	if ip.IsLoopback() ||
-		ip.IsPrivate() ||
-		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsMulticast() ||
-		ip.IsUnspecified() {
-		return true
-	}
-	if cgnatPrefix().Contains(ip) {
-		return true
-	}
-	return false
-}
-
-func cgnatPrefix() netip.Prefix {
-	return netip.MustParsePrefix("100.64.0.0/10")
 }
 
 func responseMediaType(header string, content []byte) string {
@@ -717,26 +528,6 @@ func locatorType(locatorType string, legacyKind string) string {
 	return strings.TrimSpace(legacyKind)
 }
 
-func htmlTitle(content []byte, mediaType string) string {
-	base, _, err := mime.ParseMediaType(mediaType)
-	if err != nil {
-		base = mediaType
-	}
-	if base != "text/html" && base != "application/xhtml+xml" {
-		return ""
-	}
-	match := regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`).FindSubmatch(content)
-	if len(match) < 2 {
-		return ""
-	}
-	title := htmlpkg.UnescapeString(string(match[1]))
-	title = strings.Join(strings.Fields(title), " ")
-	if len(title) > 160 {
-		title = title[:160]
-	}
-	return strings.TrimSpace(title)
-}
-
 func responseExternalVersion(header http.Header) string {
 	values := []string{}
 	if etag := strings.TrimSpace(header.Get("ETag")); etag != "" {
@@ -749,22 +540,7 @@ func responseExternalVersion(header http.Header) string {
 }
 
 func sourceFileExtension(mediaType string) string {
-	base, _, err := mime.ParseMediaType(mediaType)
-	if err != nil {
-		base = mediaType
-	}
-	switch strings.ToLower(strings.TrimSpace(base)) {
-	case "text/html", "application/xhtml+xml":
-		return ".html"
-	case "application/pdf":
-		return ".pdf"
-	case "application/json", "application/ld+json":
-		return ".json"
-	case "application/xml", "application/rss+xml", "application/atom+xml":
-		return ".xml"
-	default:
-		return ".txt"
-	}
+	return sourceretrieval.SourceFileExtension(mediaType)
 }
 
 func sourceCandidatesFromText(text string) []sourceCandidate {

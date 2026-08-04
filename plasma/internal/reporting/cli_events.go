@@ -6,6 +6,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// CLIMarkdownReportPlanCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type CLIMarkdownReportPlanCreatedEventRequest struct {
 	EventID                      string
 	MissionID                    string
@@ -35,6 +36,7 @@ type CLIMarkdownReportPlanCreatedEventRequest struct {
 	Producer                     app.Producer
 }
 
+// CLIMarkdownReportArtifactCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	EventID                      string
 	MissionID                    string
@@ -68,6 +70,7 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	Producer                     app.Producer
 }
 
+// BuildCLIMarkdownReportPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCreatedEventRequest) app.AppendEventRequest {
 	return app.AppendEventRequest{
 		EventID:   strings.TrimSpace(req.EventID),
@@ -109,6 +112,7 @@ func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCre
 	}
 }
 
+// BuildCLIMarkdownReportArtifactCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArtifactCreatedEventRequest) app.AppendEventRequest {
 	artifact := req.Artifact
 	return app.AppendEventRequest{

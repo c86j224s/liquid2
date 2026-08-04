@@ -20,22 +20,29 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"golang.org/x/sys/unix"
 )
 
+// RootConfig는 operator가 allowlist한 filesystem root 하나를 정의한다.
+//
+// RootID만 외부 API에 노출되고 Path는 Engine 내부에서 canonical path로 보관된다.
 type RootConfig struct {
 	RootID string
 	Path   string
 	Alias  string
 }
 
+// Config는 local path Engine의 allowlist와 bounded read/grep 제한을 설정한다.
 type Config struct {
 	Roots        []RootConfig
 	Limits       Limits
 	DenyPatterns []string
 }
 
+// Limits는 local path source 관찰이 한 요청에서 소비할 수 있는 파일/디렉터리 범위다.
+//
+// 0 값은 New에서 안전한 기본값으로 채워진다.
 type Limits struct {
 	MaxFileReadBytes    int64
 	MaxGrepBytesPerFile int64
@@ -49,6 +56,10 @@ type Limits struct {
 	MaxSingleLineBytes  int
 }
 
+// Engine은 allowlist root 내부에서만 read/tree/grep을 수행하는 source adapter다.
+//
+// 모든 공개 메서드는 rootID와 상대 경로를 기준으로 동작해야 하며, symlink나 subpath가
+// root 밖으로 탈출하면 ErrInvalidInput 계열 오류로 거부한다.
 type Engine struct {
 	roots        map[string]root
 	limits       Limits
@@ -61,11 +72,16 @@ type root struct {
 	canonicalPath string
 }
 
+// RootView는 agent/UI에 보여 줄 allowlisted root의 공개 표현이다.
 type RootView struct {
 	RootID string `json:"root_id"`
 	Alias  string `json:"alias,omitempty"`
 }
 
+// PathMetadata는 local path 관찰 결과의 provenance와 cap 정보를 담는다.
+//
+// 절대 경로는 포함하지 않는다. caller가 source로 저장할 때도 rootID/relative path를
+// stable locator로 사용해야 한다.
 type PathMetadata struct {
 	ObservedAt      string       `json:"observed_at"`
 	RootID          string       `json:"root_id"`
@@ -90,6 +106,7 @@ type PathMetadata struct {
 	Git             *GitMetadata `json:"git,omitempty"`
 }
 
+// GitMetadata는 local path가 git worktree 안에 있을 때의 선택적 관측 정보다.
 type GitMetadata struct {
 	Branch               string `json:"branch,omitempty"`
 	Head                 string `json:"head,omitempty"`
@@ -97,6 +114,7 @@ type GitMetadata struct {
 	WorktreeRelativePath string `json:"worktree_relative_path,omitempty"`
 }
 
+// ReadRequest는 allowlist root 내부 파일 또는 source subpath를 읽기 위한 입력이다.
 type ReadRequest struct {
 	RootID       string
 	RelativePath string
@@ -105,11 +123,13 @@ type ReadRequest struct {
 	MaxBytes     int64
 }
 
+// ReadResult는 bounded text content와 그 관찰 metadata를 함께 반환한다.
 type ReadResult struct {
 	Content  string       `json:"content"`
 	Metadata PathMetadata `json:"metadata"`
 }
 
+// TreeRequest는 allowlist root 내부 directory tree 관찰 입력이다.
 type TreeRequest struct {
 	RootID       string
 	RelativePath string
@@ -118,6 +138,7 @@ type TreeRequest struct {
 	Limit        int
 }
 
+// TreeEntry는 directory tree 결과의 단일 항목이다.
 type TreeEntry struct {
 	Name         string `json:"name"`
 	RelativePath string `json:"relative_path"`
@@ -128,6 +149,7 @@ type TreeEntry struct {
 	Reason       string `json:"reason,omitempty"`
 }
 
+// TreeResult는 bounded directory tree와 root-relative metadata를 담는다.
 type TreeResult struct {
 	RootID       string       `json:"root_id"`
 	RootAlias    string       `json:"root_alias,omitempty"`
@@ -137,6 +159,7 @@ type TreeResult struct {
 	Metadata     PathMetadata `json:"metadata"`
 }
 
+// GrepRequest는 allowlist root 내부에서 bounded snippet 검색을 수행하는 입력이다.
 type GrepRequest struct {
 	RootID       string
 	RelativePath string
@@ -145,6 +168,7 @@ type GrepRequest struct {
 	MaxSnippets  int
 }
 
+// GrepMatch는 grep 결과의 한 위치와 bounded snippet이다.
 type GrepMatch struct {
 	RelativePath string `json:"relative_path"`
 	Line         int    `json:"line"`
@@ -153,6 +177,7 @@ type GrepMatch struct {
 	SHA256       string `json:"sha256,omitempty"`
 }
 
+// GrepResult는 bounded grep 결과와 truncation 여부를 담는다.
 type GrepResult struct {
 	RootID       string       `json:"root_id"`
 	RootAlias    string       `json:"root_alias,omitempty"`
@@ -163,8 +188,13 @@ type GrepResult struct {
 	Metadata     PathMetadata `json:"metadata"`
 }
 
+// ErrInvalidInput은 allowlist, path traversal, limit 위반 등 local path 입력 오류의
+// 공통 class다.
 var ErrInvalidInput = errors.New("invalid local path input")
 
+// New는 allowlist root를 canonicalize하고 local path Engine을 만든다.
+//
+// root Path는 생성 시점에만 사용하고, 이후 공개 결과에는 RootID/Alias만 노출한다.
 func New(config Config) (*Engine, error) {
 	limits := defaultLimits(config.Limits)
 	denyPatterns := config.DenyPatterns
@@ -207,6 +237,8 @@ func New(config Config) (*Engine, error) {
 	return engine, nil
 }
 
+// DefaultDenyPatterns는 local path 탐색에서 기본적으로 숨길 디렉터리와 민감 파일
+// 패턴을 반환한다.
 func DefaultDenyPatterns() []string {
 	return []string{
 		".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build", ".next",
@@ -215,6 +247,7 @@ func DefaultDenyPatterns() []string {
 	}
 }
 
+// Roots는 allowlist된 root의 공개 식별자와 별칭만 반환한다. 실제 파일 경로는 노출하지 않는다.
 func (engine *Engine) Roots() []RootView {
 	roots := make([]RootView, 0, len(engine.roots))
 	for _, root := range engine.roots {
@@ -224,6 +257,7 @@ func (engine *Engine) Roots() []RootView {
 	return roots
 }
 
+// Inspect는 root 내부 대상의 metadata만 관찰한다. 파일 본문을 읽거나 artifact를 만들지 않는다.
 func (engine *Engine) Inspect(ctx context.Context, rootID string, relativePath string) (PathMetadata, error) {
 	resolved, err := engine.resolve(rootID, relativePath, true)
 	if err != nil {
@@ -233,6 +267,7 @@ func (engine *Engine) Inspect(ctx context.Context, rootID string, relativePath s
 	return engine.metadata(ctx, resolved, ""), nil
 }
 
+// IsPDF는 로컬 경로 소스 어댑터 상태를 판정한다. 판정 외의 부작용을 만들지 않는다.
 func (engine *Engine) IsPDF(ctx context.Context, rootID string, relativePath string) (bool, error) {
 	resolved, err := engine.resolve(rootID, relativePath, false)
 	if err != nil {
@@ -250,9 +285,10 @@ func (engine *Engine) IsPDF(ctx context.Context, rootID string, relativePath str
 		}
 		return false, sanitizeError(err)
 	}
-	return pdftext.IsPDFBytes(header[:n]), nil
+	return pdfdocument.IsPDFBytes(header[:n]), nil
 }
 
+// ReadFile는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
@@ -299,7 +335,7 @@ func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult
 		metadata.NextOffset = offset + int64(len(bytesRead))
 	}
 	metadata.SHA256 = sha256Hex(bytesRead)
-	if pdftext.IsPDFBytes(bytesRead) {
+	if pdfdocument.IsPDFBytes(bytesRead) {
 		metadata.Binary = true
 		metadata.Cap = "pdf_text"
 		return ReadResult{Metadata: metadata}, nil
@@ -311,6 +347,7 @@ func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult
 	return ReadResult{Content: string(bytesRead), Metadata: metadata}, nil
 }
 
+// ReadPDFText는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (engine *Engine) ReadPDFText(ctx context.Context, req ReadRequest) (ReadResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
@@ -330,7 +367,7 @@ func (engine *Engine) ReadPDFText(ctx context.Context, req ReadRequest) (ReadRes
 	if resolved.info.Size() > engine.limits.MaxPDFReadBytes {
 		return ReadResult{}, fmt.Errorf("%w: PDF source is larger than the configured read limit", ErrInvalidInput)
 	}
-	chunk, err := pdftext.ExtractChunkFromReaderAt(resolved.file, resolved.info.Size(), int(req.Offset), int(req.MaxBytes))
+	chunk, err := pdfdocument.ExtractChunkFromReaderAt(resolved.file, resolved.info.Size(), int(req.Offset), int(req.MaxBytes))
 	if err != nil {
 		return ReadResult{}, fmt.Errorf("%w: PDF text extraction failed: %v", ErrInvalidInput, err)
 	}
@@ -347,6 +384,7 @@ func (engine *Engine) ReadPDFText(ctx context.Context, req ReadRequest) (ReadRes
 	return ReadResult{Content: chunk.Text, Metadata: metadata}, nil
 }
 
+// Tree는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (engine *Engine) Tree(ctx context.Context, req TreeRequest) (TreeResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
@@ -382,6 +420,7 @@ func (engine *Engine) Tree(ctx context.Context, req TreeRequest) (TreeResult, er
 	return result, nil
 }
 
+// Grep는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (engine *Engine) Grep(ctx context.Context, req GrepRequest) (GrepResult, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
@@ -561,6 +600,7 @@ func resolvedFromOpened(root root, relative string, absPath string, file *os.Fil
 	return resolvedPath{root: root, relativePath: relative, absPath: filepath.Clean(absPath), info: info, file: file}, nil
 }
 
+// NormalizeRelativePath는 로컬 경로 소스 어댑터 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeRelativePath(value string) (string, error) {
 	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
 	if value == "" {
@@ -589,6 +629,7 @@ func NormalizeRelativePath(value string) (string, error) {
 	return cleaned, nil
 }
 
+// TargetRelativePath는 base 경로와 선택적 subpath를 traversal 없이 결합한다.
 func TargetRelativePath(relativePath string, subpath string) (string, string, error) {
 	relative, err := NormalizeRelativePath(relativePath)
 	if err != nil {
@@ -861,10 +902,10 @@ func defaultLimits(limits Limits) Limits {
 
 func normalizedPDFMaxBytes(maxBytes int64) int {
 	if maxBytes <= 0 {
-		return pdftext.DefaultChunkMaxBytes
+		return pdfdocument.DefaultChunkMaxBytes
 	}
-	if maxBytes > pdftext.MaxChunkBytes {
-		return pdftext.MaxChunkBytes
+	if maxBytes > pdfdocument.MaxChunkBytes {
+		return pdfdocument.MaxChunkBytes
 	}
 	return int(maxBytes)
 }

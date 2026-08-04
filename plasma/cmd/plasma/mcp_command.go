@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
@@ -69,7 +70,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		AgentExecutor:      strings.TrimSpace(*agentExecutor),
 	}
 	if strings.TrimSpace(binding.AgentExecutor) != "" {
-		normalizedAgentExecutor, err := app.NormalizeAgentExecutorName(binding.AgentExecutor)
+		normalizedAgentExecutor, err := agentpolicy.NormalizeExecutorName(binding.AgentExecutor)
 		if err != nil {
 			fmt.Fprintf(stderr, "mcp binding: %v\n", err)
 			return 2
@@ -285,7 +286,7 @@ func validateMCPBinding(binding mcp.Binding) error {
 	if strings.TrimSpace(binding.AgentExecutor) == "" {
 		return fmt.Errorf("agent-executor is required")
 	}
-	if _, err := app.NormalizeAgentExecutorName(binding.AgentExecutor); err != nil {
+	if _, err := agentpolicy.NormalizeExecutorName(binding.AgentExecutor); err != nil {
 		return err
 	}
 	return nil

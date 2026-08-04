@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// ValidatePartEditBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidatePartEditBinding(value PartEditBinding) error {
 	value = normalizePartEditBinding(value)
 	if value.MissionID == "" ||

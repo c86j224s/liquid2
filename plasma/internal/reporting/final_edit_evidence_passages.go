@@ -6,12 +6,14 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditEvidenceGatePassage는 final edit evidence gate가 검토할 원문 passage와 인용 위치다.
 type FinalEditEvidenceGatePassage struct {
 	BlockOrdinal    int    `json:"block_ordinal"`
 	StatementSHA256 string `json:"statement_sha256"`
 	Text            string `json:"text"`
 }
 
+// FinalEditEvidenceGatePassages는 final edit evidence gate가 비교할 passage 목록을 만든다.
 func FinalEditEvidenceGatePassages(markdown string) ([]FinalEditEvidenceGatePassage, error) {
 	blocks := markdownNonEmptyBlockSpans(markdown)
 	if len(blocks) == 0 {

@@ -26,7 +26,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -1328,7 +1330,7 @@ func TestConversationExportCreatesReadableMarkdownArtifact(t *testing.T) {
 }
 
 func TestReportPatchPromptDoesNotAdvertiseUnavailableResearchTools(t *testing.T) {
-	prompt := agentReportPatchPrompt("Patch", "mis_prompt", "ses_prompt", "evt_pending", "art_base", "Fix wording.", reporting.PatchRequest{
+	prompt := agentReportPatchPrompt("Patch", "mis_prompt", "ses_prompt", "evt_pending", "art_base", "Fix wording.", reportexecution.PatchRequest{
 		AgentExecutor:                "codex",
 		AgentModel:                   "gpt-test",
 		AgentReasoningEffort:         "medium",
@@ -2114,8 +2116,8 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.exported", map[string]any{
-		"kind": reporting.ExportKindSelfContainedHTML, "source_artifact_id": reportArtifact.ArtifactID,
-		"artifact_id": legacyArtifact.ArtifactID, "target": reporting.ExportTargetSelfContainedHTML,
+		"kind": reportexecution.ExportKindSelfContainedHTML, "source_artifact_id": reportArtifact.ArtifactID,
+		"artifact_id": legacyArtifact.ArtifactID, "target": reportexecution.ExportTargetSelfContainedHTML,
 	}, app.Producer{Type: "plasma", ID: "html-export"}); err != nil {
 		t.Fatal(err)
 	}
@@ -2708,10 +2710,10 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 		t.Fatal(err)
 	}
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.exported", map[string]any{
-		"kind":               reporting.ExportKindDesignedHTML,
+		"kind":               reportexecution.ExportKindDesignedHTML,
 		"source_artifact_id": reportArtifact.ArtifactID,
 		"artifact_id":        staleArtifact.ArtifactID,
-		"target":             reporting.ExportTargetDesignedHTML,
+		"target":             reportexecution.ExportTargetDesignedHTML,
 		"renderer_version":   "dh27-katex-math-20260713",
 	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
@@ -2722,7 +2724,7 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 		t.Fatalf("expected stale cache to be ignored and new export to start, got %#v", start)
 	}
 	detail := waitForEventTypeCount(t, server.URL, missionID, "report.artifact.exported", 2)
-	exportPayload := latestEventPayload(t, detail, "report.artifact.exported", reporting.ExportKindDesignedHTML)
+	exportPayload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindDesignedHTML)
 	if exportPayload["artifact_id"] == staleArtifact.ArtifactID {
 		t.Fatalf("expected new designed artifact instead of stale cache, got %#v", exportPayload)
 	}
@@ -2888,7 +2890,7 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 		"source_media_type":  reportArtifact.MediaType,
 		"title":              reportArtifactTitle(reportArtifact),
 		"agent_executor":     "codex",
-		"target":             reporting.ExportTargetDesignedHTML,
+		"target":             reportexecution.ExportTargetDesignedHTML,
 		"renderer_version":   designedReportRendererVersion,
 	}, app.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
@@ -2906,7 +2908,7 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 	if countEvents(detail, "report.design.failed") != 0 {
 		t.Fatalf("stale designed HTML pending should resume without failure, got %#v", detail["events"])
 	}
-	payload := latestEventPayload(t, detail, "report.artifact.exported", reporting.ExportKindDesignedHTML)
+	payload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindDesignedHTML)
 	if payload["pending_event_id"] != pending.EventID || payload["source_artifact_id"] != reportArtifact.ArtifactID {
 		t.Fatalf("expected export to close stale designed pending for source artifact, got %#v", payload)
 	}
@@ -2973,7 +2975,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if humanize := nestedString(t, response, "pending_event", "Payload", "post_report_humanize"); humanize != "disabled" {
 		t.Fatalf("expected default report draft to leave H5 disabled, got %q", humanize)
 	}
-	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportGenerationGuidanceProfileNarrativeContract {
+	if profile := nestedString(t, response, "pending_event", "Payload", "generation_guidance_profile"); profile != reportprompt.ProfileNarrativeContract {
 		t.Fatalf("expected default report draft to use narrative-contract generation guidance, got %q", profile)
 	}
 	if sha := nestedString(t, response, "pending_event", "Payload", "generation_guidance_sha256"); sha == "" {
@@ -3001,7 +3003,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("planned report should continue the mission session while planning, got %q", planReq.PreviousSessionID)
 	}
 	assertReportMCPToolSurface(t, planReq, plasmamcp.ToolReportPlanSubmit, plasmamcp.ToolSourcesRead)
-	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reporting.DirectionAdvisory) {
+	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reportexecution.DirectionAdvisory) {
 		t.Fatalf("planned report direction did not reach planning prompt:\n%s", planReq.Prompt)
 	}
 	if !strings.Contains(planReq.Prompt, "Visual-aid planning guidance:") {
@@ -3015,7 +3017,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
 	}
 	assertReportMCPToolSurface(t, reportReq, plasmamcp.ToolSourcesRead)
-	if !strings.Contains(reportReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(reportReq.Prompt, reporting.DirectionAdvisory) {
+	if !strings.Contains(reportReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(reportReq.Prompt, reportexecution.DirectionAdvisory) {
 		t.Fatalf("planned report direction did not reach writing prompt:\n%s", reportReq.Prompt)
 	}
 	for _, expected := range []string{
@@ -3046,7 +3048,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected planned composition metadata, got %#v", payload)
 	}
 	if payload["post_report_humanize"] != "disabled" || payload["humanize_enabled"] != false ||
-		payload["generation_guidance_profile"] != reportGenerationGuidanceProfileNarrativeContract || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
+		payload["generation_guidance_profile"] != reportprompt.ProfileNarrativeContract || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
 		t.Fatalf("expected default narrative-contract and disabled H5 metadata, got %#v", payload)
 	}
 	if payload["report_session_policy"] != reportSessionPolicySameSession ||
@@ -3193,7 +3195,7 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title":                       "Forked Long Report",
 		"report_mode":                 "long_form",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyIsolatedFork {
 		t.Fatalf("expected isolated fork policy for long-form pending event, got %q", policy)
@@ -3275,7 +3277,7 @@ func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
 		"title":                       "Fanout Long Report",
 		"report_mode":                 "long_form",
 		"execution_strategy":          "section_fanout",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	if strategy := nestedString(t, response, "pending_event", "Payload", "execution_strategy"); strategy != reportExecutionStrategySectionFanout {
 		t.Fatalf("expected pending event to preserve section fanout strategy, got %q", strategy)
@@ -3465,7 +3467,7 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 				"agent_session_id":                "report-session-1",
 				"report_session_id":               "report-session-1",
 				"report_session_policy":           reportSessionPolicySameSession,
-				"report_session_policy_selection": reporting.SessionPolicySelectionExplicitSameSession,
+				"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
 				"tool_session_id":                 req.ToolSessionID,
 				"composition_strategy":            "mcp_patch_markdown",
 			}, app.Producer{Type: "mcp_tool", ID: "plasma.report.patch.finalize"}); err != nil {
@@ -3503,7 +3505,7 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 		"agent_session_id":                "report-session-1",
 		"report_session_id":               "report-session-1",
 		"report_session_policy":           reportSessionPolicySameSession,
-		"report_session_policy_selection": reporting.SessionPolicySelectionExplicitSameSession,
+		"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
 	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
@@ -3621,11 +3623,11 @@ func TestReportDraftCreatesHumanizedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected humanize pending payload to identify itself, event=%#v payload=%#v", pendingEvent, pendingPayload)
 	}
 	sourcePayload := lastEventPayload(t, detail, "report.artifact.created")
-	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reporting.ExportKindHumanizedMarkdown)
-	if humanizedPayload["target"] != reporting.ExportTargetHumanizedMarkdown ||
+	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
+	if humanizedPayload["target"] != reportexecution.ExportTargetHumanizedMarkdown ||
 		humanizedPayload["source_artifact_id"] != sourcePayload["artifact_id"] ||
 		humanizedPayload["relationship"] != "post_report_tone_pass_of_source_artifact" ||
-		humanizedPayload["humanize_transport"] != reporting.HumanizeTransportPatch ||
+		humanizedPayload["humanize_transport"] != reportexecution.HumanizeTransportPatch ||
 		humanizedPayload["pending_event_id"] != pendingEventID ||
 		humanizedPayload["report_pending_event_id"] != sourcePayload["pending_event_id"] {
 		t.Fatalf("expected explicit humanized artifact relationship, got %#v", humanizedPayload)
@@ -3806,9 +3808,9 @@ func TestReportArtifactHumanizeRetryUsesExistingReportSession(t *testing.T) {
 	if countEvents(detail, "report.humanize.pending") != 2 || countEvents(detail, "report.humanize.failed") != 1 {
 		t.Fatalf("expected retry humanize pending to complete without new failure, got %#v", detail["events"])
 	}
-	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reporting.ExportKindHumanizedMarkdown)
+	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
 	if humanizedPayload["source_artifact_id"] != sourceArtifactID ||
-		humanizedPayload["target"] != reporting.ExportTargetHumanizedMarkdown ||
+		humanizedPayload["target"] != reportexecution.ExportTargetHumanizedMarkdown ||
 		humanizedPayload["previous_agent_session_id"] != "research-session-1" {
 		t.Fatalf("expected retry to humanize the original report session artifact, got %#v", humanizedPayload)
 	}
@@ -4205,7 +4207,7 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if legacyReq.GenerationGuidanceProfile != reportGenerationGuidanceProfileVisualPlan {
+	if legacyReq.GenerationGuidanceProfile != reportprompt.ProfileVisualPlan {
 		t.Fatalf("pre-profile pending report must recover through legacy preserve path, got %#v", legacyReq)
 	}
 	if legacyReq.RigorLevel != legacyPendingReportRigorLevel {
@@ -4270,7 +4272,7 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 		"title":                       "Sectional report",
 		"rigor_level":                 "balanced",
 		"report_mode":                 "long_form",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 		"agent_model":                 "gpt-5.5",
 		"agent_reasoning_effort":      "high",
 	})
@@ -4428,7 +4430,7 @@ func TestRunPartAssemblyAgentUsesMCPToolsForPartAssemblyEditProfile(t *testing.T
 		plan:                      agentSectionalReportPlan{Summary: "Plan"},
 		part:                      agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "First"}, {Title: "Second"}}},
 		drafts:                    []sectionalReportDraft{{Title: "First", Markdown: "첫 섹션 본문입니다.", WordCount: 2}, {Title: "Second", Markdown: "둘째 섹션 본문입니다.", WordCount: 2}},
-		generationGuidanceProfile: reportGenerationGuidanceProfilePartAssemblyEditTools,
+		generationGuidanceProfile: reportprompt.ProfilePartAssemblyEditTools,
 	}, agent)
 	if err != nil {
 		t.Fatal(err)
@@ -4466,7 +4468,7 @@ func TestReportDraftLongFormCanonicalSurvivesAcknowledgementAnomaly(t *testing.T
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	time.Sleep(50 * time.Millisecond)
@@ -5603,7 +5605,7 @@ func TestReportDraftCanceledContextStillClosesPending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := webServer.reportRunner().RunDraft(context.Background(), missionID, reporting.DraftRequest{Title: "Canceled report"}, pending.EventID); err != nil {
+	if err := webServer.reportRunner().RunDraft(context.Background(), missionID, reportexecution.DraftRequest{Title: "Canceled report"}, pending.EventID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -5719,8 +5721,8 @@ func TestCancelReportDraftEndpointClosesHumanizePending(t *testing.T) {
 	}
 	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
 		"kind":                    "humanized_markdown_report_pending",
-		"target":                  reporting.ExportTargetHumanizedMarkdown,
-		"profile":                 reporting.HumanizeProfileH5,
+		"target":                  reportexecution.ExportTargetHumanizedMarkdown,
+		"profile":                 reportexecution.HumanizeProfileH5,
 		"pending_event_id":        "evt_humanize_pending",
 		"report_pending_event_id": reportPending.EventID,
 		"title":                   "Canceled report",
@@ -5887,7 +5889,7 @@ func TestDetailGETReconciliationResumesStaleReportDraft(t *testing.T) {
 		t.Fatalf("expected recovered plan and writer requests, got %#v", agent.requests)
 	}
 	for _, req := range agent.requests {
-		if !strings.Contains(req.Prompt, "Preserve the recovered operational focus.") || !strings.Contains(req.Prompt, reporting.DirectionAdvisory) {
+		if !strings.Contains(req.Prompt, "Preserve the recovered operational focus.") || !strings.Contains(req.Prompt, reportexecution.DirectionAdvisory) {
 			t.Fatalf("recovered report direction did not reach prompt:\n%s", req.Prompt)
 		}
 	}
@@ -5980,8 +5982,8 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 	}
 	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
 		"kind":                    "humanized_markdown_report_pending",
-		"target":                  reporting.ExportTargetHumanizedMarkdown,
-		"profile":                 reporting.HumanizeProfileH5,
+		"target":                  reportexecution.ExportTargetHumanizedMarkdown,
+		"profile":                 reportexecution.HumanizeProfileH5,
 		"pending_event_id":        "evt_humanize_stale",
 		"report_pending_event_id": reportPending.EventID,
 		"title":                   "Recovered report",
@@ -6057,8 +6059,8 @@ func TestReportDraftStaleHumanizePendingPromotesFinalizedPatch(t *testing.T) {
 	}
 	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
 		"kind":                      "humanized_markdown_report_pending",
-		"target":                    reporting.ExportTargetHumanizedMarkdown,
-		"profile":                   reporting.HumanizeProfileH5,
+		"target":                    reportexecution.ExportTargetHumanizedMarkdown,
+		"profile":                   reportexecution.HumanizeProfileH5,
 		"pending_event_id":          "evt_humanize_stale_finalized",
 		"report_pending_event_id":   reportPending.EventID,
 		"title":                     "Recovered report",
@@ -6102,7 +6104,7 @@ func TestReportDraftStaleHumanizePendingPromotesFinalizedPatch(t *testing.T) {
 	if countEvents(detail, "report.humanize.failed") != 0 || countEvents(detail, "report.patch.rejected") != 0 {
 		t.Fatalf("valid finalized patch must not be failed or rejected, got %#v", detail["events"])
 	}
-	payload := latestEventPayload(t, detail, "report.artifact.exported", reporting.ExportKindHumanizedMarkdown)
+	payload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
 	if payload["artifact_id"] != patch.ArtifactID ||
 		payload["pending_event_id"] != humanizePending.EventID ||
 		payload["report_pending_event_id"] != reportPending.EventID ||

@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// ValidateReportPlanRefs는 애플리케이션 서비스 계층 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func (s *Service) ValidateReportPlanRefs(ctx context.Context, missionID string, refs []ReportBlockSourceRefs) error {
 	for _, group := range refs {
 		for _, id := range group.ClaimIDs {

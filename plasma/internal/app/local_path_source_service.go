@@ -11,11 +11,15 @@ import (
 )
 
 const (
+	// SourceLocalPathAttachedEvent와 SourceObservedEvent 계열은 live local path source의
+	// 등록과 관찰을 장부에 남기는 event type이다.
 	SourceLocalPathAttachedEvent = "source.local_path.attached"
 	SourceObservedEvent          = "source.observed"
 	SourceObserveFailedEvent     = "source.observe.failed"
 )
 
+// AttachLocalPathSourceRequest는 allowlisted local path를 mission source로 연결하는
+// 입력이다.
 type AttachLocalPathSourceRequest struct {
 	MissionID    string
 	SnapshotID   string
@@ -26,6 +30,7 @@ type AttachLocalPathSourceRequest struct {
 	Producer     Producer
 }
 
+// LocalPathSourceResult는 local path source attach/restore 결과다.
 type LocalPathSourceResult struct {
 	Snapshot        SourceSnapshot
 	Event           *LedgerEvent
@@ -34,6 +39,8 @@ type LocalPathSourceResult struct {
 	RestoreRequired bool
 }
 
+// BrowseLocalPathRootRequest는 아직 source로 승인되지 않은 allowlist root를 탐색하는
+// 입력이다.
 type BrowseLocalPathRootRequest struct {
 	RootID       string
 	RelativePath string
@@ -41,6 +48,8 @@ type BrowseLocalPathRootRequest struct {
 	Limit        int
 }
 
+// ReadLocalPathSourceRequest는 승인된 live local path source의 file content를 관찰하는
+// 입력이다.
 type ReadLocalPathSourceRequest struct {
 	MissionID     string
 	SnapshotID    string
@@ -51,12 +60,15 @@ type ReadLocalPathSourceRequest struct {
 	ToolSessionID string
 }
 
+// ReadLocalPathSourceResult는 local path read 결과와 선택적으로 기록된 observation event다.
 type ReadLocalPathSourceResult struct {
 	Snapshot         SourceSnapshot
 	Read             localpath.ReadResult
 	ObservationEvent *LedgerEvent
 }
 
+// TreeLocalPathSourceRequest는 승인된 live local path source의 directory tree를 관찰하는
+// 입력이다.
 type TreeLocalPathSourceRequest struct {
 	MissionID     string
 	SnapshotID    string
@@ -67,12 +79,15 @@ type TreeLocalPathSourceRequest struct {
 	ToolSessionID string
 }
 
+// TreeLocalPathSourceResult는 local path tree 결과와 observation event다.
 type TreeLocalPathSourceResult struct {
 	Snapshot         SourceSnapshot
 	Tree             localpath.TreeResult
 	ObservationEvent *LedgerEvent
 }
 
+// GrepLocalPathSourceRequest는 승인된 live local path source 안에서 bounded grep을
+// 수행하는 입력이다.
 type GrepLocalPathSourceRequest struct {
 	MissionID     string
 	SnapshotID    string
@@ -83,12 +98,14 @@ type GrepLocalPathSourceRequest struct {
 	ToolSessionID string
 }
 
+// GrepLocalPathSourceResult는 local path grep 결과와 observation event다.
 type GrepLocalPathSourceResult struct {
 	Snapshot         SourceSnapshot
 	Grep             localpath.GrepResult
 	ObservationEvent *LedgerEvent
 }
 
+// RemoveSourceRequest는 source snapshot을 active set에서 soft-remove하는 입력이다.
 type RemoveSourceRequest struct {
 	MissionID  string
 	SnapshotID string
@@ -96,18 +113,21 @@ type RemoveSourceRequest struct {
 	Producer   Producer
 }
 
+// RestoreSourceRequest는 soft-removed source snapshot을 active set으로 되돌리는 입력이다.
 type RestoreSourceRequest struct {
 	MissionID  string
 	SnapshotID string
 	Producer   Producer
 }
 
+// SourceStateChangeResult는 source 상태 변경 결과와 idempotency 여부다.
 type SourceStateChangeResult struct {
 	Snapshot   SourceSnapshot
 	Event      *LedgerEvent
 	Idempotent bool
 }
 
+// ListLocalPathRoots는 configured allowlist root의 공개 view만 반환한다.
 func (s *Service) ListLocalPathRoots(ctx context.Context) ([]localpath.RootView, error) {
 	engine, err := s.localPathEngine()
 	if err != nil {
@@ -116,6 +136,7 @@ func (s *Service) ListLocalPathRoots(ctx context.Context) ([]localpath.RootView,
 	return engine.Roots(), nil
 }
 
+// BrowseLocalPathRoot는 source 승인 전 root 탐색을 bounded tree result로 반환한다.
 func (s *Service) BrowseLocalPathRoot(ctx context.Context, req BrowseLocalPathRootRequest) (localpath.TreeResult, error) {
 	engine, err := s.localPathEngine()
 	if err != nil {
@@ -124,6 +145,7 @@ func (s *Service) BrowseLocalPathRoot(ctx context.Context, req BrowseLocalPathRo
 	return engine.Tree(ctx, localpath.TreeRequest{RootID: req.RootID, RelativePath: req.RelativePath, Depth: req.Depth, Limit: req.Limit})
 }
 
+// AttachLocalPathSource는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) AttachLocalPathSource(ctx context.Context, req AttachLocalPathSourceRequest) (LocalPathSourceResult, error) {
 	engine, err := s.localPathEngine()
 	if err != nil {
@@ -209,6 +231,7 @@ func (s *Service) AttachLocalPathSource(ctx context.Context, req AttachLocalPath
 	return LocalPathSourceResult{Snapshot: snapshot, Event: &committed.Events[0]}, nil
 }
 
+// ReadLocalPathSource는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ReadLocalPathSource(ctx context.Context, req ReadLocalPathSourceRequest) (ReadLocalPathSourceResult, error) {
 	snapshot, locator, err := s.activeLiveLocalPathSource(ctx, req.MissionID, req.SnapshotID)
 	if err != nil {
@@ -251,6 +274,7 @@ func (s *Service) ReadLocalPathSource(ctx context.Context, req ReadLocalPathSour
 	return ReadLocalPathSourceResult{Snapshot: snapshot, Read: read, ObservationEvent: event}, nil
 }
 
+// TreeLocalPathSource는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) TreeLocalPathSource(ctx context.Context, req TreeLocalPathSourceRequest) (TreeLocalPathSourceResult, error) {
 	snapshot, locator, err := s.activeLiveLocalPathSource(ctx, req.MissionID, req.SnapshotID)
 	if err != nil {
@@ -280,6 +304,7 @@ func (s *Service) TreeLocalPathSource(ctx context.Context, req TreeLocalPathSour
 	return TreeLocalPathSourceResult{Snapshot: snapshot, Tree: tree, ObservationEvent: event}, nil
 }
 
+// GrepLocalPathSource는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GrepLocalPathSource(ctx context.Context, req GrepLocalPathSourceRequest) (GrepLocalPathSourceResult, error) {
 	snapshot, locator, err := s.activeLiveLocalPathSource(ctx, req.MissionID, req.SnapshotID)
 	if err != nil {
@@ -310,6 +335,7 @@ func (s *Service) GrepLocalPathSource(ctx context.Context, req GrepLocalPathSour
 	return GrepLocalPathSourceResult{Snapshot: snapshot, Grep: grep, ObservationEvent: event}, nil
 }
 
+// RemoveSource는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RemoveSource(ctx context.Context, req RemoveSourceRequest) (SourceStateChangeResult, error) {
 	snapshot, err := s.GetSourceSnapshot(ctx, strings.TrimSpace(req.SnapshotID))
 	if err != nil {
@@ -340,6 +366,7 @@ func (s *Service) RemoveSource(ctx context.Context, req RemoveSourceRequest) (So
 	return SourceStateChangeResult{Snapshot: snapshot, Event: &event}, nil
 }
 
+// RestoreSource는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) RestoreSource(ctx context.Context, req RestoreSourceRequest) (SourceStateChangeResult, error) {
 	snapshot, err := s.GetSourceSnapshot(ctx, strings.TrimSpace(req.SnapshotID))
 	if err != nil {

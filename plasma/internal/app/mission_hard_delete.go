@@ -7,10 +7,12 @@ import (
 )
 
 const (
+	// MissionHardDeleteBlocker* 값은 hard delete가 왜 막혔는지 설명하는 안정적인 코드다.
 	MissionHardDeleteBlockerNotArchived = "mission_not_archived"
 	MissionHardDeleteBlockerActiveWork  = "active_work"
 )
 
+// MissionHardDeleteImpact는 hard delete가 삭제할 저장 객체 수와 artifact byte 수다.
 type MissionHardDeleteImpact struct {
 	LedgerEvents                int64 `json:"ledger_events"`
 	RawArtifacts                int64 `json:"raw_artifacts"`
@@ -27,11 +29,13 @@ type MissionHardDeleteImpact struct {
 	ReportBlocks                int64 `json:"report_blocks"`
 }
 
+// MissionHardDeleteBlocker는 hard delete를 막는 제품 조건 하나다.
 type MissionHardDeleteBlocker struct {
 	ReasonCode string `json:"reason_code"`
 	Message    string `json:"message"`
 }
 
+// MissionHardDeletePreview는 삭제 가능 여부와 예상 영향 범위를 사용자에게 보여 주는 view다.
 type MissionHardDeletePreview struct {
 	MissionID       string                     `json:"mission_id"`
 	Title           string                     `json:"title"`
@@ -41,23 +45,28 @@ type MissionHardDeletePreview struct {
 	Impact          MissionHardDeleteImpact    `json:"impact"`
 }
 
+// MissionHardDeleteRequest는 사용자가 mission ID를 다시 확인한 hard delete 입력이다.
 type MissionHardDeleteRequest struct {
 	MissionID        string
 	ConfirmMissionID string
 	Producer         Producer
 }
 
+// MissionHardDeleteResult는 hard delete 실행 결과와 삭제된 범위를 반환한다.
 type MissionHardDeleteResult struct {
 	MissionID string                  `json:"mission_id"`
 	Deleted   bool                    `json:"deleted"`
 	Impact    MissionHardDeleteImpact `json:"impact"`
 }
 
+// MissionHardDeleteStore는 hard delete preview와 실제 삭제를 제공하는 저장소 port다.
 type MissionHardDeleteStore interface {
 	PreviewMissionHardDelete(context.Context, string) (MissionHardDeleteImpact, error)
 	HardDeleteMission(context.Context, string, func([]LedgerEvent) error) (MissionHardDeleteImpact, error)
 }
 
+// PreviewMissionHardDelete는 archived 상태와 active work 여부를 확인해 삭제 가능 여부를
+// 계산한다.
 func (s *Service) PreviewMissionHardDelete(ctx context.Context, missionID string) (MissionHardDeletePreview, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -90,6 +99,7 @@ func (s *Service) PreviewMissionHardDelete(ctx context.Context, missionID string
 	}, nil
 }
 
+// HardDeleteMission는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) HardDeleteMission(ctx context.Context, req MissionHardDeleteRequest) (MissionHardDeleteResult, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", missionID); err != nil {

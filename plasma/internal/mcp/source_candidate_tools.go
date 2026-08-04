@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/urlsource"
+	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 )
 
 func (server *Server) callSourceCandidatesPropose(ctx context.Context, call ToolCall) ToolResult {
@@ -208,7 +208,7 @@ func (server *Server) stageSourceCandidate(ctx context.Context, job sourceCandid
 func (server *Server) appSourceCandidateFetcher() sourcecandidates.SourceCandidateFetcher {
 	fetcher := server.sourceCandidateFetcher
 	if fetcher == nil {
-		fetcher = urlsource.Fetch
+		fetcher = sourceretrieval.Fetch
 	}
 	return func(ctx context.Context, rawURL string) (sourcecandidates.SourceCandidateFetched, error) {
 		fetched, err := fetcher(ctx, rawURL)
@@ -317,8 +317,8 @@ func (server *Server) callSourceCandidatesRead(ctx context.Context, call ToolCal
 	if artifact.MissionID != missionID {
 		return errorResult(call.Name, missionID, "validation", "staged candidate artifact belongs to another mission", false, []string{record.ArtifactID})
 	}
-	if pdftext.IsPDFMediaType(artifact.MediaType) || pdftext.IsPDFBytes(artifact.Content) {
-		chunk, err := pdftext.ExtractChunk(artifact.Content, input.Offset, input.MaxBytes)
+	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
+		chunk, err := pdfdocument.ExtractChunk(artifact.Content, input.Offset, input.MaxBytes)
 		if err != nil {
 			return errorResult(call.Name, missionID, "validation", "PDF text extraction failed: "+err.Error(), false, []string{artifact.ArtifactID})
 		}
@@ -335,8 +335,8 @@ func (server *Server) callSourceCandidatesRead(ctx context.Context, call ToolCal
 			PageCount:          chunk.PageCount,
 			TextLength:         chunk.ContentLength,
 			TextLengthKnown:    chunk.ContentLengthKnown,
-			SuggestedReadBytes: pdftext.DefaultChunkMaxBytes,
-			MaxReadBytes:       pdftext.MaxChunkBytes,
+			SuggestedReadBytes: pdfdocument.DefaultChunkMaxBytes,
+			MaxReadBytes:       pdfdocument.MaxChunkBytes,
 		}
 		return ToolResult{ToolName: call.Name, MissionID: missionID, Content: output}
 	}

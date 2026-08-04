@@ -14,6 +14,7 @@ const (
 	PartEditSubmittedSentinel = "PART_EDIT_SUBMITTED"
 )
 
+// BuildPartEditStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildPartEditStartedAppendRequest(eventID string, binding PartEditBinding) app.AppendEventRequest {
 	binding = normalizePartEditBinding(binding)
 	return app.AppendEventRequest{
@@ -57,6 +58,7 @@ func BuildPartEditStartedAppendRequest(eventID string, binding PartEditBinding) 
 	}
 }
 
+// PartEditBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type PartEditBinding struct {
 	MissionID                    string `json:"mission_id"`
 	PendingEventID               string `json:"pending_event_id"`
@@ -86,6 +88,7 @@ type PartEditBinding struct {
 	ForkSourceAgentSessionID     string `json:"fork_source_agent_session_id"`
 }
 
+// PartEditResult는 part edit 제출 이벤트와 artifact를 함께 반환한다.
 type PartEditResult struct {
 	Artifact app.RawArtifact
 	Event    app.LedgerEvent

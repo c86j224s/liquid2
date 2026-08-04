@@ -3,40 +3,38 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
-var ErrInvalidInput = errors.New("invalid input")
-var ErrConflict = errors.New("conflict")
+var ErrInvalidInput = producterror.ErrInvalidInput
+var ErrConflict = producterror.ErrConflict
 
+// MissionStore는 단일 미션과 장부 이벤트의 생성·조회·append 계약을 묶는 저장소 포트다.
 type MissionStore interface {
-	CreateMission(context.Context, Mission) error
-	AppendLedgerEvent(context.Context, LedgerEvent) (LedgerEvent, error)
-	ListLedgerEvents(context.Context, string) ([]LedgerEvent, error)
+	mission.Store
+	ledger.Store
 }
 
-type MissionListStore interface {
-	ListMissions(context.Context) ([]Mission, error)
-}
+// MissionListStore는 미션 목록 조회 전용 저장소 포트다.
+type MissionListStore = mission.ListStore
 
-// MissionActivityListStore loads list-summary inputs in bulk. It prevents the
-// mission list from issuing one full-ledger read per mission.
-type MissionActivityListStore interface {
-	ListMissionActivityInputs(context.Context, []string) ([]MissionActivityInput, error)
-}
+// MissionActivityListStore는 목록 요약 입력을 bulk로 읽는 저장소 포트다. 미션 목록이
+// 미션마다 전체 원장을 읽는 경로로 퇴행하지 않게 하는 성능 경계다.
+type MissionActivityListStore = mission.ActivityListStore
 
-type ConditionalLedgerStore interface {
-	AppendLedgerEventsConditionally(context.Context, string, func([]LedgerEvent) ([]LedgerEvent, error)) ([]LedgerEvent, error)
-}
+// ConditionalLedgerStore는 조건부 장부 append를 지원하는 저장소 포트다.
+type ConditionalLedgerStore = ledger.ConditionalStore
 
-// AppendReportTerminalIfOpen atomically checks and closes one report pending
-// event. A false appended flag means another caller already closed it.
+// AppendReportTerminalIfOpen은 하나의 report pending 이벤트가 아직 열려 있는지
+// 원자적으로 확인하고 닫는다. appended가 false이면 다른 호출자가 이미 닫았다는 뜻이다.
 func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingEventID string, reqs []AppendEventRequest) ([]LedgerEvent, bool, error) {
 	if _, ok := s.store.(ConditionalLedgerStore); !ok {
 		return nil, false, fmt.Errorf("%w: conditional ledger store is required for report terminal closure", ErrInvalidInput)
@@ -160,6 +158,7 @@ func validateReportTerminalAppend(pending, terminal LedgerEvent) (bool, error) {
 	return true, nil
 }
 
+// CreateMission는 새 미션과 최초 장부 이벤트를 저장한다.
 func (s *Service) CreateMission(ctx context.Context, req CreateMissionRequest) (Mission, error) {
 	if err := validateID("mis_", req.MissionID); err != nil {
 		return Mission{}, err
@@ -182,6 +181,7 @@ func (s *Service) CreateMission(ctx context.Context, req CreateMissionRequest) (
 	return mission, nil
 }
 
+// BuildMissionCreatedAppendRequest는 애플리케이션 서비스 계층에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildMissionCreatedAppendRequest(req MissionCreatedEventRequest) AppendEventRequest {
 	return AppendEventRequest{
 		EventID:   req.EventID,
@@ -196,6 +196,7 @@ func BuildMissionCreatedAppendRequest(req MissionCreatedEventRequest) AppendEven
 	}
 }
 
+// AppendEvent는 단일 장부 이벤트를 미션에 추가한다.
 func (s *Service) AppendEvent(ctx context.Context, req AppendEventRequest) (LedgerEvent, error) {
 	if req.EventType == "report.artifact.created" {
 		var payload struct {
@@ -234,6 +235,7 @@ func (s *Service) AppendEvent(ctx context.Context, req AppendEventRequest) (Ledg
 	return s.store.AppendLedgerEvent(ctx, event)
 }
 
+// AppendEvents는 여러 장부 이벤트를 한 번의 요청으로 추가한다.
 func (s *Service) AppendEvents(ctx context.Context, missionID string, reqs []AppendEventRequest) ([]LedgerEvent, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
@@ -260,6 +262,7 @@ func (s *Service) AppendEvents(ctx context.Context, missionID string, reqs []App
 	})
 }
 
+// AppendEventsIfNoActiveAgentWork는 활성 agent 작업이 없을 때만 이벤트를 추가한다.
 func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID string, reqs []AppendEventRequest) ([]LedgerEvent, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
@@ -289,10 +292,12 @@ func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID
 	})
 }
 
+// ListMissions는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListMissions(ctx context.Context) ([]Mission, error) {
 	return s.ListMissionsWithState(ctx, ListMissionsRequest{})
 }
 
+// ListMissionsWithState는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsRequest) ([]Mission, error) {
 	store, ok := s.store.(MissionListStore)
 	if !ok {
@@ -325,8 +330,8 @@ func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsReq
 		return missions, nil
 	}
 
-	// Non-SQL adapters retain the existing contract. Production SQLite stores
-	// implement MissionActivityListStore and never take this per-mission path.
+	// SQL이 아닌 어댑터는 기존 계약을 유지한다. 운영 SQLite 저장소는
+	// MissionActivityListStore를 구현하므로 이 per-mission 경로를 타지 않는다.
 	for index := range missions {
 		events, err := s.store.ListLedgerEvents(ctx, missions[index].MissionID)
 		if err != nil {
@@ -349,8 +354,8 @@ func filterMissionsByLifecycle(missions []Mission, req ListMissionsRequest) []Mi
 	return result
 }
 
-// MissionActivity returns one mission's list-level activity projection without
-// loading its detail projection or changing durable mission state.
+// MissionActivity는 detail projection을 읽거나 지속 미션 상태를 바꾸지 않고,
+// 미션 하나의 목록 수준 activity projection만 계산한다.
 func (s *Service) MissionActivity(ctx context.Context, missionID string) (MissionActivitySummary, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return MissionActivitySummary{}, err
@@ -414,6 +419,7 @@ func buildLedgerEvent(req AppendEventRequest) (LedgerEvent, error) {
 	return event, nil
 }
 
+// ListEvents는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListEvents(ctx context.Context, missionID string) ([]LedgerEvent, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err

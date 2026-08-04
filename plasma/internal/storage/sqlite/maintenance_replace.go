@@ -14,6 +14,7 @@ type renamedStorageFile struct {
 	to   string
 }
 
+// CompactStorageReplace는 검증된 compact 산출물로 원본 DB 파일을 교체한다.
 func CompactStorageReplace(ctx context.Context, dbPath string) (StorageCompactResult, error) {
 	sourcePath, err := normalizeStorageMaintenancePath(dbPath)
 	if err != nil {

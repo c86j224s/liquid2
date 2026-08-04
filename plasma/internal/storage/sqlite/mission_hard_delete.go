@@ -6,8 +6,10 @@ import (
 	"fmt"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
 )
 
+// PreviewMissionHardDelete는 SQLite 저장소 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Store) PreviewMissionHardDelete(ctx context.Context, missionID string) (app.MissionHardDeleteImpact, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -17,6 +19,7 @@ func (s *Store) PreviewMissionHardDelete(ctx context.Context, missionID string) 
 	return missionHardDeleteImpactTx(ctx, tx, missionID)
 }
 
+// HardDeleteMission는 SQLite 저장소 어댑터의 명시적 상태 전이를 수행한다. 결과는 SQLite 기록으로 확인한다.
 func (s *Store) HardDeleteMission(ctx context.Context, missionID string, validate func([]app.LedgerEvent) error) (app.MissionHardDeleteImpact, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -24,7 +27,7 @@ func (s *Store) HardDeleteMission(ctx context.Context, missionID string, validat
 	}
 	defer tx.Rollback()
 
-	events, err := listLedgerEventsTx(ctx, tx, missionID)
+	events, err := missionrepo.ListLedgerEventsTx(ctx, tx, missionID)
 	if err != nil {
 		return app.MissionHardDeleteImpact{}, err
 	}

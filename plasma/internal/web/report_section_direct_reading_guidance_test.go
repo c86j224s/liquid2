@@ -7,23 +7,24 @@ import (
 
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func TestSectionDirectReadingGuidanceStaysWithSectionWriter(t *testing.T) {
-	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "section_direct")
-	if err != nil || profile != reportGenerationGuidanceProfileSectionDirectReadingVoice || strings.TrimSpace(sha) == "" {
+	profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "section_direct")
+	if err != nil || profile != reportprompt.ProfileSectionDirectReadingVoice || strings.TrimSpace(sha) == "" {
 		t.Fatalf("long-form rejected section-direct profile: profile=%q sha=%q err=%v", profile, sha, err)
 	}
 	for _, mode := range []string{reportModeOneTake, reportModePlanned} {
-		if _, _, err := SelectReportGenerationGuidanceForMode(mode, "section_direct"); err == nil {
+		if _, _, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "section_direct"); err == nil {
 			t.Fatalf("mode %s accepted long-form-only section-direct profile", mode)
 		}
 	}
-	_, editedSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfileEditedReadingVoice)
+	_, editedSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfileEditedReadingVoice)
 	if err != nil || sha == editedSHA {
 		t.Fatalf("section-only guidance must have a distinct policy hash: section=%q edited=%q err=%v", sha, editedSHA, err)
 	}
-	if !requireReportWritingContract(profile) || longFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(profile) || reportprompt.LongFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("section-direct profile lost the edited-reading contract or final-edit path")
 	}
 

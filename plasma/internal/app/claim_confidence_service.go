@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// UpdateClaimConfidence는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) UpdateClaimConfidence(ctx context.Context, req UpdateClaimConfidenceRequest) (LedgerEvent, error) {
 	eventID := strings.TrimSpace(req.EventID)
 	missionID := strings.TrimSpace(req.MissionID)
@@ -70,6 +71,7 @@ func (s *Service) UpdateClaimConfidence(ctx context.Context, req UpdateClaimConf
 	})
 }
 
+// ClaimConfidenceUpdatesFromEvents는 장부 이벤트에서 claim confidence 변경 이력을 추출한다.
 func ClaimConfidenceUpdatesFromEvents(events []LedgerEvent) []ClaimConfidenceUpdate {
 	updates := make([]ClaimConfidenceUpdate, 0)
 	for _, event := range events {
@@ -81,6 +83,7 @@ func ClaimConfidenceUpdatesFromEvents(events []LedgerEvent) []ClaimConfidenceUpd
 	return updates
 }
 
+// ClaimConfidenceUpdateFromEvent는 단일 장부 이벤트를 claim confidence 변경으로 해석한다.
 func ClaimConfidenceUpdateFromEvent(event LedgerEvent) (ClaimConfidenceUpdate, bool) {
 	if event.EventType != ClaimConfidenceUpdatedEvent {
 		return ClaimConfidenceUpdate{}, false

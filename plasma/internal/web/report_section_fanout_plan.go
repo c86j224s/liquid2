@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFanoutLongFormRequest, progress sectionalReportProgress, executor AgentExecutor) (sectionFanoutPlanState, error) {
@@ -54,7 +56,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 		}
 		forker, ok := executor.(AgentSessionForker)
 		if !ok {
-			return sectionFanoutPlanState{}, reporting.ValidateSessionPolicy(reportSessionPolicy, reportModeLongForm, false, strings.TrimSpace(previousSessionID) != "", false)
+			return sectionFanoutPlanState{}, reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportModeLongForm, false, strings.TrimSpace(previousSessionID) != "", false)
 		}
 		fork, err := forker.ForkSession(ctx, previousSessionID)
 		if err != nil {
@@ -67,7 +69,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 	var planResult AgentResult
 	var returnedPlanSessionID string
 	var planDurationMS int64
-	lifecycle, err := server.reportRunner().RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+	lifecycle, err := reporting.Runner(server.reportRunner()).RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
 		MissionID:                 req.missionID,
 		PendingEventID:            req.pendingEventID,
 		ReportMode:                reportModeLongForm,
@@ -96,7 +98,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 					PreviousProviderSessionID: reportStartSessionID,
 					AgentModel:                req.agentModel,
 					AgentReasoningEffort:      req.agentReasoningEffort,
-					RequireWritingContract:    requireReportWritingContract(req.generationGuidanceProfile),
+					RequireWritingContract:    reportprompt.RequireReportWritingContract(req.generationGuidanceProfile),
 				},
 			})
 			planDurationMS = time.Since(planStarted).Milliseconds()

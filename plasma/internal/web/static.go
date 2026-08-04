@@ -39,8 +39,8 @@ func (server *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(content)
 }
 
-// readStaticFile returns a static asset, reading from disk when staticDir is
-// configured (dev mode) and falling back to the embedded copy otherwise.
+// readStaticFile은 staticDir가 설정된 개발 모드에서는 디스크에서 static asset을 읽고,
+// 그 외에는 embedded copy로 fallback한다.
 func (server *Server) readStaticFile(name string) ([]byte, error) {
 	if server.staticDir == "" {
 		return staticFiles.ReadFile(name)
@@ -54,7 +54,7 @@ func (server *Server) readStaticFile(name string) ([]byte, error) {
 	if err != nil {
 		return nil, fs.ErrNotExist
 	}
-	// Guard against path traversal outside the configured root.
+	// 설정된 root 밖으로 path traversal이 일어나지 않게 막는다.
 	if full != root && !strings.HasPrefix(full, root+string(os.PathSeparator)) {
 		return nil, fs.ErrNotExist
 	}

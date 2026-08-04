@@ -10,6 +10,9 @@ const (
 	browserRenderCandidateMinHTMLBytes   = 1500
 )
 
+// BrowserRenderCandidateDiagnosis는 일반 URL fetch 결과가 브라우저 렌더링
+// 재시도 후보인지 나타내는 진단값이다. Candidate가 false이면 다른 필드는
+// 호출자가 표시하지 않아도 되는 설명 보조 정보다.
 type BrowserRenderCandidateDiagnosis struct {
 	Candidate         bool     `json:"candidate"`
 	Reason            string   `json:"reason"`
@@ -18,6 +21,9 @@ type BrowserRenderCandidateDiagnosis struct {
 	Signals           []string `json:"signals,omitempty"`
 }
 
+// DiagnoseBrowserRenderCandidate는 이미 가져온 HTML 본문만 검사해 브라우저
+// 렌더링 후보 여부를 판정한다. 네트워크 호출이나 브라우저 실행은 하지 않으며,
+// 봇 차단 화면이나 충분히 읽을 수 있는 정적 HTML은 후보로 표시하지 않는다.
 func DiagnoseBrowserRenderCandidate(content []byte, mediaType string) BrowserRenderCandidateDiagnosis {
 	if !browserRenderCandidateHTMLMediaType(mediaType) || len(content) == 0 {
 		return BrowserRenderCandidateDiagnosis{}

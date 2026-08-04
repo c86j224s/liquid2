@@ -27,9 +27,8 @@ func (server *Server) missionActivityCursor(sequence int64) missionActivityCurso
 	}
 }
 
-// reconcileMissionRecovery owns idempotent recovery of durable work left open
-// by a previous server process. It is intentionally called only by the
-// established full-detail GET compatibility path.
+// reconcileMissionRecovery는 이전 서버 프로세스가 열어 둔 지속 작업의 idempotent
+// 복구를 담당한다. 이 경로는 의도적으로 기존 full-detail GET 호환 경로에서만 호출한다.
 func (server *Server) reconcileMissionRecovery(ctx context.Context, missionID string) error {
 	server.reconcileWorkflowState(ctx, missionID)
 	unlock := server.reports.lock(missionID)

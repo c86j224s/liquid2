@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// allowURL은 browser render가 접근할 수 있는 URL 경계를 검사한다. http/https
+// 문서는 DNS 결과까지 확인하고, browser 내부 subresource에서 필요한 about/blob/data
+// URL만 예외적으로 허용한다.
 func (renderer *Renderer) allowURL(ctx context.Context, rawURL string) error {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed == nil || parsed.Scheme == "" {

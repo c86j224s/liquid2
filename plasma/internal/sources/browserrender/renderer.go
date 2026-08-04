@@ -17,6 +17,9 @@ import (
 
 const defaultUserAgent = "Mozilla/5.0 (compatible; PlasmaBrowserRenderer/0.1)"
 
+// Renderer는 headless browser 렌더링 실행자다. 인스턴스는 동시 실행 semaphore를
+// 내부에서 지연 초기화하므로 여러 요청이 공유할 수 있지만, 각 Render 호출은 별도
+// 임시 profile을 사용한다.
 type Renderer struct {
 	maxConcurrent int
 	timeout       time.Duration
@@ -28,6 +31,7 @@ type Renderer struct {
 	sem  chan struct{}
 }
 
+// NewRenderer는 0 값 옵션을 기본값으로 보정해 Renderer를 만든다.
 func NewRenderer(options Options) *Renderer {
 	maxConcurrent := options.MaxConcurrent
 	if maxConcurrent <= 0 {
@@ -58,6 +62,9 @@ func NewRenderer(options Options) *Renderer {
 	}
 }
 
+// Render는 URL을 browser로 열고, 읽을 수 있는 HTML 문서만 Result로 반환한다.
+// 렌더링 전 대상 URL과 렌더링 중 subresource URL을 모두 검사하며, 차단된 요청이
+// 하나라도 있으면 결과를 저장하지 않는다.
 func (renderer *Renderer) Render(ctx context.Context, rawURL string) (Result, error) {
 	if err := renderer.allowURL(ctx, rawURL); err != nil {
 		return Result{}, err
@@ -147,6 +154,7 @@ func (renderer *Renderer) Render(ctx context.Context, rawURL string) (Result, er
 	return readableDocument(dom, finalURL, time.Now().UTC())
 }
 
+// acquire는 renderer 인스턴스 단위의 동시 실행 상한을 적용한다.
 func (renderer *Renderer) acquire(ctx context.Context) error {
 	renderer.once.Do(func() {
 		renderer.sem = make(chan struct{}, renderer.maxConcurrent)
@@ -162,6 +170,7 @@ func (renderer *Renderer) acquire(ctx context.Context) error {
 	}
 }
 
+// release는 acquire로 점유한 실행 슬롯을 반환한다.
 func (renderer *Renderer) release() {
 	<-renderer.sem
 }

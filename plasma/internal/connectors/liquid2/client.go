@@ -14,14 +14,20 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// Client는 Liquid2 HTTP API를 Plasma source connector port로 변환하는 adapter다.
+//
+// 이 타입은 Liquid2 문서 검색/읽기와 metadata 변환만 담당하며, 미션 source 승인과
+// 장부 기록은 app service가 수행한다.
 type Client struct {
 	baseURL          *url.URL
 	httpClient       *http.Client
 	connectorVersion string
 }
 
+// Option은 Client 생성 시 transport나 connector metadata를 바꾸는 설정 함수다.
 type Option func(*Client)
 
+// WithHTTPClient는 테스트 또는 embedding 환경에서 HTTP transport를 교체한다.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(client *Client) {
 		if httpClient != nil {
@@ -30,6 +36,7 @@ func WithHTTPClient(httpClient *http.Client) Option {
 	}
 }
 
+// WithConnectorVersion은 snapshot metadata에 기록할 Liquid2 connector version을 바꾼다.
 func WithConnectorVersion(version string) Option {
 	return func(client *Client) {
 		if strings.TrimSpace(version) != "" {
@@ -38,6 +45,7 @@ func WithConnectorVersion(version string) Option {
 	}
 }
 
+// NewClient는 Liquid2 API base URL을 검증하고 connector adapter를 만든다.
 func NewClient(baseURL string, options ...Option) (*Client, error) {
 	trimmed := strings.TrimSpace(baseURL)
 	if trimmed == "" {
@@ -64,6 +72,7 @@ func NewClient(baseURL string, options ...Option) (*Client, error) {
 	return client, nil
 }
 
+// SearchLiquid2Sources는 Liquid2 문서 목록 API를 Plasma source 후보 목록으로 변환한다.
 func (client *Client) SearchLiquid2Sources(
 	ctx context.Context,
 	req app.Liquid2SourceSearchRequest,
@@ -119,6 +128,7 @@ func (client *Client) SearchLiquid2Sources(
 	}, nil
 }
 
+// ReadLiquid2Source는 Liquid2 문서 하나를 snapshot 가능한 문서 모델로 읽는다.
 func (client *Client) ReadLiquid2Source(
 	ctx context.Context,
 	req app.Liquid2SourceReadRequest,

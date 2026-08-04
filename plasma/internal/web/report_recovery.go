@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 type sectionalReportProgress struct {
@@ -56,7 +58,7 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 		_, failErr := server.reportRunner().AppendDraftFailed(ctx, missionID, pending.EventID, reportDraftPendingExecutor(pending), reportDraftPendingMode(pending), err)
 		return failErr
 	}
-	return server.reportRunner().RunDraft(context.Background(), missionID, reporting.DraftRequest{
+	return server.reportRunner().RunDraft(context.Background(), missionID, reportexecution.DraftRequest{
 		Title:                        req.Title,
 		DirectionHint:                req.DirectionHint,
 		ExecutionStrategy:            req.ExecutionStrategy,
@@ -120,25 +122,24 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 	}
 	return reportDraftRequest{
 		Title:                firstNonEmpty(payload.Title, "Mission report"),
-		DirectionHint:        reporting.NormalizeDirectionHint(payload.DirectionHint),
+		DirectionHint:        reportexecution.NormalizeDirectionHint(payload.DirectionHint),
 		ExecutionStrategy:    strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
 		AgentExecutor:        firstNonEmpty(payload.AgentExecutor, "codex"),
 		AgentModel:           strings.TrimSpace(payload.AgentModel),
 		AgentReasoningEffort: strings.TrimSpace(payload.AgentReasoningEffort),
 		AgentSelectionSource: strings.TrimSpace(payload.AgentSelectionSource),
 		MCPMode:              firstNonEmpty(payload.MCPMode, "auto"),
-		// Pending events written before rigor was persisted used the old balanced
-		// behavior. Recovery must resume that frozen behavior, not the new request
-		// default.
+		// rigor가 지속 상태로 저장되기 전의 pending event는 과거 balanced 동작을 사용했다.
+		// recovery는 새 요청 기본값이 아니라 그 frozen behavior를 재개해야 한다.
 		RigorLevel:                   firstNonEmpty(payload.RigorLevel, legacyPendingReportRigorLevel),
 		ReportMode:                   firstNonEmpty(payload.ReportMode, defaultReportMode),
 		ReportSessionPolicy:          firstNonEmpty(payload.ReportSessionPolicy, reportSessionPolicySameSession),
 		ReportSessionPolicySelection: strings.TrimSpace(payload.ReportSessionPolicySelection),
 		PostReportHumanize:           strings.TrimSpace(payload.PostReportHumanize),
-		// Pending events written before guidance profiles were persisted belong to
-		// the legacy preserve-markdown path. Do not reinterpret an interrupted old
-		// report through a newer default profile during restart recovery.
-		GenerationGuidanceProfile: firstNonEmpty(payload.GenerationGuidanceProfile, reportGenerationGuidanceProfileVisualPlan),
+		// guidance profile이 지속 상태로 저장되기 전의 pending event는 legacy
+		// preserve-markdown 경로에 속한다. 재시작 recovery에서 중단된 과거 리포트를
+		// 새 기본 profile로 재해석하면 안 된다.
+		GenerationGuidanceProfile: firstNonEmpty(payload.GenerationGuidanceProfile, reportprompt.ProfileVisualPlan),
 		GenerationGuidanceSHA256:  strings.TrimSpace(payload.GenerationGuidanceSHA256),
 	}, nil
 }

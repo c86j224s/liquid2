@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// StartPartEdit는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func StartPartEdit(ctx context.Context, store PartEditStartStore, eventID string, binding PartEditBinding) (app.LedgerEvent, bool, error) {
 	binding = normalizePartEditBinding(binding)
 	if err := ValidatePartEditBinding(binding); err != nil {

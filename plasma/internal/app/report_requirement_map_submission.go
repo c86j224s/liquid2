@@ -6,6 +6,7 @@ import (
 	"fmt"
 )
 
+// SubmitReportRequirementMap는 요구사항 map artifact와 제출 이벤트를 함께 기록한다.
 func (s *Service) SubmitReportRequirementMap(ctx context.Context, req ReportRequirementMapSubmissionRequest) (ReportRequirementMapSubmission, error) {
 	store, ok := s.store.(ConditionalLedgerStore)
 	if !ok {
@@ -83,6 +84,7 @@ func (s *Service) SubmitReportRequirementMap(ctx context.Context, req ReportRequ
 	return ReportRequirementMapSubmission{Event: appended[0]}, nil
 }
 
+// SelectReportRequirementMap는 장부 이벤트에서 현재 요구사항 map artifact ID를 선택한다.
 func (s *Service) SelectReportRequirementMap(ctx context.Context, query ReportRequirementMapQuery) (ReportRequirementMapSelection, error) {
 	events, err := s.ListEvents(ctx, query.MissionID)
 	if err != nil {

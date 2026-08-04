@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 )
 
 func sanitizeUploadedFilename(filename string, mediaType string) string {
@@ -62,8 +62,9 @@ func uploadedFileExtension(mediaType string) string {
 	}
 }
 
+// UploadedArtifactReadKind는 업로드 artifact를 텍스트/PDF/미디어 중 어떤 방식으로 읽을지 판정한다.
 func UploadedArtifactReadKind(artifact RawArtifact) string {
-	if pdftext.IsPDFMediaType(artifact.MediaType) || pdftext.IsPDFBytes(artifact.Content) {
+	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
 		return UploadedContentKindPDF
 	}
 	if isUploadedArtifactMetadataOnly(artifact) {
@@ -75,6 +76,7 @@ func UploadedArtifactReadKind(artifact RawArtifact) string {
 	return "unsupported_binary"
 }
 
+// UploadedArtifactMetadata는 업로드 artifact의 source metadata를 안전한 JSON 객체로 만든다.
 func UploadedArtifactMetadata(artifact RawArtifact) map[string]any {
 	return map[string]any{
 		"artifact_id": artifact.ArtifactID,

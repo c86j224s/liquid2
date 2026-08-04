@@ -8,6 +8,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// CreateTextSourceWithEvent는 사용자가 붙여넣은 텍스트를 artifact와 manual
+// source snapshot으로 저장한다. 외부 URI가 없으면 snapshot ID 기반 manual 식별자로
+// 같은 미션 안의 저장 식별자를 만든다.
 func CreateTextSourceWithEvent(ctx context.Context, store Store, req CreateTextSourceWithEventRequest) (SourceSnapshotWithEventResult, error) {
 	title := strings.TrimSpace(req.Source.Title)
 	if title == "" {

@@ -8,12 +8,14 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditGateResumeRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type FinalEditGateResumeRequest struct {
 	StageBinding     FinalEditStageBinding
 	FinalBinding     LongFormFinalizeBinding
 	CanonicalEventID string
 }
 
+// LoadCurrentFinalEditStageStart는 현재 final edit stage start 이벤트와 binding을 복원한다.
 func LoadCurrentFinalEditStageStart(ctx context.Context, store FinalEditStageStore, contract FinalEditStageStartContract) (FinalEditStageStartResult, bool, error) {
 	finalBinding := normalizeLongFormFinalizeBinding(contract.FinalBinding)
 	if err := validateLongFormFinalizeBinding(finalBinding); err != nil {
@@ -85,6 +87,7 @@ func LoadCurrentFinalEditStageStart(ctx context.Context, store FinalEditStageSto
 	return found, count == 1, nil
 }
 
+// ResumeFinalEditGate는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func ResumeFinalEditGate(ctx context.Context, store FinalEditStageStore, req FinalEditGateResumeRequest) (LongFormFinalizeResult, error) {
 	stageBinding := normalizeFinalEditStageBinding(req.StageBinding)
 	finalBinding := normalizeLongFormFinalizeBinding(req.FinalBinding)

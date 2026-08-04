@@ -11,17 +11,20 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditStageStartContract는 재실행과 검증에 쓰는 binding 계약이다.
 type FinalEditStageStartContract struct {
 	FinalBinding LongFormFinalizeBinding
 	Stage        string
 }
 
+// FinalEditStageStartResult는 final edit stage 시작 이벤트와 binding을 함께 반환한다.
 type FinalEditStageStartResult struct {
 	Binding        FinalEditStageBinding
 	SourceArtifact app.RawArtifact
 	Event          app.LedgerEvent
 }
 
+// FinalEditStageProgress는 final edit stage별 제출 artifact와 실패 상태를 투영한 값이다.
 type FinalEditStageProgress struct {
 	Binding        FinalEditStageBinding
 	SourceArtifact app.RawArtifact
@@ -29,6 +32,7 @@ type FinalEditStageProgress struct {
 	Submission     *FinalEditStageResult
 }
 
+// LoadFinalEditStageProgress는 final edit stage들의 제출·실패 진행 상태를 장부에서 복원한다.
 func LoadFinalEditStageProgress(ctx context.Context, store FinalEditStageStore, contract FinalEditStageStartContract) (FinalEditStageProgress, bool, error) {
 	finalBinding := normalizeLongFormFinalizeBinding(contract.FinalBinding)
 	if err := validateLongFormFinalizeBinding(finalBinding); err != nil {

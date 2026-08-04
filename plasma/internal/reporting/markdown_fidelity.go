@@ -13,6 +13,7 @@ var markdownCoreMeaningMarkerPattern = regexp.MustCompile(`원문|인상|근거|
 var markdownNegativeMeaningMarkerPattern = regexp.MustCompile(`불가능|불필요|부정확|불확실|불충분|불일치|않|아니|못|없`)
 var markdownStandaloneNegativePattern = regexp.MustCompile(`(^|[^가-힣A-Za-z0-9])(안된다[가-힣]*|안된[가-힣]*|안돼[가-힣]*|안됨[가-힣]*|안한다[가-힣]*|안한[가-힣]*|안하[가-힣]*|안함[가-힣]*|안해[가-힣]*|안\s*되[가-힣]*|안\s+[가-힣]+)`)
 
+// ValidateHumanizedMarkdown는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateHumanizedMarkdown(original string, humanized string) error {
 	var failures []string
 	checkEqual := func(label string, a []string, b []string) {
@@ -47,6 +48,7 @@ func ValidateHumanizedMarkdown(original string, humanized string) error {
 	return nil
 }
 
+// ValidateFinalEditStyleMarkdown는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditStyleMarkdown(reader string, style string) error {
 	var failures []string
 	checkEqual := func(label string, a []string, b []string) {

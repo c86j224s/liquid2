@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// PartEditStartContract는 재실행과 검증에 쓰는 binding 계약이다.
 type PartEditStartContract struct {
 	MissionID                    string
 	CurrentPendingEventID        string
@@ -34,6 +35,7 @@ type PartEditStartContract struct {
 	ExcludedProviderSessionIDs   []string
 }
 
+// LoadCurrentPartEditStart는 현재 part edit 시작 이벤트와 binding을 장부에서 복원한다.
 func LoadCurrentPartEditStart(ctx context.Context, store PartEditOutcomeStore, contract PartEditStartContract) (PartEditBinding, bool, error) {
 	contract = normalizePartEditStartContract(contract)
 	if err := validatePartEditStartContract(contract); err != nil {

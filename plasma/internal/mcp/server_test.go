@@ -16,8 +16,8 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	mermaidpkg "github.com/c86j224s/liquid2/plasma/internal/mermaid"
+	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/urlsource"
 )
 
 func TestListToolsSchemasAreValid(t *testing.T) {
@@ -252,6 +252,33 @@ func TestLegacyMutationCallsRequireExplicitOption(t *testing.T) {
 	}
 	if len(service.events) != 0 || len(service.evidenceRequests) != 0 || len(service.proposalRequests) != 0 {
 		t.Fatalf("disabled legacy mutation reached storage: events=%#v evidence=%#v proposals=%#v", service.events, service.evidenceRequests, service.proposalRequests)
+	}
+}
+
+func TestResearchPortlessServiceFailsClosed(t *testing.T) {
+	service := mcpServiceWithoutResearchPorts{}
+	readServer := NewServer(service)
+	readResult := readServer.dispatchCall(context.Background(), ToolCall{
+		Name:      ToolResearchOutline,
+		Arguments: json.RawMessage(`{"mission_id":"mis_1"}`),
+	})
+	if readResult.Error == nil || readResult.Error.ErrorKind != "validation" || !strings.Contains(readResult.Error.Message, "research reader is not available") {
+		t.Fatalf("expected missing reader ToolResult, got %#v", readResult)
+	}
+	if readResult.TraceEventID != "" || readResult.TraceError != "" {
+		t.Fatalf("dispatchCall should not trace missing reader result: %#v", readResult)
+	}
+
+	mutationServer := NewServer(service, WithLegacyResearchLoop())
+	mutationResult := mutationServer.dispatchCall(context.Background(), ToolCall{
+		Name:      ToolEvidencePropose,
+		Arguments: evidenceProposalArgs("evd_1", "missing-writer"),
+	})
+	if mutationResult.Error == nil || mutationResult.Error.ErrorKind != "validation" || !strings.Contains(mutationResult.Error.Message, "research proposal writer is not available") {
+		t.Fatalf("expected missing proposal writer ToolResult, got %#v", mutationResult)
+	}
+	if mutationResult.TraceEventID != "" || mutationResult.TraceError != "" {
+		t.Fatalf("dispatchCall should not trace missing writer result: %#v", mutationResult)
 	}
 }
 
@@ -2474,13 +2501,13 @@ func TestSourceCandidatesProposeRecordsReviewAndStartsStaging(t *testing.T) {
 		AgentSessionID:     "ses_1",
 		CurrentUserEventID: "evt_user",
 		AgentExecutor:      "codex",
-	}), WithSourceCandidateFetcher(func(ctx context.Context, rawURL string) (urlsource.Fetched, error) {
+	}), WithSourceCandidateFetcher(func(ctx context.Context, rawURL string) (sourceretrieval.Fetched, error) {
 		close(fetchStarted)
 		select {
 		case <-releaseFetch:
-			return urlsource.Fetched{Content: []byte("candidate body"), MediaType: "text/plain; charset=utf-8", Title: "Roadmap"}, nil
+			return sourceretrieval.Fetched{Content: []byte("candidate body"), MediaType: "text/plain; charset=utf-8", Title: "Roadmap"}, nil
 		case <-ctx.Done():
-			return urlsource.Fetched{}, ctx.Err()
+			return sourceretrieval.Fetched{}, ctx.Err()
 		}
 	}))
 
@@ -3195,6 +3222,10 @@ func evidenceProposalArgs(evidenceID, idempotencyKey string) json.RawMessage {
 		panic(err)
 	}
 	return encoded
+}
+
+type mcpServiceWithoutResearchPorts struct {
+	Service
 }
 
 type fakeMCPService struct {

@@ -11,17 +11,22 @@ import (
 	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 )
 
+// Error는 cause.Error()를 그대로 반환한다. 사용자 노출 전 안전화 책임은 이 값을
+// 만드는 경계나 HTTP 응답 경계에 있다.
 func (err reportFailureWithPayload) Error() string {
 	return err.cause.Error()
 }
 
+// Unwrap은 상위 계층이 오류 원인을 검사할 수 있게 내부 오류를 돌려준다.
 func (err reportFailureWithPayload) Unwrap() error {
 	return err.cause
 }
 
+// FailurePayload는 export 실패 이벤트에 기록할 payload를 반환한다. 안전화 여부는
+// 생성자가 보장해야 한다.
 func (err reportFailureWithPayload) FailurePayload() map[string]any {
 	return err.payload
 }
@@ -175,7 +180,7 @@ func writeRawArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offse
 }
 
 func writePDFArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offset int, maxBytes int) {
-	chunk, err := pdftext.ExtractChunk(artifact.Content, offset, maxBytes)
+	chunk, err := pdfdocument.ExtractChunk(artifact.Content, offset, maxBytes)
 	if err != nil {
 		writeAppError(w, fmt.Errorf("%w: PDF text extraction failed: %v", app.ErrInvalidInput, err))
 		return
@@ -193,8 +198,8 @@ func writePDFArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offse
 			"page_count":           chunk.PageCount,
 			"text_length":          chunk.ContentLength,
 			"text_length_known":    chunk.ContentLengthKnown,
-			"suggested_read_bytes": pdftext.DefaultChunkMaxBytes,
-			"max_read_bytes":       pdftext.MaxChunkBytes,
+			"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
+			"max_read_bytes":       pdfdocument.MaxChunkBytes,
 		},
 	})
 }

@@ -14,14 +14,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 )
 
 func classifyUploadedFile(filename string, content []byte) (string, string, error) {
 	detectedMediaType := normalizeDetectedMediaType(http.DetectContentType(content))
 	ext := strings.ToLower(filepath.Ext(filename))
 	extMediaType := mediaTypeForUploadedExtension(ext)
-	if pdftext.IsPDFMediaType(extMediaType) || pdftext.IsPDFMediaType(detectedMediaType) || pdftext.IsPDFBytes(content) {
+	if pdfdocument.IsPDFMediaType(extMediaType) || pdfdocument.IsPDFMediaType(detectedMediaType) || pdfdocument.IsPDFBytes(content) {
 		if err := validateUploadedPDF(content); err != nil {
 			return "", "", err
 		}
@@ -48,10 +48,10 @@ func classifyUploadedFile(filename string, content []byte) (string, string, erro
 }
 
 func validateUploadedPDF(content []byte) error {
-	if !pdftext.IsPDFBytes(content) {
+	if !pdfdocument.IsPDFBytes(content) {
 		return fmt.Errorf("%w: uploaded PDF does not contain valid PDF bytes", ErrInvalidInput)
 	}
-	if _, err := pdftext.Inspect(content); err != nil {
+	if _, err := pdfdocument.Inspect(content); err != nil {
 		return fmt.Errorf("%w: uploaded PDF inspection failed: %v", ErrInvalidInput, err)
 	}
 	return nil

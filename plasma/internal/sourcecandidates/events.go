@@ -10,6 +10,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourcediagnostics"
 )
 
+// BuildSourceCandidateProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
 func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRequest) (app.AppendEventRequest, bool, error) {
 	if len(req.Candidates) == 0 {
 		return app.AppendEventRequest{}, false, nil
@@ -38,6 +39,7 @@ func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRe
 	}, true, nil
 }
 
+// BuildSourceCandidateMCPProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
 func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalEventRequest) (app.AppendEventRequest, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	payload := map[string]any{
@@ -64,6 +66,7 @@ func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalE
 	}, nil
 }
 
+// BuildWorkflowSourceCandidateProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
 func BuildWorkflowSourceCandidateProposalEventRequest(req WorkflowSourceCandidateProposalEventRequest) (app.AppendEventRequest, bool, error) {
 	if len(req.Candidates) == 0 {
 		return app.AppendEventRequest{}, false, nil

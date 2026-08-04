@@ -124,6 +124,7 @@ type designedReportCompositionShape struct {
 	PrimaryReaderAction string `json:"primary_reader_action"`
 }
 
+// Caption은 design unit이 화면에 표시할 짧은 설명을 반환한다.
 func (image reportInlineImage) Caption() string {
 	parts := []string{}
 	if image.Width > 0 && image.Height > 0 {

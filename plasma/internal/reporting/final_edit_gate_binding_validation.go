@@ -6,8 +6,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
-// ValidateFinalEditGateBindingsCompatible checks the plan-independent
-// contract shared by the final evidence/corrective gate and canonical finalization.
+// ValidateFinalEditGateBindingsCompatible는 final evidence/corrective gate와 canonical
+// finalization이 공유하는 plan-independent 계약을 검사한다.
 func ValidateFinalEditGateBindingsCompatible(stage FinalEditStageBinding, final LongFormFinalizeBinding) error {
 	stage = normalizeFinalEditStageBinding(stage)
 	final = normalizeLongFormFinalizeBinding(final)

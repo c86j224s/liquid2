@@ -9,6 +9,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 type sectionFanoutPartPlanTask struct {
@@ -25,8 +26,8 @@ type sectionFanoutPartPlanOutcome struct {
 }
 
 func longFormPartPlanningEnabled(profile string) bool {
-	return isReportGenerationGuidanceProfilePartConnectiveEconomyVoice(profile) ||
-		isReportGenerationGuidanceProfilePartConnectiveSubjectDirectSynthesisVoice(profile)
+	return reportprompt.IsPartConnectiveEconomyVoice(profile) ||
+		reportprompt.IsPartConnectiveSubjectDirectSynthesis(profile)
 }
 
 func (server *Server) ensureSectionFanoutPartPlans(ctx context.Context, req sectionFanoutLongFormRequest, state sectionFanoutPlanState, progress sectionalReportProgress, forker AgentSessionForker, executor AgentExecutor) (map[int]sectionFanoutPartPlan, error) {

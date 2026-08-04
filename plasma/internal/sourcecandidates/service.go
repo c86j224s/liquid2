@@ -12,6 +12,7 @@ const sourceCandidateFetchingMessage = "후보 원문을 백그라운드에서 �
 const defaultSourceCandidateRejectReason = "사용자가 이 URL을 이번 미션의 소스로 쓰지 않기로 했습니다."
 const defaultSourceCandidateRestoreReason = "사용자가 기각했던 URL을 다시 소스 후보로 검토하기로 했습니다."
 
+// Store는 후보 제안 이벤트와 staging 결과를 저장하는 소스 후보 저장소 포트다.
 type Store interface {
 	appender
 	ListRawArtifacts(context.Context, string) ([]app.RawArtifact, error)
@@ -24,6 +25,7 @@ type appender interface {
 	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
 }
 
+// StartStaging는 소스 후보 스테이징 경계 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func StartStaging(ctx context.Context, store Store, req SourceCandidateStagingStartRequest) (SourceCandidateStagingStartResult, error) {
 	normalizedURL, _, err := NormalizeSourceCandidateURL(req.Candidate.URL)
 	if err != nil {
@@ -72,6 +74,7 @@ func StartStaging(ctx context.Context, store Store, req SourceCandidateStagingSt
 	}, nil
 }
 
+// Stage는 fetch가 끝난 후보 artifact를 승인 전 staged 상태로 장부에 기록한다.
 func Stage(ctx context.Context, store Store, req SourceCandidateStageRequest) error {
 	if req.Fetcher == nil {
 		return fmt.Errorf("%w: source candidate fetcher is required", app.ErrInvalidInput)
@@ -126,6 +129,7 @@ func Stage(ctx context.Context, store Store, req SourceCandidateStageRequest) er
 	return err
 }
 
+// AppendStagingFailed는 후보 staging 실패를 안전한 오류 이벤트로 기록한다.
 func AppendStagingFailed(ctx context.Context, store appender, job SourceCandidateStagingJob, newEventID SourceCandidateIDFunc, cause error) error {
 	if newEventID == nil {
 		return fmt.Errorf("%w: source candidate event id generator is required", app.ErrInvalidInput)
@@ -142,10 +146,12 @@ func sourceCandidateKind(kind string) string {
 	return kind
 }
 
+// Reject는 소스 후보를 승인하지 않겠다는 사용자 결정을 장부에 남긴다.
 func Reject(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (app.LedgerEvent, error) {
 	return appendDecision(ctx, store, req, "source.candidate.rejected", "source_candidate_rejected", defaultSourceCandidateRejectReason)
 }
 
+// Restore는 소스 후보 스테이징 경계의 명시적 상태 전이를 수행한다. 결과는 후보 장부 이벤트로 확인한다.
 func Restore(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (app.LedgerEvent, error) {
 	return appendDecision(ctx, store, req, "source.candidate.restored", "source_candidate_restored", defaultSourceCandidateRestoreReason)
 }

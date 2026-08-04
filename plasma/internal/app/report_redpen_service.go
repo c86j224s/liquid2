@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 )
 
+// GetReportRedpenWorkcopy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetReportRedpenWorkcopy(ctx context.Context, missionID, sourceArtifactID string) (ReportRedpenWorkcopy, error) {
 	source, events, err := s.reportRedpenSource(ctx, missionID, sourceArtifactID)
 	if err != nil {
@@ -26,6 +27,7 @@ func (s *Service) GetReportRedpenWorkcopy(ctx context.Context, missionID, source
 	return reportRedpenWorkcopy(payload, artifact, event, false), nil
 }
 
+// SaveReportRedpenWorkcopy는 redpen 작업본을 최신 workcopy로 저장한다.
 func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRedpenRequest) (ReportRedpenWorkcopy, error) {
 	store, ok := s.store.(reportRedpenRevisionStore)
 	if !ok {

@@ -1,127 +1,119 @@
 package mcp
 
 import (
-	"encoding/json"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
+	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 const (
-	ToolMissionGet                                  = "plasma.mission.get"
-	ToolMissionUpdate                               = "plasma.mission.update"
-	ToolSourcesList                                 = "plasma.sources.list"
-	ToolSourcesRead                                 = "plasma.sources.read"
-	ToolSourcesTree                                 = "plasma.sources.tree"
-	ToolSourcesGrep                                 = "plasma.sources.grep"
-	ToolSourcesSearch                               = "plasma.sources.search"
-	ToolSourceCandidatesPropose                     = "plasma.sources.candidates.propose"
-	ToolSourceCandidatesRead                        = "plasma.sources.candidates.read"
-	ToolLocalPathRoots                              = "plasma.local_path.roots"
-	ToolLocalPathTree                               = "plasma.local_path.tree"
-	ToolLocalPathAttach                             = "plasma.local_path.attach"
-	ToolSourcesRemove                               = "plasma.sources.remove"
-	ToolSourcesRestore                              = "plasma.sources.restore"
-	ToolResearchOutline                             = "plasma.research.outline"
-	ToolResearchList                                = "plasma.research.list"
-	ToolResearchRead                                = "plasma.research.read"
-	ToolResearchGrep                                = "plasma.research.grep"
-	ToolResearchRefs                                = "plasma.research.references"
-	ToolMermaidValidate                             = "plasma.mermaid.validate"
-	ToolWorkflowStart                               = "plasma.workflow.start"
-	ToolWorkflowStatus                              = "plasma.workflow.status"
-	ToolWorkflowStop                                = "plasma.workflow.stop"
-	ToolReportPatchStart                            = "plasma.report.patch.start"
-	ToolReportPatchRead                             = "plasma.report.patch.read"
-	ToolReportPatchApply                            = "plasma.report.patch.apply"
-	ToolReportPatchFinalize                         = "plasma.report.patch.finalize"
-	ToolReportPlanSubmit                            = "plasma.report.plan.submit"
-	ToolReportRequirementsSubmit                    = "plasma.report.requirements.submit"
-	ToolReportPartAssemblyStart                     = "plasma.report.part_assembly.start"
-	ToolReportPartAssemblyRead                      = "plasma.report.part_assembly.read"
-	ToolReportPartSectionRead                       = "plasma.report.part_assembly.section.read"
-	ToolReportPartAssemblyPatch                     = "plasma.report.part_assembly.patch"
-	ToolReportPartAssemblySubmit                    = "plasma.report.part_assembly.submit"
-	ToolReportPartEditStart                         = "plasma.report.part_edit.start"
-	ToolReportPartEditRead                          = "plasma.report.part_edit.read"
-	ToolReportPartEditPatch                         = "plasma.report.part_edit.patch"
-	ToolReportPartEditSubmit                        = "plasma.report.part_edit.submit"
-	ToolReportLongFormFinalize                      = "plasma.report.long_form.finalize"
-	ToolReportLongFormFinalWriteStart               = "plasma.report.long_form.final_write.start"
-	ToolReportLongFormFinalWriteRead                = "plasma.report.long_form.final_write.read"
-	ToolReportLongFormFinalWritePatch               = "plasma.report.long_form.final_write.patch"
-	ToolReportLongFormFinalWriteSubmit              = "plasma.report.long_form.final_write.submit"
-	ToolReportLongFormReaderEditStart               = "plasma.report.long_form.reader_edit.start"
-	ToolReportLongFormReaderEditRead                = "plasma.report.long_form.reader_edit.read"
-	ToolReportLongFormReaderEditPatch               = "plasma.report.long_form.reader_edit.patch"
-	ToolReportLongFormReaderEditSubmit              = "plasma.report.long_form.reader_edit.submit"
-	ToolReportLongFormStyleEditStart                = "plasma.report.long_form.style_edit.start"
-	ToolReportLongFormStyleEditRead                 = "plasma.report.long_form.style_edit.read"
-	ToolReportLongFormStyleEditPatch                = "plasma.report.long_form.style_edit.patch"
-	ToolReportLongFormStyleEditSubmit               = "plasma.report.long_form.style_edit.submit"
-	ToolReportLongFormEditStart                     = "plasma.report.long_form.final_edit.start"
-	ToolReportLongFormEditRead                      = "plasma.report.long_form.final_edit.read"
-	ToolReportLongFormStyleReviewRead               = "plasma.report.long_form.style_review.read"
-	ToolReportLongFormEditPatch                     = "plasma.report.long_form.final_edit.patch"
-	ToolReportLongFormEditSubmit                    = "plasma.report.long_form.final_edit.submit"
-	ToolReportLongFormStyleSemanticValidationRead   = "plasma.report.long_form.style_semantic_validation.read"
-	ToolReportLongFormStyleSemanticValidationSubmit = "plasma.report.long_form.style_semantic_validation.submit"
-	ToolReportLongFormEvidenceGateRead              = "plasma.report.long_form.evidence_gate.read"
-	ToolReportLongFormEvidenceGateSubmit            = "plasma.report.long_form.evidence_gate.submit"
-	ToolExperimentReportCreate                      = "plasma.experiment.report.create"
-	ToolExperimentReportAppend                      = "plasma.experiment.report.append"
-	ToolExperimentReportRead                        = "plasma.experiment.report.read"
-	ToolExperimentReportFinalize                    = "plasma.experiment.report.finalize"
-	ToolSourcesSnapshot                             = "plasma.sources.snapshot"
-	ToolEvidencePropose                             = "plasma.evidence.propose"
-	ToolQuestionsPropose                            = "plasma.questions.propose"
-	ToolClaimsPropose                               = "plasma.claims.propose"
-	ToolClaimConfidence                             = "plasma.claims.confidence.update"
-	ToolProposalsSubmit                             = "plasma.proposals.submit"
+	// ToolMissionGet부터 ToolProposalsSubmit까지는 agent에게 노출되는 MCP tool 이름의
+	// 안정적인 wire contract다. 이름 변경은 기존 agent prompt, 실험 기록, 장부 trace
+	// 해석을 깨뜨릴 수 있으므로 새 tool을 추가하는 방식으로 확장한다.
+	ToolMissionGet                                  = mcptools.ToolMissionGet
+	ToolMissionUpdate                               = mcptools.ToolMissionUpdate
+	ToolSourcesList                                 = mcptools.ToolSourcesList
+	ToolSourcesRead                                 = mcptools.ToolSourcesRead
+	ToolSourcesTree                                 = mcptools.ToolSourcesTree
+	ToolSourcesGrep                                 = mcptools.ToolSourcesGrep
+	ToolSourcesSearch                               = mcptools.ToolSourcesSearch
+	ToolSourceCandidatesPropose                     = mcptools.ToolSourceCandidatesPropose
+	ToolSourceCandidatesRead                        = mcptools.ToolSourceCandidatesRead
+	ToolLocalPathRoots                              = mcptools.ToolLocalPathRoots
+	ToolLocalPathTree                               = mcptools.ToolLocalPathTree
+	ToolLocalPathAttach                             = mcptools.ToolLocalPathAttach
+	ToolSourcesRemove                               = mcptools.ToolSourcesRemove
+	ToolSourcesRestore                              = mcptools.ToolSourcesRestore
+	ToolResearchOutline                             = mcptools.ToolResearchOutline
+	ToolResearchList                                = mcptools.ToolResearchList
+	ToolResearchRead                                = mcptools.ToolResearchRead
+	ToolResearchGrep                                = mcptools.ToolResearchGrep
+	ToolResearchRefs                                = mcptools.ToolResearchRefs
+	ToolMermaidValidate                             = mcptools.ToolMermaidValidate
+	ToolWorkflowStart                               = mcptools.ToolWorkflowStart
+	ToolWorkflowStatus                              = mcptools.ToolWorkflowStatus
+	ToolWorkflowStop                                = mcptools.ToolWorkflowStop
+	ToolReportPatchStart                            = mcptools.ToolReportPatchStart
+	ToolReportPatchRead                             = mcptools.ToolReportPatchRead
+	ToolReportPatchApply                            = mcptools.ToolReportPatchApply
+	ToolReportPatchFinalize                         = mcptools.ToolReportPatchFinalize
+	ToolReportPlanSubmit                            = mcptools.ToolReportPlanSubmit
+	ToolReportRequirementsSubmit                    = mcptools.ToolReportRequirementsSubmit
+	ToolReportPartAssemblyStart                     = mcptools.ToolReportPartAssemblyStart
+	ToolReportPartAssemblyRead                      = mcptools.ToolReportPartAssemblyRead
+	ToolReportPartSectionRead                       = mcptools.ToolReportPartSectionRead
+	ToolReportPartAssemblyPatch                     = mcptools.ToolReportPartAssemblyPatch
+	ToolReportPartAssemblySubmit                    = mcptools.ToolReportPartAssemblySubmit
+	ToolReportPartEditStart                         = mcptools.ToolReportPartEditStart
+	ToolReportPartEditRead                          = mcptools.ToolReportPartEditRead
+	ToolReportPartEditPatch                         = mcptools.ToolReportPartEditPatch
+	ToolReportPartEditSubmit                        = mcptools.ToolReportPartEditSubmit
+	ToolReportLongFormFinalize                      = mcptools.ToolReportLongFormFinalize
+	ToolReportLongFormFinalWriteStart               = mcptools.ToolReportLongFormFinalWriteStart
+	ToolReportLongFormFinalWriteRead                = mcptools.ToolReportLongFormFinalWriteRead
+	ToolReportLongFormFinalWritePatch               = mcptools.ToolReportLongFormFinalWritePatch
+	ToolReportLongFormFinalWriteSubmit              = mcptools.ToolReportLongFormFinalWriteSubmit
+	ToolReportLongFormReaderEditStart               = mcptools.ToolReportLongFormReaderEditStart
+	ToolReportLongFormReaderEditRead                = mcptools.ToolReportLongFormReaderEditRead
+	ToolReportLongFormReaderEditPatch               = mcptools.ToolReportLongFormReaderEditPatch
+	ToolReportLongFormReaderEditSubmit              = mcptools.ToolReportLongFormReaderEditSubmit
+	ToolReportLongFormStyleEditStart                = mcptools.ToolReportLongFormStyleEditStart
+	ToolReportLongFormStyleEditRead                 = mcptools.ToolReportLongFormStyleEditRead
+	ToolReportLongFormStyleEditPatch                = mcptools.ToolReportLongFormStyleEditPatch
+	ToolReportLongFormStyleEditSubmit               = mcptools.ToolReportLongFormStyleEditSubmit
+	ToolReportLongFormEditStart                     = mcptools.ToolReportLongFormEditStart
+	ToolReportLongFormEditRead                      = mcptools.ToolReportLongFormEditRead
+	ToolReportLongFormStyleReviewRead               = mcptools.ToolReportLongFormStyleReviewRead
+	ToolReportLongFormEditPatch                     = mcptools.ToolReportLongFormEditPatch
+	ToolReportLongFormEditSubmit                    = mcptools.ToolReportLongFormEditSubmit
+	ToolReportLongFormStyleSemanticValidationRead   = mcptools.ToolReportLongFormStyleSemanticValidationRead
+	ToolReportLongFormStyleSemanticValidationSubmit = mcptools.ToolReportLongFormStyleSemanticValidationSubmit
+	ToolReportLongFormEvidenceGateRead              = mcptools.ToolReportLongFormEvidenceGateRead
+	ToolReportLongFormEvidenceGateSubmit            = mcptools.ToolReportLongFormEvidenceGateSubmit
+	ToolExperimentReportCreate                      = mcptools.ToolExperimentReportCreate
+	ToolExperimentReportAppend                      = mcptools.ToolExperimentReportAppend
+	ToolExperimentReportRead                        = mcptools.ToolExperimentReportRead
+	ToolExperimentReportFinalize                    = mcptools.ToolExperimentReportFinalize
+	ToolSourcesSnapshot                             = mcptools.ToolSourcesSnapshot
+	ToolEvidencePropose                             = mcptools.ToolEvidencePropose
+	ToolQuestionsPropose                            = mcptools.ToolQuestionsPropose
+	ToolClaimsPropose                               = mcptools.ToolClaimsPropose
+	ToolClaimConfidence                             = mcptools.ToolClaimConfidence
+	ToolProposalsSubmit                             = mcptools.ToolProposalsSubmit
 )
 
-type ToolDefinition struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"input_schema"`
-}
+// ToolDefinition은 MCP list_tools 응답에 실리는 tool metadata다.
+//
+// InputSchema는 이미 정규화된 JSON schema여야 하며, tool handler가 기대하는 request
+// shape와 같은 버전으로 유지되어야 한다.
+type ToolDefinition = wire.ToolDefinition
 
-type ToolCall struct {
-	Name      string          `json:"name"`
-	Arguments json.RawMessage `json:"arguments"`
-}
+// ToolCall은 MCP call_tool request의 최소 envelope이다.
+//
+// Arguments는 handler별 schema로만 해석한다. 공통 dispatch 단계에서 임의로
+// normalize하지 않으면 tool별 validation 오류가 agent에게 정확히 전달된다.
+type ToolCall = wire.ToolCall
 
-type ToolResult struct {
-	ToolName             string          `json:"tool_name"`
-	MissionID            string          `json:"mission_id,omitempty"`
-	CreatedEventIDs      []string        `json:"created_event_ids,omitempty"`
-	ProposalID           string          `json:"proposal_id,omitempty"`
-	CreatedRecords       []app.ObjectRef `json:"created_records,omitempty"`
-	RequiresUserApproval bool            `json:"requires_user_approval,omitempty"`
-	Content              any             `json:"content,omitempty"`
-	Error                *ToolError      `json:"error,omitempty"`
-	TraceEventID         string          `json:"trace_event_id,omitempty"`
-	TraceError           string          `json:"trace_error,omitempty"`
-}
+// ToolResult는 Plasma MCP tool 호출의 안정적인 response envelope이다.
+//
+// 성공과 실패 모두 같은 envelope을 사용한다. Error가 채워진 경우 Content는
+// 보조 정보일 수 있지만 제품 상태 변경 성공을 뜻하지 않는다.
+type ToolResult = wire.ToolResult
 
-type ToolError struct {
-	ErrorKind        string   `json:"error_kind"`
-	Message          string   `json:"message"`
-	Retryable        bool     `json:"retryable"`
-	RelatedObjectIDs []string `json:"related_object_ids,omitempty"`
-}
+// ToolError는 agent가 재시도 가능성과 관련 객체를 판단할 수 있게 하는 안전한
+// 오류 표현이다.
+//
+// Message는 사용자/agent에게 노출 가능한 문구여야 하며 credentials, 원문 source
+// 본문, provider raw response를 포함하면 안 된다.
+type ToolError = wire.ToolError
 
+// ListTools는 현재 Server binding과 feature option에 따라 노출 가능한 tool 목록을
+// 계산한다.
+//
+// tool 노출 여부는 보수적으로 계산한다. binding이 불완전하거나 mode가 맞지 않으면
+// tool을 숨겨 agent가 잘못된 state transition을 시도하지 않게 한다.
 func (server *Server) ListTools() []ToolDefinition {
-	researchListSchema := schemaResearchList
-	researchReadSchema := schemaResearchRead
-	researchRefsSchema := schemaResearchRefs
-	researchRefsDescription := "Follow forward and backward references between pinned sources, raw artifacts, and ledger events."
-	if server.legacyResearchLoop {
-		researchListSchema = schemaResearchListLegacy
-		researchReadSchema = schemaResearchReadLegacy
-		researchRefsSchema = schemaResearchRefsLegacy
-		researchRefsDescription = "Follow forward and backward references between sources, raw artifacts, ledger events, and legacy evidence, claims, questions, proposals, and report records."
-	}
 	tools := []ToolDefinition{
 		{Name: ToolMissionGet, Description: "Read a Plasma mission projection.", InputSchema: schemaMissionGet},
 		{Name: ToolMissionUpdate, Description: "Update supplied current mission metadata fields through the shared application service only when the user explicitly requests the edit.", InputSchema: schemaMissionUpdate},
@@ -134,16 +126,14 @@ func (server *Server) ListTools() []ToolDefinition {
 		{Name: ToolSourceCandidatesRead, Description: "Read a staged unapproved source candidate by URL, proposal event, or artifact id. This is for conversation/research only; staged candidates are not approved source snapshots and are excluded from default report generation.", InputSchema: schemaSourceCandidatesRead},
 		{Name: ToolLocalPathRoots, Description: "List configured allowlisted local path roots. Output never includes absolute filesystem paths.", InputSchema: schemaLocalPathRoots},
 		{Name: ToolLocalPathTree, Description: "Browse an allowlisted local path root by root_id and relative_path with bounded depth and entry count.", InputSchema: schemaLocalPathTree},
-		{Name: ToolResearchOutline, Description: "Outline a mission ledger without returning source bodies or large record arrays.", InputSchema: schemaResearchOutline},
-		{Name: ToolResearchList, Description: "List mission ledger objects by kind with enforced cursor and limit paging.", InputSchema: researchListSchema},
-		{Name: ToolResearchRead, Description: "Read one mission ledger object or source artifact with bounded bytes and next_offset for long payloads.", InputSchema: researchReadSchema},
-		{Name: ToolResearchGrep, Description: "Find candidate snippets across mission ledger objects. Matches are candidates, not evidence or sources until read and referenced.", InputSchema: schemaResearchGrep},
-		{Name: ToolResearchRefs, Description: researchRefsDescription, InputSchema: researchRefsSchema},
-		{Name: ToolMermaidValidate, Description: "Validate Mermaid source with Plasma's server-side preflight rules before showing it to the user. This catches known Mermaid 11.16.0 parse-breaking patterns and compatibility risks; it does not execute a browser render.", InputSchema: schemaMermaidValidate},
-		{Name: ToolWorkflowStart, Description: "Request a bounded Plasma workflow run for the bound mission. This queues work and does not call the provider inside the MCP tool.", InputSchema: schemaWorkflowStart},
-		{Name: ToolWorkflowStatus, Description: "Read shared workflow run status from the mission ledger projection.", InputSchema: schemaWorkflowStatus},
-		{Name: ToolWorkflowStop, Description: "Request that a bounded workflow run stop before the next step.", InputSchema: schemaWorkflowStop},
 	}
+	tools = append(tools, research.Definitions(server.legacyResearchLoop)...)
+	tools = append(tools,
+		ToolDefinition{Name: ToolMermaidValidate, Description: "Validate Mermaid source with Plasma's server-side preflight rules before showing it to the user. This catches known Mermaid 11.16.0 parse-breaking patterns and compatibility risks; it does not execute a browser render.", InputSchema: schemaMermaidValidate},
+		ToolDefinition{Name: ToolWorkflowStart, Description: "Request a bounded Plasma workflow run for the bound mission. This queues work and does not call the provider inside the MCP tool.", InputSchema: schemaWorkflowStart},
+		ToolDefinition{Name: ToolWorkflowStatus, Description: "Read shared workflow run status from the mission ledger projection.", InputSchema: schemaWorkflowStatus},
+		ToolDefinition{Name: ToolWorkflowStop, Description: "Request that a bounded workflow run stop before the next step.", InputSchema: schemaWorkflowStop},
+	)
 	if server.operatorSourceMutation {
 		tools = append(tools,
 			ToolDefinition{Name: ToolLocalPathAttach, Description: "Operator-only: attach an allowlisted local path as a live_reference source for the bound mission without snapshotting file content.", InputSchema: schemaLocalPathAttach},
@@ -276,13 +266,7 @@ func (server *Server) ListTools() []ToolDefinition {
 		)
 	}
 	if server.legacyResearchLoop {
-		tools = append(tools,
-			ToolDefinition{Name: ToolEvidencePropose, Description: "Propose focused evidence grounded in source snapshots, including facts and useful research signals for later review or reporting.", InputSchema: schemaEvidencePropose},
-			ToolDefinition{Name: ToolQuestionsPropose, Description: "Propose a follow-up research question.", InputSchema: schemaQuestionsPropose},
-			ToolDefinition{Name: ToolClaimsPropose, Description: "Propose a claim backed by evidence or user assertion.", InputSchema: schemaClaimsPropose},
-			ToolDefinition{Name: ToolClaimConfidence, Description: "Record an advisory confidence update for an existing claim when new evidence changes the assessment. This does not approve or reject the claim.", InputSchema: schemaClaimConfidence},
-			ToolDefinition{Name: ToolProposalsSubmit, Description: "Submit existing proposed records for user review.", InputSchema: schemaProposalsSubmit},
-		)
+		tools = append(tools, research.LegacyMutationDefinitions()...)
 	}
 	if len(server.enabledTools) > 0 {
 		filtered := tools[:0]

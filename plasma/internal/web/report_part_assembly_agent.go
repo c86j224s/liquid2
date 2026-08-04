@@ -6,8 +6,9 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 type reportPartAssemblyAgentRequest struct {
@@ -123,14 +124,14 @@ func partSectionArtifactIDs(drafts []sectionalReportDraft) []string {
 }
 
 func usePartAssemblyEditTools(profile string) bool {
-	return isReportGenerationGuidanceProfilePartAssemblyEditTools(profile) ||
-		isReportGenerationGuidanceProfileVisualPlan(profile)
+	return reportprompt.IsPartAssemblyEditTools(profile) ||
+		reportprompt.IsVisualPlan(profile)
 }
 
 func agentPartAssemblyEditToolsPrompt(req reportPartAssemblyAgentRequest, binding reporting.PartAssemblyBinding, draftID string) string {
 	guidance := strings.TrimSpace(strings.Join([]string{
-		LongFormReportGenerationGuidance(req.generationGuidanceProfile),
-		reportPartConnectiveEconomyGuidance(req.generationGuidanceProfile),
+		reportprompt.LongFormReportGenerationGuidance(req.generationGuidanceProfile),
+		reportprompt.PartConnectiveEconomyGuidance(req.generationGuidanceProfile),
 	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
@@ -138,8 +139,8 @@ func agentPartAssemblyEditToolsPrompt(req reportPartAssemblyAgentRequest, bindin
 	sectionReading := ""
 	sectionInventory := sectionalDraftInventoryJSON(req.drafts)
 	promptBinding := binding
-	if isReportGenerationGuidanceProfileNarrativeContract(req.generationGuidanceProfile) {
-		sectionReading = fmt.Sprintf("\nRequired manuscript reading:\n- Call %s for every Section in this Part, following next_offset until truncated is false. Read the actual Section bodies before writing connective text.\n", plasmamcp.ToolReportPartSectionRead)
+	if reportprompt.IsNarrativeContract(req.generationGuidanceProfile) {
+		sectionReading = fmt.Sprintf("\nRequired manuscript reading:\n- Call %s for every Section in this Part, following next_offset until truncated is false. Read the actual Section bodies before writing connective text.\n", mcptools.ToolReportPartSectionRead)
 		sectionInventory = narrativePartSectionInventoryJSON(req.drafts)
 		promptBinding.SectionArtifactIDs = nil
 	}
@@ -180,7 +181,7 @@ Rules:
 - Do not summarize the Section bodies into a replacement overview.
 - Transitions are optional, but when useful they should connect adjacent Sections without compressing them.
 - Prefer one good intro and one good closing over many filler transitions.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionInventory, agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(promptBinding), plasmamcp.ToolReportPartAssemblyStart, draftID, sectionReading, plasmamcp.ToolReportPartAssemblyRead, plasmamcp.ToolReportPartAssemblyPatch, plasmamcp.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionInventory, agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(promptBinding), mcptools.ToolReportPartAssemblyStart, draftID, sectionReading, mcptools.ToolReportPartAssemblyRead, mcptools.ToolReportPartAssemblyPatch, mcptools.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel)
 }
 
 func narrativePartSectionInventoryJSON(drafts []sectionalReportDraft) string {

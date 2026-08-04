@@ -10,6 +10,7 @@ const (
 	ReportRedpenArtifactKind = "redpen_markdown_report_artifact"
 )
 
+// SaveReportRedpenRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type SaveReportRedpenRequest struct {
 	EventID                   string
 	ArtifactID                string
@@ -21,6 +22,7 @@ type SaveReportRedpenRequest struct {
 	Content                   []byte
 }
 
+// ReportRedpenWorkcopy는 report redpen 편집 화면의 현재 작업본 artifact다.
 type ReportRedpenWorkcopy struct {
 	Exists             bool
 	WorkcopyID         string

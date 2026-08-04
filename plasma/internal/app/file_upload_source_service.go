@@ -20,6 +20,7 @@ const (
 	UploadedContentKindImage = "image"
 )
 
+// CreateUploadedFileSourceRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type CreateUploadedFileSourceRequest struct {
 	MissionID        string
 	ArtifactID       string
@@ -32,6 +33,7 @@ type CreateUploadedFileSourceRequest struct {
 	UploadedAt       time.Time
 }
 
+// UploadedFileSourceResult는 업로드 source snapshot과 기록된 장부 이벤트를 함께 반환한다.
 type UploadedFileSourceResult struct {
 	Artifact RawArtifact
 	Snapshot SourceSnapshot
@@ -39,6 +41,7 @@ type UploadedFileSourceResult struct {
 	Existing bool
 }
 
+// CreateUploadedFileSourceWithEvent는 업로드 artifact, source snapshot, 이벤트를 함께 기록한다.
 func (s *Service) CreateUploadedFileSourceWithEvent(ctx context.Context, req CreateUploadedFileSourceRequest) (UploadedFileSourceResult, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", missionID); err != nil {

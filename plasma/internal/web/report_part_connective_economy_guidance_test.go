@@ -5,23 +5,24 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func TestPartConnectiveEconomyGuidanceStaysWithPartAssembler(t *testing.T) {
-	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "part_connective_economy")
-	if err != nil || profile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice || strings.TrimSpace(sha) == "" {
+	profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "part_connective_economy")
+	if err != nil || profile != reportprompt.ProfilePartConnectiveEconomyVoice || strings.TrimSpace(sha) == "" {
 		t.Fatalf("long-form rejected Part connective-economy profile: profile=%q sha=%q err=%v", profile, sha, err)
 	}
 	for _, mode := range []string{reportModeOneTake, reportModePlanned} {
-		if _, _, err := SelectReportGenerationGuidanceForMode(mode, "part_connective_economy"); err == nil {
+		if _, _, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "part_connective_economy"); err == nil {
 			t.Fatalf("mode %s accepted long-form-only Part connective-economy profile", mode)
 		}
 	}
-	_, sectionSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfileSectionDirectReadingVoice)
+	_, sectionSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfileSectionDirectReadingVoice)
 	if err != nil || sha == sectionSHA {
 		t.Fatalf("Part-only guidance must have a distinct policy hash: part=%q section=%q err=%v", sha, sectionSHA, err)
 	}
-	if !requireReportWritingContract(profile) || longFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
+	if !reportprompt.RequireReportWritingContract(profile) || reportprompt.LongFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
 		t.Fatalf("Part connective-economy profile lost the edited-reading contract or final-edit path")
 	}
 
@@ -73,26 +74,26 @@ func TestPartConnectiveEconomyGuidanceStaysWithPartAssembler(t *testing.T) {
 }
 
 func TestRichSectionGuidanceIsOnlyTheLongFormDefault(t *testing.T) {
-	profile, sha, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, "")
-	if err != nil || profile != reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract || strings.TrimSpace(sha) == "" {
+	profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "")
+	if err != nil || profile != reportprompt.ProfileSectionBriefClusterNarrativeContract || strings.TrimSpace(sha) == "" {
 		t.Fatalf("unexpected long-form default: profile=%q sha=%q err=%v", profile, sha, err)
 	}
-	explicitProfile, explicitSHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfileSectionBriefClusterNarrativeContract)
+	explicitProfile, explicitSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfileSectionBriefClusterNarrativeContract)
 	if err != nil || explicitProfile != profile || explicitSHA != sha {
 		t.Fatalf("long-form default diverged from the tested profile: default=%q/%q explicit=%q/%q err=%v", profile, sha, explicitProfile, explicitSHA, err)
 	}
-	legacyProfile, legacySHA, err := SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfilePartConnectiveEconomyVoice)
-	if err != nil || legacyProfile != reportGenerationGuidanceProfilePartConnectiveEconomyVoice || strings.TrimSpace(legacySHA) == "" {
+	legacyProfile, legacySHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfilePartConnectiveEconomyVoice)
+	if err != nil || legacyProfile != reportprompt.ProfilePartConnectiveEconomyVoice || strings.TrimSpace(legacySHA) == "" {
 		t.Fatalf("explicit legacy long-form voice profile was not preserved: profile=%q sha=%q err=%v", legacyProfile, legacySHA, err)
 	}
 	for _, mode := range []string{reportModeOneTake, reportModePlanned} {
-		profile, sha, err := SelectReportGenerationGuidanceForMode(mode, "")
-		if err != nil || profile != reportGenerationGuidanceProfileNarrativeContract || strings.TrimSpace(sha) == "" {
+		profile, sha, err := reportprompt.SelectReportGenerationGuidanceForMode(mode, "")
+		if err != nil || profile != reportprompt.ProfileNarrativeContract || strings.TrimSpace(sha) == "" {
 			t.Fatalf("mode %s default changed: profile=%q sha=%q err=%v", mode, profile, sha, err)
 		}
 	}
-	profile, _, err = SelectReportGenerationGuidanceForMode(reportModeLongForm, reportGenerationGuidanceProfileNarrativeContract)
-	if err != nil || profile != reportGenerationGuidanceProfileNarrativeContract {
+	profile, _, err = reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfileNarrativeContract)
+	if err != nil || profile != reportprompt.ProfileNarrativeContract {
 		t.Fatalf("explicit long-form narrative profile was not preserved: profile=%q err=%v", profile, err)
 	}
 }

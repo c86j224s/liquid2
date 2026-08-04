@@ -30,15 +30,23 @@ Read these first if you are trying to understand Plasma:
 3. [C1 Default Loop](c1-default-loop.md) /
    [C1 Default Loop Korean](c1-default-loop.ko.md) - the current default product
    workflow.
-4. [Product Architecture](product-architecture.md) /
+4. [Architecture Map](architecture/README.md) /
+   [Architecture Map Korean](architecture/README.ko.md) - package ownership,
+   dependency direction, and current transition boundaries.
+5. [Package Boundaries](architecture/package-boundaries.md) /
+   [Package Boundaries Korean](architecture/package-boundaries.ko.md) -
+   normative placement, import, and split-review rules.
+6. [Product Architecture](product-architecture.md) /
    [Product Architecture Korean](product-architecture.ko.md) - durable product
-   and backend boundaries.
+   behavior and feature-specific boundaries.
 
 ## Current Product Rules
 
 These documents describe how Plasma should behave now:
 
 - [C1 Default Loop](c1-default-loop.md)
+- [Architecture Map](architecture/README.md)
+- [Package Boundaries](architecture/package-boundaries.md)
 - [Product Architecture](product-architecture.md)
 - [Product Flow](product-flow.md) - Korean-first bridge document that preserves
   product-flow history until a separate cleanup issue replaces it.

@@ -9,6 +9,7 @@ import (
 
 var longFormHeadingLineRE = regexp.MustCompile(`^(#{1,6})\s+(.+?)\s*$`)
 
+// AssembleLongFormFinalMarkdown는 장문 보고서 part artifact들을 최종 Markdown 본문으로 조립한다.
 func AssembleLongFormFinalMarkdown(title, opening, closing string, parts []string) string {
 	var out strings.Builder
 	if opening = normalizeLongFormBoundary(opening, false); opening != "" {

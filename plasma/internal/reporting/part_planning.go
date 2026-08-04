@@ -15,12 +15,14 @@ const (
 	maxPartPlanBriefBytes    = 16 * 1024
 )
 
+// PartPlanCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type PartPlanCreatedEventRequest struct {
 	MarkdownReportStageEventBase
 	PartIndex int
 	Brief     string
 }
 
+// PartPlanResult는 part plan 제출 이벤트와 artifact를 함께 반환한다.
 type PartPlanResult struct {
 	Event             app.LedgerEvent
 	Brief             string
@@ -28,6 +30,7 @@ type PartPlanResult struct {
 	PartIndex         int
 }
 
+// FinalizePartPlan는 part plan 제출을 검증하고 저장용 이벤트 요청으로 만든다.
 func FinalizePartPlan(ctx context.Context, service *app.Service, req PartPlanCreatedEventRequest) (PartPlanResult, error) {
 	req.Brief = strings.TrimSpace(req.Brief)
 	base := req.MarkdownReportStageEventBase
@@ -102,6 +105,7 @@ func FinalizePartPlan(ctx context.Context, service *app.Service, req PartPlanCre
 	return result, nil
 }
 
+// BuildPartPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildPartPlanCreatedAppendRequest(req PartPlanCreatedEventRequest) app.AppendEventRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
@@ -126,6 +130,7 @@ func BuildPartPlanCreatedAppendRequest(req PartPlanCreatedEventRequest) app.Appe
 	}
 }
 
+// PartPlanParentState는 계산한 읽기 모델이다. 원천 상태는 장부와 저장소에 남아 있다.
 type PartPlanParentState struct {
 	PartEditEnabled              bool
 	PartPlanningEnabled          bool
@@ -189,6 +194,7 @@ func partPlanParent(events []app.LedgerEvent, pendingEventID string, planEventID
 	return PartPlanParentState{}, false, nil
 }
 
+// DecodePartPlanParent는 part plan parent payload를 후속 stage 입력으로 복원한다.
 func DecodePartPlanParent(event app.LedgerEvent, pendingEventID string, planEventID string) (PartPlanParentState, bool, error) {
 	if event.EventID != strings.TrimSpace(planEventID) || event.EventType != "report.plan.created" {
 		return PartPlanParentState{}, false, nil

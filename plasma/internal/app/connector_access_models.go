@@ -1,40 +1,25 @@
 package app
 
-const (
-	ConnectorAccessEventEnabled  = "mission.connector_access.enabled"
-	ConnectorAccessEventUpdated  = "mission.connector_access.updated"
-	ConnectorAccessEventDisabled = "mission.connector_access.disabled"
+import "github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 
-	ConnectorAccessStatusDisabled = "disabled"
-	ConnectorAccessStatusEnabled  = "enabled"
-	ConnectorAccessStatusInvalid  = "invalid"
+const (
+	// ConnectorAccessEvent* 값은 미션이 connector 접근을 허용/변경/해제한 장부 event다.
+	ConnectorAccessEventEnabled  = confluenceaccess.AccessEventEnabled
+	ConnectorAccessEventUpdated  = confluenceaccess.AccessEventUpdated
+	ConnectorAccessEventDisabled = confluenceaccess.AccessEventDisabled
+
+	// ConnectorAccessStatus* 값은 mission connector access projection의 상태다.
+	ConnectorAccessStatusDisabled = confluenceaccess.AccessStatusDisabled
+	ConnectorAccessStatusEnabled  = confluenceaccess.AccessStatusEnabled
+	ConnectorAccessStatusInvalid  = confluenceaccess.AccessStatusInvalid
 )
 
-type ConnectorAccessProjection struct {
-	MissionID     string `json:"mission_id"`
-	ConnectorID   string `json:"connector_id"`
-	Enabled       bool   `json:"enabled"`
-	ConnectionID  string `json:"connection_id,omitempty"`
-	CloudID       string `json:"cloud_id,omitempty"`
-	SpaceKey      string `json:"space_key,omitempty"`
-	Status        string `json:"status"`
-	InvalidReason string `json:"invalid_reason,omitempty"`
-	LastEventID   string `json:"last_event_id,omitempty"`
-	LastSequence  int64  `json:"last_sequence,omitempty"`
-}
+// ConnectorAccessProjection은 한 미션이 connector connection을 사용할 수 있는지에
+// 대한 현재 view다.
+type ConnectorAccessProjection = confluenceaccess.AccessProjection
 
-type SetConnectorAccessRequest struct {
-	EventID      string
-	MissionID    string
-	ConnectorID  string
-	Enabled      bool
-	ConnectionID string
-	CloudID      string
-	SpaceKey     string
-	Producer     Producer
-}
+// SetConnectorAccessRequest는 미션별 connector 접근 권한을 변경하는 입력이다.
+type SetConnectorAccessRequest = confluenceaccess.SetAccessRequest
 
-type ConnectorAccessChangeResult struct {
-	Access ConnectorAccessProjection `json:"access"`
-	Event  LedgerEvent               `json:"event"`
-}
+// ConnectorAccessChangeResult는 connector 접근 권한 변경 결과와 기록 event다.
+type ConnectorAccessChangeResult = confluenceaccess.AccessChangeResult

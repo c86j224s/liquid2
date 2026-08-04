@@ -17,6 +17,7 @@ type webConfluenceIdentityMappingConnector struct {
 	connectionCloudID string
 }
 
+// SearchConfluenceSources는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (connector *webConfluenceIdentityMappingConnector) SearchConfluenceSources(ctx context.Context, req app.ConfluenceSourceSearchRequest) (app.ConfluenceSourceSearchResult, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
 	result, err := connector.delegate.SearchConfluenceSources(ctx, req)
@@ -30,6 +31,7 @@ func (connector *webConfluenceIdentityMappingConnector) SearchConfluenceSources(
 	return result, nil
 }
 
+// ReadConfluenceSource는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (connector *webConfluenceIdentityMappingConnector) ReadConfluenceSource(ctx context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourcePage, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
 	page, err := connector.delegate.ReadConfluenceSource(ctx, req)
@@ -42,6 +44,7 @@ func (connector *webConfluenceIdentityMappingConnector) ReadConfluenceSource(ctx
 	return connector.mapPage(page), nil
 }
 
+// GetConfluenceSourceVersion는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (connector *webConfluenceIdentityMappingConnector) GetConfluenceSourceVersion(ctx context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourceVersion, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
 	if versionConnector, ok := connector.delegate.(app.ConfluenceSourceVersionConnector); ok {

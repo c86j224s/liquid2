@@ -5,13 +5,14 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
 
 func agentLongFormFinalEditPrompt(title string, missionID string, rigor reportRigorProfile, plan agentSectionalReportPlan, generationGuidanceProfile string, binding reporting.LongFormFinalizeBinding, requirementMap reporting.ReportRequirementMap, attempt int, canonical bool) string {
 	if canonical {
 		return `The canonical long-form report already exists. Return exactly REPORT_FINALIZED as the entire response. Do not call a tool and do not add text or fences.`
 	}
-	guidance := strings.TrimSpace(LongFormReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.LongFormReportGenerationGuidance(generationGuidanceProfile))
 	retry := ""
 	if attempt > 1 {
 		retry = "\nThis is the one allowed final-stage retry. Start a new bound draft and repeat the editorial pass from the durable Part artifacts."
@@ -58,5 +59,5 @@ Editorial responsibilities:
 - Do not add new researched facts, call source/research tools, mutate Part or Section artifacts, or expose artifact IDs in the report.
 - Keep valid Mermaid blocks intact unless an exact edit is necessary; any edited or added Mermaid block must follow this rule: %s
 - Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.
-- Return no report body in the response.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, agentReportAnyJSON(binding.ToolSessionID), agentReportAnyJSON(binding.IdempotencyKey), agentReportAnyJSON(plan), agentReportAnyJSON(ownerBoundRequirements), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportMermaidValidationRule)
+- Return no report body in the response.`, title, missionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, agentReportAnyJSON(binding.ToolSessionID), agentReportAnyJSON(binding.IdempotencyKey), agentReportAnyJSON(plan), agentReportAnyJSON(ownerBoundRequirements), rigor.level, rigor.label, rigor.description, rigor.instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// ListConfluenceSpaces는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluenceSpaces(
 	ctx context.Context,
 	req app.ConfluenceSpaceListRequest,
@@ -41,6 +42,7 @@ func (client *Client) ListConfluenceSpaces(
 	}, nil
 }
 
+// ListConfluenceSpacePages는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluenceSpacePages(
 	ctx context.Context,
 	req app.ConfluenceSpacePagesRequest,
@@ -57,6 +59,7 @@ func (client *Client) ListConfluenceSpacePages(
 	return client.pageListResult(req.MissionID, response), nil
 }
 
+// ListConfluencePageChildren는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluencePageChildren(
 	ctx context.Context,
 	req app.ConfluencePageChildrenRequest,

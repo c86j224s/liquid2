@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 const controlMarker = "PLASMA_WORKFLOW_CONTROL:"
 
-func StepPrompt(view app.WorkflowRunView, instruction string, toolSessionID string, resumed bool) string {
+// StepPrompt는 workflow 단계용 에이전트 프롬프트를 만든다. 사용자의 원 요청,
+// 파생된 run goal, 현재 단계 지시를 구분해서 전달하고, 마지막 control marker
+// 제출 계약을 프롬프트에 포함한다.
+func StepPrompt(view workflowstate.WorkflowRunView, instruction string, toolSessionID string, resumed bool) string {
 	intro := "You are the Plasma research agent running one bounded workflow step."
 	if resumed {
 		intro = "Continue the existing Plasma research agent session for one bounded workflow step."
@@ -17,7 +20,7 @@ func StepPrompt(view app.WorkflowRunView, instruction string, toolSessionID stri
 	return layeredStepPrompt(intro, view, instruction, toolSessionID)
 }
 
-func layeredStepPrompt(intro string, view app.WorkflowRunView, instruction string, toolSessionID string) string {
+func layeredStepPrompt(intro string, view workflowstate.WorkflowRunView, instruction string, toolSessionID string) string {
 	raw := strings.TrimSpace(firstNonEmptyWorkflowPrompt(view.UserInstructionRaw, view.Instruction, instruction))
 	goal := strings.TrimSpace(firstNonEmptyWorkflowPrompt(view.RunGoal, view.Instruction, instruction))
 	return fmt.Sprintf(`%s

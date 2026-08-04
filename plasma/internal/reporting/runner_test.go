@@ -1,11 +1,9 @@
 package reporting
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"strings"
 	"sync"
 	"testing"
@@ -13,21 +11,11 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 )
-
-func TestLogTerminalWriteFailureUsesSafeStructuredFields(t *testing.T) {
-	var output bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&output)
-	t.Cleanup(func() { log.SetOutput(previous) })
-	logTerminalWriteFailure("mis_1", "evt_pending", "draft", "report.draft.failed", errors.New("sqlite busy"))
-	line := output.String()
-	for _, want := range []string{"report_terminal_write_failed", `mission_id="mis_1"`, `pending_event_id="evt_pending"`, `report_type="draft"`, `intended_event_type="report.draft.failed"`, `err="sqlite busy"`} {
-		if !strings.Contains(line, want) {
-			t.Fatalf("missing safe structured log field %q: %s", want, line)
-		}
-	}
-}
 
 func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 	ctx := context.Background()
@@ -45,7 +33,7 @@ func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 		},
 	}
 
-	pending, err := runner.StartDraft(ctx, "mis_1", DraftRequest{Title: "Report", AgentExecutor: "codex", MCPMode: "auto"}, app.Producer{Type: "user", ID: "test"})
+	pending, err := runner.StartDraft(ctx, "mis_1", DraftRequest{Title: "Report", AgentExecutor: "codex", MCPMode: "auto"}, ledger.Producer{Type: "user", ID: "test"})
 	if err != nil {
 		t.Fatalf("StartDraft returned error: %v", err)
 	}
@@ -72,7 +60,7 @@ func TestRunnerStartDraftUsesSharedPendingAndFailurePolicy(t *testing.T) {
 
 func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *testing.T) {
 	checkedAt := time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC)
-	svc := &fakeRunnerService{sources: []app.SourceSnapshot{
+	svc := &fakeRunnerService{sources: []source.Snapshot{
 		{
 			SnapshotID: "src_2", MissionID: "mis_1", Title: "Unchecked page",
 			Connector:  app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType, ExternalVersion: "4", ExternalURI: "https://private.example/wiki/2"},
@@ -98,18 +86,28 @@ func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *te
 		},
 	}
 	runner.InFlight.SetNewID(testRunnerID)
-	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report"}, app.Producer{Type: "user", ID: "test"})
+	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report"}, ledger.Producer{Type: "user", ID: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var payload struct {
-		SourceContext reportSourceContext `json:"source_context"`
+		SourceContext struct {
+			SchemaVersion     string `json:"schema_version"`
+			CapturedAt        string `json:"captured_at"`
+			ConfluenceSources []struct {
+				SnapshotID string `json:"snapshot_id"`
+				LastCheck  struct {
+					Status        string `json:"status"`
+					LatestVersion int    `json:"latest_version"`
+				} `json:"last_check"`
+			} `json:"confluence_sources"`
+		} `json:"source_context"`
 	}
 	if err := json.Unmarshal(pending.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
 	context := payload.SourceContext
-	if context.SchemaVersion != reportSourceContextSchemaVersion || context.CapturedAt == "" || len(context.ConfluenceSources) != 2 {
+	if context.SchemaVersion != "plasma.report_source_context.v1" || context.CapturedAt == "" || len(context.ConfluenceSources) != 2 {
 		t.Fatalf("unexpected report source context: %#v", context)
 	}
 	if context.ConfluenceSources[0].SnapshotID != "src_1" || context.ConfluenceSources[0].LastCheck.Status != app.ConfluenceUpdateStatusAvailable || context.ConfluenceSources[0].LastCheck.LatestVersion != 8 {
@@ -134,10 +132,40 @@ func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *te
 }
 
 func TestReportSourceContextDropsUnknownConfluenceErrorDetails(t *testing.T) {
-	check := buildReportConfluenceCheckContext(&app.ConfluenceUpdateState{
-		Status: app.ConfluenceUpdateStatusFailed, CheckedAt: time.Now().UTC(),
-		ErrorCategory: app.ConfluenceErrorCategoryAuth, ErrorCode: "raw_provider_detail",
-	})
+	svc := &fakeRunnerService{sources: []source.Snapshot{{
+		SnapshotID: "src_1", MissionID: "mis_1", Title: "Failed page",
+		Connector: app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType},
+		State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+			Status: app.ConfluenceUpdateStatusFailed, CheckedAt: time.Now().UTC(),
+			ErrorCategory: app.ConfluenceErrorCategoryAuth, ErrorCode: "raw_provider_detail",
+		}},
+	}}}
+	runner := Runner{
+		Service: svc, InFlight: &InFlight{}, NewID: testRunnerID,
+		GenerateDraft: func(context.Context, string, DraftRequest, string) error { return nil },
+	}
+	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report"}, ledger.Producer{Type: "user", ID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		SourceContext struct {
+			ConfluenceSources []struct {
+				LastCheck struct {
+					Status        string `json:"status"`
+					ErrorCategory string `json:"error_category"`
+					ErrorCode     string `json:"error_code"`
+				} `json:"last_check"`
+			} `json:"confluence_sources"`
+		} `json:"source_context"`
+	}
+	if err := json.Unmarshal(pending.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.SourceContext.ConfluenceSources) != 1 {
+		t.Fatalf("unexpected report source context: %#v", payload.SourceContext)
+	}
+	check := payload.SourceContext.ConfluenceSources[0].LastCheck
 	if check.Status != app.ConfluenceUpdateStatusFailed || check.ErrorCategory != "" || check.ErrorCode != "" {
 		t.Fatalf("unsafe error detail entered report context: %#v", check)
 	}
@@ -146,19 +174,19 @@ func TestReportSourceContextDropsUnknownConfluenceErrorDetails(t *testing.T) {
 func TestRunnerGenerationCallbacksDoNotInheritWorkflowStepDeadline(t *testing.T) {
 	tests := []struct {
 		name  string
-		start func(context.Context, Runner) (app.LedgerEvent, error)
+		start func(context.Context, Runner) (ledger.Event, error)
 	}{
-		{name: "draft", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
-			return r.StartDraft(ctx, "mis_draft", DraftRequest{}, app.Producer{Type: "user", ID: "test"})
+		{name: "draft", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
+			return r.StartDraft(ctx, "mis_draft", DraftRequest{}, ledger.Producer{Type: "user", ID: "test"})
 		}},
-		{name: "design", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
-			return r.StartDesign(ctx, "mis_design", DesignRequest{}, app.Producer{Type: "user", ID: "test"})
+		{name: "design", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
+			return r.StartDesign(ctx, "mis_design", DesignRequest{}, ledger.Producer{Type: "user", ID: "test"})
 		}},
-		{name: "humanize", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
-			return r.StartHumanize(ctx, "mis_humanize", HumanizeRequest{}, app.Producer{Type: "user", ID: "test"})
+		{name: "humanize", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
+			return r.StartHumanize(ctx, "mis_humanize", HumanizeRequest{}, ledger.Producer{Type: "user", ID: "test"})
 		}},
-		{name: "patch", start: func(ctx context.Context, r Runner) (app.LedgerEvent, error) {
-			return r.StartPatch(ctx, "mis_patch", PatchRequest{}, app.Producer{Type: "user", ID: "test"})
+		{name: "patch", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
+			return r.StartPatch(ctx, "mis_patch", PatchRequest{}, ledger.Producer{Type: "user", ID: "test"})
 		}},
 	}
 	for _, tc := range tests {
@@ -205,11 +233,11 @@ func TestRunnerGenerationCallbacksDoNotInheritWorkflowStepDeadline(t *testing.T)
 }
 
 func TestDraftDirectionPendingIsOptionalAndRecoverable(t *testing.T) {
-	legacy, err := DraftRequestFromPendingEvent(app.LedgerEvent{Payload: json.RawMessage(`{"title":"Old"}`)})
+	legacy, err := DraftRequestFromPendingEvent(ledger.Event{Payload: json.RawMessage(`{"title":"Old"}`)})
 	if err != nil || legacy.DirectionHint != "" {
 		t.Fatalf("legacy recovery = %#v, %v", legacy, err)
 	}
-	recovered, err := DraftRequestFromPendingEvent(app.LedgerEvent{Payload: json.RawMessage(`{"title":"New","direction_hint":"  focus here  "}`)})
+	recovered, err := DraftRequestFromPendingEvent(ledger.Event{Payload: json.RawMessage(`{"title":"New","direction_hint":"  focus here  "}`)})
 	if err != nil || recovered.DirectionHint != "focus here" {
 		t.Fatalf("hint recovery = %#v, %v", recovered, err)
 	}
@@ -217,14 +245,14 @@ func TestDraftDirectionPendingIsOptionalAndRecoverable(t *testing.T) {
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, InFlight: &InFlight{}, NewID: testRunnerID, GenerateDraft: func(context.Context, string, DraftRequest, string) error { return nil }}
 	runner.InFlight.SetNewID(testRunnerID)
-	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report", DirectionHint: "  focus here  "}, app.Producer{Type: "user", ID: "u"})
+	pending, err := runner.StartDraft(context.Background(), "mis_1", DraftRequest{Title: "Report", DirectionHint: "  focus here  "}, ledger.Producer{Type: "user", ID: "u"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if runnerPayloadString(t, pending, "direction_hint") != "focus here" {
 		t.Fatalf("pending payload: %s", pending.Payload)
 	}
-	without, err := runner.StartDraft(context.Background(), "mis_2", DraftRequest{Title: "Other"}, app.Producer{Type: "user", ID: "u"})
+	without, err := runner.StartDraft(context.Background(), "mis_2", DraftRequest{Title: "Other"}, ledger.Producer{Type: "user", ID: "u"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,7 +328,7 @@ func TestSelectSessionPolicyExplicitIsolatedForkRequiresReadyFork(t *testing.T) 
 		HasPreReportResearchSession: true,
 		ForkReady:                   false,
 	})
-	if !errors.Is(err, app.ErrInvalidInput) {
+	if !errors.Is(err, producterror.ErrInvalidInput) {
 		t.Fatalf("expected invalid explicit isolated fork without ready session, got %v", err)
 	}
 }
@@ -313,7 +341,7 @@ func TestSelectSessionPolicyExplicitIsolatedForkRejectsOneTake(t *testing.T) {
 		HasPreReportResearchSession: true,
 		ForkReady:                   true,
 	})
-	if !errors.Is(err, app.ErrInvalidInput) {
+	if !errors.Is(err, producterror.ErrInvalidInput) {
 		t.Fatalf("expected invalid explicit isolated fork for one-take report, got %v", err)
 	}
 }
@@ -373,7 +401,7 @@ func TestAppendCanceledPreservesDraftCancelPayload(t *testing.T) {
 	ctx := context.Background()
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, NewID: testRunnerID}
-	pending := app.LedgerEvent{
+	pending := ledger.Event{
 		EventID:   "evt_pending_draft",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
@@ -383,7 +411,7 @@ func TestAppendCanceledPreservesDraftCancelPayload(t *testing.T) {
 		}),
 	}
 
-	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, app.Producer{Type: "user", ID: "plasma-ui"})
+	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatalf("AppendCanceled returned error: %v", err)
 	}
@@ -411,7 +439,7 @@ func TestAppendCanceledPreservesPatchCancelPayload(t *testing.T) {
 	ctx := context.Background()
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, NewID: testRunnerID}
-	pending := app.LedgerEvent{
+	pending := ledger.Event{
 		EventID:   "evt_pending_patch",
 		MissionID: "mis_1",
 		EventType: "report.patch.pending",
@@ -421,7 +449,7 @@ func TestAppendCanceledPreservesPatchCancelPayload(t *testing.T) {
 		}),
 	}
 
-	event, err := runner.AppendCanceled(ctx, "mis_1", pending, false, app.Producer{Type: "user", ID: "plasma-ui"})
+	event, err := runner.AppendCanceled(ctx, "mis_1", pending, false, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatalf("AppendCanceled returned error: %v", err)
 	}
@@ -448,7 +476,7 @@ func TestBuildPatchFinalizedAppendRequestPreservesPayloadContract(t *testing.T) 
 		CorrelationID:                "ses_tool",
 		PendingEventID:               "evt_pending",
 		Title:                        "Patched report",
-		Artifact:                     app.RawArtifact{ArtifactID: "art_patch", MediaType: "text/markdown; charset=utf-8", ByteSize: 123, SHA256: strings.Repeat("a", 64), Filename: "patched.md"},
+		Artifact:                     artifact.Raw{ArtifactID: "art_patch", MediaType: "text/markdown; charset=utf-8", ByteSize: 123, SHA256: strings.Repeat("a", 64), Filename: "patched.md"},
 		BaseArtifactID:               "art_base",
 		PatchID:                      "rptp_1",
 		PatchInstruction:             "말투를 다듬어라",
@@ -469,13 +497,13 @@ func TestBuildPatchFinalizedAppendRequestPreservesPayloadContract(t *testing.T) 
 		MCPMode:                      "auto",
 		ProducerToolName:             "report.patch.finalize",
 		SessionChainKind:             "forked",
-		Producer:                     app.Producer{Type: "mcp_tool", ID: "report.patch.finalize"},
+		Producer:                     ledger.Producer{Type: "mcp_tool", ID: "report.patch.finalize"},
 	})
 	if req.EventID != "evt_patch" || req.MissionID != "mis_1" || req.EventType != "report.patch.finalized" ||
 		req.CorrelationID != "ses_tool" || req.Producer.Type != "mcp_tool" || req.Producer.ID != "report.patch.finalize" {
 		t.Fatalf("unexpected patch finalized event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "markdown_report_patch_finalized",
 		"pending_event_id":                "evt_pending",
@@ -538,13 +566,13 @@ func TestBuildPromotedMarkdownReportArtifactAppendRequestPreservesFinalizedPaylo
 		MissionID:           "mis_1",
 		PromotedFromEventID: "evt_patch",
 		Payload:             sourcePayload,
-		Producer:            app.Producer{Type: "agent_session", ID: "ses_report"},
+		Producer:            ledger.Producer{Type: "agent_session", ID: "ses_report"},
 	})
 	if req.EventID != "evt_artifact" || req.MissionID != "mis_1" || req.EventType != "report.artifact.created" ||
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_report" {
 		t.Fatalf("unexpected promoted artifact event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "markdown_report_artifact",
 		"pending_event_id":                "evt_pending",
@@ -613,7 +641,7 @@ func TestBuildMarkdownReportPlanCreatedAppendRequestPreservesPayloadContract(t *
 			AgentUsageSurface:            "report_plan",
 			AgentUsageDurationMS:         123,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_plan"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_plan"},
 		},
 		ArtifactID:         "art_report",
 		Plan:               map[string]any{"sections": []string{"A"}},
@@ -624,7 +652,7 @@ func TestBuildMarkdownReportPlanCreatedAppendRequestPreservesPayloadContract(t *
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_plan" {
 		t.Fatalf("unexpected plan event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "markdown_report_plan",
 		"pending_event_id":                "evt_pending",
@@ -692,7 +720,7 @@ func TestBuildMarkdownReportPlanCreatedAppendRequestUsesLongFormKindAndAssembly(
 			AgentUsageSurface:            "report_plan",
 			AgentUsageDurationMS:         456,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_plan"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_plan"},
 		},
 		ArtifactID:         "art_report",
 		Plan:               map[string]any{"parts": []string{"A"}},
@@ -700,7 +728,7 @@ func TestBuildMarkdownReportPlanCreatedAppendRequestUsesLongFormKindAndAssembly(
 		PlanReviewRequired: false,
 		PlanReviewState:    "auto_accepted",
 	})
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	if got := payload["kind"]; got != "sectional_markdown_report_plan" {
 		t.Fatalf("unexpected plan kind: got %#v in %#v", got, payload)
 	}
@@ -749,9 +777,9 @@ func TestBuildMarkdownReportArtifactCreatedAppendRequestPreservesPayloadContract
 			AgentUsageSurface:            "report_markdown",
 			AgentUsageDurationMS:         234,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_report"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		},
-		Artifact:           app.RawArtifact{ArtifactID: "art_report", MediaType: "text/markdown; charset=utf-8"},
+		Artifact:           artifact.Raw{ArtifactID: "art_report", MediaType: "text/markdown; charset=utf-8"},
 		PlanEventID:        "evt_plan",
 		PlanToolSessionID:  "ses_plan_tool",
 		IncludePlanReview:  true,
@@ -762,7 +790,7 @@ func TestBuildMarkdownReportArtifactCreatedAppendRequestPreservesPayloadContract
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_report" {
 		t.Fatalf("unexpected artifact event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "markdown_report_artifact",
 		"pending_event_id":                "evt_pending",
@@ -848,9 +876,9 @@ func TestBuildMarkdownReportArtifactCreatedAppendRequestPreservesLongFormPayload
 			AgentUsageSurface:            "report_frame",
 			AgentUsageDurationMS:         333,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_frame"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_frame"},
 		},
-		Artifact:              app.RawArtifact{ArtifactID: "art_report", MediaType: "text/markdown; charset=utf-8"},
+		Artifact:              artifact.Raw{ArtifactID: "art_report", MediaType: "text/markdown; charset=utf-8"},
 		PlanEventID:           "evt_plan",
 		IncludePlanReview:     true,
 		PlanReviewRequired:    false,
@@ -865,7 +893,7 @@ func TestBuildMarkdownReportArtifactCreatedAppendRequestPreservesLongFormPayload
 		PreservationRatio:     1.0833333333333333,
 		IncludeLongFormFields: true,
 	})
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "markdown_report_artifact",
 		"pending_event_id":                "evt_pending",
@@ -928,7 +956,7 @@ func TestBuildMarkdownReportSectionCreatedAppendRequestPreservesPayloadContract(
 			PendingEventID:               "evt_pending",
 			PlanEventID:                  "evt_plan",
 			Title:                        "Section",
-			Artifact:                     app.RawArtifact{ArtifactID: "art_section", MediaType: "text/markdown; charset=utf-8"},
+			Artifact:                     artifact.Raw{ArtifactID: "art_section", MediaType: "text/markdown; charset=utf-8"},
 			AgentExecutor:                "codex",
 			AgentModel:                   "gpt-5.5",
 			AgentReasoningEffort:         "medium",
@@ -958,7 +986,7 @@ func TestBuildMarkdownReportSectionCreatedAppendRequestPreservesPayloadContract(
 			AgentUsageSurface:            "report_section",
 			AgentUsageDurationMS:         111,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_section"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_section"},
 		},
 		PartIndex:    1,
 		SectionIndex: 2,
@@ -968,7 +996,7 @@ func TestBuildMarkdownReportSectionCreatedAppendRequestPreservesPayloadContract(
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_section" {
 		t.Fatalf("unexpected section event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "sectional_markdown_report_section",
 		"pending_event_id":                "evt_pending",
@@ -1048,7 +1076,7 @@ func TestBuildMarkdownReportSectionStartedAppendRequestPreservesPayloadContract(
 			CompositionStrategy:          "sectional_preserve_markdown",
 			AssemblyStrategy:             "c4_normalized_section_headings",
 			Text:                         "장문 리포트 섹션 Markdown 생성을 시작했습니다.",
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_section"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_section"},
 		},
 		PartIndex:    1,
 		SectionIndex: 2,
@@ -1057,7 +1085,7 @@ func TestBuildMarkdownReportSectionStartedAppendRequestPreservesPayloadContract(
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_section" {
 		t.Fatalf("unexpected section started event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "sectional_markdown_report_section_started",
 		"pending_event_id":                "evt_pending",
@@ -1109,7 +1137,7 @@ func TestBuildMarkdownReportPartCreatedAppendRequestPreservesPayloadContract(t *
 			PendingEventID:               "evt_pending",
 			PlanEventID:                  "evt_plan",
 			Title:                        "Part",
-			Artifact:                     app.RawArtifact{ArtifactID: "art_part", MediaType: "text/markdown; charset=utf-8"},
+			Artifact:                     artifact.Raw{ArtifactID: "art_part", MediaType: "text/markdown; charset=utf-8"},
 			AgentExecutor:                "codex",
 			AgentModel:                   "gpt-5.5",
 			AgentReasoningEffort:         "medium",
@@ -1139,7 +1167,7 @@ func TestBuildMarkdownReportPartCreatedAppendRequestPreservesPayloadContract(t *
 			AgentUsageSurface:            "report_part",
 			AgentUsageDurationMS:         222,
 			AgentResumed:                 true,
-			Producer:                     app.Producer{Type: "agent_session", ID: "ses_part"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "ses_part"},
 		},
 		PartIndex:    3,
 		SectionCount: 4,
@@ -1149,7 +1177,7 @@ func TestBuildMarkdownReportPartCreatedAppendRequestPreservesPayloadContract(t *
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_part" {
 		t.Fatalf("unexpected part event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                            "sectional_markdown_report_part",
 		"pending_event_id":                "evt_pending",
@@ -1204,15 +1232,15 @@ func TestBuildSelfContainedHTMLExportAppendRequestPreservesPayloadContract(t *te
 		EventID:          "evt_export",
 		MissionID:        "mis_1",
 		SourceArtifactID: "art_md",
-		Artifact:         app.RawArtifact{ArtifactID: "art_html", MediaType: "text/html; charset=utf-8"},
+		Artifact:         artifact.Raw{ArtifactID: "art_html", MediaType: "text/html; charset=utf-8"},
 		RendererVersion:  "html-test",
-		Producer:         app.Producer{Type: "plasma", ID: "html-export"},
+		Producer:         ledger.Producer{Type: "plasma", ID: "html-export"},
 	})
 	if req.EventID != "evt_export" || req.MissionID != "mis_1" || req.EventType != "report.artifact.exported" ||
 		req.Producer.Type != "plasma" || req.Producer.ID != "html-export" {
 		t.Fatalf("unexpected export event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":               ExportKindSelfContainedHTML,
 		"source_artifact_id": "art_md",
@@ -1238,7 +1266,7 @@ func TestBuildDesignedHTMLExportAppendRequestPreservesPayloadContract(t *testing
 		PendingEventID:         "evt_pending",
 		SourceArtifactID:       "art_md",
 		ContentModelArtifactID: "art_model",
-		Artifact:               app.RawArtifact{ArtifactID: "art_html", MediaType: "text/html; charset=utf-8"},
+		Artifact:               artifact.Raw{ArtifactID: "art_html", MediaType: "text/html; charset=utf-8"},
 		RendererVersion:        "dh-test",
 		ImageSetFingerprint:    "image-fp",
 		AgentExecutor:          "codex",
@@ -1250,13 +1278,13 @@ func TestBuildDesignedHTMLExportAppendRequestPreservesPayloadContract(t *testing
 		AgentDurationMS:        1234,
 		AgentUsage:             usage,
 		AgentResumed:           true,
-		Producer:               app.Producer{Type: "agent_session", ID: "ses_agent"},
+		Producer:               ledger.Producer{Type: "agent_session", ID: "ses_agent"},
 	})
 	if req.EventID != "evt_design_export" || req.MissionID != "mis_1" || req.EventType != "report.artifact.exported" ||
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_agent" {
 		t.Fatalf("unexpected designed export event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                      ExportKindDesignedHTML,
 		"pending_event_id":          "evt_pending",
@@ -1310,14 +1338,14 @@ func TestBuildHumanizeAppendRequestsPreservePayloadContracts(t *testing.T) {
 		ToolSessionID:          "ses_tool",
 		MCPMode:                "auto",
 		ReportMode:             ModeLongForm,
-		Producer:               app.Producer{Type: "agent", ID: "codex"},
+		Producer:               ledger.Producer{Type: "agent", ID: "codex"},
 	}
 
 	pending := BuildHumanizePendingAppendRequest(HumanizePendingEventRequest{HumanizeEventBase: base})
 	if pending.EventType != "report.humanize.pending" || pending.EventID != "evt_h5" {
 		t.Fatalf("unexpected pending event shell: %#v", pending)
 	}
-	pendingPayload := runnerPayload(t, app.LedgerEvent{Payload: pending.Payload})
+	pendingPayload := runnerPayload(t, ledger.Event{Payload: pending.Payload})
 	if pendingPayload["kind"] != "humanized_markdown_report_pending" ||
 		pendingPayload["target"] != ExportTargetHumanizedMarkdown ||
 		pendingPayload["profile"] != HumanizeProfileH5 ||
@@ -1331,7 +1359,7 @@ func TestBuildHumanizeAppendRequestsPreservePayloadContracts(t *testing.T) {
 	if skipped.EventType != "report.humanize.skipped" {
 		t.Fatalf("unexpected skipped event shell: %#v", skipped)
 	}
-	skippedPayload := runnerPayload(t, app.LedgerEvent{Payload: skipped.Payload})
+	skippedPayload := runnerPayload(t, ledger.Event{Payload: skipped.Payload})
 	if skippedPayload["kind"] != "humanized_markdown_report_skipped" ||
 		skippedPayload["duration_ms"] != float64(17) ||
 		skippedPayload["relationship"] != "no_change_post_report_tone_pass_of_source_artifact" ||
@@ -1344,7 +1372,7 @@ func TestBuildHumanizeAppendRequestsPreservePayloadContracts(t *testing.T) {
 	if failed.EventType != "report.humanize.failed" {
 		t.Fatalf("unexpected failed event shell: %#v", failed)
 	}
-	failedPayload := runnerPayload(t, app.LedgerEvent{Payload: failed.Payload})
+	failedPayload := runnerPayload(t, ledger.Event{Payload: failed.Payload})
 	if failedPayload["kind"] != "humanized_markdown_report_failed" ||
 		failedPayload["duration_ms"] != float64(23) ||
 		failedPayload["error"] != "agent failed" ||
@@ -1363,7 +1391,7 @@ func TestBuildHumanizeAppendRequestsPreservePayloadContracts(t *testing.T) {
 		OmitDuration:      true,
 		FailedAt:          "2026-07-09T01:02:03Z",
 	})
-	stalePayload := runnerPayload(t, app.LedgerEvent{Payload: staleFailed.Payload})
+	stalePayload := runnerPayload(t, ledger.Event{Payload: staleFailed.Payload})
 	if stalePayload["kind"] != "humanized_markdown_report_stale_failed" ||
 		stalePayload["relationship"] != "stale_post_report_tone_pass_of_source_artifact" ||
 		stalePayload["failed_at"] != "2026-07-09T01:02:03Z" ||
@@ -1374,13 +1402,13 @@ func TestBuildHumanizeAppendRequestsPreservePayloadContracts(t *testing.T) {
 	rejected := BuildHumanizePatchRejectedAppendRequest(HumanizePatchRejectedEventRequest{
 		HumanizeEventBase: base,
 		PatchEventID:      "evt_patch",
-		Artifact:          app.RawArtifact{ArtifactID: "art_patch", MediaType: "text/markdown"},
+		Artifact:          artifact.Raw{ArtifactID: "art_patch", MediaType: "text/markdown"},
 		Reason:            "validation_failed",
 	})
 	if rejected.EventType != "report.patch.rejected" {
 		t.Fatalf("unexpected rejected event shell: %#v", rejected)
 	}
-	rejectedPayload := runnerPayload(t, app.LedgerEvent{Payload: rejected.Payload})
+	rejectedPayload := runnerPayload(t, ledger.Event{Payload: rejected.Payload})
 	if rejectedPayload["kind"] != "markdown_report_patch_rejected" ||
 		rejectedPayload["patch_event_id"] != "evt_patch" ||
 		rejectedPayload["artifact_id"] != "art_patch" ||
@@ -1410,10 +1438,10 @@ func TestBuildHumanizedMarkdownExportAppendRequestPreservesPayloadContract(t *te
 			ToolSessionID:          "ses_tool",
 			MCPMode:                "auto",
 			ReportMode:             ModeLongForm,
-			Producer:               app.Producer{Type: "agent_session", ID: "ses_agent"},
+			Producer:               ledger.Producer{Type: "agent_session", ID: "ses_agent"},
 		},
 		PatchEventID:           "evt_patch",
-		Artifact:               app.RawArtifact{ArtifactID: "art_h5", MediaType: "text/markdown; charset=utf-8"},
+		Artifact:               artifact.Raw{ArtifactID: "art_h5", MediaType: "text/markdown; charset=utf-8"},
 		AgentSessionID:         "ses_agent",
 		ReturnedAgentSessionID: "ses_agent_returned",
 		SourceWordCount:        100,
@@ -1426,7 +1454,7 @@ func TestBuildHumanizedMarkdownExportAppendRequestPreservesPayloadContract(t *te
 		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_agent" {
 		t.Fatalf("unexpected humanized export event shell: %#v", req)
 	}
-	payload := runnerPayload(t, app.LedgerEvent{Payload: req.Payload})
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
 	expected := map[string]any{
 		"kind":                        ExportKindHumanizedMarkdown,
 		"target":                      ExportTargetHumanizedMarkdown,
@@ -1475,7 +1503,7 @@ func TestAppendCanceledPreservesDesignCancelPayload(t *testing.T) {
 	ctx := context.Background()
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, NewID: testRunnerID}
-	pending := app.LedgerEvent{
+	pending := ledger.Event{
 		EventID:   "evt_pending_design",
 		MissionID: "mis_1",
 		EventType: "report.design.pending",
@@ -1486,7 +1514,7 @@ func TestAppendCanceledPreservesDesignCancelPayload(t *testing.T) {
 		}),
 	}
 
-	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, app.Producer{Type: "user", ID: "plasma-ui"})
+	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatalf("AppendCanceled returned error: %v", err)
 	}
@@ -1512,7 +1540,7 @@ func TestAppendCanceledPreservesHumanizeCancelPayload(t *testing.T) {
 	ctx := context.Background()
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, NewID: testRunnerID}
-	pending := app.LedgerEvent{
+	pending := ledger.Event{
 		EventID:   "evt_pending_humanize",
 		MissionID: "mis_1",
 		EventType: "report.humanize.pending",
@@ -1532,7 +1560,7 @@ func TestAppendCanceledPreservesHumanizeCancelPayload(t *testing.T) {
 		}),
 	}
 
-	event, err := runner.AppendCanceled(ctx, "mis_1", pending, false, app.Producer{Type: "user", ID: "plasma-ui"})
+	event, err := runner.AppendCanceled(ctx, "mis_1", pending, false, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatalf("AppendCanceled returned error: %v", err)
 	}
@@ -1571,25 +1599,25 @@ func TestAppendCanceledNoOpsWhenPendingAlreadyClosed(t *testing.T) {
 	ctx := context.Background()
 	svc := &fakeRunnerService{}
 	runner := Runner{Service: svc, NewID: testRunnerID}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_existing_failed",
 		MissionID: "mis_1",
 		EventType: "report.draft.failed",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustRunnerJSON(map[string]any{
 			"pending_event_id": "evt_pending_closed",
 		}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	pending := app.LedgerEvent{
+	pending := ledger.Event{
 		EventID:   "evt_pending_closed",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
 		Payload:   mustRunnerJSON(map[string]any{}),
 	}
 
-	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, app.Producer{Type: "user", ID: "plasma-ui"})
+	event, err := runner.AppendCanceled(ctx, "mis_1", pending, true, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatalf("AppendCanceled returned error: %v", err)
 	}
@@ -1602,7 +1630,7 @@ func TestAppendCanceledNoOpsWhenPendingAlreadyClosed(t *testing.T) {
 }
 
 func TestCompletedPendingEventIDsTreatsHumanizeTerminalAsClosed(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		{
 			EventType: "report.humanize.failed",
 			Payload: mustRunnerJSON(map[string]any{
@@ -1732,7 +1760,7 @@ func TestRunnerDuplicateDifferentDraftPendingClosesNewPending(t *testing.T) {
 		t.Fatal("runner did not start first draft")
 	}
 	err := runner.RunDraft(ctx, "mis_1", DraftRequest{Title: "Report", AgentExecutor: "codex", ReportMode: ModePlanned}, "evt_pending_2")
-	if !errors.Is(err, app.ErrInvalidInput) {
+	if !errors.Is(err, producterror.ErrInvalidInput) {
 		t.Fatalf("expected different pending conflict error, got %v", err)
 	}
 	close(release)
@@ -1813,20 +1841,20 @@ func (err failurePayloadErr) FailurePayload() map[string]any {
 
 type fakeRunnerService struct {
 	mu      sync.Mutex
-	events  []app.LedgerEvent
-	sources []app.SourceSnapshot
+	events  []ledger.Event
+	sources []source.Snapshot
 }
 
-func (svc *fakeRunnerService) snapshot() []app.LedgerEvent {
+func (svc *fakeRunnerService) snapshot() []ledger.Event {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	return append([]app.LedgerEvent(nil), svc.events...)
+	return append([]ledger.Event(nil), svc.events...)
 }
 
-func (svc *fakeRunnerService) AppendEvent(_ context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+func (svc *fakeRunnerService) AppendEvent(_ context.Context, req ledger.AppendRequest) (ledger.Event, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	event := app.LedgerEvent{
+	event := ledger.Event{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: req.EventType,
@@ -1838,8 +1866,8 @@ func (svc *fakeRunnerService) AppendEvent(_ context.Context, req app.AppendEvent
 	return event, nil
 }
 
-func (svc *fakeRunnerService) AppendEvents(_ context.Context, _ string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, error) {
-	appended := make([]app.LedgerEvent, 0, len(reqs))
+func (svc *fakeRunnerService) AppendEvents(_ context.Context, _ string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {
+	appended := make([]ledger.Event, 0, len(reqs))
 	for _, req := range reqs {
 		event, err := svc.AppendEvent(context.Background(), req)
 		if err != nil {
@@ -1850,7 +1878,7 @@ func (svc *fakeRunnerService) AppendEvents(_ context.Context, _ string, reqs []a
 	return appended, nil
 }
 
-func (svc *fakeRunnerService) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingID string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, bool, error) {
+func (svc *fakeRunnerService) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingID string, reqs []ledger.AppendRequest) ([]ledger.Event, bool, error) {
 	svc.mu.Lock()
 	for _, event := range svc.events {
 		if event.MissionID != missionID {
@@ -1870,8 +1898,8 @@ func (svc *fakeRunnerService) AppendReportTerminalIfOpen(ctx context.Context, mi
 	return appended, err == nil, err
 }
 
-func (svc *fakeRunnerService) AppendEventsIfNoActiveAgentWork(_ context.Context, _ string, reqs []app.AppendEventRequest) ([]app.LedgerEvent, error) {
-	appended := make([]app.LedgerEvent, 0, len(reqs))
+func (svc *fakeRunnerService) AppendEventsIfNoActiveAgentWork(_ context.Context, _ string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {
+	appended := make([]ledger.Event, 0, len(reqs))
 	for _, req := range reqs {
 		event, err := svc.AppendEvent(context.Background(), req)
 		if err != nil {
@@ -1882,10 +1910,10 @@ func (svc *fakeRunnerService) AppendEventsIfNoActiveAgentWork(_ context.Context,
 	return appended, nil
 }
 
-func (svc *fakeRunnerService) ListEvents(_ context.Context, missionID string) ([]app.LedgerEvent, error) {
+func (svc *fakeRunnerService) ListEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	events := []app.LedgerEvent{}
+	events := []ledger.Event{}
 	for _, event := range svc.events {
 		if event.MissionID == strings.TrimSpace(missionID) {
 			events = append(events, event)
@@ -1894,10 +1922,10 @@ func (svc *fakeRunnerService) ListEvents(_ context.Context, missionID string) ([
 	return events, nil
 }
 
-func (svc *fakeRunnerService) ListSourceSnapshotsWithState(_ context.Context, req app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error) {
+func (svc *fakeRunnerService) ListSourceSnapshotsWithState(_ context.Context, req source.ListRequest) ([]source.Snapshot, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	sources := make([]app.SourceSnapshot, 0, len(svc.sources))
+	sources := make([]source.Snapshot, 0, len(svc.sources))
 	for _, source := range svc.sources {
 		if source.MissionID == strings.TrimSpace(req.MissionID) {
 			sources = append(sources, source)
@@ -1906,14 +1934,14 @@ func (svc *fakeRunnerService) ListSourceSnapshotsWithState(_ context.Context, re
 	return sources, nil
 }
 
-func runnerPayloadString(t *testing.T, event app.LedgerEvent, key string) string {
+func runnerPayloadString(t *testing.T, event ledger.Event, key string) string {
 	t.Helper()
 	payload := runnerPayload(t, event)
 	value, _ := payload[key].(string)
 	return value
 }
 
-func runnerPayload(t *testing.T, event app.LedgerEvent) map[string]any {
+func runnerPayload(t *testing.T, event ledger.Event) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -1956,7 +1984,7 @@ func assertStringSlicePayload(t *testing.T, payload map[string]any, key string, 
 	}
 }
 
-func countRunnerEvents(events []app.LedgerEvent, eventType string) int {
+func countRunnerEvents(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -1966,13 +1994,13 @@ func countRunnerEvents(events []app.LedgerEvent, eventType string) int {
 	return count
 }
 
-func latestRunnerEventOfType(events []app.LedgerEvent, eventType string) app.LedgerEvent {
+func latestRunnerEventOfType(events []ledger.Event, eventType string) ledger.Event {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].EventType == eventType {
 			return events[i]
 		}
 	}
-	return app.LedgerEvent{}
+	return ledger.Event{}
 }
 
 func testRunnerID(prefix string) string {

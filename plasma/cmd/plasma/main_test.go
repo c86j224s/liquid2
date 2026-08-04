@@ -15,13 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
-	"github.com/c86j224s/liquid2/plasma/internal/web"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
@@ -1275,7 +1276,7 @@ func TestBuildCLIAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCLIAgentExecutor returned error: %v", err)
 	}
-	codex, ok := executor.(web.CodexExecutor)
+	codex, ok := executor.(agentexec.CodexExecutor)
 	if !ok {
 		t.Fatalf("expected CodexExecutor, got %T", executor)
 	}
@@ -1303,7 +1304,7 @@ func TestBuildCLIClaudeAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildCLIAgentExecutor returned error: %v", err)
 	}
-	claude, ok := executor.(web.ClaudeExecutor)
+	claude, ok := executor.(agentexec.ClaudeExecutor)
 	if !ok {
 		t.Fatalf("expected ClaudeExecutor, got %T", executor)
 	}
@@ -1336,28 +1337,28 @@ func TestRunProviderCommandsUseCLILocalRootsBeforeEnv(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		args      func(string, string, string) []string
-		responses []web.AgentResult
+		responses []agentexec.AgentResult
 	}{
 		{
 			name: "turns send",
 			args: func(missionID, dbPath, rootSpec string) []string {
 				return []string{"turns", "send", missionID, "-db", dbPath, "-text", "hello", "-wait", "-local-source-root", rootSpec, "-json"}
 			},
-			responses: []web.AgentResult{{Text: "answer", SessionID: "agent-session-1"}},
+			responses: []agentexec.AgentResult{{Text: "answer", SessionID: "agent-session-1"}},
 		},
 		{
 			name: "workflow start",
 			args: func(missionID, dbPath, rootSpec string) []string {
 				return []string{"workflow", "start", missionID, "-db", dbPath, "-instruction", "continue", "-max-steps", "1", "-wait", "-local-source-root", rootSpec, "-json"}
 			},
-			responses: []web.AgentResult{{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"}},
+			responses: []agentexec.AgentResult{{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"}},
 		},
 		{
 			name: "reports draft",
 			args: func(missionID, dbPath, rootSpec string) []string {
 				return []string{"reports", "draft", missionID, "-db", dbPath, "-title", "Report", "-wait", "-local-source-root", rootSpec, "-json"}
 			},
-			responses: []web.AgentResult{
+			responses: []agentexec.AgentResult{
 				{Text: "- Plan report.", SessionID: "agent-session-1"},
 				{Text: "# Report\n\nBody.", SessionID: "agent-session-1"},
 			},
@@ -1374,7 +1375,7 @@ func TestRunProviderCommandsUseCLILocalRootsBeforeEnv(t *testing.T) {
 			t.Setenv("PLASMA_CLAUDE_MODEL", "sonnet")
 			fake := &cliFakeAgent{responses: tc.responses}
 			oldFactory := newCLIAgentExecutor
-			newCLIAgentExecutor = func(_ context.Context, cfg cliAgentConfig) (web.AgentExecutor, error) {
+			newCLIAgentExecutor = func(_ context.Context, cfg cliAgentConfig) (agentexec.AgentExecutor, error) {
 				if cfg.AgentName != "claude" || cfg.ClaudeCommand != "/opt/test/claude" || cfg.ClaudeModel != "sonnet" {
 					t.Fatalf("expected env agent config to survive CLI defaults, got %#v", cfg)
 				}
@@ -1397,7 +1398,7 @@ func TestRunProviderCommandsUseCLILocalRootsBeforeEnv(t *testing.T) {
 func TestRunProviderCommandsDoNotRecordPendingWhenExecutorBuildFails(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return nil, errors.New("executor unavailable")
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1457,11 +1458,11 @@ func TestRunTurnsWaitDrainsWorkflowRequestedByMCPContext(t *testing.T) {
 	}
 	defer store.Close()
 	svc := app.NewService(store)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"},
 	}}
-	fake.onRun = func(req web.AgentRequest) {
+	fake.onRun = func(req agentexec.AgentRequest) {
 		if req.UserEventID == "" {
 			t.Fatalf("expected CLI agent request to include user event id: %#v", req)
 		}
@@ -1480,7 +1481,7 @@ func TestRunTurnsWaitDrainsWorkflowRequestedByMCPContext(t *testing.T) {
 		}
 	}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1505,12 +1506,12 @@ func TestRunTurnsWaitDrainsWorkflowRequestedByMCPContext(t *testing.T) {
 func TestRunWorkflowWaitResumesSameSessionAfterTurn(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"},
 	}}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1569,7 +1570,7 @@ func TestCLIWorkflowAgentAdapterForwardsCompactionAndUsage(t *testing.T) {
 			CachedInputTokens: 80,
 			OutputTokens:      30,
 		}, "test")
-	fake := &cliFakeAgent{responses: []web.AgentResult{{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{{
 		Text:      "workflow answer",
 		SessionID: "agent-session-1",
 		Usage:     usage,
@@ -1610,7 +1611,7 @@ func TestCLIWorkflowAgentAdapterForwardsCompactionAndUsage(t *testing.T) {
 func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "- Plan CLI report.", SessionID: "agent-session-1"},
 		{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "agent-session-1"},
@@ -1618,7 +1619,7 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 	}}
 	fake.onEveryRun = cliHumanizePatchFinalizer(t, dbPath, "# CLI Report\n\n보고서를 작성해야 한다.")
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1675,8 +1676,8 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 		t.Fatalf("default CLI report path should create one report.plan.created event, got %#v", events)
 	}
 	pendingPayload := cliLatestEventPayload(t, events, "report.draft.pending")
-	if pendingPayload["report_session_policy"] != reporting.SessionPolicySameSession ||
-		pendingPayload["report_session_policy_selection"] != reporting.SessionPolicySelectionAutoSameSessionNoForker {
+	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicySameSession ||
+		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoSameSessionNoForker {
 		t.Fatalf("expected non-forking CLI report to record same-session fallback, got %#v", pendingPayload)
 	}
 	sourceContext, ok := pendingPayload["source_context"].(map[string]any)
@@ -1687,8 +1688,8 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 		t.Fatalf("source-free CLI report context changed: %#v", sourceContext)
 	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
-	if artifactPayload["report_session_policy"] != reporting.SessionPolicySameSession ||
-		artifactPayload["report_session_policy_selection"] != reporting.SessionPolicySelectionAutoSameSessionNoForker ||
+	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicySameSession ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoSameSessionNoForker ||
 		artifactPayload["pre_report_research_session_id"] != "agent-session-1" ||
 		artifactPayload["report_plan_session_id"] != "agent-session-1" ||
 		artifactPayload["report_session_id"] != "agent-session-1" {
@@ -1705,12 +1706,12 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "- Plan CLI report.", SessionID: "report-session-1"},
 		{Text: "# CLI Report\n\n구체적인 내용을 보존한 보고서입니다.", SessionID: "report-session-1"},
 	}}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1799,7 +1800,7 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
 	fake := &cliForkingFakeAgent{
-		cliFakeAgent: cliFakeAgent{responses: []web.AgentResult{
+		cliFakeAgent: cliFakeAgent{responses: []agentexec.AgentResult{
 			{Text: "first answer", SessionID: "research-session-1"},
 			{Text: "- Plan CLI report.", SessionID: "report-fork-1"},
 			{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "report-fork-1"},
@@ -1809,7 +1810,7 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 	}
 	fake.onEveryRun = cliHumanizePatchFinalizer(t, dbPath, "# CLI Report\n\n보고서를 작성해야 한다.")
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1845,8 +1846,8 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 		t.Fatal(err)
 	}
 	pendingPayload := cliLatestEventPayload(t, events, "report.draft.pending")
-	if pendingPayload["report_session_policy"] != reporting.SessionPolicyIsolatedFork ||
-		pendingPayload["report_session_policy_selection"] != reporting.SessionPolicySelectionAutoIsolatedFork {
+	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicyIsolatedFork ||
+		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoIsolatedFork {
 		t.Fatalf("expected pending event to record automatic isolated fork, got %#v", pendingPayload)
 	}
 	planPayload := cliLatestEventPayload(t, events, "report.plan.created")
@@ -1856,8 +1857,8 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 		t.Fatalf("expected isolated plan metadata, got %#v", planPayload)
 	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
-	if artifactPayload["report_session_policy"] != reporting.SessionPolicyIsolatedFork ||
-		artifactPayload["report_session_policy_selection"] != reporting.SessionPolicySelectionAutoIsolatedFork ||
+	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicyIsolatedFork ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoIsolatedFork ||
 		artifactPayload["previous_agent_session_id"] != "report-fork-1" ||
 		artifactPayload["pre_report_research_session_id"] != "research-session-1" ||
 		artifactPayload["report_plan_session_id"] != "report-fork-1" ||
@@ -1887,13 +1888,13 @@ func TestRunReportsDraftRejectsLongFormUntilCLISectionRunnerExists(t *testing.T)
 func TestRunReportsDraftWaitRecordsFailureOnSessionMismatch(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "- Plan CLI report.", SessionID: "agent-session-1"},
 		{Text: "# CLI Report\n\nWrong session body.", SessionID: "agent-session-2"},
 	}}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -1927,7 +1928,7 @@ func TestRunReportsDraftWaitRecordsFailureOnSessionMismatch(t *testing.T) {
 func TestRunEndToEndWorkflowThenConversationThenReportUsesSameLedgerAndSession(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"},
 		{Text: "resumed answer", SessionID: "agent-session-1"},
@@ -1937,7 +1938,7 @@ func TestRunEndToEndWorkflowThenConversationThenReportUsesSameLedgerAndSession(t
 	}}
 	fake.onEveryRun = cliHumanizePatchFinalizer(t, dbPath, "# Final Report\n\n보고서를 작성해야 합니다.")
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
 		return fake, nil
 	}
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
@@ -2189,9 +2190,9 @@ func cliLatestEventPayload(t *testing.T, events []app.LedgerEvent, eventType str
 	return nil
 }
 
-func cliHumanizePatchFinalizer(t *testing.T, dbPath string, content string) func(web.AgentRequest) {
+func cliHumanizePatchFinalizer(t *testing.T, dbPath string, content string) func(agentexec.AgentRequest) {
 	t.Helper()
-	return func(req web.AgentRequest) {
+	return func(req agentexec.AgentRequest) {
 		if req.ReportPatch == nil {
 			return
 		}
@@ -2269,9 +2270,9 @@ func hasCLIArgPair(args []string, flagName string, value string) bool {
 func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{{Text: "- Plan", SessionID: "report-session"}, {Text: "# Report", SessionID: "report-session"}}}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return fake, nil }
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) { return fake, nil }
 	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
 
 	var out, errOut bytes.Buffer
@@ -2306,8 +2307,8 @@ func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing
 	}
 
 	defaultMissionID := createCLITestMission(t, dbPath)
-	defaultAgent := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "default-session"}, {Text: "# Report", SessionID: "default-session"}}}
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return defaultAgent, nil }
+	defaultAgent := &cliFakeAgent{responses: []agentexec.AgentResult{{Text: "- Plan", SessionID: "default-session"}, {Text: "# Report", SessionID: "default-session"}}}
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) { return defaultAgent, nil }
 	out.Reset()
 	errOut.Reset()
 	code = run(context.Background(), []string{"reports", "draft", defaultMissionID, "-db", dbPath, "-wait", "-agent-model", "gpt-5.5"}, &out, &errOut)
@@ -2322,7 +2323,7 @@ func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing
 
 	invalidMissionID := createCLITestMission(t, dbPath)
 	invalidAgent := &cliForkingFakeAgent{forkSessionID: "fork"}
-	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (web.AgentExecutor, error) { return invalidAgent, nil }
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) { return invalidAgent, nil }
 	out.Reset()
 	errOut.Reset()
 	code = run(context.Background(), []string{"reports", "draft", invalidMissionID, "-db", dbPath, "-wait", "-agent-model", "gpt-5.6-luna", "-agent-reasoning-effort", "ultra"}, &out, &errOut)
@@ -2348,9 +2349,9 @@ func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing
 func TestRunReportsDraftClaudeEmptyConfigFreezesHaiku(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
-	fake := &cliFakeAgent{responses: []web.AgentResult{{Text: "- Plan", SessionID: "claude-session"}, {Text: "# Report", SessionID: "claude-session"}}}
+	fake := &cliFakeAgent{responses: []agentexec.AgentResult{{Text: "- Plan", SessionID: "claude-session"}, {Text: "# Report", SessionID: "claude-session"}}}
 	oldFactory := newCLIAgentExecutor
-	newCLIAgentExecutor = func(_ context.Context, cfg cliAgentConfig) (web.AgentExecutor, error) {
+	newCLIAgentExecutor = func(_ context.Context, cfg cliAgentConfig) (agentexec.AgentExecutor, error) {
 		if cfg.AgentName != "claude" || cfg.ClaudeModel != "" {
 			t.Fatalf("unexpected config: %#v", cfg)
 		}
@@ -2385,13 +2386,13 @@ func TestRunReportsDraftClaudeEmptyConfigFreezesHaiku(t *testing.T) {
 }
 
 type cliFakeAgent struct {
-	requests   []web.AgentRequest
-	responses  []web.AgentResult
-	onRun      func(web.AgentRequest)
-	onEveryRun func(web.AgentRequest)
+	requests   []agentexec.AgentRequest
+	responses  []agentexec.AgentResult
+	onRun      func(agentexec.AgentRequest)
+	onEveryRun func(agentexec.AgentRequest)
 }
 
-func (agent *cliFakeAgent) Run(_ context.Context, req web.AgentRequest) (web.AgentResult, error) {
+func (agent *cliFakeAgent) Run(_ context.Context, req agentexec.AgentRequest) (agentexec.AgentResult, error) {
 	agent.requests = append(agent.requests, req)
 	if agent.onEveryRun != nil {
 		agent.onEveryRun(req)
@@ -2402,7 +2403,7 @@ func (agent *cliFakeAgent) Run(_ context.Context, req web.AgentRequest) (web.Age
 		onRun(req)
 	}
 	if len(agent.responses) == 0 {
-		return web.AgentResult{Text: "fake answer", SessionID: req.PreviousSessionID, Resumed: req.PreviousSessionID != ""}, nil
+		return agentexec.AgentResult{Text: "fake answer", SessionID: req.PreviousSessionID, Resumed: req.PreviousSessionID != ""}, nil
 	}
 	response := agent.responses[0]
 	agent.responses = agent.responses[1:]
@@ -2419,13 +2420,13 @@ type cliForkingFakeAgent struct {
 	forkSources   []string
 }
 
-func (agent *cliForkingFakeAgent) ForkSession(_ context.Context, sourceSessionID string) (web.AgentSessionForkResult, error) {
+func (agent *cliForkingFakeAgent) ForkSession(_ context.Context, sourceSessionID string) (agentexec.AgentSessionForkResult, error) {
 	agent.forkSources = append(agent.forkSources, sourceSessionID)
 	sessionID := strings.TrimSpace(agent.forkSessionID)
 	if sessionID == "" {
 		sessionID = "forked-session"
 	}
-	return web.AgentSessionForkResult{
+	return agentexec.AgentSessionForkResult{
 		SessionID:       sessionID,
 		SourceSessionID: strings.TrimSpace(sourceSessionID),
 	}, nil

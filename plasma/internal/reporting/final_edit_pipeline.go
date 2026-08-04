@@ -19,6 +19,7 @@ const (
 	FinalEditHumanizeDisabled = "disabled"
 )
 
+// FinalEditPipelinePlanState는 계산한 읽기 모델이다. 원천 상태는 장부와 저장소에 남아 있다.
 type FinalEditPipelinePlanState struct {
 	Pipeline           string
 	PendingEventID     string
@@ -28,6 +29,7 @@ type FinalEditPipelinePlanState struct {
 	PostReportHumanize string
 }
 
+// FinalEditStageBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type FinalEditStageBinding struct {
 	MissionID                    string       `json:"mission_id"`
 	PendingEventID               string       `json:"pending_event_id"`
@@ -61,6 +63,7 @@ type FinalEditStageBinding struct {
 	Producer                     app.Producer `json:"producer"`
 }
 
+// FinalEditStageResult는 final edit stage 제출 이벤트와 artifact를 함께 반환한다.
 type FinalEditStageResult struct {
 	Binding                        FinalEditStageBinding
 	Artifact                       app.RawArtifact
@@ -168,6 +171,7 @@ func canonicalArtifactIDForFinalizeRequest(binding LongFormFinalizeBinding, req 
 	return binding.ArtifactID
 }
 
+// FinalEditPipelineFromPlanEvent는 plan 이벤트 payload에서 최종 편집 pipeline 선택을 읽는다.
 func FinalEditPipelineFromPlanEvent(event app.LedgerEvent) (FinalEditPipelinePlanState, bool, error) {
 	if event.EventType != "report.plan.created" {
 		return FinalEditPipelinePlanState{}, false, nil

@@ -8,11 +8,13 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditStageStore는 final edit stage 제출과 조회 계약을 모은 저장소 포트다.
 type FinalEditStageStore interface {
 	LongFormFinalizationStore
 	GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error)
 }
 
+// StartFinalEditStage는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func StartFinalEditStage(ctx context.Context, store FinalEditStageStore, eventID string, binding FinalEditStageBinding) (app.LedgerEvent, bool, error) {
 	binding = normalizeFinalEditStageBinding(binding)
 	if err := validateFinalEditStageBinding(binding); err != nil {
@@ -115,6 +117,7 @@ func startFinalEditReaderStage(ctx context.Context, store FinalEditStageStore, e
 	return event, created, nil
 }
 
+// SubmitFinalEditStage는 최종 편집 stage 제출 artifact와 이벤트를 기록한다.
 func SubmitFinalEditStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int) (FinalEditStageResult, error) {
 	switch normalizeFinalEditStageBinding(binding).Stage {
 	case FinalEditStageGate:
@@ -127,6 +130,7 @@ func SubmitFinalEditStage(ctx context.Context, store FinalEditStageStore, bindin
 	return submitFinalEditStage(ctx, store, binding, eventID, markdown, operationCount, nil, FinalEditSemanticAttestation{})
 }
 
+// SubmitFinalEditStyleStage는 문체 편집 stage 제출 artifact와 이벤트를 기록한다.
 func SubmitFinalEditStyleStage(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis) (FinalEditStageResult, error) {
 	if normalizeFinalEditStageBinding(binding).Stage != FinalEditStageStyle {
 		return FinalEditStageResult{}, fmt.Errorf("%w: style operation diagnoses are only valid for style edit", app.ErrInvalidInput)
@@ -134,6 +138,7 @@ func SubmitFinalEditStyleStage(ctx context.Context, store FinalEditStageStore, b
 	return submitFinalEditStageWithStyleDiagnoses(ctx, store, binding, eventID, markdown, operationCount, diagnoses, nil, FinalEditSemanticAttestation{})
 }
 
+// SubmitFinalEditStyleSemanticValidation는 문체 편집 의미 검증 결과를 기록한다.
 func SubmitFinalEditStyleSemanticValidation(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, reviews []FinalEditSemanticAcceptance) (FinalEditStageResult, error) {
 	binding = normalizeFinalEditStageBinding(binding)
 	markdown, semanticReview, err := BuildFinalEditStyleSemanticValidation(ctx, store, binding, reviews)
@@ -154,6 +159,7 @@ func SubmitFinalEditStyleSemanticValidation(ctx context.Context, store FinalEdit
 	return submitFinalEditStage(ctx, store, binding, eventID, markdown, 0, nil, semanticReview)
 }
 
+// LoadFinalEditStageSubmission는 stage 제출 이벤트와 artifact를 장부에서 복원한다.
 func LoadFinalEditStageSubmission(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding) (FinalEditStageResult, bool, error) {
 	binding = normalizeFinalEditStageBinding(binding)
 	if err := validateFinalEditStageBinding(binding); err != nil {

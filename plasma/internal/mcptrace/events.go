@@ -8,6 +8,11 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// ToolCalledAppendRequest는 MCP tool 호출 한 번을 장부 trace event로 남기기 위한
+// 입력이다.
+//
+// Arguments와 Result는 이미 redaction이 끝난 작은 map이어야 한다. 원문 source,
+// credential, provider raw response를 넣으면 안 된다.
 type ToolCalledAppendRequest struct {
 	EventID        string
 	MissionID      string
@@ -22,6 +27,10 @@ type ToolCalledAppendRequest struct {
 	Producer       app.Producer
 }
 
+// BuildToolCalledAppendRequest는 mcp.tool.called append request를 만든다.
+//
+// 이 builder는 추적 payload만 만들고 tool 성공 여부나 제품 상태 transition을
+// 판단하지 않는다.
 func BuildToolCalledAppendRequest(req ToolCalledAppendRequest) app.AppendEventRequest {
 	started := req.StartedAt
 	finished := req.FinishedAt

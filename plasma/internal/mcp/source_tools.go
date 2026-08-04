@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 )
 
 func (server *Server) callSourcesList(ctx context.Context, call ToolCall) ToolResult {
@@ -81,8 +81,8 @@ func (server *Server) callSourcesRead(ctx context.Context, call ToolCall) ToolRe
 	if artifact.MissionID != missionID {
 		return errorResult(call.Name, missionID, "validation", "source artifact belongs to another mission", false, []string{artifactID})
 	}
-	if pdftext.IsPDFMediaType(artifact.MediaType) || pdftext.IsPDFBytes(artifact.Content) {
-		chunk, err := pdftext.ExtractChunk(artifact.Content, input.Offset, input.MaxBytes)
+	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
+		chunk, err := pdfdocument.ExtractChunk(artifact.Content, input.Offset, input.MaxBytes)
 		if err != nil {
 			return errorResult(call.Name, missionID, "validation", "PDF text extraction failed: "+err.Error(), false, []string{artifactID})
 		}
@@ -103,8 +103,8 @@ func (server *Server) callSourcesRead(ctx context.Context, call ToolCall) ToolRe
 					PageCount:          chunk.PageCount,
 					TextLength:         chunk.ContentLength,
 					TextLengthKnown:    chunk.ContentLengthKnown,
-					SuggestedReadBytes: pdftext.DefaultChunkMaxBytes,
-					MaxReadBytes:       pdftext.MaxChunkBytes,
+					SuggestedReadBytes: pdfdocument.DefaultChunkMaxBytes,
+					MaxReadBytes:       pdfdocument.MaxChunkBytes,
 				},
 			},
 		}
@@ -225,8 +225,8 @@ func (server *Server) callSourcesReadLiveLocalPath(
 			PageCount:          metadata.PageCount,
 			TextLength:         int(metadata.TextLength),
 			TextLengthKnown:    metadata.TextLengthKnown,
-			SuggestedReadBytes: pdftext.DefaultChunkMaxBytes,
-			MaxReadBytes:       pdftext.MaxChunkBytes,
+			SuggestedReadBytes: pdfdocument.DefaultChunkMaxBytes,
+			MaxReadBytes:       pdfdocument.MaxChunkBytes,
 		}
 	}
 	return ToolResult{

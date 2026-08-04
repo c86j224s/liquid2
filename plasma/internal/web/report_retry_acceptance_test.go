@@ -13,7 +13,9 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -176,7 +178,7 @@ func TestSectionFanoutPartPlanningContinuityAndFinalPartAuthor(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Reader Report", "report_mode": "long_form", "execution_strategy": reportExecutionStrategySectionFanout,
-		"post_report_humanize": "disabled", "generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		"post_report_humanize": "disabled", "generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	for eventType, want := range map[string]int{
@@ -275,7 +277,7 @@ func TestSectionFanoutPartPlanningRecoversAfterPlanCreatedBeforePartPlan(t *test
 				"mcp_mode":                    "auto",
 				"rigor_level":                 "balanced",
 				"post_report_humanize":        "disabled",
-				"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 			}),
 		},
 		reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
@@ -283,8 +285,8 @@ func TestSectionFanoutPartPlanningRecoversAfterPlanCreatedBeforePartPlan(t *test
 				EventID: planID, MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
 				AgentExecutor: "codex", AgentSessionID: "plan-atomic-report-session", ReturnedAgentSessionID: "plan-atomic-report-session",
 				ToolSessionID: "ses_plan_atomic_plan", MCPMode: "auto", ReportMode: reportModeLongForm,
-				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-				GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "plan-atomic-report-session",
 				CompositionStrategy: "sectional_preserve_markdown", Text: "섹션 병렬 장문 Markdown 리포트 생성 계획을 만들었습니다.",
 				Producer: app.Producer{Type: "agent_session", ID: "plan-atomic-report-session"},
@@ -334,7 +336,7 @@ func TestReportRetryResumeFailedReusesAcceptedAncestorPartPlan(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Reader Report", "report_mode": "long_form", "execution_strategy": reportExecutionStrategySectionFanout,
-		"post_report_humanize": "disabled", "generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		"post_report_humanize": "disabled", "generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 	})
 	failed := waitForEventType(t, server.URL, missionID, "report.draft.failed")
 	if countEvents(failed, reporting.PartPlanCreatedEventType) != 1 ||
@@ -394,11 +396,11 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartPlan(t *testing.T) {
 	plan := narrativeContractTestPlan()
 	rootPartPlan := appendRetryPartPlanningAttempt(t, ctx, svc, missionID, rootPendingID, rootPlanID, "root-plan", plan, true)
 	failIDs := 0
-	runner := reporting.Runner{Service: svc, NewID: func(prefix string) string {
+	runner := reportexecution.Runner{Service: svc, NewID: func(prefix string) string {
 		failIDs++
 		return fmt.Sprintf("%s_restart_part_plan_failed_%d", prefix, failIDs)
 	}}
-	if _, err := runner.AppendDraftFailed(ctx, missionID, rootPendingID, "codex", reporting.ModeLongForm, reporting.NewStageFailure("part_edit", rootPlanID, 1, 0, errors.New("part edit failed"))); err != nil {
+	if _, err := runner.AppendDraftFailed(ctx, missionID, rootPendingID, "codex", reportexecution.ModeLongForm, reportexecution.NewStageFailure("part_edit", rootPlanID, 1, 0, errors.New("part edit failed"))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -446,7 +448,7 @@ func TestReportRetryResumeFailedReusesAcceptedAncestorPartEdit(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Reader Report", "report_mode": "long_form", "post_report_humanize": "disabled",
-		"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 	})
 	failed := waitForEventType(t, server.URL, missionID, "report.draft.failed")
 	failure := lastEventPayload(t, failed, "report.draft.failed")
@@ -523,11 +525,11 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartEdit(t *testing.T) {
 	plan := narrativeContractTestPlan()
 	rootPartArtifact := appendRetryPartEditAttempt(t, ctx, svc, missionID, rootPendingID, rootPlanID, "root", plan, true)
 	failIDs := 0
-	runner := reporting.Runner{Service: svc, NewID: func(prefix string) string {
+	runner := reportexecution.Runner{Service: svc, NewID: func(prefix string) string {
 		failIDs++
 		return fmt.Sprintf("%s_restart_failed_%d", prefix, failIDs)
 	}}
-	if _, err := runner.AppendDraftFailed(ctx, missionID, rootPendingID, "codex", reporting.ModeLongForm, reporting.NewStageFailure("part_edit", rootPlanID, 1, 0, errors.New("part edit failed"))); err != nil {
+	if _, err := runner.AppendDraftFailed(ctx, missionID, rootPendingID, "codex", reportexecution.ModeLongForm, reportexecution.NewStageFailure("part_edit", rootPlanID, 1, 0, errors.New("part edit failed"))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -560,7 +562,7 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartEdit(t *testing.T) {
 		editedArtifactID: "art_restart_part_edit", filename: "restart-part-edited.md",
 		rigor: reportRigorProfiles["balanced"], plan: plan, part: plan.Parts[0], partIndex: 0,
 		source:              sectionalReportPartDraft{Title: plan.Parts[0].Title, Markdown: string(restartPartArtifact.Content), ArtifactID: restartPartArtifact.ArtifactID, WordCount: reportWordCount(string(restartPartArtifact.Content))},
-		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 		sessionChainKind: "same_session_report", reportPlanSessionID: "restart-plan-session",
 	})
 	if err != nil {
@@ -625,7 +627,7 @@ func TestReportRecoveryIgnoresMalformedPartEditOutcomeAndRerunsEditor(t *testing
 			"agent_executor":               "codex",
 			"mcp_mode":                     "auto",
 			"report_session_policy":        reportSessionPolicySameSession,
-			"generation_guidance_profile":  reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			"generation_guidance_profile":  reportprompt.ProfilePartConnectiveEconomyVoice,
 			"session_chain_kind":           "same_session_report",
 			"report_plan_session_id":       "malformed-plan-session",
 			"fork_source_agent_session_id": "malformed-plan-session",
@@ -650,7 +652,7 @@ func TestReportRecoveryIgnoresMalformedPartEditOutcomeAndRerunsEditor(t *testing
 	editedParts, editedArtifactIDs, err := server.editSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
 		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
 		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
 	}, sectionFanoutPlanState{
 		artifactID: progress.artifactID, plan: plan, planEvent: progress.planEvent, reportPlanSessionID: progress.reportPlanSessionID,
 		reportSessionPolicy: progress.reportSessionPolicy, reportSessionPolicySelection: progress.reportSessionPolicySelection,
@@ -697,7 +699,7 @@ func TestReportRecoveryAcceptsIdempotentPartEditStartReplay(t *testing.T) {
 			Title: plan.Parts[0].Title, Markdown: string(partArtifact.Content),
 			ArtifactID: partArtifact.ArtifactID, WordCount: reportWordCount(string(partArtifact.Content)),
 		},
-		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 		sessionChainKind: "same_session_report", reportPlanSessionID: "replayed_start-plan-session",
 		forkSourceAgentSessionID: "replayed_start-plan-session",
 	})
@@ -747,7 +749,7 @@ func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Serv
 				"report_mode":                 reportModeLongForm,
 				"agent_executor":              "codex",
 				"mcp_mode":                    "auto",
-				"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 			}),
 		}}); err != nil {
 			t.Fatal(err)
@@ -762,7 +764,7 @@ func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Serv
 				EventID: planID, MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
 				AgentExecutor: "codex", AgentSessionID: label + "-plan-session", MCPMode: "auto",
 				ReportMode: reportModeLongForm, ReportSessionPolicy: reportSessionPolicySameSession,
-				GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "same_session_report", ReportPlanSessionID: label + "-plan-session",
 				Text: agentReportAnyJSON(plan), Producer: producer,
 			},
@@ -773,7 +775,7 @@ func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Serv
 				EventID: "evt_" + label + "_section", MissionID: missionID, PendingEventID: pendingID, PlanEventID: planID,
 				Title: plan.Parts[0].Sections[0].Title, Artifact: sectionArtifact, AgentExecutor: "codex",
 				AgentSessionID: label + "-plan-session", ReportMode: reportModeLongForm,
-				ReportSessionPolicy: reportSessionPolicySameSession, GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicy: reportSessionPolicySameSession, GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind: "same_session_report", ReportPlanSessionID: label + "-plan-session", Producer: producer,
 			},
 			PartIndex: 1, SectionIndex: 1, WordCount: reportWordCount(string(sectionArtifact.Content)),
@@ -783,7 +785,7 @@ func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Serv
 				EventID: "evt_" + label + "_part", MissionID: missionID, PendingEventID: pendingID, PlanEventID: planID,
 				Title: plan.Parts[0].Title, Artifact: partArtifact, AgentExecutor: "codex",
 				AgentSessionID: label + "-plan-session", ReportMode: reportModeLongForm,
-				ReportSessionPolicy: reportSessionPolicySameSession, GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicy: reportSessionPolicySameSession, GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind: "same_session_report", ReportPlanSessionID: label + "-plan-session", Producer: producer,
 			},
 			PartIndex: 1, SectionCount: 1, WordCount: reportWordCount(string(partArtifact.Content)),
@@ -811,7 +813,7 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 				"execution_strategy":          reportExecutionStrategySectionFanout,
 				"agent_executor":              "codex",
 				"mcp_mode":                    "auto",
-				"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 			}),
 		})
 	}
@@ -821,8 +823,8 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 				EventID: planID, MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
 				AgentExecutor: "codex", AgentSessionID: reportPlanSessionID, ReturnedAgentSessionID: reportPlanSessionID,
 				ToolSessionID: "ses_" + label + "_plan", MCPMode: "auto", ReportMode: reportModeLongForm,
-				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-				GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: reportPlanSessionID,
 				CompositionStrategy: "sectional_preserve_markdown", Text: "섹션 병렬 장문 Markdown 리포트 생성 계획을 만들었습니다.",
 				Producer: app.Producer{Type: "agent_session", ID: reportPlanSessionID},
@@ -836,8 +838,8 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 				Title: plan.Parts[0].Title, AgentExecutor: "codex", AgentSessionID: partOwnerSessionID,
 				PreviousAgentSessionID: partOwnerSessionID, ReturnedAgentSessionID: partOwnerSessionID,
 				ToolSessionID: "ses_" + label + "_part_plan", ReportMode: reportModeLongForm,
-				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-				GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+				ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: reportPlanSessionID,
 				ReportSessionID: partOwnerSessionID, ForkSourceAgentSessionID: reportPlanSessionID, CompositionStrategy: "sectional_preserve_markdown",
 				AssemblyStrategy: "c4_normalized_section_headings", Producer: app.Producer{Type: "agent_session", ID: partOwnerSessionID},
@@ -886,7 +888,7 @@ func TestReportRetryResumeFailedReusesLongFormStagesAndFinalizes(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Report", "report_mode": "long_form", "post_report_humanize": "disabled",
-		"generation_guidance_profile": reportGenerationGuidanceProfileVisualPlan,
+		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
 	failed := waitForEventType(t, server.URL, missionID, "report.draft.failed")
 	var originalPendingID string

@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// ReadStorageStats는 SQLite 저장소 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func ReadStorageStats(ctx context.Context, dbPath string) (StorageStats, error) {
 	path, err := normalizeStorageMaintenancePath(dbPath)
 	if err != nil {

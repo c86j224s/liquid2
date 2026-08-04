@@ -34,6 +34,15 @@
 - Keep documentation and implementation aligned in the same wave of work. If implementation discovers a scope or boundary change, update the relevant plan, architecture, design, API, or operator docs before treating the work as complete.
 - Expose stable, safe error classes to users and API callers. Logs may include enough context for debugging, but must not leak document bodies, uploaded blobs, credentials, auth tokens, cookies, full sensitive URLs, prompts, or provider raw responses.
 
+## Commenting Principles
+
+- Use comments to make boundaries, contracts, invariants, and intent explicit. Do not add comments that merely restate the code. Prefer comments that explain what a package, type, function, workflow stage, or state transition represents, what it promises, what it deliberately does not do, and what must remain true for callers.
+- Add package comments for non-trivial packages. A package comment should state the domain capability the package owns, its boundary with neighboring packages, and the kinds of policy or adapter details that do not belong there.
+- Add comments for important structs and interfaces, especially domain state, persisted records, protocol payloads, workflow inputs/outputs, and consumer-side ports. These comments should describe ownership, lifecycle, stable identity, nil/zero-value behavior when relevant, and invariants that storage, transports, or callers must preserve.
+- Add comments for exported functions and for unexported functions whose behavior is non-obvious, multi-stage, stateful, concurrent, security-sensitive, or part of a workflow boundary. Function comments should describe the contract, side effects, idempotency or retry expectations, error semantics, and any privacy or redaction guarantees that matter to callers.
+- For complex functions that must remain as a single unit, use short section comments to mark phases such as validation, state transition, persistence, external call, event emission, or cleanup. These comments should help readers verify the sequence and failure behavior, not narrate each line.
+- Keep comments synchronized with the code in the same change. If a refactor moves responsibility between packages or changes a contract, update the relevant package, type, and function comments before treating the change as complete.
+
 ## Repository Structure Principles
 
 - Keep product code, tests, reusable tools, operator docs, public design notes, and redacted decision records inside this repository.

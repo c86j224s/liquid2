@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -14,10 +15,10 @@ const defaultReportRigorLevel = "strict"
 const legacyPendingReportRigorLevel = "balanced"
 
 const (
-	defaultReportMode   = reporting.DefaultMode
-	reportModeOneTake   = reporting.ModeOneTake
-	reportModePlanned   = reporting.ModePlanned
-	reportModeLongForm  = reporting.ModeLongForm
+	defaultReportMode   = reportexecution.DefaultMode
+	reportModeOneTake   = reportexecution.ModeOneTake
+	reportModePlanned   = reportexecution.ModePlanned
+	reportModeLongForm  = reportexecution.ModeLongForm
 	reportModeLabelFast = "원테이크 보고서"
 	reportModeLabelPlan = "보고서"
 	reportModeLabelLong = "장문 보고서"
@@ -25,12 +26,12 @@ const (
 	reportExecutionStrategySerial        = "serial"
 	reportExecutionStrategySectionFanout = "section_fanout"
 
-	reportSessionPolicySameSession  = reporting.SessionPolicySameSession
-	reportSessionPolicyIsolatedFork = reporting.SessionPolicyIsolatedFork
+	reportSessionPolicySameSession  = reportexecution.SessionPolicySameSession
+	reportSessionPolicyIsolatedFork = reportexecution.SessionPolicyIsolatedFork
 
-	reportSessionPolicySelectionAutoIsolatedFork        = reporting.SessionPolicySelectionAutoIsolatedFork
-	reportSessionPolicySelectionAutoSameSessionNoForker = reporting.SessionPolicySelectionAutoSameSessionNoForker
-	reportSessionPolicySelectionAutoSameSessionOneTake  = reporting.SessionPolicySelectionAutoSameSessionOneTake
+	reportSessionPolicySelectionAutoIsolatedFork        = reportexecution.SessionPolicySelectionAutoIsolatedFork
+	reportSessionPolicySelectionAutoSameSessionNoForker = reportexecution.SessionPolicySelectionAutoSameSessionNoForker
+	reportSessionPolicySelectionAutoSameSessionOneTake  = reportexecution.SessionPolicySelectionAutoSameSessionOneTake
 )
 
 type reportRigorProfile struct {
@@ -60,8 +61,8 @@ var reportRigorProfiles = map[string]reportRigorProfile{
 			"- Prefer richness and coverage over premature pruning, while preserving source references for claims that depend on saved evidence.",
 		}, "\n"),
 	},
-	// Deprecated for new UI selection. Retained for stored report events and
-	// explicit API compatibility.
+	// 새 UI 선택지에서는 deprecated된 값이다. 저장된 report event와 명시적 API 호환성을
+	// 위해 유지한다.
 	"balanced": {
 		level:       "balanced",
 		label:       "균형형",

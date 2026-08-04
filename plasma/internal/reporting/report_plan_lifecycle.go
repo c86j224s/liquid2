@@ -11,25 +11,30 @@ import (
 
 const ReportPlanSubmittedSentinel = "PLAN_SUBMITTED"
 
+// ReportPlanLifecycleService는 report plan 제출과 조회에 필요한 service 포트다.
 type ReportPlanLifecycleService interface {
 	SelectReportPlanSubmission(context.Context, app.ReportPlanSubmissionQuery) (app.ReportPlanSubmissionSelection, error)
 	PromoteReportPlan(context.Context, app.PromoteReportPlanRequest) (app.LedgerEvent, error)
 }
 
+// ReportPlanLifecycleBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type ReportPlanLifecycleBinding struct {
 	ToolSessionID, IdempotencyKey string
 }
 
+// ReportPlanLifecycleAgentResult는 agent가 제출한 report plan artifact와 실행 metadata다.
 type ReportPlanLifecycleAgentResult struct {
 	Text, SessionID string
 }
 
+// ReportPlanLifecycleRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type ReportPlanLifecycleRequest struct {
 	MissionID, PendingEventID, ReportMode, AgentExecutor, AgentModel, AgentReasoningEffort, PreviousProviderSessionID string
 	Invoke                                                                                                            func(context.Context, ReportPlanLifecycleBinding) (ReportPlanLifecycleAgentResult, error)
 	BuildCanonical                                                                                                    func(any, app.ReportPlanSubmissionSelection, ReportPlanLifecycleBinding) (app.AppendEventRequest, error)
 }
 
+// ReportPlanLifecycleResult는 report plan 제출 이벤트와 agent 결과를 함께 반환한다.
 type ReportPlanLifecycleResult struct {
 	Plan       any
 	Event      app.LedgerEvent
@@ -38,6 +43,7 @@ type ReportPlanLifecycleResult struct {
 	Agent      ReportPlanLifecycleAgentResult
 }
 
+// RunReportPlanLifecycle는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func (runner Runner) RunReportPlanLifecycle(ctx context.Context, req ReportPlanLifecycleRequest) (ReportPlanLifecycleResult, error) {
 	service, ok := runner.Service.(ReportPlanLifecycleService)
 	if !ok {

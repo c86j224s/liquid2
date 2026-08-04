@@ -11,16 +11,38 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/artifactrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/confluencerepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/modeldefaultsrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/reportrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/researchrepo"
+
 	_ "modernc.org/sqlite"
 )
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+// Store는 Plasma application port를 SQLite DB에 연결하는 안정된 facade다.
+//
+// Store는 DB lifecycle, migration, 교차 기능 transaction을 소유하고 기능별 SQL은
+// 내부 repository에 명시적으로 위임한다. 어떤 event가 제품적으로 유효한지는
+// app/reporting/workflow service의 요청 계약을 따른다.
 type Store struct {
-	db *sql.DB
+	db            *sql.DB
+	missions      *missionrepo.Repository
+	artifacts     *artifactrepo.Repository
+	research      *researchrepo.Repository
+	reports       *reportrepo.Repository
+	confluence    *confluencerepo.Repository
+	modelDefaults *modeldefaultsrepo.Repository
 }
 
+// Open은 SQLite connection을 열고 embedded migration을 순서대로 적용한다.
+//
+// 빈 dbPath는 shared in-memory DB로 해석된다. 파일 DB의 parent directory는 만들 수
+// 있지만, migration 실패 시 열린 DB는 닫고 오류를 반환한다.
 func Open(ctx context.Context, dbPath string) (*Store, error) {
 	path := strings.TrimSpace(dbPath)
 	if err := ensureParentDir(path); err != nil {
@@ -32,7 +54,15 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		return nil, err
 	}
 
-	store := &Store{db: db}
+	store := &Store{
+		db:            db,
+		missions:      missionrepo.New(db),
+		artifacts:     artifactrepo.New(db),
+		research:      researchrepo.New(db),
+		reports:       reportrepo.New(db),
+		confluence:    confluencerepo.New(db),
+		modelDefaults: modeldefaultsrepo.New(db),
+	}
 	if err := store.bootstrap(ctx); err != nil {
 		db.Close()
 		return nil, err
@@ -40,14 +70,17 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 	return store, nil
 }
 
+// Close는 underlying SQLite connection pool을 닫는다.
 func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Health는 DB connection이 살아 있고 context 안에서 ping 가능한지 확인한다.
 func (s *Store) Health(ctx context.Context) error {
 	return s.db.PingContext(ctx)
 }
 
+// MigrationVersions는 적용된 schema migration 파일명을 순서대로 반환한다.
 func (s *Store) MigrationVersions(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT version FROM plasma_schema_migrations ORDER BY version`)
 	if err != nil {

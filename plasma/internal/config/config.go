@@ -9,12 +9,17 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// RuntimeModeEnv는 release/dev config 경로 선택에 쓰는 환경 변수다.
 const RuntimeModeEnv = "PLASMA_RUNTIME_MODE"
 
+// RuntimeModeRelease와 RuntimeModeDev는 config 파일 계층을 고르는 닫힌 runtime mode다.
 const RuntimeModeRelease = "release"
 const RuntimeModeDev = "dev"
 
+// DBPathEnv는 Plasma SQLite DB 위치를 지정한다.
 const DBPathEnv = "PLASMA_DB_PATH"
+
+// LocalSourceRootsEnv는 local path source allowlist root들을 지정한다.
 const LocalSourceRootsEnv = "PLASMA_LOCAL_SOURCE_ROOTS"
 
 const ConfluenceOAuthClientIDEnv = "PLASMA_CONFLUENCE_OAUTH_CLIENT_ID"
@@ -25,6 +30,9 @@ const ConfluenceOAuthAuthorizeURLEnv = "PLASMA_CONFLUENCE_OAUTH_AUTHORIZE_URL"
 const ConfluenceOAuthTokenURLEnv = "PLASMA_CONFLUENCE_OAUTH_TOKEN_URL"
 const ConfluenceOAuthDiscoveryURLEnv = "PLASMA_CONFLUENCE_OAUTH_DISCOVERY_URL"
 
+// Args는 CLI flag와 embedding code가 Config에 덮어쓸 수 있는 입력값이다.
+//
+// 빈 값은 “지정하지 않음”으로 처리되며 파일/환경 변수에서 온 값을 지우지 않는다.
 type Args struct {
 	DBPath                      string
 	Addr                        string
@@ -50,6 +58,11 @@ type Args struct {
 	ConfluenceOAuthDiscoveryURL string
 }
 
+// Config는 Plasma server를 시작할 때 필요한 정규화된 실행 설정이다.
+//
+// Config 자체는 immutable이 아니지만 Load 이후에는 adapter와 service에 주입하는
+// 값으로 취급한다. credential 성격의 필드는 로그나 사용자 응답에 그대로 노출하면
+// 안 된다.
 type Config struct {
 	DBPath                      string
 	Addr                        string
@@ -75,6 +88,11 @@ type Config struct {
 	ConfluenceOAuthDiscoveryURL string
 }
 
+// Load는 runtime mode에 맞는 설정 파일을 읽고 환경 변수와 명령행 인자를 순서대로
+// 적용한다.
+//
+// 우선순위는 파일 < 환경 변수 < Args다. 이 함수는 입력을 병합하며, StaticDir 같은
+// 경로 값의 존재 여부와 제공 가능성 검증은 서버 구성 경계가 맡는다.
 func Load(args Args) (Config, error) {
 	var cfg Config
 	mode, err := RuntimeMode()
@@ -144,6 +162,7 @@ func (c *Config) applyTable(values map[string]any) {
 	}
 }
 
+// RuntimeMode는 현재 실행이 dev/release 중 어느 config 계층을 쓸지 판정한다.
 func RuntimeMode() (string, error) {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv(RuntimeModeEnv)))
 	switch value {

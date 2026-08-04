@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// FinalEditStageIdempotencyKey는 stage binding에서 재실행 idempotency key를 계산한다.
 func FinalEditStageIdempotencyKey(stage string, pendingEventID string, planEventID string) string {
 	switch strings.TrimSpace(stage) {
 	case FinalEditStageWriter:
@@ -108,6 +109,7 @@ func validateFinalEditStageBinding(value FinalEditStageBinding) error {
 	return nil
 }
 
+// ValidateFinalEditStageBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditStageBinding(value FinalEditStageBinding) error {
 	return validateFinalEditStageBinding(normalizeFinalEditStageBinding(value))
 }

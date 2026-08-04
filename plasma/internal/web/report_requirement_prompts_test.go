@@ -61,7 +61,7 @@ func TestAgentProvidersCarryReportRequirementMCPContext(t *testing.T) {
 	binding.AgentExecutor = "claude"
 	request.AgentExecutor = "claude"
 	claude := ClaudeExecutor{MCPServer: ClaudeMCPServer{Name: "plasma", Command: "/tmp/plasma", Args: []string{"mcp"}}}
-	path, cleanup, err := claude.writeMCPConfig(request)
+	path, cleanup, err := claude.WriteMCPConfig(request)
 	if err != nil {
 		t.Fatal(err)
 	}

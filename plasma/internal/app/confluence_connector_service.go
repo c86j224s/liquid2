@@ -12,6 +12,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// SearchConfluenceSources는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) SearchConfluenceSources(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -41,6 +42,7 @@ func (s *Service) SearchConfluenceSources(
 	return result, nil
 }
 
+// ListConfluenceSpaces는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListConfluenceSpaces(
 	ctx context.Context,
 	connector ConfluenceBrowserConnector,
@@ -66,6 +68,7 @@ func (s *Service) ListConfluenceSpaces(
 	return result, nil
 }
 
+// ListConfluenceSpacePages는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListConfluenceSpacePages(
 	ctx context.Context,
 	connector ConfluenceBrowserConnector,
@@ -91,6 +94,7 @@ func (s *Service) ListConfluenceSpacePages(
 	return result, nil
 }
 
+// ListConfluencePageChildren는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListConfluencePageChildren(
 	ctx context.Context,
 	connector ConfluenceBrowserConnector,
@@ -116,6 +120,7 @@ func (s *Service) ListConfluencePageChildren(
 	return result, nil
 }
 
+// PreviewConfluenceSource는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) PreviewConfluenceSource(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -161,6 +166,7 @@ func (s *Service) PreviewConfluenceSource(
 	return result, nil
 }
 
+// SnapshotConfluenceSource는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) SnapshotConfluenceSource(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -179,6 +185,7 @@ func (s *Service) SnapshotConfluenceSource(
 	return ConfluenceSnapshotResult{Artifact: artifact, Snapshot: snapshot}, nil
 }
 
+// SnapshotConfluenceSourceWithEvent는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) SnapshotConfluenceSourceWithEvent(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -302,6 +309,7 @@ func (s *Service) buildConfluenceSnapshot(
 	return artifact, snapshot, nil
 }
 
+// CheckConfluenceSourceUpdateWithEvent는 저장된 Confluence snapshot과 현재 page version 차이를 확인하고 결과 이벤트를 남긴다.
 func (s *Service) CheckConfluenceSourceUpdateWithEvent(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -346,6 +354,7 @@ func (s *Service) CheckConfluenceSourceUpdateWithEvent(
 	return result, nil
 }
 
+// CheckConfluenceSourceUpdate는 이벤트를 쓰지 않고 Confluence source의 갱신 가능성만 계산한다.
 func (s *Service) CheckConfluenceSourceUpdate(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -387,6 +396,7 @@ func (s *Service) CheckConfluenceSourceUpdate(
 	}, nil
 }
 
+// PreviewConfluenceSourceUpdate는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) PreviewConfluenceSourceUpdate(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -431,6 +441,7 @@ func (s *Service) PreviewConfluenceSourceUpdate(
 	}, nil
 }
 
+// UpdateConfluenceSourceWithEvent는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) UpdateConfluenceSourceWithEvent(
 	ctx context.Context,
 	connector ConfluenceSourceConnector,
@@ -532,6 +543,7 @@ type confluenceSourceIdentity struct {
 	PageID  string
 }
 
+// SnapshotIdentity는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (result ConfluenceUpdateCheckResult) SnapshotIdentity() confluenceSourceIdentity {
 	identity, _ := confluenceIdentityFromSnapshot(result.Snapshot)
 	return identity

@@ -23,6 +23,7 @@ type sourceUpdatedEventPayload struct {
 	NewSnapshotID string `json:"new_snapshot_id"`
 }
 
+// ListSourceSnapshotsWithState는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListSourceSnapshotsWithState(ctx context.Context, req ListSourceSnapshotsRequest) ([]SourceSnapshot, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", missionID); err != nil {

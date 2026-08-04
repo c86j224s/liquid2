@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -46,7 +48,7 @@ func TestSectionFanoutPartEditorRecoversCrashAfterCurrentStart(t *testing.T) {
 			Title: plan.Parts[0].Title, Markdown: string(partArtifact.Content),
 			ArtifactID: partArtifact.ArtifactID, WordCount: reportWordCount(string(partArtifact.Content)),
 		},
-		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 		sessionChainKind: "section_fanout_report", reportPlanSessionID: "editor_start-plan-session",
 		forkSourceAgentSessionID: "editor_start-plan-session",
 	})
@@ -63,7 +65,7 @@ func TestSectionFanoutPartEditorRecoversCrashAfterCurrentStart(t *testing.T) {
 	editedParts, _, err := server.editSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
 		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
 		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
 	}, sectionFanoutPlanState{
 		artifactID: progress.artifactID, plan: plan, planEvent: progress.planEvent, reportPlanSessionID: "editor_start-plan-session",
 		reportSessionPolicy: reportSessionPolicySameSession, sessionChainKind: "section_fanout_report", partEditEnabled: true,
@@ -116,8 +118,8 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 			EventID: "evt_" + label + "_part", MissionID: missionID, PendingEventID: pendingID, PlanEventID: planID,
 			Title: plan.Parts[0].Title, Artifact: partArtifact, AgentExecutor: "codex",
 			AgentSessionID: partOwnerSessionID, ReportMode: reportModeLongForm,
-			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-			GenerationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: label + "-report-plan-session",
 			ForkSourceAgentSessionID: label + "-report-plan-session",
 			Producer:                 app.Producer{Type: "agent_session", ID: partOwnerSessionID},
@@ -138,8 +140,8 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 		editedArtifactID: "art_stored_author_edit", filename: "stored-author-edit.md",
 		executorName: "codex", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
 		plan: plan, part: plan.Parts[0], partIndex: 0, source: source,
-		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-		generationGuidanceProfile: reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 		sessionChainKind:          "section_fanout_report", reportPlanSessionID: label + "-report-plan-session",
 		forkSourceAgentSessionID: label + "-report-plan-session",
 	})
@@ -152,12 +154,12 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 	authored, _, err := server.authorSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
 		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
 		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		reportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
-		generationGuidanceProfile:    reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
+		generationGuidanceProfile:    reportprompt.ProfilePartConnectiveEconomyVoice,
 		pendingEventID:               pendingID,
 	}, sectionFanoutPlanState{
 		plan: plan, planEvent: planEvent, reportPlanSessionID: label + "-report-plan-session",
-		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: reporting.SessionPolicySelectionExplicitSameSession,
+		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
 		sessionChainKind: "section_fanout_report", partEditEnabled: true, partPlanningEnabled: true,
 		partPlans: map[int]sectionFanoutPartPlan{0: {brief: label + " Part owner brief.", providerSessionID: partOwnerSessionID}},
 	}, sectionalReportProgress{editedParts: map[int]sectionalReportPartDraft{}}, []sectionalReportPartDraft{source}, executor)

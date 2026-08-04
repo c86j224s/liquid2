@@ -7,7 +7,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/urlsource"
+	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 )
 
 func cliSourceCandidateStager(svc *app.Service) func(context.Context, app.LedgerEvent) {
@@ -71,7 +71,7 @@ func stageCLISourceCandidateProposalEvent(ctx context.Context, svc *app.Service,
 }
 
 func cliSourceCandidateFetcher(ctx context.Context, rawURL string) (sourcecandidates.SourceCandidateFetched, error) {
-	fetched, err := urlsource.Fetch(ctx, rawURL)
+	fetched, err := sourceretrieval.Fetch(ctx, rawURL)
 	if err != nil {
 		return sourcecandidates.SourceCandidateFetched{}, err
 	}

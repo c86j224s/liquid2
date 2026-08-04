@@ -29,6 +29,7 @@ const (
 	FinalEditEvidenceGateSubmittedEventType            = "report.final_edit.evidence_gate.submitted"
 )
 
+// BuildFinalEditStageStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildFinalEditStageStartedAppendRequest(eventID string, binding FinalEditStageBinding) app.AppendEventRequest {
 	binding = normalizeFinalEditStageBinding(binding)
 	payload := finalEditStageBasePayload(binding)

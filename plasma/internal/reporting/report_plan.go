@@ -12,6 +12,7 @@ import (
 
 const ReportPlanSchemaVersion = "plasma.report_plan.v1"
 
+// ReportPlan는 단문 보고서의 섹션 순서와 작성 계약을 담는 plan이다.
 type ReportPlan struct {
 	Summary          string                 `json:"summary"`
 	Sections         []ReportPlanSection    `json:"sections"`
@@ -20,6 +21,7 @@ type ReportPlan struct {
 	WritingContract  *ReportWritingContract `json:"writing_contract,omitempty"`
 }
 
+// SectionalReportPlan는 장문 보고서의 part/section 구조와 작성 계약을 담는 plan이다.
 type SectionalReportPlan struct {
 	Summary          string                 `json:"summary"`
 	Parts            []ReportPlanPart       `json:"parts"`
@@ -28,9 +30,9 @@ type SectionalReportPlan struct {
 	WritingContract  *ReportWritingContract `json:"writing_contract,omitempty"`
 }
 
-// ReportWritingContract is plan-owned editorial direction, not source material.
-// It tells later writers what the report must help a source-naive reader
-// understand while leaving source interpretation to the writing stages.
+// ReportWritingContract는 plan이 소유하는 편집 방향 계약이며 source material이 아니다.
+// 후속 작성자가 source를 처음 보는 독자에게 무엇을 이해시켜야 하는지 알려 주되,
+// source 해석과 문장화는 작성 stage의 책임으로 남긴다.
 type ReportWritingContract struct {
 	CentralQuestion       string   `json:"central_question"`
 	ReaderTakeaway        string   `json:"reader_takeaway"`
@@ -42,18 +44,21 @@ type ReportWritingContract struct {
 	ToneAndShape          string   `json:"tone_and_shape"`
 }
 
+// ReportPlanPart는 장문 보고서에서 여러 section을 묶는 part 단위다.
 type ReportPlanPart struct {
 	Title    string              `json:"title"`
 	Purpose  string              `json:"purpose"`
 	Sections []ReportPlanSection `json:"sections"`
 }
 
+// ReportPlanSection는 작성자가 맡을 단일 section의 제목, 의도, 참조 범위다.
 type ReportPlanSection struct {
 	Title      string                    `json:"title"`
 	Purpose    string                    `json:"purpose"`
 	TargetRefs app.ReportBlockSourceRefs `json:"target_refs,omitempty"`
 }
 
+// NormalizeReportPlan는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeReportPlan(plan ReportPlan) (ReportPlan, error) {
 	if strings.TrimSpace(plan.Summary) == "" && len(plan.Sections) == 0 {
 		return ReportPlan{}, fmt.Errorf("%w: report plan is empty", app.ErrInvalidInput)
@@ -66,6 +71,7 @@ func NormalizeReportPlan(plan ReportPlan) (ReportPlan, error) {
 	return plan, nil
 }
 
+// NormalizeSectionalReportPlan는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeSectionalReportPlan(plan SectionalReportPlan) (SectionalReportPlan, error) {
 	plan.Summary = strings.TrimSpace(plan.Summary)
 	plan.CoverageNotes = limitNonEmptyPlanStrings(plan.CoverageNotes, 24)
@@ -110,6 +116,7 @@ func NormalizeSectionalReportPlan(plan SectionalReportPlan) (SectionalReportPlan
 	return plan, nil
 }
 
+// RequireReportWritingContract는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func RequireReportWritingContract(plan any) error {
 	var contract *ReportWritingContract
 	switch value := plan.(type) {
@@ -145,6 +152,7 @@ func normalizeReportWritingContract(value *ReportWritingContract) (*ReportWritin
 	return &contract, nil
 }
 
+// ReportPlanHash는 report plan의 안정 JSON 해시를 계산한다.
 func ReportPlanHash(plan any) (string, json.RawMessage, error) {
 	encoded, err := json.Marshal(plan)
 	if err != nil {
@@ -154,6 +162,7 @@ func ReportPlanHash(plan any) (string, json.RawMessage, error) {
 	return hex.EncodeToString(sum[:]), encoded, nil
 }
 
+// ReportPlanRefs는 plan 안의 source reference를 dedupe된 목록으로 모은다.
 func ReportPlanRefs(plan any) []app.ReportBlockSourceRefs {
 	refs := []app.ReportBlockSourceRefs{}
 	switch value := plan.(type) {

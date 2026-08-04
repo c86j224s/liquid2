@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// ResearchRecordStore는 evidence, claim, question, option record 저장 계약을 모은 포트다.
 type ResearchRecordStore interface {
 	CreateEvidenceRecord(context.Context, EvidenceRecord) error
 	GetEvidenceRecord(context.Context, string) (EvidenceRecord, error)
@@ -22,6 +23,7 @@ type ResearchRecordStore interface {
 	UpdateProposalBundleState(context.Context, ProposalBundleStateUpdate) error
 }
 
+// ResearchRecordListStore는 research record 목록 조회 전용 저장소 포트다.
 type ResearchRecordListStore interface {
 	ListEvidenceRecords(context.Context, string) ([]EvidenceRecord, error)
 	ListClaimRecords(context.Context, string) ([]ClaimRecord, error)
@@ -30,6 +32,7 @@ type ResearchRecordListStore interface {
 	ListProposalBundles(context.Context, string) ([]ProposalBundle, error)
 }
 
+// CreateEvidenceRecord는 evidence record를 저장하고 관련 이벤트를 남긴다.
 func (s *Service) CreateEvidenceRecord(ctx context.Context, req CreateEvidenceRecordRequest) (EvidenceRecord, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	createdEvent, err := s.requireMissionEvent(ctx, missionID, req.CreatedEventID)
@@ -108,6 +111,7 @@ func (s *Service) buildEvidenceRecord(
 	return record, nil
 }
 
+// GetEvidenceRecord는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetEvidenceRecord(ctx context.Context, evidenceID string) (EvidenceRecord, error) {
 	trimmed := strings.TrimSpace(evidenceID)
 	if err := validateID("evd_", trimmed); err != nil {
@@ -116,6 +120,7 @@ func (s *Service) GetEvidenceRecord(ctx context.Context, evidenceID string) (Evi
 	return s.store.GetEvidenceRecord(ctx, trimmed)
 }
 
+// ListEvidenceRecords는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListEvidenceRecords(ctx context.Context, missionID string) ([]EvidenceRecord, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -128,6 +133,7 @@ func (s *Service) ListEvidenceRecords(ctx context.Context, missionID string) ([]
 	return store.ListEvidenceRecords(ctx, trimmed)
 }
 
+// CreateClaimRecord는 claim record를 저장하고 관련 이벤트를 남긴다.
 func (s *Service) CreateClaimRecord(ctx context.Context, req CreateClaimRecordRequest) (ClaimRecord, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	createdEvent, err := s.requireMissionEvent(ctx, missionID, req.CreatedEventID)
@@ -258,6 +264,7 @@ func (s *Service) buildClaimRecord(
 	return record, nil
 }
 
+// GetClaimRecord는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetClaimRecord(ctx context.Context, claimID string) (ClaimRecord, error) {
 	trimmed := strings.TrimSpace(claimID)
 	if err := validateID("clm_", trimmed); err != nil {
@@ -266,6 +273,7 @@ func (s *Service) GetClaimRecord(ctx context.Context, claimID string) (ClaimReco
 	return s.store.GetClaimRecord(ctx, trimmed)
 }
 
+// ListClaimRecords는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListClaimRecords(ctx context.Context, missionID string) ([]ClaimRecord, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -278,6 +286,7 @@ func (s *Service) ListClaimRecords(ctx context.Context, missionID string) ([]Cla
 	return store.ListClaimRecords(ctx, trimmed)
 }
 
+// CreateQuestionRecord는 question record를 저장하고 관련 이벤트를 남긴다.
 func (s *Service) CreateQuestionRecord(ctx context.Context, req CreateQuestionRecordRequest) (QuestionRecord, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	createdEvent, err := s.requireMissionEvent(ctx, missionID, req.CreatedEventID)
@@ -360,6 +369,7 @@ func (s *Service) buildQuestionRecord(
 	return record, nil
 }
 
+// GetQuestionRecord는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetQuestionRecord(ctx context.Context, questionID string) (QuestionRecord, error) {
 	trimmed := strings.TrimSpace(questionID)
 	if err := validateID("qst_", trimmed); err != nil {
@@ -368,6 +378,7 @@ func (s *Service) GetQuestionRecord(ctx context.Context, questionID string) (Que
 	return s.store.GetQuestionRecord(ctx, trimmed)
 }
 
+// ListQuestionRecords는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListQuestionRecords(ctx context.Context, missionID string) ([]QuestionRecord, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -380,6 +391,7 @@ func (s *Service) ListQuestionRecords(ctx context.Context, missionID string) ([]
 	return store.ListQuestionRecords(ctx, trimmed)
 }
 
+// CreateOptionRecord는 option record를 저장하고 관련 이벤트를 남긴다.
 func (s *Service) CreateOptionRecord(ctx context.Context, req CreateOptionRecordRequest) (OptionRecord, error) {
 	optionID := strings.TrimSpace(req.OptionID)
 	missionID := strings.TrimSpace(req.MissionID)
@@ -435,6 +447,7 @@ func (s *Service) CreateOptionRecord(ctx context.Context, req CreateOptionRecord
 	return record, nil
 }
 
+// GetOptionRecord는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetOptionRecord(ctx context.Context, optionID string) (OptionRecord, error) {
 	trimmed := strings.TrimSpace(optionID)
 	if err := validateID("opt_", trimmed); err != nil {
@@ -443,6 +456,7 @@ func (s *Service) GetOptionRecord(ctx context.Context, optionID string) (OptionR
 	return s.store.GetOptionRecord(ctx, trimmed)
 }
 
+// ListOptionRecords는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListOptionRecords(ctx context.Context, missionID string) ([]OptionRecord, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -455,6 +469,7 @@ func (s *Service) ListOptionRecords(ctx context.Context, missionID string) ([]Op
 	return store.ListOptionRecords(ctx, trimmed)
 }
 
+// CreateProposalBundle는 proposal 묶음과 구성 record를 한 단위로 저장한다.
 func (s *Service) CreateProposalBundle(ctx context.Context, req CreateProposalBundleRequest) (ProposalBundle, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	createdEvent, err := s.requireMissionEvent(ctx, missionID, req.CreatedEventID)
@@ -530,6 +545,7 @@ func (s *Service) buildProposalBundle(
 	return bundle, nil
 }
 
+// GetProposalBundle는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetProposalBundle(ctx context.Context, proposalID string) (ProposalBundle, error) {
 	trimmed := strings.TrimSpace(proposalID)
 	if err := validateID("prp_", trimmed); err != nil {
@@ -538,6 +554,7 @@ func (s *Service) GetProposalBundle(ctx context.Context, proposalID string) (Pro
 	return s.store.GetProposalBundle(ctx, trimmed)
 }
 
+// ListProposalBundles는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListProposalBundles(ctx context.Context, missionID string) ([]ProposalBundle, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -550,6 +567,7 @@ func (s *Service) ListProposalBundles(ctx context.Context, missionID string) ([]
 	return store.ListProposalBundles(ctx, trimmed)
 }
 
+// UpdateProposalBundleState는 애플리케이션 서비스 계층의 명시적 상태 전이를 수행한다. 결과는 장부나 저장소 기록으로 확인한다.
 func (s *Service) UpdateProposalBundleState(ctx context.Context, req UpdateProposalBundleStateRequest) (ProposalBundle, error) {
 	proposalID := strings.TrimSpace(req.ProposalID)
 	if err := validateID("prp_", proposalID); err != nil {

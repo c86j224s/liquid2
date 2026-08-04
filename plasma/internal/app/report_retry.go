@@ -9,6 +9,7 @@ import (
 
 const reportRetryLineageLimit = 64
 
+// ReportRetryRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type ReportRetryRequest struct {
 	EventID, MissionID, FailedPendingEventID, Strategy, RetryRequestID string
 	Producer                                                           Producer
@@ -30,10 +31,11 @@ type reportTerminalPayload struct {
 
 type existingReportRetry struct{ event LedgerEvent }
 
+// Error는 호출자에게 노출 가능한 안정적인 오류 문자열을 반환하며, 민감한 원문이나 provider 응답을 포함하지 않아야 한다.
 func (err existingReportRetry) Error() string { return "existing report retry" }
 
-// RequestReportRetry is the durable command boundary for report retry. Its
-// conditional append checks all mutable conditions against one ledger snapshot.
+// RequestReportRetry는 리포트 재시도 지속 명령 경계다. 조건부 append는 변할 수
+// 있는 모든 조건을 하나의 장부 snapshot에 대해 검사해야 한다.
 func (s *Service) RequestReportRetry(ctx context.Context, req ReportRetryRequest) (LedgerEvent, error) {
 	if err := validateReportRetryRequest(req); err != nil {
 		return LedgerEvent{}, err

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptrace"
 )
 
@@ -249,7 +250,7 @@ func addSourceReadIOMetrics(metrics map[string]any, args json.RawMessage, result
 }
 
 func addResearchReadIOMetrics(metrics map[string]any, args json.RawMessage, result ToolResult) {
-	var input researchReadInput
+	var input research.ReadInput
 	if err := json.Unmarshal(args, &input); err == nil {
 		metrics["read_kind"] = "research_object"
 		metrics["object_kind"] = strings.TrimSpace(input.ObjectKind)

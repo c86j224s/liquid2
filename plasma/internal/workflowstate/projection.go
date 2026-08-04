@@ -9,6 +9,7 @@ import (
 
 const staleAfter = 30 * time.Minute
 
+// Event는 workflow projection이 필요로 하는 장부 event의 최소 필드다.
 type Event struct {
 	EventID   string
 	MissionID string
@@ -18,6 +19,11 @@ type Event struct {
 	CreatedAt time.Time
 }
 
+// ProjectRuns는 workflow event 열을 run별 view로 투영한다.
+//
+// 입력 events는 순서가 보장되지 않아도 되지만, 동일 run 내 상태는 event type과
+// CreatedAt/Sequence에 담긴 장부 의미를 따라 계산된다. 이 함수는 event를 생성하지
+// 않고 stale pending 상태만 view 수준에서 보수적으로 보정한다.
 func ProjectRuns(events []Event) []WorkflowRunView {
 	byRunID := map[string]*WorkflowRunView{}
 	order := []string{}
@@ -207,6 +213,7 @@ func applyDerivedStatus(run *WorkflowRunView, now time.Time) {
 	}
 }
 
+// IsEventType은 주어진 event type이 workflow projection 대상인지 판정한다.
 func IsEventType(eventType string) bool {
 	switch eventType {
 	case WorkflowRunRequestedEvent,
@@ -226,10 +233,14 @@ func IsEventType(eventType string) bool {
 	}
 }
 
+// RunAndMissionFromEvent는 event type별 payload에서 workflow_run_id와 mission_id를
+// 추출한다.
 func RunAndMissionFromEvent(event Event) (string, string) {
 	return RunAndMissionFromPayload(event.EventType, event.Payload)
 }
 
+// RunAndMissionFromPayload는 JSON payload만 있는 호출 경계에서 run/mission ID를
+// 추출한다.
 func RunAndMissionFromPayload(eventType string, payload json.RawMessage) (string, string) {
 	var base struct {
 		WorkflowRunID string `json:"workflow_run_id"`
@@ -241,6 +252,7 @@ func RunAndMissionFromPayload(eventType string, payload json.RawMessage) (string
 	return strings.TrimSpace(base.WorkflowRunID), strings.TrimSpace(base.MissionID)
 }
 
+// StatusForTerminalEvent는 terminal event type을 WorkflowRunView.Status 값으로 바꾼다.
 func StatusForTerminalEvent(eventType string) string {
 	switch eventType {
 	case WorkflowRunCompletedEvent:
@@ -258,6 +270,7 @@ func StatusForTerminalEvent(eventType string) string {
 	}
 }
 
+// TerminalStatus는 workflow 상태가 더 이상 runner 진행 대상이 아닌지 판정한다.
 func TerminalStatus(status string) bool {
 	switch status {
 	case WorkflowStatusCompleted, WorkflowStatusPaused, WorkflowStatusStopped, WorkflowStatusFailed, WorkflowStatusInterrupted:
@@ -267,6 +280,7 @@ func TerminalStatus(status string) bool {
 	}
 }
 
+// HasTerminalEvent는 해당 run에 terminal event가 이미 기록되어 있는지 검사한다.
 func HasTerminalEvent(events []Event, workflowRunID string) bool {
 	workflowRunID = strings.TrimSpace(workflowRunID)
 	if workflowRunID == "" {

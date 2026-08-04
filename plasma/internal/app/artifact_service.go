@@ -10,19 +10,21 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
+// ArtifactStore는 raw artifact와 source snapshot 저장 계약을 모은 포트다.
 type ArtifactStore interface {
-	CreateRawArtifact(context.Context, RawArtifact) error
-	GetRawArtifact(context.Context, string) (RawArtifact, error)
-	CreateSourceSnapshot(context.Context, SourceSnapshot) error
-	GetSourceSnapshot(context.Context, string) (SourceSnapshot, error)
+	artifact.Store
+	source.Store
 }
 
-type SourceSnapshotListStore interface {
-	ListSourceSnapshots(context.Context, string) ([]SourceSnapshot, error)
-}
+// SourceSnapshotListStore는 source snapshot 목록 조회 전용 저장소 포트다.
+type SourceSnapshotListStore = source.ListStore
 
+// CreateRawArtifact는 원문 artifact를 저장하고 저장 record를 반환한다.
 func (s *Service) CreateRawArtifact(ctx context.Context, req CreateRawArtifactRequest) (RawArtifact, error) {
 	artifact, err := buildRawArtifact(req)
 	if err != nil {
@@ -77,6 +79,7 @@ func buildRawArtifact(req CreateRawArtifactRequest) (RawArtifact, error) {
 	return artifact, nil
 }
 
+// GetRawArtifact는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetRawArtifact(ctx context.Context, artifactID string) (RawArtifact, error) {
 	trimmed := strings.TrimSpace(artifactID)
 	if err := validateID("art_", trimmed); err != nil {
@@ -85,6 +88,7 @@ func (s *Service) GetRawArtifact(ctx context.Context, artifactID string) (RawArt
 	return s.store.GetRawArtifact(ctx, trimmed)
 }
 
+// CreateSourceSnapshot는 source snapshot record를 저장하고 반환한다.
 func (s *Service) CreateSourceSnapshot(ctx context.Context, req CreateSourceSnapshotRequest) (SourceSnapshot, error) {
 	snapshot, err := s.buildSourceSnapshot(ctx, req, nil)
 	if err != nil {
@@ -195,6 +199,7 @@ func (s *Service) buildSourceSnapshot(
 	return snapshot, nil
 }
 
+// GetSourceSnapshot는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetSourceSnapshot(ctx context.Context, snapshotID string) (SourceSnapshot, error) {
 	trimmed := strings.TrimSpace(snapshotID)
 	if err := validateID("src_", trimmed); err != nil {
@@ -212,6 +217,7 @@ func (s *Service) GetSourceSnapshot(ctx context.Context, snapshotID string) (Sou
 	return snapshot, nil
 }
 
+// ListSourceSnapshots는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListSourceSnapshots(ctx context.Context, missionID string) ([]SourceSnapshot, error) {
 	return s.ListSourceSnapshotsWithState(ctx, ListSourceSnapshotsRequest{MissionID: missionID})
 }

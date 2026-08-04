@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// LoadLongFormFinalization는 장문 보고서 최종화 입력 artifact들을 장부에서 복원한다.
 func LoadLongFormFinalization(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding) (LongFormFinalizeResult, bool, error) {
 	binding = normalizeLongFormFinalizeBinding(binding)
 	events, err := store.ListEvents(ctx, binding.MissionID)
@@ -28,6 +29,7 @@ func LoadLongFormFinalization(ctx context.Context, store LongFormFinalizationSto
 	return result, true, nil
 }
 
+// FinalizeLongForm는 장문 보고서 최종 Markdown을 검증하고 저장용 요청으로 만든다.
 func FinalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req LongFormFinalizeRequest) (LongFormFinalizeResult, error) {
 	return finalizeLongForm(ctx, store, req, false)
 }
@@ -106,6 +108,7 @@ func finalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	return replayLongFormFinalizeForRequest(ctx, store, binding, event, req)
 }
 
+// PrepareLongFormEditingDraft는 장문 보고서 최종 편집에 넘길 중간 Markdown draft를 만든다.
 func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding) (string, error) {
 	binding = normalizeLongFormFinalizeBinding(binding)
 	if err := validateLongFormFinalizeBinding(binding); err != nil {
@@ -184,6 +187,7 @@ func validateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 	return nil
 }
 
+// ValidateLongFormFinalizeBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 	return validateLongFormFinalizeBinding(normalizeLongFormFinalizeBinding(value))
 }

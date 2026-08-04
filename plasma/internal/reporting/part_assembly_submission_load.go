@@ -9,6 +9,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
+// LoadPartAssemblySubmission는 part assembly 제출 이벤트와 artifact를 장부에서 복원한다.
 func LoadPartAssemblySubmission(ctx context.Context, store PartAssemblySubmissionStore, binding PartAssemblyBinding) (PartAssemblySubmission, bool, error) {
 	binding = normalizePartAssemblyBinding(binding)
 	if err := ValidatePartAssemblyBinding(binding); err != nil {
@@ -43,6 +44,7 @@ func LoadPartAssemblySubmission(ctx context.Context, store PartAssemblySubmissio
 	return found, true, nil
 }
 
+// ValidatePartAssemblyBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidatePartAssemblyBinding(value PartAssemblyBinding) error {
 	value = normalizePartAssemblyBinding(value)
 	if value.MissionID == "" || value.PendingEventID == "" || value.PlanEventID == "" || value.ToolSessionID == "" || value.AgentExecutor == "" || value.PartIndex < 1 || value.SectionCount < 1 {
@@ -81,6 +83,7 @@ func normalizePartAssemblyBinding(value PartAssemblyBinding) PartAssemblyBinding
 	return value
 }
 
+// ValidatePartAssemblySectionReadBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidatePartAssemblySectionReadBinding(value PartAssemblyBinding) error {
 	value = normalizePartAssemblyBinding(value)
 	if err := ValidatePartAssemblyBinding(value); err != nil {

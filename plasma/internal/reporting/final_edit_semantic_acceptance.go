@@ -17,12 +17,14 @@ const (
 	FinalEditSemanticRepairedByGate         = "repaired_by_gate"
 )
 
+// FinalEditSemanticAcceptance는 문체 편집 문단이 의미상 수용 가능한지에 대한 검토 결과다.
 type FinalEditSemanticAcceptance struct {
 	ParagraphOrdinal      int    `json:"paragraph_ordinal"`
 	FinalParagraphOrdinal int    `json:"final_paragraph_ordinal"`
 	Verdict               string `json:"verdict"`
 }
 
+// StoredFinalEditSemanticAcceptance는 의미 검토 결과와 비교 대상 문단 해시를 함께 저장한 record다.
 type StoredFinalEditSemanticAcceptance struct {
 	ParagraphOrdinal      int    `json:"paragraph_ordinal"`
 	FinalParagraphOrdinal int    `json:"final_paragraph_ordinal"`
@@ -32,12 +34,14 @@ type StoredFinalEditSemanticAcceptance struct {
 	FinalSHA256           string `json:"final_sha256"`
 }
 
+// FinalEditSemanticAttestation는 의미 검토 record 묶음과 digest를 담는 제출 증명이다.
 type FinalEditSemanticAttestation struct {
 	Records []StoredFinalEditSemanticAcceptance `json:"records,omitempty"`
 	Digest  string                              `json:"digest,omitempty"`
 	Count   int                                 `json:"count"`
 }
 
+// FinalEditSemanticComparisonParagraph는 reader/style 문단을 한 쌍으로 비교하기 위한 입력이다.
 type FinalEditSemanticComparisonParagraph struct {
 	ParagraphOrdinal int    `json:"paragraph_ordinal"`
 	ReaderSHA256     string `json:"reader_sha256"`
@@ -46,6 +50,7 @@ type FinalEditSemanticComparisonParagraph struct {
 	StyleText        string `json:"style_text"`
 }
 
+// FinalEditSemanticComparison는 reader/style artifact를 비교해 검증 대상 문단을 만든다.
 func FinalEditSemanticComparison(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, finalMarkdown string) ([]FinalEditSemanticComparisonParagraph, error) {
 	stageBinding = normalizeFinalEditStageBinding(stageBinding)
 	events, err := store.ListEvents(ctx, stageBinding.MissionID)
@@ -79,6 +84,7 @@ func FinalEditSemanticComparison(ctx context.Context, store FinalEditStageStore,
 	return out, nil
 }
 
+// ValidateFinalEditSemanticAcceptance는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, finalMarkdown string, reviews []FinalEditSemanticAcceptance) (FinalEditSemanticAttestation, error) {
 	stageBinding = normalizeFinalEditStageBinding(stageBinding)
 	if stageBinding.Stage != FinalEditStageGate && stageBinding.Stage != FinalEditStageStyleSemanticValidation {
@@ -233,6 +239,7 @@ func finalEditStyleSubmissionForGate(ctx context.Context, store FinalEditStageSt
 	return found, count == 1, nil
 }
 
+// BuildFinalEditStyleSemanticValidation는 보고서 생성 파이프라인에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
 func BuildFinalEditStyleSemanticValidation(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, reviews []FinalEditSemanticAcceptance) (string, FinalEditSemanticAttestation, error) {
 	stageBinding = normalizeFinalEditStageBinding(stageBinding)
 	if stageBinding.Stage != FinalEditStageStyleSemanticValidation {

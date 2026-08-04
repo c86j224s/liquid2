@@ -6,8 +6,13 @@ import (
 	"fmt"
 )
 
+// ReportPlanSubmissionSchemaVersion은 report plan MCP 제출 payload의 schema version이다.
 const ReportPlanSubmissionSchemaVersion = "plasma.report_plan_submission.v1"
 
+// ReportPlanSubmissionRequest는 report planning agent가 MCP tool로 제출한 계획을
+// 장부에 기록하기 위한 입력이다.
+//
+// PendingEventID, ToolSessionID, IdempotencyKey가 같은 실행 slot을 식별한다.
 type ReportPlanSubmissionRequest struct {
 	EventID                   string
 	MissionID                 string
@@ -26,21 +31,29 @@ type ReportPlanSubmissionRequest struct {
 	ToolProducer              Producer
 }
 
+// ReportPlanSubmission은 제출 event와 replay 여부를 반환한다.
 type ReportPlanSubmission struct {
 	Event  LedgerEvent
 	Replay bool
 }
 
+// ReportPlanSubmissionQuery는 이미 제출된 report plan을 정확히 하나 선택하기 위한
+// binding query다.
 type ReportPlanSubmissionQuery struct {
 	MissionID, PendingEventID, ReportMode, ToolSessionID, PreviousProviderSessionID string
 	AgentExecutor, AgentModel, AgentReasoningEffort, IdempotencyKey                 string
 }
 
+// ReportPlanSubmissionSelection은 선택된 report plan event와 hash metadata다.
 type ReportPlanSubmissionSelection struct {
 	EventID, ArgumentsHash, PlanHash string
 	Plan                             json.RawMessage
 }
 
+// SelectReportPlanSubmission은 binding이 정확히 일치하는 report plan 제출 하나를 찾는다.
+//
+// 0개 또는 여러 개가 나오면 runner가 어떤 계획을 promote해야 하는지 모호하므로
+// conflict로 처리한다.
 func (s *Service) SelectReportPlanSubmission(ctx context.Context, query ReportPlanSubmissionQuery) (ReportPlanSubmissionSelection, error) {
 	events, err := s.ListEvents(ctx, query.MissionID)
 	if err != nil {
@@ -65,6 +78,8 @@ func (s *Service) SelectReportPlanSubmission(ctx context.Context, query ReportPl
 	return matches[0], nil
 }
 
+// PromoteReportPlanRequest는 제출된 report plan을 canonical pending event로 승격할 때의
+// 입력이다.
 type PromoteReportPlanRequest struct {
 	MissionID                 string
 	PendingEventID            string
@@ -81,6 +96,10 @@ type PromoteReportPlanRequest struct {
 	Canonical                 AppendEventRequest
 }
 
+// SubmitReportPlan은 report planning MCP 제출을 idempotent하게 장부에 기록한다.
+//
+// 같은 slot에 다른 binding/hash가 들어오면 충돌로 막고, 동일 제출은 replay로
+// 반환한다.
 func (s *Service) SubmitReportPlan(ctx context.Context, req ReportPlanSubmissionRequest) (ReportPlanSubmission, error) {
 	store, ok := s.store.(ConditionalLedgerStore)
 	if !ok {
@@ -140,6 +159,7 @@ func (s *Service) SubmitReportPlan(ctx context.Context, req ReportPlanSubmission
 	return ReportPlanSubmission{Event: appended[0]}, nil
 }
 
+// PromoteReportPlan는 선택한 report plan을 현재 plan으로 승격한다.
 func (s *Service) PromoteReportPlan(ctx context.Context, req PromoteReportPlanRequest) (LedgerEvent, error) {
 	store, ok := s.store.(ConditionalLedgerStore)
 	if !ok {

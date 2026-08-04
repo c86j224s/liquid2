@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/pdftext"
 )
 
 func (server *Server) handleMissionSources(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -336,7 +336,7 @@ func (server *Server) handleSourceRead(w http.ResponseWriter, r *http.Request, m
 		writeError(w, http.StatusNotFound, "artifact not found")
 		return
 	}
-	if pdftext.IsPDFMediaType(artifact.MediaType) || pdftext.IsPDFBytes(artifact.Content) {
+	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
 		writePDFArtifactRead(w, artifact, int(req.Offset), int(req.MaxBytes))
 		return
 	}
@@ -729,7 +729,7 @@ func (server *Server) createURLSourceFromStagedCandidate(w http.ResponseWriter, 
 		})
 		return nil, true
 	}
-	if pdftext.IsPDFMediaType(staged.Artifact.MediaType) || pdftext.IsPDFBytes(staged.Artifact.Content) {
+	if pdfdocument.IsPDFMediaType(staged.Artifact.MediaType) || pdfdocument.IsPDFBytes(staged.Artifact.Content) {
 		return server.createPDFURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, requestedTitle, staged), true
 	}
 	result, err := sourceingest.CreateStagedURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateStagedURLSourceRequest{
@@ -927,7 +927,7 @@ func (server *Server) handlePDFURLSource(w http.ResponseWriter, r *http.Request,
 	if staged, ok, err := sourceingest.LatestStagedSourceCandidateForURL(r.Context(), server.service, missionID, normalizedURL); err != nil {
 		writeAppError(w, err)
 		return
-	} else if ok && (pdftext.IsPDFMediaType(staged.Artifact.MediaType) || pdftext.IsPDFBytes(staged.Artifact.Content)) {
+	} else if ok && (pdfdocument.IsPDFMediaType(staged.Artifact.MediaType) || pdfdocument.IsPDFBytes(staged.Artifact.Content)) {
 		if result, handled := server.createURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, req.Title, staged); handled {
 			if result != nil {
 				writeJSON(w, http.StatusCreated, result)

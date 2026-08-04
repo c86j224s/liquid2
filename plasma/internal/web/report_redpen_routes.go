@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 )
 
 type reportRedpenSaveRequest struct {
@@ -131,7 +131,7 @@ func (server *Server) isReportRedpenSource(ctx context.Context, missionID, artif
 			continue
 		}
 		kind := strings.TrimSpace(payload.Kind)
-		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reporting.ExportKindHumanizedMarkdown) {
+		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reportexecution.ExportKindHumanizedMarkdown) {
 			return true, nil
 		}
 	}

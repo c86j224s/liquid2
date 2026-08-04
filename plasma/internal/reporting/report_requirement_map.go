@@ -17,11 +17,13 @@ const (
 	ReportRequirementsMappedSentinel   = "REQUIREMENTS_MAPPED"
 )
 
+// ReportRequirementMap는 section/part별 작성 요구사항 배정을 담는 map이다.
 type ReportRequirementMap struct {
 	ReviewedEventIDs []string            `json:"reviewed_event_ids"`
 	Requirements     []ReportRequirement `json:"requirements"`
 }
 
+// ReportRequirement는 보고서 작성 중 반드시 반영해야 할 단일 요구사항이다.
 type ReportRequirement struct {
 	RequirementID  string                  `json:"requirement_id"`
 	Instruction    string                  `json:"instruction"`
@@ -30,11 +32,13 @@ type ReportRequirement struct {
 	UnmappedReason string                  `json:"unmapped_reason,omitempty"`
 }
 
+// ReportRequirementOwner는 요구사항이 어느 part와 section에 귀속되는지 나타낸다.
 type ReportRequirementOwner struct {
 	PartIndex    int `json:"part_index"`
 	SectionIndex int `json:"section_index"`
 }
 
+// ReportRequirementMapBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type ReportRequirementMapBinding struct {
 	MissionID                 string       `json:"mission_id"`
 	PendingEventID            string       `json:"pending_event_id"`
@@ -48,6 +52,7 @@ type ReportRequirementMapBinding struct {
 	Producer                  app.Producer `json:"producer"`
 }
 
+// NormalizeReportRequirementMap는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeReportRequirementMap(value ReportRequirementMap, plan SectionalReportPlan) (ReportRequirementMap, error) {
 	reviewed, err := normalizeUniqueIDs(value.ReviewedEventIDs, 256)
 	if err != nil || len(reviewed) == 0 {
@@ -91,6 +96,7 @@ func NormalizeReportRequirementMap(value ReportRequirementMap, plan SectionalRep
 	return ReportRequirementMap{ReviewedEventIDs: reviewed, Requirements: requirements}, nil
 }
 
+// ReportRequirementMapHash는 요구사항 map의 안정 해시를 계산한다.
 func ReportRequirementMapHash(value ReportRequirementMap) (string, json.RawMessage, error) {
 	encoded, err := json.Marshal(value)
 	if err != nil {
@@ -100,6 +106,7 @@ func ReportRequirementMapHash(value ReportRequirementMap) (string, json.RawMessa
 	return hex.EncodeToString(sum[:]), encoded, nil
 }
 
+// ReportRequirementsForSection는 특정 section에 배정된 요구사항만 고른다.
 func ReportRequirementsForSection(value ReportRequirementMap, partIndex, sectionIndex int) []ReportRequirement {
 	result := []ReportRequirement{}
 	for _, requirement := range value.Requirements {
@@ -110,6 +117,7 @@ func ReportRequirementsForSection(value ReportRequirementMap, partIndex, section
 	return result
 }
 
+// ReportOwnerBoundRequirements는 owner binding이 맞는 요구사항만 필터링한다.
 func ReportOwnerBoundRequirements(value ReportRequirementMap) []ReportRequirement {
 	result := []ReportRequirement{}
 	for _, requirement := range value.Requirements {
@@ -120,6 +128,7 @@ func ReportOwnerBoundRequirements(value ReportRequirementMap) []ReportRequiremen
 	return result
 }
 
+// ReportRequirementsForPart는 특정 part에 배정된 요구사항만 고른다.
 func ReportRequirementsForPart(value ReportRequirementMap, partIndex int) []ReportRequirement {
 	result := []ReportRequirement{}
 	for _, requirement := range value.Requirements {
@@ -130,6 +139,7 @@ func ReportRequirementsForPart(value ReportRequirementMap, partIndex int) []Repo
 	return result
 }
 
+// ValidateReportRequirementMapBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateReportRequirementMapBinding(binding ReportRequirementMapBinding) error {
 	if strings.TrimSpace(binding.MissionID) == "" || strings.TrimSpace(binding.PendingEventID) == "" || strings.TrimSpace(binding.PlanEventID) == "" || strings.TrimSpace(binding.ToolSessionID) == "" || strings.TrimSpace(binding.IdempotencyKey) == "" || strings.TrimSpace(binding.AgentExecutor) == "" {
 		return fmt.Errorf("%w: report requirement map binding is incomplete", app.ErrInvalidInput)

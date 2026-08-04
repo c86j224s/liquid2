@@ -1,137 +1,33 @@
 package app
 
-import (
-	"encoding/json"
-	"fmt"
-	"strings"
-)
+import "github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 
+// NormalizeAgentExecutorName는 애플리케이션 서비스 계층 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeAgentExecutorName(value string) (string, error) {
-	value = strings.TrimSpace(strings.ToLower(value))
-	if value == "" {
-		return "codex", nil
-	}
-	switch value {
-	case "codex", "claude":
-		return value, nil
-	default:
-		return "", fmt.Errorf("%w: unsupported agent executor %q", ErrInvalidInput, value)
-	}
+	return agentpolicy.NormalizeExecutorName(value)
 }
 
+// LockedAgentExecutorFromEvents는 과거 이벤트가 이미 고정한 agent executor를 찾는다.
 func LockedAgentExecutorFromEvents(events []LedgerEvent) string {
-	for _, event := range events {
-		executor, ok := ExplicitLockingAgentExecutor(event)
-		if !ok {
-			continue
-		}
-		return executor
-	}
-	return ""
+	return agentpolicy.LockedExecutorFromEvents(events)
 }
 
+// ValidateMissionAgentExecutorForEvents는 애플리케이션 서비스 계층 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateMissionAgentExecutorForEvents(events []LedgerEvent, requested string) error {
-	requested, err := NormalizeAgentExecutorName(requested)
-	if err != nil {
-		return err
-	}
-	locked := LockedAgentExecutorFromEvents(events)
-	if locked == "" || locked == requested {
-		return nil
-	}
-	return fmt.Errorf("%w: this mission is already using %s; create a new mission to use %s", ErrInvalidInput, locked, requested)
+	return agentpolicy.ValidateMissionExecutor(events, requested)
 }
 
+// ValidateAgentExecutorAppend는 애플리케이션 서비스 계층 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateAgentExecutorAppend(events []LedgerEvent, appended []LedgerEvent) error {
-	requested := ""
-	for _, event := range appended {
-		executor, ok, err := explicitLockingAgentExecutor(event)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		if requested == "" {
-			requested = executor
-			continue
-		}
-		if requested != executor {
-			return fmt.Errorf("%w: mixed agent executors in one append are not supported", ErrInvalidInput)
-		}
-	}
-	if requested == "" {
-		return nil
-	}
-	return ValidateMissionAgentExecutorForEvents(events, requested)
+	return agentpolicy.ValidateAppend(events, appended)
 }
 
+// ExplicitLockingAgentExecutor는 이벤트 payload가 명시한 executor lock을 안전하게 읽는다.
 func ExplicitLockingAgentExecutor(event LedgerEvent) (string, bool) {
-	name, ok, err := explicitLockingAgentExecutor(event)
-	if err != nil {
-		return "", false
-	}
-	return name, ok
+	return agentpolicy.ExplicitLockingExecutor(event)
 }
 
-func explicitLockingAgentExecutor(event LedgerEvent) (string, bool, error) {
-	if !EventLocksAgentExecutor(event.EventType) {
-		return "", false, nil
-	}
-	var payload struct {
-		AgentExecutor string `json:"agent_executor"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return "", false, nil
-	}
-	if strings.TrimSpace(payload.AgentExecutor) == "" {
-		return "", false, nil
-	}
-	name, err := NormalizeAgentExecutorName(payload.AgentExecutor)
-	if err != nil {
-		return "", true, err
-	}
-	return name, true, nil
-}
-
+// EventLocksAgentExecutor는 이벤트 타입이 미션의 executor 선택을 고정하는지 판정한다.
 func EventLocksAgentExecutor(eventType string) bool {
-	switch eventType {
-	case "turn.user",
-		"turn.agent.pending",
-		"turn.agent.response",
-		"turn.agent.compacted",
-		WorkflowRunRequestedEvent,
-		WorkflowRunStartedEvent,
-		WorkflowStepStartedEvent,
-		WorkflowStepCompletedEvent,
-		WorkflowRunPausedEvent,
-		WorkflowRunCompletedEvent,
-		WorkflowRunStoppedEvent,
-		WorkflowRunFailedEvent,
-		WorkflowRunInterruptedEvent,
-		"report.draft.pending",
-		"report.plan.created",
-		"report.requirements.started",
-		"report.requirements.mapped",
-		"report.section.started",
-		"report.part_plan.created",
-		"report.section.created",
-		"report.part.created",
-		"report.part_edit.started",
-		"report.part.edited",
-		"report.final_edit.reader.started",
-		"report.final_edit.reader.submitted",
-		"report.final_edit.style.started",
-		"report.final_edit.style.submitted",
-		"report.final_edit.gate.started",
-		"report.final_edit.gate.submitted",
-		"report.artifact.created",
-		"report.design.pending",
-		"report.patch.pending",
-		"report.patch.failed",
-		"report.artifact.exported":
-		return true
-	default:
-		return false
-	}
+	return agentpolicy.EventLocksExecutor(eventType)
 }

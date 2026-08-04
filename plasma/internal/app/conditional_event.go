@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// AppendEventConditionally atomically appends one event or returns the
-// canonical event selected by the caller's replay check.
+// AppendEventConditionally는 이벤트 하나를 조건부로 append하거나, 호출자의 replay
+// 검사에서 선택한 canonical 이벤트를 반환하는 원자적 경계다.
 func (s *Service) AppendEventConditionally(
 	ctx context.Context,
 	missionID string,

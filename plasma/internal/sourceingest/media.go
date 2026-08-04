@@ -8,6 +8,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
+// CreateFetchedMediaURLSourceWithEvent는 미디어 URL fetch 결과를 미디어 source
+// snapshot으로 저장한다. 이미지는 artifact를 저장하고, 오디오/비디오는 현재
+// 직접 검사하지 않는 live reference로 남긴다.
 func CreateFetchedMediaURLSourceWithEvent(ctx context.Context, store Store, req CreateFetchedMediaURLSourceRequest) (MediaSourceSnapshotResult, error) {
 	title := firstNonEmptyString(req.Title, req.Fetched.Title, req.URL)
 	license := strings.TrimSpace(req.License)

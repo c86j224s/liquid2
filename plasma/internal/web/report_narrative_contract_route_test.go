@@ -13,6 +13,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -62,7 +63,7 @@ func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Narrative serial", "objective": "Explain evidence to a report-only reader"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title": "Reader Report", "report_mode": "long_form", "rigor_level": "balanced", "generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"title": "Reader Report", "report_mode": "long_form", "rigor_level": "balanced", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	assertNarrativeContractProductRequests(t, agent.requests, true)
@@ -158,7 +159,7 @@ func TestNarrativeContractSectionFanoutUsesSameProductEditorPath(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Fanout Reader Report", "report_mode": "long_form", "rigor_level": "balanced", "execution_strategy": reportExecutionStrategySectionFanout,
-		"generation_guidance_profile": reportGenerationGuidanceProfilePartConnectiveEconomyVoice,
+		"generation_guidance_profile": reportprompt.ProfilePartConnectiveEconomyVoice,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	assertNarrativeContractFanoutProductRequests(t, agent.requests[1:])
@@ -231,7 +232,7 @@ func TestReaderStyleGateUsesHumanizeAsPreCanonicalStyleOnly(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Styled Reader Report", "report_mode": "long_form", "rigor_level": "balanced",
-		"generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 		"post_report_humanize":        "enabled",
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
@@ -319,7 +320,7 @@ func TestReaderStyleGatePipelineAllowsStructurallySafeKoreanStylePolish(t *testi
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
 		"title": "Styled Korean Report", "report_mode": "long_form", "rigor_level": "balanced",
-		"generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 		"post_report_humanize":        "enabled",
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
@@ -368,7 +369,7 @@ func TestReaderStyleGateAdoptsDurableStageAfterAckMismatch(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "ack mismatch"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title": "Reader Report", "report_mode": "long_form", "generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"title": "Reader Report", "report_mode": "long_form", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if executor.calls != 1 ||
@@ -420,7 +421,7 @@ func TestReaderStyleGateRetriesOnceThenFailsWithoutCanonical(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "stage failure"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title": "Reader Report", "report_mode": "long_form", "generation_guidance_profile": reportGenerationGuidanceProfileNarrativeContract,
+		"title": "Reader Report", "report_mode": "long_form", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
 	detail := waitForEventType(t, server.URL, missionID, "report.draft.failed")
 	time.Sleep(50 * time.Millisecond)

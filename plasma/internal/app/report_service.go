@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+// ReportStore는 report와 version 상태 전이를 저장하는 포트다.
 type ReportStore interface {
 	CreateReport(context.Context, Report) error
 	GetReport(context.Context, string) (Report, error)
@@ -19,6 +20,7 @@ type ReportStore interface {
 	PromoteReportVersion(context.Context, ReportVersionPromotion) error
 }
 
+// ReportListStore는 미션별 report 목록 조회 전용 저장소 포트다.
 type ReportListStore interface {
 	ListReports(context.Context, string) ([]Report, error)
 	ListReportVersions(context.Context, string) ([]ReportVersion, error)
@@ -31,6 +33,7 @@ type reportScopeRecords struct {
 	Options   []OptionRecord
 }
 
+// CreateReportDraft는 초안 artifact를 report의 새 version으로 저장한다.
 func (s *Service) CreateReportDraft(ctx context.Context, req CreateReportDraftRequest) (ReportDraftResult, error) {
 	event, report, version, blocks, err := s.buildReportDraft(ctx, req)
 	if err != nil {
@@ -171,6 +174,7 @@ func reportDraftPayload(reportID string, versionID string, formatIntent string, 
 	return payload
 }
 
+// GetReport는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetReport(ctx context.Context, reportID string) (Report, error) {
 	trimmed := strings.TrimSpace(reportID)
 	if err := validateID("rpt_", trimmed); err != nil {
@@ -179,6 +183,7 @@ func (s *Service) GetReport(ctx context.Context, reportID string) (Report, error
 	return s.store.GetReport(ctx, trimmed)
 }
 
+// ListReports는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListReports(ctx context.Context, missionID string) ([]Report, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -191,6 +196,7 @@ func (s *Service) ListReports(ctx context.Context, missionID string) ([]Report, 
 	return store.ListReports(ctx, trimmed)
 }
 
+// GetReportVersion는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) GetReportVersion(ctx context.Context, versionID string) (ReportVersion, error) {
 	trimmed := strings.TrimSpace(versionID)
 	if err := validateID("rvn_", trimmed); err != nil {
@@ -199,6 +205,7 @@ func (s *Service) GetReportVersion(ctx context.Context, versionID string) (Repor
 	return s.store.GetReportVersion(ctx, trimmed)
 }
 
+// ListReportVersions는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListReportVersions(ctx context.Context, missionID string) ([]ReportVersion, error) {
 	trimmed := strings.TrimSpace(missionID)
 	if err := validateID("mis_", trimmed); err != nil {
@@ -211,6 +218,7 @@ func (s *Service) ListReportVersions(ctx context.Context, missionID string) ([]R
 	return store.ListReportVersions(ctx, trimmed)
 }
 
+// ListReportBlocks는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Service) ListReportBlocks(ctx context.Context, versionID string) ([]ReportBlock, error) {
 	trimmed := strings.TrimSpace(versionID)
 	if err := validateID("rvn_", trimmed); err != nil {
@@ -219,6 +227,7 @@ func (s *Service) ListReportBlocks(ctx context.Context, versionID string) ([]Rep
 	return s.store.ListReportBlocks(ctx, trimmed)
 }
 
+// PromoteReportVersion는 선택한 report version을 현재 version으로 승격한다.
 func (s *Service) PromoteReportVersion(ctx context.Context, req PromoteReportVersionRequest) (ReportVersion, error) {
 	versionID := strings.TrimSpace(req.ReportVersionID)
 	if err := validateID("rvn_", versionID); err != nil {
@@ -253,6 +262,7 @@ func (s *Service) PromoteReportVersion(ctx context.Context, req PromoteReportVer
 	return s.store.GetReportVersion(ctx, versionID)
 }
 
+// BuildReportPromotionAppendRequest는 애플리케이션 서비스 계층에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildReportPromotionAppendRequest(req ReportPromotionAppendRequest) AppendEventRequest {
 	version := req.Version
 	return AppendEventRequest{
@@ -266,6 +276,7 @@ func BuildReportPromotionAppendRequest(req ReportPromotionAppendRequest) AppendE
 	}
 }
 
+// ExportReportVersion는 애플리케이션 서비스 계층 결과를 외부 artifact 형태로 내보낸다. 원본 report version은 변경하지 않는다.
 func (s *Service) ExportReportVersion(ctx context.Context, req ExportReportVersionRequest) (ReportExportResult, error) {
 	exportID := strings.TrimSpace(req.ExportID)
 	versionID := strings.TrimSpace(req.ReportVersionID)
@@ -354,6 +365,7 @@ func (s *Service) ExportReportVersion(ctx context.Context, req ExportReportVersi
 	return ReportExportResult{Artifact: artifact, Event: committed.Events[0]}, nil
 }
 
+// ReportAST는 저장된 report artifact를 구조화된 Markdown AST로 파싱한다.
 func (s *Service) ReportAST(ctx context.Context, versionID string) (ReportASTExport, error) {
 	version, err := s.GetReportVersion(ctx, versionID)
 	if err != nil {
