@@ -562,6 +562,40 @@ func TestNarrativeContractGuidanceReachesBothReportModes(t *testing.T) {
 			}
 		}
 	}
+	const plannedOnlyMarker = "Planned general-report subject-direct writing guidance:"
+	if !strings.Contains(plannedWrite, plannedOnlyMarker) {
+		t.Fatalf("planned writer lost planned-only subject-direct guidance:\n%s", plannedWrite)
+	}
+	plannedCitationMarkers := []string{
+		"Attach inline citations to substantive source-backed claims",
+		"reader-usable source URL or locator when available",
+		"A bibliography or source list does not replace claim-level citations.",
+	}
+	for _, marker := range plannedCitationMarkers {
+		if !strings.Contains(plannedWrite, marker) {
+			t.Fatalf("planned writer lost claim-level citation guidance %q:\n%s", marker, plannedWrite)
+		}
+	}
+	for name, prompt := range map[string]string{"one-take": oneTakeWrite, "long-form section": sectionWrite} {
+		if strings.Contains(prompt, plannedOnlyMarker) {
+			t.Fatalf("%s writer received planned-only guidance:\n%s", name, prompt)
+		}
+		for _, marker := range plannedCitationMarkers {
+			if strings.Contains(prompt, marker) {
+				t.Fatalf("%s writer received planned-only citation guidance %q:\n%s", name, marker, prompt)
+			}
+		}
+	}
+	for name, prompt := range map[string]string{"planned": plannedPlan, "long-form": longPlan} {
+		if strings.Contains(prompt, plannedOnlyMarker) {
+			t.Fatalf("%s plan received writer-only guidance:\n%s", name, prompt)
+		}
+		for _, marker := range plannedCitationMarkers {
+			if strings.Contains(prompt, marker) {
+				t.Fatalf("%s plan received writer-only citation guidance %q:\n%s", name, marker, prompt)
+			}
+		}
+	}
 }
 
 func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T) {

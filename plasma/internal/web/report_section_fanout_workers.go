@@ -43,7 +43,7 @@ func (server *Server) runSectionFanoutTasks(ctx context.Context, req sectionFano
 			started := time.Now()
 			result, err := executor.Run(ctx, AgentRequest{
 				UserText:          fmt.Sprintf("draft section %d.%d for section-fanout long-form markdown report", task.partIndex+1, task.sectionIndex+1),
-				Prompt:            agentSectionDraftPromptWithRequirements(req.title, req.missionID, task.toolSessionID, req.rigor, state.plan, task.part, task.section, task.partIndex, task.sectionIndex, req.generationGuidanceProfile, reporting.ReportRequirementsForSection(state.requirementMap, task.partIndex+1, task.sectionIndex+1)),
+				Prompt:            withLongFormDownstreamDirection(agentSectionDraftPromptWithRequirements(req.title, req.missionID, task.toolSessionID, req.rigor, state.plan, task.part, task.section, task.partIndex, task.sectionIndex, req.generationGuidanceProfile, reporting.ReportRequirementsForSection(state.requirementMap, task.partIndex+1, task.sectionIndex+1)), req.directionHint),
 				Model:             req.agentModel,
 				ReasoningEffort:   req.agentReasoningEffort,
 				MissionID:         req.missionID,

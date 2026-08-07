@@ -26,7 +26,9 @@ async function exportReport(versionID, target, options = {}) {
     if (options.download) {
       reports.downloadReportExport(result, target, content);
     } else {
-      reports.applyReportPreview(key, target === "markdown" ? "markdown" : "text", reports.reportExportPreviewHeader(versionID, target, result), content);
+      reports.applyReportPreview(key, target === "markdown" ? "markdown" : "text", reports.reportExportPreviewHeader(versionID, target, result), content, {
+        tableOfContents: target === "markdown"
+      });
     }
     await reloadMission(owner.missionId);
   } catch (err) {
@@ -45,7 +47,8 @@ async function viewReportArtifact(artifactID) {
     const result = await missionApi(owner, `/artifacts/${artifactID}`);
     const content = result.content || "";
     reports.applyReportPreview(key, "markdown", reports.reportArtifactPreviewHeader(artifactID, result), content, {
-      sourceArtifactID: artifactID
+      sourceArtifactID: artifactID,
+      tableOfContents: true
     });
   } catch (err) {
     if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
@@ -64,7 +67,8 @@ async function viewReportRedpenWorkcopy(sourceArtifactID) {
     if (!result.exists) throw new Error("저장된 빨간펜 작업본이 없습니다.");
     const revision = Number(result.workcopy?.revision || 0);
     reports.applyReportPreview(key, "markdown", `빨간펜 작업본${revision ? ` v${revision}` : ""}`, result.content || "", {
-      sourceArtifactID
+      sourceArtifactID,
+      tableOfContents: true
     });
   } catch (err) {
     if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;

@@ -9,19 +9,25 @@ import (
 func Definitions(legacy bool) []wire.ToolDefinition {
 	listSchema := schemaList
 	readSchema := schemaRead
+	outlineDescription := "Outline the non-report mission research discovery surface without returning source bodies or large record arrays."
+	listDescription := "List non-report mission research discovery objects by kind with enforced cursor and limit paging."
+	grepDescription := "Find candidate snippets using case-insensitive literal substring search across non-report mission research discovery objects. The entire query must occur contiguously; use one short exact word or phrase per call and split separate concepts into separate searches. Matches are candidates, not evidence or sources until read and referenced."
 	refsSchema := schemaRefs
-	refsDescription := "Follow forward and backward references between pinned sources, raw artifacts, and ledger events."
+	refsDescription := "Follow forward and backward references between pinned sources, non-report raw artifacts, and non-report ledger events."
 	if legacy {
 		listSchema = schemaListLegacy
 		readSchema = schemaReadLegacy
+		outlineDescription = "Outline a mission ledger without returning source bodies or large record arrays."
+		listDescription = "List mission ledger objects by kind with enforced cursor and limit paging."
+		grepDescription = "Find candidate snippets using case-insensitive literal substring search across mission ledger objects. The entire query must occur contiguously; use one short exact word or phrase per call and split separate concepts into separate searches. Matches are candidates, not evidence or sources until read and referenced."
 		refsSchema = schemaRefsLegacy
 		refsDescription = "Follow forward and backward references between sources, raw artifacts, ledger events, and legacy evidence, claims, questions, proposals, and report records."
 	}
 	return []wire.ToolDefinition{
-		{Name: mcptools.ToolResearchOutline, Description: "Outline a mission ledger without returning source bodies or large record arrays.", InputSchema: schemaOutline},
-		{Name: mcptools.ToolResearchList, Description: "List mission ledger objects by kind with enforced cursor and limit paging.", InputSchema: listSchema},
+		{Name: mcptools.ToolResearchOutline, Description: outlineDescription, InputSchema: schemaOutline},
+		{Name: mcptools.ToolResearchList, Description: listDescription, InputSchema: listSchema},
 		{Name: mcptools.ToolResearchRead, Description: "Read one mission ledger object or source artifact with bounded bytes and next_offset for long payloads.", InputSchema: readSchema},
-		{Name: mcptools.ToolResearchGrep, Description: "Find candidate snippets across mission ledger objects. Matches are candidates, not evidence or sources until read and referenced.", InputSchema: schemaGrep},
+		{Name: mcptools.ToolResearchGrep, Description: grepDescription, InputSchema: schemaGrep},
 		{Name: mcptools.ToolResearchRefs, Description: refsDescription, InputSchema: refsSchema},
 	}
 }

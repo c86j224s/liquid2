@@ -225,6 +225,15 @@ large artifacts live outside the repository under `research-artifacts/`.
       claim-scope drifts versus one semantic drift in the control. The earlier
       promising signal did not replicate, and product readiness remains
       unevaluated because this experiment did not run the product path.
+61. [`61-report-direction-layering-2026-08-07.md`](61-report-direction-layering-2026-08-07.md)
+    - Tested request-scoped report direction on the actual serial and
+      section-fanout long-form paths. The first candidate exposed a coverage-loss
+      risk in serial planning; a narrow coverage-and-depth invariant fixed the
+      regression without prescribing Part or Section counts. A final exact-code
+      rerun produced 4 Parts/15 Sections in serial and 4 Parts/14 Sections in
+      fanout. Direct full-report reading found no material quality loss after
+      the correction. A Korean summary is available in
+      [`61-report-direction-layering-2026-08-07.ko.md`](61-report-direction-layering-2026-08-07.ko.md).
 
 ## Controller Experiment Sequence
 

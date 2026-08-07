@@ -2017,6 +2017,7 @@ var appCSSImportManifest = []string{
 	"/static/plasma/sources_settings.css",
 	"/static/plasma/lists_reports_badges.css",
 	"/static/plasma/detail_copy_previews.css",
+	"/static/plasma/report_toc.css",
 	"/static/plasma/ledger_modal_utilities.css",
 	"/static/plasma/responsive_overrides.css",
 }
@@ -2167,7 +2168,7 @@ func mustReadPlasmaReportScripts(t *testing.T) string {
 		"static/plasma/reports_mermaid_legend.js", "static/plasma/reports_image_viewer.js",
 		"static/plasma/reports_image_enhance.js", "static/plasma/reports_image_frame.js",
 		"static/plasma/reports_mermaid.js", "static/plasma/reports_redpen_markdown.js",
-		"static/plasma/reports_redpen.js", "static/plasma/reports_redpen_init.js", "static/plasma/reports_markdown.js",
+		"static/plasma/reports_redpen.js", "static/plasma/reports_toc.js", "static/plasma/reports_redpen_init.js", "static/plasma/reports_markdown.js",
 		"static/plasma/reports_model_selection.js", "static/plasma/reports_direction.js",
 		"static/plasma/reports_state.js", "static/plasma/reports_view_state.js", "static/plasma/reports_trace.js",
 		"static/plasma/reports_notice.js", "static/plasma/reports_modal.js", "static/plasma/reports_rendering.js",

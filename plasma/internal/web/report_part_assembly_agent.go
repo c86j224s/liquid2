@@ -26,6 +26,7 @@ type reportPartAssemblyAgentRequest struct {
 	rigor                        reportRigorProfile
 	plan                         agentSectionalReportPlan
 	part                         agentReportPart
+	directionHint                string
 	drafts                       []sectionalReportDraft
 	partIndex                    int
 	reportSessionPolicy          string
@@ -60,6 +61,7 @@ func (server *Server) runPartAssemblyAgent(ctx context.Context, req reportPartAs
 		agentReq.ExtraMCPTools = reportPartAssemblyMCPTools(req.generationGuidanceProfile)
 		agentReq.PartAssembly = &binding
 	}
+	agentReq.Prompt = withLongFormDownstreamDirection(agentReq.Prompt, req.directionHint)
 	result, err := executor.Run(ctx, agentReq)
 	if err != nil {
 		return agentPartAssembly{}, result, "", err
@@ -129,12 +131,17 @@ func usePartAssemblyEditTools(profile string) bool {
 }
 
 func agentPartAssemblyEditToolsPrompt(req reportPartAssemblyAgentRequest, binding reporting.PartAssemblyBinding, draftID string) string {
+	partConnectiveGuidance := strings.TrimSpace(reportprompt.PartConnectiveEconomyGuidance(req.generationGuidanceProfile))
 	guidance := strings.TrimSpace(strings.Join([]string{
 		reportprompt.LongFormReportGenerationGuidance(req.generationGuidanceProfile),
-		reportprompt.PartConnectiveEconomyGuidance(req.generationGuidanceProfile),
+		partConnectiveGuidance,
 	}, "\n\n"))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
+	}
+	connectiveRule := "- Prefer one good intro and one good closing over many filler transitions."
+	if partConnectiveGuidance != "" {
+		connectiveRule = "- Intro, transitions, and closing are optional. Add them only when actual Section relationships justify connective text."
 	}
 	sectionReading := ""
 	sectionInventory := sectionalDraftInventoryJSON(req.drafts)
@@ -179,9 +186,9 @@ Rules:
 - Use Korean for the connective Markdown.
 - Do not include immutable Section bodies in any patch.
 - Do not summarize the Section bodies into a replacement overview.
-- Transitions are optional, but when useful they should connect adjacent Sections without compressing them.
-- Prefer one good intro and one good closing over many filler transitions.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionInventory, agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(promptBinding), mcptools.ToolReportPartAssemblyStart, draftID, sectionReading, mcptools.ToolReportPartAssemblyRead, mcptools.ToolReportPartAssemblyPatch, mcptools.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel)
+%s
+- When useful, transitions should connect adjacent Sections without compressing them.
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, req.title, req.missionID, req.partIndex+1, req.part.Title, sectionInventory, agentReportAnyJSON(req.plan), req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions, guidance, agentReportAnyJSON(promptBinding), mcptools.ToolReportPartAssemblyStart, draftID, sectionReading, mcptools.ToolReportPartAssemblyRead, mcptools.ToolReportPartAssemblyPatch, mcptools.ToolReportPartAssemblySubmit, reporting.PartAssemblySubmittedSentinel, connectiveRule)
 }
 
 func narrativePartSectionInventoryJSON(drafts []sectionalReportDraft) string {

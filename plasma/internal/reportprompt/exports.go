@@ -52,6 +52,11 @@ func PartConnectiveEconomyGuidance(profile string) string {
 	return reportPartConnectiveEconomyGuidance(profile)
 }
 
+// PartAdjacentBoundaryEditGuidance returns Part editor boundary guidance for matching profiles.
+func PartAdjacentBoundaryEditGuidance(profile string) string {
+	return reportPartAdjacentBoundaryEditGuidance(profile)
+}
+
 // SubjectDirectSynthesisPlanningGuidance returns subject-direct planning guidance.
 func SubjectDirectSynthesisPlanningGuidance(profile string) string {
 	return reportSubjectDirectSynthesisPlanningGuidance(profile)

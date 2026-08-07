@@ -35,6 +35,15 @@ func isReportGenerationGuidanceProfileSectionContractFamily(profile string) bool
 	return isReportGenerationGuidanceProfileSectionContract(profile) || isReportGenerationGuidanceProfileSectionContractCoverage(profile)
 }
 
+func isReportGenerationGuidanceProfileLongFormDefault(profile string) bool {
+	switch strings.TrimSpace(strings.ToLower(profile)) {
+	case reportGenerationGuidanceProfileLongFormDefault, "section_brief_cluster_memory_narrative_contract":
+		return true
+	default:
+		return false
+	}
+}
+
 func isReportGenerationGuidanceProfileLongFormExperiment(profile string) bool {
 	return isReportGenerationGuidanceProfileSectionContractFamily(profile) ||
 		isReportGenerationGuidanceProfileSectionIntent(profile) ||
@@ -97,6 +106,7 @@ func longFormExperimentalPlanningGuidance(profile string) string {
 		strings.TrimSpace(longFormPlanReviewPlanningGuidance(profile)),
 		strings.TrimSpace(reportSubjectDirectSynthesisPlanningGuidance(profile)),
 		strings.TrimSpace(reportNarrativeContractPlanningGuidance(profile)),
+		strings.TrimSpace(longFormDefaultPlanningGuidance(profile)),
 	}
 	kept := make([]string, 0, len(parts))
 	for _, part := range parts {

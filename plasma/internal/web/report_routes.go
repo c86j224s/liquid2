@@ -2017,7 +2017,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
 				planStarted := time.Now()
 				result, runErr := executor.Run(ctx, AgentRequest{
-					UserText: "plan sectional long-form markdown report", Prompt: withReportDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), ""),
+					UserText: "plan sectional long-form markdown report", Prompt: withLongFormPlanningDirection(agentSectionalReportPlanPrompt(title, missionID, binding.ToolSessionID, pendingEventID, binding.IdempotencyKey, rigor, generationGuidanceProfile), directionHint),
 					Model: agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: binding.ToolSessionID, PreviousSessionID: reportStartSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 					ExtraMCPTools: reportPlanMCPTools(), ReplaceMCPTools: true, ReportPlan: &AgentReportPlanContext{PendingEventID: pendingEventID, ReportMode: reportModeLongForm, IdempotencyKey: binding.IdempotencyKey, PreviousProviderSessionID: reportStartSessionID, AgentModel: agentModel, AgentReasoningEffort: agentReasoningEffort, RequireWritingContract: reportprompt.RequireReportWritingContract(generationGuidanceProfile)},
 				})
@@ -2155,7 +2155,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			sectionStarted := time.Now()
 			result, err := executor.Run(ctx, AgentRequest{
 				UserText:          fmt.Sprintf("draft section %d.%d for sectional long-form markdown report", partIndex+1, sectionIndex+1),
-				Prompt:            withReportDirection(agentSectionDraftPromptWithRequirements(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile, reporting.ReportRequirementsForSection(requirementMap, partIndex+1, sectionIndex+1)), ""),
+				Prompt:            withLongFormDownstreamDirection(agentSectionDraftPromptWithRequirements(title, missionID, toolSessionID, rigor, plan, part, section, partIndex, sectionIndex, generationGuidanceProfile, reporting.ReportRequirementsForSection(requirementMap, partIndex+1, sectionIndex+1)), directionHint),
 				Model:             agentModel,
 				ReasoningEffort:   agentReasoningEffort,
 				MissionID:         missionID,
@@ -2272,6 +2272,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			rigor:                        rigor,
 			plan:                         plan,
 			part:                         part,
+			directionHint:                directionHint,
 			drafts:                       sectionDraftsByPart[partIndex],
 			partIndex:                    partIndex,
 			reportSessionPolicy:          reportSessionPolicy,
@@ -2403,7 +2404,7 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 			mcpMode: mcpMode, rigor: rigor, reportSessionPolicy: reportSessionPolicy,
 			reportSessionPolicySelection: reportSessionPolicySelection, postReportHumanize: postReportHumanize,
 			generationGuidanceProfile: generationGuidanceProfile, generationGuidanceSHA256: generationGuidanceSHA256,
-			pendingEventID: pendingEventID, artifactID: artifactID, planEvent: planEvent, plan: plan,
+			pendingEventID: pendingEventID, directionHint: directionHint, artifactID: artifactID, planEvent: planEvent, plan: plan,
 			requirementMap: requirementMap, parts: partDrafts, partArtifactIDs: partArtifactIDs,
 			sectionArtifactIDs: sectionArtifactIDs, sectionWordTotal: sectionWordTotal,
 			sessionChainKind: sessionChainKind, preReportResearchSessionID: preReportResearchSessionID,
@@ -2449,9 +2450,13 @@ func (server *Server) createSectionalLongFormReportDraft(ctx context.Context, mi
 	for attempt := 1; attempt <= 2; attempt++ {
 		attemptStarted := time.Now()
 		attemptPreviousSessionID := previousStageSessionID
+		prompt := agentLongFormFinalizePromptWithRequirements(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, requirementMap, attempt, canonical, hint)
+		if !canonical {
+			prompt = withLongFormDownstreamDirection(prompt, directionHint)
+		}
 		result, runErr := executor.Run(ctx, AgentRequest{
 			UserText: "finalize sectional long-form markdown report",
-			Prompt:   agentLongFormFinalizePromptWithRequirements(title, missionID, rigor, plan, partDrafts, generationGuidanceProfile, binding, requirementMap, attempt, canonical, hint),
+			Prompt:   prompt,
 			Model:    agentModel, ReasoningEffort: agentReasoningEffort, MissionID: missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: previousStageSessionID, AgentExecutor: executorName, MCPMode: mcpMode,
 			ExtraMCPTools: reportFinalizeMCPTools(generationGuidanceProfile), ReplaceMCPTools: true, LongFormFinalize: &binding,
@@ -2565,7 +2570,7 @@ Rules:
 
 func agentMarkdownReportPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan, generationGuidanceProfile string) string {
 	planJSON := agentReportPlanJSON(plan)
-	guidance := strings.TrimSpace(reportprompt.ReportGenerationGuidance(generationGuidanceProfile))
+	guidance := strings.TrimSpace(reportprompt.PlannedReportGenerationGuidance(generationGuidanceProfile))
 	if guidance != "" {
 		guidance = "\n" + guidance + "\n"
 	}
@@ -2634,8 +2639,8 @@ Report rigor:
 Planning rules:
 - First call plasma.research.outline for the mission overview.
 - Use plasma.research.list, plasma.research.grep, plasma.research.read, and plasma.research.references to find the source-backed clusters the report should cover.
-- Do not read or incorporate turn.user or report.draft.pending events. A separate post-plan stage maps user output requirements onto this fixed outline.
-- Treat pending_event_id only as a submission binding. Do not let its direction_hint change Part or Section structure.
+- Do not read or incorporate turn.user or report.draft.pending events for additional planning material. When a request_direction block is present, it is the only request-scoped direction the planner may use before outline freeze.
+- Treat pending_event_id only as a submission binding; do not read it as a ledger event.
 - Plan for long-form richness, not a short summary. Include concrete episodes, mechanisms, comparisons, tensions, caveats, weak signals, code/formulas/benchmarks when relevant.
 - Group the report into Parts and Sections. A normal mission should usually have 2-5 Parts and 6-14 Sections total. Use fewer only when the mission material is genuinely small.
 - Each Section must be specific enough to be drafted independently.

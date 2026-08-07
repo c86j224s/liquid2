@@ -50,9 +50,18 @@ profile을 기본값으로 쓰고, 장문이 아닌 요청은 `narrative-contrac
 독자 중심 작성 계약은 공통 기준이며, 저장된 event와 direct API 호출을 새 의미로
 재해석하지 않기 위해 older profile 값만 계속 허용한다.
 
+활성 장문 기본값에서 계획자는 독자의 반응이나 의무적인 놀라움을 설계하지 않는다.
+원자료가 실제로 뒷받침하는 기제, 비교, 인과 순서, 묶음, 긴장, 평가 질문으로 각
+Section의 목적과 전개를 정한다. Section 작성자는 그 계획을 해설하지 않고 주제를
+직접 쓴다. 각 문장은 주장, 사실, 기제, 구분, 결과, 한계 중 하나를 진전시켜야 하며,
+구체적인 내용을 추상적으로 다시 포장하는 문장, 근거 없는 장식적 대조, 이미 끝난
+문단의 결론 반복을 덧붙이지 않는다. 문단 길이와 맺음을 한 형식으로 맞추거나
+접속사를 금칙어로 다루지도 않는다.
+
 활성 장문 기본값은 같은 Part assembly MCP 인계를 사용한다. Section을 읽는 Part
-assembler는 현재 Part에 바인딩된 immutable Section을 모두 bounded read한 뒤 intro,
-transition, closing을 쓰고 `PART_ASSEMBLY_SUBMITTED` sentinel을 반환한다. 이
+assembler는 현재 Part에 바인딩된 immutable Section을 모두 bounded read한다. Intro,
+transition, closing은 기본 산출물이 아니다. Section 관계를 이해하는 데 꼭 필요할
+때만 최소한으로 추가한 뒤 `PART_ASSEMBLY_SUBMITTED` sentinel을 반환한다. 이
 assembler는 post-assembly Part editor가 아니다.
 
 Post-assembly Part editor는 `part_edit_enabled`가 true일 때만 실행된다. 이 editor는
@@ -61,7 +70,10 @@ source, research, Section, 다른 Part, final-edit tool은 읽을 수 없다. �
 outcome은 source Part event, source artifact, edited artifact, provider session,
 profile metadata를 기록한다. No-op 제출도 내구 completion이다. source Part는
 immutable input으로 보존되고, 중복 artifact를 만들지 않고 source artifact에 outcome을
-바인딩한다.
+바인딩한다. 활성 기본값의 Part editor는 인접 Section마다 앞 Section의 마지막 실질
+문단, 연결문, 다음 Section의 첫 실질 문단을 함께 읽는다. 같은 기제나 결론, 읽기
+지시가 반복되거나 단순한 관계가 불필요하게 추상화됐을 때만 한쪽을 최소 수정하며,
+Section 내부의 일반 문체와 리듬은 다시 쓰지 않는다.
 
 공용 reporting start 계약은 provider-owned Part-edit draft를 로드하기 전에 정확히
 하나의 canonical `report.part_edit.started` event를 쓴다. Web pre-start와 direct

@@ -158,7 +158,7 @@ func (server *Server) runSectionFanoutPartPlan(ctx context.Context, req sectionF
 
 func agentPartPlanningPrompt(req sectionFanoutLongFormRequest, state sectionFanoutPlanState, task sectionFanoutPartPlanTask) string {
 	requirements := reporting.ReportRequirementsForPart(state.requirementMap, task.partIndex+1)
-	return fmt.Sprintf(`Take responsibility for the reading flow of one Part before its Sections are drafted.
+	prompt := fmt.Sprintf(`Take responsibility for the reading flow of one Part before its Sections are drafted.
 
 Report title: %s
 Part %d: %s
@@ -173,6 +173,7 @@ Write a short private editorial brief that you can use again when the assembled 
 
 Teach the later Section writers what a reader should understand and how the explanation should move. Keep this as useful working memory rather than a compliance checklist. Do not draft report paragraphs or add new researched facts. Return only the brief.`,
 		req.title, task.partIndex+1, task.part.Title, agentReportAnyJSON(state.plan), agentReportAnyJSON(requirements))
+	return withLongFormDownstreamDirection(prompt, req.directionHint)
 }
 
 func hasRecoveredSection(progress sectionalReportProgress, partIndex int) bool {

@@ -114,6 +114,46 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 	}
 }
 
+func TestLongFormDefaultPartEditorPromptAuditsAdjacentBoundaries(t *testing.T) {
+	req := reportPartEditorRequest{
+		title: "Reader Report", missionID: "mis_part_editor", pendingEventID: "evt_pending",
+		planEventID: "evt_plan", toolSessionID: "ses_part_edit", previousSessionID: "provider-editor",
+		rigor: reportRigorProfiles["balanced"],
+		plan:  agentSectionalReportPlan{Summary: "Plan", Parts: []agentReportPart{{Title: "Part", Sections: []agentReportSection{{Title: "First"}, {Title: "Second"}}}}},
+		part:  agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "First"}, {Title: "Second"}}}, partIndex: 0,
+		source:                    sectionalReportPartDraft{Title: "Part", Markdown: "# Part 1\n\nSource body.", ArtifactID: "art_part", WordCount: 4},
+		generationGuidanceProfile: reportprompt.ProfileLongFormDefault,
+	}
+	binding := reporting.PartEditBinding{MissionID: "mis_part_editor", ToolSessionID: "ses_part_edit", IdempotencyKey: "edit-key"}
+
+	prompt := agentPartEditorPrompt(req, binding, "draft_1")
+	for _, expected := range []string{
+		"Default long-form adjacent-boundary audit:",
+		"previous Section's final substantive paragraph",
+		"connective text between them",
+		"next Section's first substantive paragraph",
+		"Apply this audit only when a following Section exists",
+		"Do not remove or rewrite the final substantive paragraph of the last Section in a Part",
+		"delete the paragraph instead of compressing or rephrasing it",
+		"Keep the paragraph when it adds a new concrete fact, example, citation, consequence, caveat, or unresolved question",
+		"leave the boundary empty unless the next Section answers a specific unresolved question, tension, or dependency",
+		"use at most one sentence naming the open point instead of merely announcing the next topic",
+		"Preserve Section-internal rhythm and style",
+		"never remove facts, citations, or necessary explanation",
+		"no-op remains valid",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("default Part editor prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+
+	req.generationGuidanceProfile = reportprompt.ProfileNarrativeContract
+	legacyPrompt := agentPartEditorPrompt(req, binding, "draft_1")
+	if strings.Contains(legacyPrompt, "Default long-form adjacent-boundary audit:") {
+		t.Fatalf("legacy Part editor prompt inherited default-only audit:\n%s", legacyPrompt)
+	}
+}
+
 func seedPartEditorFixture(t *testing.T, ctx context.Context, svc *app.Service) {
 	t.Helper()
 	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_part_editor", Title: "Part editor"}); err != nil {

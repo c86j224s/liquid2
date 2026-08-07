@@ -36,6 +36,7 @@ func (server *Server) authorSectionFanoutParts(ctx context.Context, req sectionF
 			executorName: req.executorName, agentModel: req.agentModel, agentReasoningEffort: req.agentReasoningEffort,
 			agentSelectionSource: req.agentSelectionSource, mcpMode: req.mcpMode, rigor: req.rigor,
 			plan: state.plan, part: state.plan.Parts[partIndex], partIndex: partIndex, source: source,
+			directionHint:       req.directionHint,
 			requirements:        reporting.ReportRequirementsForPart(state.requirementMap, partIndex+1),
 			requirementMapEvent: state.requirementMapEvent, requirementMap: state.requirementMap,
 			reportSessionPolicy: state.reportSessionPolicy, reportSessionPolicySelection: state.reportSessionPolicySelection,
@@ -85,7 +86,7 @@ func (server *Server) runPartAuthorAgent(ctx context.Context, req reportPartAuth
 	draftID := newID("rpe")
 	result, runErr := executor.Run(ctx, AgentRequest{
 		UserText:          fmt.Sprintf("write final part %d of the long-form report", req.editor.partIndex+1),
-		Prompt:            agentPartAuthorPrompt(req, binding, draftID),
+		Prompt:            withLongFormDownstreamDirection(agentPartAuthorPrompt(req, binding, draftID), req.editor.directionHint),
 		Model:             req.editor.agentModel,
 		ReasoningEffort:   req.editor.agentReasoningEffort,
 		MissionID:         req.editor.missionID,

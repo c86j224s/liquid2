@@ -14,6 +14,7 @@
         reports.renderPlasmaMath?.(container);
         reports.renderPlasmaMermaid?.(container);
         reports.enhanceImages?.(container);
+        reports.tocController?.refresh();
       },
       load: (sourceArtifactID) => missionApi(mission.captureMissionSelection(), `/artifacts/${encodeURIComponent(sourceArtifactID)}/redpen`),
       save: (sourceArtifactID, content, expectedCurrentArtifactID) => missionApi(mission.captureMissionSelection(), `/artifacts/${encodeURIComponent(sourceArtifactID)}/redpen`, {
@@ -31,7 +32,11 @@
       }
     }) || null;
     Plasma.ui.configureDetailHooks({
-      beforeLeave: () => reports.redpenController?.beforeLeave() ?? true,
+      beforeLeave: () => {
+        const canLeave = reports.redpenController?.beforeLeave() ?? true;
+        if (canLeave) reports.tocController?.reset();
+        return canLeave;
+      },
       copyContent: () => reports.redpenController?.copyContent()
     });
     return reports.redpenController;

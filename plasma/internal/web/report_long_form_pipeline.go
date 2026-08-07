@@ -31,6 +31,7 @@ type longFormReaderStyleGatePipelineRequest struct {
 	generationGuidanceProfile    string
 	generationGuidanceSHA256     string
 	pendingEventID               string
+	directionHint                string
 	artifactID                   string
 	planEvent                    app.LedgerEvent
 	plan                         agentSectionalReportPlan
@@ -450,10 +451,13 @@ func forkLongFormFinalEditSession(ctx context.Context, forker AgentSessionForker
 }
 
 func agentLongFormWriterEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
-	return fmt.Sprintf(`Write the final long-form manuscript from the deterministic assembly through the dedicated final-write MCP tools.
+	prompt := fmt.Sprintf(`Write the final long-form manuscript from the deterministic assembly through the dedicated final-write MCP tools.
 
 Report title: %s
 Mission ID: %s
+Overall writing contract:
+%s
+
 Bound stage metadata:
 %s
 
@@ -473,20 +477,24 @@ Final-writer responsibilities:
 - Submit unchanged only after a full read finds no justified final-writing edit.
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
-		req.title, req.missionID, agentReportAnyJSON(binding),
+		req.title, req.missionID, agentReportAnyJSON(map[string]any{"writing_contract": req.plan.WritingContract}), agentReportAnyJSON(binding),
 		mcptools.ToolReportLongFormFinalWriteStart, draftID,
 		mcptools.ToolReportLongFormFinalWriteRead, mcptools.ToolReportLongFormFinalWritePatch,
 		mcptools.ToolReportLongFormFinalWriteSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+	return withLongFormDownstreamDirection(prompt, req.directionHint)
 }
 
 func agentLongFormReaderEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
 	if pipeline := req.finalEditPipeline(); pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 || pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
 		return agentLongFormV2ReaderEditPrompt(req, binding, draftID, attempt)
 	}
-	return fmt.Sprintf(`Read and edit the durable long-form Part manuscript through the dedicated reader-edit MCP tools.
+	prompt := fmt.Sprintf(`Read and edit the durable long-form Part manuscript through the dedicated reader-edit MCP tools.
 
 Report title: %s
 Mission ID: %s
+Overall writing contract:
+%s
+
 Bound stage metadata:
 %s
 
@@ -508,17 +516,21 @@ Reader-edit responsibilities:
 - Submit unchanged only after a full read finds none of these responsibilities applicable.
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
-		req.title, req.missionID, agentReportAnyJSON(binding),
+		req.title, req.missionID, agentReportAnyJSON(map[string]any{"writing_contract": req.plan.WritingContract}), agentReportAnyJSON(binding),
 		mcptools.ToolReportLongFormReaderEditStart, draftID,
 		mcptools.ToolReportLongFormReaderEditRead, mcptools.ToolReportLongFormReaderEditPatch,
 		mcptools.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+	return withLongFormDownstreamDirection(prompt, req.directionHint)
 }
 
 func agentLongFormV2ReaderEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {
-	return fmt.Sprintf(`Read and edit the final-writer manuscript through the dedicated reader-edit MCP tools.
+	prompt := fmt.Sprintf(`Read and edit the final-writer manuscript through the dedicated reader-edit MCP tools.
 
 Report title: %s
 Mission ID: %s
+Overall writing contract:
+%s
+
 Bound stage metadata:
 %s
 
@@ -538,10 +550,11 @@ Reader-edit responsibilities:
 - Submit unchanged only after a full read finds none of these responsibilities applicable.
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
-		req.title, req.missionID, agentReportAnyJSON(binding),
+		req.title, req.missionID, agentReportAnyJSON(map[string]any{"writing_contract": req.plan.WritingContract}), agentReportAnyJSON(binding),
 		mcptools.ToolReportLongFormReaderEditStart, draftID,
 		mcptools.ToolReportLongFormReaderEditRead, mcptools.ToolReportLongFormReaderEditPatch,
 		mcptools.ToolReportLongFormReaderEditSubmit, finalEditStageSubmittedSentinel, finalEditRetryNote(attempt))
+	return withLongFormDownstreamDirection(prompt, req.directionHint)
 }
 
 func agentLongFormStyleEditPrompt(req longFormReaderStyleGatePipelineRequest, binding reporting.FinalEditStageBinding, draftID string, attempt int) string {

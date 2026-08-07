@@ -75,3 +75,17 @@ func reportNarrativeContractWritingGuidance(profile string) string {
 	}
 	return guidance
 }
+
+func reportPlannedNarrativeWritingGuidance(profile string) string {
+	if strings.TrimSpace(strings.ToLower(profile)) != reportGenerationGuidanceProfileNarrativeContract {
+		return ""
+	}
+	return `Planned general-report subject-direct writing guidance:
+- Write about the subject itself, not about the report, its outline, or the source-review process.
+- Let headings carry structure. Begin each section and paragraph with the actual claim, mechanism, contrast, consequence, example, or evidence-backed question instead of announcing what will be discussed.
+- Connect ideas through their substance. Do not preview the next section or recap the previous point merely to make the outline visible.
+- Prefer concrete subjects and verbs when the sources provide them. Omit abstract restatement that only renames the paragraph's purpose or the previous sentence.
+- Stop a paragraph or section when its reasoning is complete. Do not append a tidy takeaway unless it adds a source-backed implication, caveat, or necessary transition.
+- Attach inline citations to substantive source-backed claims using the report's current citation format, and keep a reader-usable source URL or locator when available. A bibliography or source list does not replace claim-level citations.
+- Preserve concrete details, examples, citations, uncertainty, and necessary explanation. This guidance removes structural narration and redundant restatement; it does not ask for a shorter or thinner report.`
+}

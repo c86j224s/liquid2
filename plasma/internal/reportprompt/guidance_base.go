@@ -37,6 +37,15 @@ func ReportGenerationGuidance(profile string) string {
 	return guidance
 }
 
+// PlannedReportGenerationGuidance builds writer guidance for the planned general-report path.
+// It keeps general-report policy out of one-take and long-form prompts.
+func PlannedReportGenerationGuidance(profile string) string {
+	return strings.TrimSpace(strings.Join([]string{
+		ReportGenerationGuidance(profile),
+		reportPlannedNarrativeWritingGuidance(profile),
+	}, "\n\n"))
+}
+
 func baseReportGenerationGuidance() string {
 	return `Report writing guidance:
 - This guidance controls report writing style only. It is not source material and must not be mentioned in the final report.

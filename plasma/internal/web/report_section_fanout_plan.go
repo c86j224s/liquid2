@@ -81,7 +81,7 @@ func (server *Server) ensureSectionFanoutPlan(ctx context.Context, req sectionFa
 			planStarted := time.Now()
 			result, runErr := executor.Run(ctx, AgentRequest{
 				UserText:          "plan section-fanout long-form markdown report",
-				Prompt:            agentSectionalReportPlanPrompt(req.title, req.missionID, binding.ToolSessionID, req.pendingEventID, binding.IdempotencyKey, req.rigor, req.generationGuidanceProfile),
+				Prompt:            withLongFormPlanningDirection(agentSectionalReportPlanPrompt(req.title, req.missionID, binding.ToolSessionID, req.pendingEventID, binding.IdempotencyKey, req.rigor, req.generationGuidanceProfile), req.directionHint),
 				Model:             req.agentModel,
 				ReasoningEffort:   req.agentReasoningEffort,
 				MissionID:         req.missionID,

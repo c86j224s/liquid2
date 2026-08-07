@@ -57,6 +57,12 @@ Plasma를 처음 이해하려면 아래 순서로 읽는 것이 좋습니다.
 - [Confluence Live Validation Checklist](confluence-live-validation-checklist.md)
 - [Media And Document Source Implementation Design](media-source-implementation-design.md)
 
+## MCP 문서
+
+[MCP 문서](mcp/README.ko.md)는 Plasma MCP 정적 안내를 사람이 읽기 위한 표면입니다.
+런타임 MCP resource는 `plasma/internal/mcpdocs` 아래의 코드 소유 복사본에서 embed되며,
+MCP client는 계속 `plasma://docs/mcp/...` URI 계열로 읽을 수 있습니다.
+
 용어는 다음처럼 구분합니다.
 
 - connector는 외부 원천에 접근하는 어댑터입니다.

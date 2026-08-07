@@ -283,8 +283,11 @@ MCP-first surface는 좁고 retrieval-oriented해야 합니다.
 - `plasma.research.read`: 특정 source, evidence item, saved knowledge item, report artifact, raw artifact,
   ledger event를 range support와 함께 읽는 도구. Agent result는 ledger event로 읽으며 source로 재분류하지
   않습니다.
-- `plasma.research.grep`: ledger content, pinned source snapshot, live local path source를 shared observation
-  engine으로 검색하는 도구. External connector search는 원본 자료를 발견하는 별도 경로일 수 있습니다.
+- `plasma.research.grep`: ledger content, pinned source snapshot, live local path source에서
+  case-insensitive literal substring search를 수행하는 도구. 전체 query는 contiguous하게 나타나야 하며,
+  서로 다른 concept은 별도의 짧은 search로 나눕니다. 검색으로 가져온 각 candidate 안에서 발견된
+  비중첩 match는 모두 기존 cursor와 limit pagination으로 반환됩니다. External connector search는
+  원본 자료를 발견하는 별도 경로일 수 있습니다.
 - `plasma.research.references`: source, evidence, saved knowledge, result, report artifact 사이의 graph
   traversal. Legacy claim/report-block reference는 명시적 legacy access 뒤에 둡니다.
 
@@ -385,7 +388,11 @@ reminder와 latest user turn만 보냅니다. 이전 turn history나 source body
 보고서 생성도 같은 원칙을 따릅니다. Report writer는 얇은 guidance만 받고, 필요한 정보는 ledger 위에서
 MCP read로 찾아야 합니다.
 
-선택 사항인 `direction_hint`는 미션 상태나 근거가 아니라 해당 보고서 요청의 대기 상태에만 속한다. 앞뒤 공백을 제거한 뒤 값이 남아 있을 때만 해당 `report.draft.pending` 이벤트에 저장하므로, 서버가 중단되었다가 다시 시작되어도 같은 요청을 복원할 수 있다. 이 필드가 없는 기존 이벤트는 빈 값으로 읽으며, 이후 보고서 요청으로 값을 복사하지 않는다. 고정 안내문은 힌트를 강제 조건이 아닌 약한 편집 축으로 다루게 한다. Plasma는 원테이크 작성, 계획형 보고서의 계획과 작성, 장문 보고서의 계획과 섹션 작성 프롬프트에만 힌트를 명시적으로 넣는다. 일반 대화와 재개 대화, 미션 알림, 상태 회상, 자율 진행, 파트·전체 조립, 말투 보정, 보고서 수정, 기본·디자인 HTML 내보내기에는 새로운 방향 블록을 넣지 않는다. 이 허용 목록은 애플리케이션이 새 프롬프트를 만드는 방식을 보장할 뿐 제공자 세션 기록을 지우지는 않는다. 같은 제공자 세션을 의도적으로 이어 쓰는 경로에서는 앞선 보고서 프롬프트가 세션 맥락에 남아 있을 수 있다.
+선택 사항인 `direction_hint`는 미션 상태나 근거가 아니라 해당 보고서 요청의 대기 상태에만 속한다. 앞뒤 공백을 제거한 뒤 값이 남아 있을 때만 해당 `report.draft.pending` 이벤트에 저장하므로, 서버가 중단되었다가 다시 시작되어도 같은 요청을 복원할 수 있다. 이 필드가 없는 기존 이벤트는 빈 값으로 읽으며, 이후 보고서 요청으로 값을 복사하지 않는다. 고정 안내문은 힌트를 강제 조건이 아닌 약한 편집 축으로 다루게 한다.
+
+원테이크 작성과 계획형 보고서의 계획·작성 단계에는 요청 방향을 직접 전달한다. 장문 보고서에서는 계획을 확정하기 전에 계획자가 사용자의 원문을 받고, 보고서 구조와 `ReportWritingContract`에 그 뜻을 가볍게 반영한다. 방향 지시는 강조점, 해석, 순서, 표현 방식을 조정할 수 있지만, 보고서 목표와 자료가 요구하는 범위와 깊이를 줄이는 근거로 사용해서는 안 된다. 장문 보고서의 섹션 작성, 파트 계획, 파트 조립과 편집, 최종 작성, 독자 편집 단계에는 사용자 원문과 작성 계약을 함께 전달한다. 원문이 최종 기준으로 남고, 계획자의 해석은 여러 작성 단계가 공유하는 편집 축으로만 작동한다.
+
+일반 대화와 재개 대화, 미션 알림, 상태 회상, 자율 진행, 결정적 조립, H5 또는 정식 보고서 확정 전 말투 편집, 의미 검증, 근거 연결 검증, 보고서 수정, 기본·디자인 HTML 내보내기에는 새로운 방향 블록을 넣지 않는다. 원문은 요청의 대기 이벤트에만 영속적으로 남고, 장문 계획에는 원문을 다른 상태 필드로 복제하지 않고 해석된 작성 계약만 저장한다. 이 허용 목록은 애플리케이션이 새 프롬프트를 만드는 방식을 보장할 뿐 제공자 세션 기록을 지우지는 않는다. 같은 제공자 세션을 의도적으로 이어 쓰는 경로에서는 앞선 보고서 프롬프트가 세션 맥락에 남아 있을 수 있다.
 
 `one_take`를 제외한 agent-backed report generation은 가능한 경우 현재 research
 provider session을 fork하여 report-only session에서 실행합니다.

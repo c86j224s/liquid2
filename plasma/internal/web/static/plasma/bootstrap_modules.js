@@ -45,6 +45,12 @@
 	    renderTabs: Plasma.ui.renderTabs
   });
 
+  reports.initReportTOCController({
+    body: $("detailBody"),
+    panel: $("reportTOCPanel"),
+    list: $("reportTOCList"),
+    toggleButton: $("reportTOCToggle")
+  });
   reports.initRedpenController({
     body: $("detailBody"),
     container: $("detailModal"),

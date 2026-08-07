@@ -66,6 +66,13 @@ These documents explain source intake and external-origin integration:
 - [Confluence Live Validation Checklist](confluence-live-validation-checklist.md)
 - [Media And Document Source Implementation Design](media-source-implementation-design.md)
 
+## MCP Documentation
+
+[MCP Documentation](mcp/README.md) is the human-readable surface for static
+Plasma MCP guidance. Runtime MCP resources are embedded from code-owned copies
+under `plasma/internal/mcpdocs` and remain available through the
+`plasma://docs/mcp/...` URI family.
+
 Use the glossary distinction carefully:
 
 - a connector is an adapter for an external origin

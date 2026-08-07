@@ -43,6 +43,7 @@ func (server *Server) assembleSectionFanoutParts(ctx context.Context, req sectio
 			rigor:                        req.rigor,
 			plan:                         state.plan,
 			part:                         part,
+			directionHint:                req.directionHint,
 			drafts:                       sections[partIndex],
 			partIndex:                    partIndex,
 			reportSessionPolicy:          state.reportSessionPolicy,

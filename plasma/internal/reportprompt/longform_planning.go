@@ -151,3 +151,15 @@ func longFormPlanReviewPlanningGuidance(profile string) string {
 - Keep the submitted JSON schema unchanged. Use coverage_notes to briefly state what the review preserved or why the source packet is genuinely small.
 - This first experiment implements review as pre-submit self-review only; it does not add a separate post-submit review stage.`
 }
+
+func longFormDefaultPlanningGuidance(profile string) string {
+	if !isReportGenerationGuidanceProfileLongFormDefault(profile) {
+		return ""
+	}
+	return `Default long-form planning guidance:
+- Keep the submitted JSON schema unchanged. Do not add fields and do not change evidence or coverage field meanings.
+- Do not require surprise, perspective change, or a reversal, and do not ban them. Preserve that movement only when the sources support it.
+- Derive reader interest and Section organization from concrete mechanisms, comparisons, causal sequence, grouping, tensions, or evaluation questions found in the source material.
+- Write Part and Section purposes to state the relation among source-backed material and the usable order or grouping for reading it.
+- Do not write purposes as predictions about the reader's belief, feeling, or discovery.`
+}

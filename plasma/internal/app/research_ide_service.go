@@ -59,11 +59,15 @@ func (s *Service) outlineMission(ctx context.Context, missionID string, legacy b
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
-	artifacts, err := s.listVisibleRawArtifacts(ctx, missionID)
+	artifacts, err := s.listVisibleRawArtifacts(ctx, missionID, legacy)
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
-	events, err := s.store.ListLedgerEvents(ctx, missionID)
+	events, err := s.listVisibleLedgerEvents(ctx, missionID, legacy)
+	if err != nil {
+		return ResearchIDEOutline{}, err
+	}
+	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
@@ -103,7 +107,9 @@ func (s *Service) outlineMission(ctx context.Context, missionID string, legacy b
 		if events[i].EventType == "mcp.tool.called" {
 			continue
 		}
-		recent = append(recent, summarizeLedgerEvent(events[i]))
+		summary := summarizeLedgerEvent(events[i])
+		summary.Refs = researchIDEFilterReportArtifactRefs(summary.Refs, reportArtifacts)
+		recent = append(recent, summary)
 	}
 	next := make([]ResearchIDEObjectRef, 0, researchIDEMaxSuggestions)
 	appendNext := func(ref ResearchIDEObjectRef) {
@@ -472,18 +478,23 @@ func (s *Service) grepMissionObjects(ctx context.Context, missionID, query strin
 	var matches []ResearchIDEGrepMatch
 	lowerQuery := strings.ToLower(query)
 	for _, candidate := range candidates {
-		pos := strings.Index(strings.ToLower(candidate.text), lowerQuery)
-		if pos < 0 {
-			continue
+		lowerText := strings.ToLower(candidate.text)
+		for searchStart := 0; searchStart < len(lowerText); {
+			pos := strings.Index(lowerText[searchStart:], lowerQuery)
+			if pos < 0 {
+				break
+			}
+			pos += searchStart
+			matches = append(matches, ResearchIDEGrepMatch{
+				ObjectKind: candidate.summary.ObjectKind,
+				ObjectID:   candidate.summary.ObjectID,
+				MissionID:  missionID,
+				Snippet:    snippet(candidate.text, pos, len(query)),
+				Position:   pos,
+				Refs:       candidate.summary.Refs,
+			})
+			searchStart = pos + len(lowerQuery)
 		}
-		matches = append(matches, ResearchIDEGrepMatch{
-			ObjectKind: candidate.summary.ObjectKind,
-			ObjectID:   candidate.summary.ObjectID,
-			MissionID:  missionID,
-			Snippet:    snippet(candidate.text, pos, len(query)),
-			Position:   pos,
-			Refs:       candidate.summary.Refs,
-		})
 	}
 	page, next, truncated := paginateMatches(matches, offset, limit)
 	return ResearchIDEGrepResult{MissionID: missionID, Query: query, Matches: page, NextCursor: next, Limit: limit, Truncated: truncated}, nil
@@ -511,10 +522,21 @@ func (s *Service) listObjectReferences(ctx context.Context, missionID, objectKin
 	}
 	objectKind = normalizeResearchIDEObjectKind(objectKind)
 	objectID = strings.TrimSpace(objectID)
+	if !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
+		return ResearchIDEReferences{}, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
+	}
+	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
+	if err != nil {
+		return ResearchIDEReferences{}, err
+	}
+	if err := s.ensureResearchReferenceTargetVisible(ctx, missionID, objectKind, objectID, legacy, reportArtifacts); err != nil {
+		return ResearchIDEReferences{}, err
+	}
 	summary, _, err := s.readObjectPayload(ctx, missionID, objectKind, objectID, legacy)
 	if err != nil {
 		return ResearchIDEReferences{}, err
 	}
+	summary.Refs = researchIDEFilterReportArtifactRefs(summary.Refs, reportArtifacts)
 	target := ResearchIDEObjectRef{ObjectKind: objectKind, ObjectID: objectID}
 	all, err := s.allObjectSummaries(ctx, missionID, "", legacy)
 	if err != nil {
@@ -540,6 +562,30 @@ func (s *Service) listObjectReferences(ctx context.Context, missionID, objectKin
 		Limit:      limit,
 		Truncated:  truncated,
 	}, nil
+}
+
+// ensureResearchReferenceTargetVisible keeps references as a discovery surface:
+// direct reads may still address hidden report objects, but non-legacy
+// reference traversal must fail closed before returning their links.
+func (s *Service) ensureResearchReferenceTargetVisible(ctx context.Context, missionID string, objectKind string, objectID string, legacy bool, reportArtifactIDs map[string]struct{}) error {
+	if legacy {
+		return nil
+	}
+	switch objectKind {
+	case ResearchIDEObjectRawArtifact:
+		if _, ok := reportArtifactIDs[objectID]; ok {
+			return fmt.Errorf("%w: raw_artifact %s is hidden from research references", ErrInvalidInput, objectID)
+		}
+	case ResearchIDEObjectLedgerEvent:
+		event, err := s.findLedgerEvent(ctx, missionID, objectID)
+		if err != nil {
+			return err
+		}
+		if researchIDEReportLedgerEvent(event) {
+			return fmt.Errorf("%w: ledger_event %s is hidden from research references", ErrInvalidInput, objectID)
+		}
+	}
+	return nil
 }
 
 func (s *Service) listResearchObjects(ctx context.Context, missionID string) ([]EvidenceRecord, []ClaimRecord, []QuestionRecord, []OptionRecord, []ProposalBundle, error) {
@@ -591,8 +637,12 @@ func (s *Service) ListRawArtifacts(ctx context.Context, missionID string) ([]Raw
 	return s.listRawArtifacts(ctx, missionID)
 }
 
-func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string) ([]RawArtifact, error) {
+func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string, legacy bool) ([]RawArtifact, error) {
 	artifacts, err := s.listRawArtifacts(ctx, missionID)
+	if err != nil {
+		return nil, err
+	}
+	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
 	if err != nil {
 		return nil, err
 	}
@@ -604,11 +654,14 @@ func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string)
 	if err != nil {
 		return nil, err
 	}
-	if len(rejected) == 0 && len(stagedCandidates) == 0 {
+	if len(reportArtifacts) == 0 && len(rejected) == 0 && len(stagedCandidates) == 0 {
 		return artifacts, nil
 	}
 	visible := artifacts[:0]
 	for _, artifact := range artifacts {
+		if _, ok := reportArtifacts[artifact.ArtifactID]; ok {
+			continue
+		}
 		if _, ok := rejected[artifact.ArtifactID]; ok {
 			continue
 		}
@@ -618,6 +671,25 @@ func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string)
 		visible = append(visible, artifact)
 	}
 	return visible, nil
+}
+
+func (s *Service) listVisibleLedgerEvents(ctx context.Context, missionID string, legacy bool) ([]LedgerEvent, error) {
+	events, err := s.store.ListLedgerEvents(ctx, missionID)
+	if err != nil {
+		return nil, err
+	}
+	return researchIDEVisibleLedgerEvents(events, legacy), nil
+}
+
+func (s *Service) reportArtifactIDsHiddenFromResearchDiscovery(ctx context.Context, missionID string, legacy bool) (map[string]struct{}, error) {
+	if legacy {
+		return nil, nil
+	}
+	events, err := s.store.ListLedgerEvents(ctx, missionID)
+	if err != nil {
+		return nil, err
+	}
+	return researchIDEReportArtifactIDs(events), nil
 }
 
 func (s *Service) isRejectedReportPatchArtifact(ctx context.Context, missionID string, artifactID string) (bool, error) {
@@ -690,9 +762,17 @@ func (s *Service) listReportObjects(ctx context.Context, missionID string) ([]Re
 }
 
 func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind string, legacy bool) ([]ResearchIDEObjectSummary, error) {
+	if objectKind != "" && !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
+		return nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
+	}
 	var items []ResearchIDEObjectSummary
+	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
+	if err != nil {
+		return nil, err
+	}
 	add := func(kind string, summaries []ResearchIDEObjectSummary) {
 		if objectKind == "" || objectKind == kind {
+			summaries = researchIDEFilterReportArtifactSummaryRefs(summaries, reportArtifacts)
 			items = append(items, summaries...)
 		}
 	}
@@ -708,7 +788,7 @@ func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind 
 		add(ResearchIDEObjectSourceSnapshot, summaries)
 	}
 	if objectKind == "" || objectKind == ResearchIDEObjectRawArtifact {
-		artifacts, err := s.listVisibleRawArtifacts(ctx, missionID)
+		artifacts, err := s.listVisibleRawArtifacts(ctx, missionID, legacy)
 		if err != nil {
 			return nil, err
 		}
@@ -775,7 +855,7 @@ func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind 
 		add(ResearchIDEObjectReportBlock, blockSummaries)
 	}
 	if objectKind == "" || objectKind == ResearchIDEObjectLedgerEvent {
-		events, err := s.store.ListLedgerEvents(ctx, missionID)
+		events, err := s.listVisibleLedgerEvents(ctx, missionID, legacy)
 		if err != nil {
 			return nil, err
 		}
@@ -784,9 +864,6 @@ func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind 
 			summaries = append(summaries, summarizeLedgerEvent(event))
 		}
 		add(ResearchIDEObjectLedgerEvent, summaries)
-	}
-	if objectKind != "" && !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
-		return nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
 	}
 	return items, nil
 }

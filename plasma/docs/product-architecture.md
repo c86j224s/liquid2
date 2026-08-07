@@ -391,10 +391,13 @@ The MCP-first surface should remain narrow and retrieval-oriented:
   saved knowledge item, report artifact, raw artifact, or ledger event, with
   range support for long bodies. Agent results are read through ledger events;
   they are not reclassified as sources.
-- `plasma.research.grep`: text or pattern search over ledger content, pinned
-  source snapshots, and live local path sources through the shared observation
-  engine. External connector search remains a separate
-  possible original material discovery route.
+- `plasma.research.grep`: case-insensitive literal substring search over ledger
+  content, pinned source snapshots, and live local path sources. The entire
+  query must be contiguous, separate concepts should be split into separate
+  short searches, and all non-overlapping matches found within each retrieved
+  candidate are returned through the existing cursor and limit pagination.
+  External connector search remains a separate possible original material
+  discovery route.
 - `plasma.research.references`: graph traversal among sources, evidence, saved
   knowledge, results, and report artifacts by default. Legacy claim/report-block
   references remain behind explicit legacy access.
@@ -514,7 +517,33 @@ turn. Report generation should follow the same rule: the report writer receives
 thin guidance and performs MCP reads over the ledger instead of receiving a
 large injected recall payload.
 
-An optional `direction_hint` is request-scoped report pending state, not mission state or evidence. After whitespace trimming, a non-empty value is stored only in the corresponding `report.draft.pending` payload so stale recovery can reproduce that request; omitted legacy payloads decode to empty and later requests do not copy the field. Its fixed advisory treats the hint as a weak editorial axis. Plasma explicitly injects it only into one-take writing, planned planning/writing, and long-form planning/section writing. Normal or resumed conversation, mission reminders, recall, workflows, part/frame assembly, H5 humanization, report patching, and basic or designed HTML export do not receive a new direction block. This allowlist governs application prompt construction; it does not erase provider-session history, so a path that deliberately resumes the same provider session can still retain the earlier report prompt in context.
+An optional `direction_hint` is request-scoped report pending state, not mission
+state or evidence. After whitespace trimming, a non-empty value is stored only
+in the corresponding `report.draft.pending` payload so stale recovery can
+reproduce that request; omitted legacy payloads decode to empty and later
+requests do not copy the field. Its fixed advisory treats the hint as a weak
+editorial axis.
+
+One-take writing and planned planning/writing receive the request direction
+directly. For long-form reports, the planner receives the user's original
+wording before the plan is frozen and interprets it lightly through the report
+structure and `ReportWritingContract`. The direction may adjust emphasis,
+interpretation, ordering, and presentation, but it must not reduce the
+mission-relevant coverage or depth required by the report objective and
+sources. Long-form Section writing, Part planning, Part assembly and editing,
+final writing, and reader editing receive both the original wording and the
+writing contract. This keeps the user's text available as the authority while
+the planner's interpretation gives downstream stages a shared editorial axis.
+
+Normal or resumed conversation, mission reminders, recall, workflows,
+deterministic assembly, H5 or pre-canonical style editing, semantic validation,
+the evidence gate, report patching, and basic or designed HTML export do not
+receive a new direction block. The raw wording remains durable only in the
+request's pending event; the long-form plan stores the interpreted writing
+contract rather than copying the raw hint into a second product-state field.
+This allowlist governs application prompt construction; it does not erase
+provider-session history, so a path that deliberately resumes the same provider
+session can still retain the earlier report prompt in context.
 
 Agent-backed report generation forks the current
 research provider session when possible for every report mode except

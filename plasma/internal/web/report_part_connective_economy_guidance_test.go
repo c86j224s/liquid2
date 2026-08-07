@@ -82,6 +82,10 @@ func TestRichSectionGuidanceIsOnlyTheLongFormDefault(t *testing.T) {
 	if err != nil || explicitProfile != profile || explicitSHA != sha {
 		t.Fatalf("long-form default diverged from the tested profile: default=%q/%q explicit=%q/%q err=%v", profile, sha, explicitProfile, explicitSHA, err)
 	}
+	aliasProfile, aliasSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "section_brief_cluster_memory_narrative_contract")
+	if err != nil || aliasProfile != profile || aliasSHA != sha {
+		t.Fatalf("long-form default alias diverged from canonical default: default=%q/%q alias=%q/%q err=%v", profile, sha, aliasProfile, aliasSHA, err)
+	}
 	legacyProfile, legacySHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfilePartConnectiveEconomyVoice)
 	if err != nil || legacyProfile != reportprompt.ProfilePartConnectiveEconomyVoice || strings.TrimSpace(legacySHA) == "" {
 		t.Fatalf("explicit legacy long-form voice profile was not preserved: profile=%q sha=%q err=%v", legacyProfile, legacySHA, err)
@@ -95,5 +99,87 @@ func TestRichSectionGuidanceIsOnlyTheLongFormDefault(t *testing.T) {
 	profile, _, err = reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfileNarrativeContract)
 	if err != nil || profile != reportprompt.ProfileNarrativeContract {
 		t.Fatalf("explicit long-form narrative profile was not preserved: profile=%q err=%v", profile, err)
+	}
+}
+
+func TestLongFormDefaultPolicyReachesProductPrompts(t *testing.T) {
+	profile, _, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, "section_brief_cluster_memory_narrative_contract")
+	if err != nil || profile != reportprompt.ProfileLongFormDefault {
+		t.Fatalf("long-form default alias did not normalize to active default: profile=%q err=%v", profile, err)
+	}
+	plan := agentSectionalReportPlan{Summary: "plan"}
+	part := agentReportPart{Title: "Part"}
+	section := agentReportSection{Title: "Section", Purpose: "mechanism and consequence"}
+	drafts := []sectionalReportDraft{{Title: "Section", ArtifactID: "art_1", WordCount: 120}}
+
+	planPrompt := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], profile)
+	if !strings.Contains(planPrompt, "Default long-form planning guidance:") {
+		t.Fatalf("default planning marker did not reach plan prompt:\n%s", planPrompt)
+	}
+
+	sectionPrompt := agentSectionDraftPromptWithRequirements("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], plan, part, section, 0, 0, profile, nil)
+	if !strings.Contains(sectionPrompt, "Default long-form Section writing guidance:") {
+		t.Fatalf("default Section marker did not reach Section prompt:\n%s", sectionPrompt)
+	}
+
+	partEditPrompt := agentPartAssemblyEditToolsPrompt(reportPartAssemblyAgentRequest{
+		title: "Long", missionID: "mis_1", toolSessionID: "ses_1", rigor: reportRigorProfiles["balanced"],
+		plan: plan, part: part, drafts: drafts, partIndex: 0, generationGuidanceProfile: profile,
+	}, reporting.PartAssemblyBinding{}, "draft_1")
+	if !strings.Contains(partEditPrompt, "Intro, transitions, and closing are optional. Add them only when actual Section relationships justify connective text.") ||
+		strings.Contains(partEditPrompt, "Prefer one good intro and one good closing over many filler transitions.") {
+		t.Fatalf("default MCP Part assembly prompt did not use optional connective rule:\n%s", partEditPrompt)
+	}
+
+	legacyPlanPrompt := agentSectionalReportPlanPrompt("Long", "mis_1", "ses_1", "evt_1", "key_1", reportRigorProfiles["balanced"], reportprompt.ProfileNarrativeContract)
+	legacySectionPrompt := agentSectionDraftPromptWithRequirements("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], plan, part, section, 0, 0, reportprompt.ProfileNarrativeContract, nil)
+	legacyPartEditPrompt := agentPartAssemblyEditToolsPrompt(reportPartAssemblyAgentRequest{
+		title: "Long", missionID: "mis_1", toolSessionID: "ses_1", rigor: reportRigorProfiles["balanced"],
+		plan: plan, part: part, drafts: drafts, partIndex: 0, generationGuidanceProfile: reportprompt.ProfileNarrativeContract,
+	}, reporting.PartAssemblyBinding{}, "draft_1")
+	legacyCombined := strings.Join([]string{legacyPlanPrompt, legacySectionPrompt, legacyPartEditPrompt}, "\n")
+	for _, marker := range []string{
+		"Default long-form planning guidance:",
+		"Default long-form Section writing guidance:",
+		"Default long-form adjacent-boundary audit:",
+	} {
+		if strings.Contains(legacyCombined, marker) {
+			t.Fatalf("narrative-contract received default-only marker %q:\n%s", marker, legacyCombined)
+		}
+	}
+	if !strings.Contains(legacyPartEditPrompt, "Prefer one good intro and one good closing over many filler transitions.") ||
+		strings.Contains(legacyPartEditPrompt, "Intro, transitions, and closing are optional. Add them only when actual Section relationships justify connective text.") {
+		t.Fatalf("narrative-contract MCP Part assembly prompt did not retain old intro/closing preference:\n%s", legacyPartEditPrompt)
+	}
+}
+
+func TestLongFormDefaultPartAssemblyUsesConnectiveEconomy(t *testing.T) {
+	profile := reportprompt.ProfileLongFormDefault
+	plan := agentSectionalReportPlan{Summary: "plan"}
+	part := agentReportPart{Title: "Part"}
+	drafts := []sectionalReportDraft{{Title: "Section", ArtifactID: "art_1", WordCount: 120}}
+
+	partPrompt := agentPartAssemblyPrompt("Long", "mis_1", "ses_1", reportRigorProfiles["balanced"], plan, part, drafts, 0, profile)
+	for _, expected := range []string{
+		"Part connective-economy guidance:",
+		"Default to no transitions",
+		"Leave the closing empty unless",
+	} {
+		if !strings.Contains(partPrompt, expected) {
+			t.Fatalf("default Part prompt missing %q:\n%s", expected, partPrompt)
+		}
+	}
+	if strings.Contains(partPrompt, "Prefer one good intro and one good closing over many filler transitions") {
+		t.Fatalf("Part prompt still prefers filler intro/closing:\n%s", partPrompt)
+	}
+
+	partEditPrompt := agentPartAssemblyEditToolsPrompt(reportPartAssemblyAgentRequest{
+		title: "Long", missionID: "mis_1", toolSessionID: "ses_1", rigor: reportRigorProfiles["balanced"],
+		plan: plan, part: part, drafts: drafts, partIndex: 0, generationGuidanceProfile: profile,
+	}, reporting.PartAssemblyBinding{}, "draft_1")
+	if !strings.Contains(partEditPrompt, "Intro, transitions, and closing are optional") ||
+		!strings.Contains(partEditPrompt, "actual Section relationships justify connective text") ||
+		strings.Contains(partEditPrompt, "Prefer one good intro and one good closing over many filler transitions") {
+		t.Fatalf("Part edit-tools prompt did not adopt optional connective economy:\n%s", partEditPrompt)
 	}
 }

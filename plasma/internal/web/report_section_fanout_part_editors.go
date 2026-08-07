@@ -24,6 +24,7 @@ func (server *Server) editSectionFanoutParts(ctx context.Context, req sectionFan
 			executorName: req.executorName, agentModel: req.agentModel, agentReasoningEffort: req.agentReasoningEffort,
 			agentSelectionSource: req.agentSelectionSource, mcpMode: req.mcpMode, rigor: req.rigor,
 			plan: state.plan, part: state.plan.Parts[partIndex], partIndex: partIndex, source: source,
+			directionHint:       req.directionHint,
 			requirements:        reporting.ReportRequirementsForPart(state.requirementMap, partIndex+1),
 			requirementMapEvent: state.requirementMapEvent, requirementMap: state.requirementMap,
 			reportSessionPolicy: state.reportSessionPolicy, reportSessionPolicySelection: state.reportSessionPolicySelection,

@@ -271,7 +271,17 @@ go run ./cmd/plasma reports draft mis_... -wait \
   -direction-hint "Compare operational risks before recommendations"
 ```
 
-The hint is not a source or mission setting. Plasma does not copy it into later report requests or explicitly inject it into conversation, humanization, patching, or HTML-export prompts. This is a prompt-routing guarantee, not deletion of provider-session history: a path that deliberately resumes the same provider session may still retain the earlier report prompt in that session's context.
+The hint is not a source or mission setting. For long-form reports, the planner
+receives the original wording before the plan is frozen and reflects it lightly
+in the report structure and writing contract. Content-writing stages receive
+both the original wording and that contract, but the direction may change only
+emphasis, interpretation, ordering, and presentation; it must not reduce the
+mission-relevant coverage or depth required by the objective and sources.
+Plasma does not copy the hint into later report requests or explicitly inject it
+into conversation, humanization, semantic validation, evidence-gate, patching,
+or HTML-export prompts. This is a prompt-routing guarantee, not deletion of
+provider-session history: a path that deliberately resumes the same provider
+session may still retain the earlier report prompt in that session's context.
 
 Patch an existing Markdown report artifact from the CLI:
 

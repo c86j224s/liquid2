@@ -59,8 +59,11 @@ func TestLongFormProductPathMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	if len(agent.requests) != 6 {
 		t.Fatalf("request count = %d, want plan+requirements+two sections+part+final", len(agent.requests))
 	}
-	if strings.Contains(agent.requests[0].Prompt, "include a comparison table") {
-		t.Fatal("fixed-outline planner received the detailed output requirement")
+	if !strings.Contains(agent.requests[0].Prompt, "include a comparison table") || !strings.Contains(agent.requests[0].Prompt, longFormPlanningDirectionGuidance) {
+		t.Fatal("fixed-outline planner did not receive the request direction before outline freeze")
+	}
+	if strings.Contains(agent.requests[0].Prompt, "req_comparison_table") {
+		t.Fatal("fixed-outline planner received post-plan requirement-map output")
 	}
 	if !strings.Contains(agent.requests[1].Prompt, "include a comparison table") || !requestHasMCPTool(agent.requests[1], "plasma.report.requirements.submit") || agent.requests[1].ReportRequirements == nil || agent.requests[1].ReportPlan != nil {
 		t.Fatal("requirement mapper did not receive the current output requirement")
@@ -68,8 +71,8 @@ func TestLongFormProductPathMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	if !strings.Contains(agent.requests[2].Prompt, "req_comparison_table") || !strings.Contains(agent.requests[2].Prompt, "include a comparison table") {
 		t.Fatal("owned Section did not receive its mapped requirement")
 	}
-	if strings.Contains(agent.requests[3].Prompt, "req_comparison_table") || strings.Contains(agent.requests[3].Prompt, "include a comparison table") {
-		t.Fatal("mapped requirement leaked into an unowned Section")
+	if strings.Contains(agent.requests[3].Prompt, "req_comparison_table") {
+		t.Fatal("mapped requirement ownership leaked into an unowned Section")
 	}
 }
 
@@ -240,16 +243,19 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	if len(requests) != 9 {
 		t.Fatalf("request count = %d, want plan+requirements+two sections+part+part_edit+writer+reader+gate", len(requests))
 	}
-	if strings.Contains(requests[0].Prompt, "include calibrated risk register") {
-		t.Fatal("fanout fixed-outline planner received the detailed output requirement")
+	if !strings.Contains(requests[0].Prompt, "include calibrated risk register") || !strings.Contains(requests[0].Prompt, longFormPlanningDirectionGuidance) {
+		t.Fatal("fanout fixed-outline planner did not receive the request direction before outline freeze")
+	}
+	if strings.Contains(requests[0].Prompt, "req_fanout_risk_register") {
+		t.Fatal("fanout fixed-outline planner received post-plan requirement-map output")
 	}
 	if requests[1].ReportRequirements == nil || requests[1].ReportPlan != nil || !requestHasMCPTool(requests[1], "plasma.report.requirements.submit") {
 		t.Fatalf("fanout mapper did not use the dedicated requirement binding: %#v", requests[1])
 	}
 	sectionOne := requestByUserText(t, requests, "draft section 1.1")
 	sectionTwo := requestByUserText(t, requests, "draft section 1.2")
-	if strings.Contains(sectionOne.Prompt, "req_fanout_risk_register") || strings.Contains(sectionOne.Prompt, "calibrated risk register") {
-		t.Fatal("fanout requirement leaked into the unowned Section")
+	if strings.Contains(sectionOne.Prompt, "req_fanout_risk_register") {
+		t.Fatal("fanout requirement ownership leaked into the unowned Section")
 	}
 	if !strings.Contains(sectionTwo.Prompt, "req_fanout_risk_register") || !strings.Contains(sectionTwo.Prompt, "calibrated risk register") {
 		t.Fatal("fanout owned Section did not receive its mapped requirement")

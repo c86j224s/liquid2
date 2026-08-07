@@ -30,6 +30,7 @@ type reportPartEditorRequest struct {
 	part                         agentReportPart
 	partIndex                    int
 	source                       sectionalReportPartDraft
+	directionHint                string
 	requirements                 []reporting.ReportRequirement
 	requirementMapEvent          app.LedgerEvent
 	requirementMap               reporting.ReportRequirementMap
@@ -57,7 +58,7 @@ func (server *Server) runPartEditorAgent(ctx context.Context, req reportPartEdit
 	draftID := newID("rpe")
 	result, runErr := executor.Run(ctx, AgentRequest{
 		UserText:          fmt.Sprintf("edit assembled part %d of the long-form report", req.partIndex+1),
-		Prompt:            agentPartEditorPrompt(req, binding, draftID),
+		Prompt:            withLongFormDownstreamDirection(agentPartEditorPrompt(req, binding, draftID), req.directionHint),
 		Model:             req.agentModel,
 		ReasoningEffort:   req.agentReasoningEffort,
 		MissionID:         req.missionID,
@@ -123,6 +124,10 @@ func (server *Server) partEditBinding(ctx context.Context, req reportPartEditorR
 }
 
 func agentPartEditorPrompt(req reportPartEditorRequest, binding reporting.PartEditBinding, draftID string) string {
+	adjacentBoundaryGuidance := strings.TrimSpace(reportprompt.PartAdjacentBoundaryEditGuidance(req.generationGuidanceProfile))
+	if adjacentBoundaryGuidance != "" {
+		adjacentBoundaryGuidance = "\n" + adjacentBoundaryGuidance
+	}
 	return fmt.Sprintf(`Edit one assembled Part of a Korean long-form Plasma report through its dedicated MCP tools.
 
 Report title: %s
@@ -163,7 +168,7 @@ Editing responsibility:
 - Preserve every concrete fact, number, example, code identifier, caveat, citation, uncertainty boundary, and assigned requirement.
 - Prefer the smallest edit that improves a real reading problem. Do not rewrite merely to demonstrate activity.
 - Do not add researched facts, use research or source tools, change other Parts, or pre-write the report opening or conclusion.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or artifact IDs in the manuscript.`,
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or artifact IDs in the manuscript.%s`,
 		req.title, req.missionID, req.partIndex+1, req.part.Title,
 		agentReportAnyJSON(req.requirements), agentReportAnyJSON(req.plan),
 		req.rigor.level, req.rigor.label, req.rigor.description, req.rigor.instructions,
@@ -172,5 +177,6 @@ Editing responsibility:
 		mcptools.ToolReportPartEditStart, draftID,
 		mcptools.ToolReportPartEditRead, mcptools.ToolReportPartEditPatch,
 		mcptools.ToolReportPartEditSubmit, reporting.PartEditSubmittedSentinel,
+		adjacentBoundaryGuidance,
 	)
 }

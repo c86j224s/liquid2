@@ -492,8 +492,11 @@ UI 없는 MCP 사용면은 짧은 안내와 다섯 가지 조회 도구로 구�
   읽는다. 긴 원문과 장문 payload는 범위를 지정해 읽을 수 있어야 하며, 이 부분
   읽기가 임의 위치 탐색의 기본이다. 에이전트 결과는 별도 소스가 아니라
   `ledger_event`로 조회된다.
-- `plasma.research.grep`: 기존 장부와 연결된 소스에서 후보 문자열이나 패턴을
-  찾는다. 검색 결과와 스니펫은 후보일 뿐이며, 리포트 주장은 저장 근거 또는
+- `plasma.research.grep`: 기존 장부와 연결된 소스에서 case-insensitive literal
+  substring search로 후보 문자열을 찾는다. 전체 query는 contiguous하게 나타나야
+  하며, 서로 다른 concept은 별도의 짧은 search로 나눈다. 검색으로 가져온 각
+  candidate 안에서 발견된 비중첩 match는 모두 기존 cursor와 limit pagination으로
+  반환된다. 검색 결과와 스니펫은 후보일 뿐이며, 리포트 주장은 저장 근거 또는
   명시적인 소스 읽기로 다시 고정해야 한다.
 - `plasma.research.references`: 소스, 근거, 저장 지식, 결과, report artifact 사이의
   참조 그래프를 따라간다. legacy claim/report block 참조는 명시적인 legacy 조회다.

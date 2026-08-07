@@ -673,6 +673,7 @@
         <div class="panel-head">
           <h2 id="detailTitle">상세 보기</h2>
           <div class="panel-actions">
+            <button id="reportTOCToggle" class="icon-button quiet" type="button" title="목차 펼치기" aria-label="목차 펼치기" aria-controls="reportTOCPanel" aria-expanded="false" hidden>☰</button>
             <span id="detailPositionRatio" class="detail-scroll-ratio hidden" aria-live="polite"></span>
             <span id="reportRedpenStatus" class="report-redpen-status hidden" aria-live="polite"></span>
             <button id="reportRedpenStart" class="icon-button quiet hidden" type="button" title="빨간펜 편집 시작" aria-label="빨간펜 편집 시작">✎</button>
@@ -682,6 +683,10 @@
             <button id="closeDetail" class="icon-button quiet" type="button" title="닫기">×</button>
           </div>
         </div>
+        <nav id="reportTOCPanel" class="report-toc-panel" aria-label="리포트 목차" hidden>
+          <div class="report-toc-title">목차</div>
+          <ol id="reportTOCList" class="report-toc-list"></ol>
+        </nav>
         <div id="detailBody" class="detail-body"></div>
       </div>
     </div>
@@ -770,6 +775,7 @@
     <script src="/static/plasma/reports_mermaid.js"></script>
     <script src="/static/plasma/reports_redpen_markdown.js"></script>
     <script src="/static/plasma/reports_redpen.js"></script>
+    <script src="/static/plasma/reports_toc.js"></script>
     <script src="/static/plasma/reports_redpen_init.js"></script>
     <script src="/static/plasma/reports_markdown.js"></script>
     <script src="/static/plasma/reports_model_selection.js"></script>

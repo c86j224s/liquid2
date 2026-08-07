@@ -34,9 +34,13 @@ func (server *Server) finalizeSectionFanoutLongForm(ctx context.Context, req sec
 	canonical := false
 	for attempt := 1; attempt <= 2; attempt++ {
 		attemptStarted := time.Now()
+		prompt := agentLongFormFinalizePromptWithRequirements(req.title, req.missionID, req.rigor, state.plan, parts, req.generationGuidanceProfile, binding, state.requirementMap, attempt, canonical, hint)
+		if !canonical {
+			prompt = withLongFormDownstreamDirection(prompt, req.directionHint)
+		}
 		result, runErr := executor.Run(ctx, AgentRequest{
 			UserText: "finalize section-fanout long-form markdown report",
-			Prompt:   agentLongFormFinalizePromptWithRequirements(req.title, req.missionID, req.rigor, state.plan, parts, req.generationGuidanceProfile, binding, state.requirementMap, attempt, canonical, hint),
+			Prompt:   prompt,
 			Model:    req.agentModel, ReasoningEffort: req.agentReasoningEffort, MissionID: req.missionID, ToolSessionID: toolSessionID,
 			PreviousSessionID: finalSessionID, AgentExecutor: req.executorName, MCPMode: req.mcpMode,
 			ExtraMCPTools: reportFinalizeMCPTools(req.generationGuidanceProfile), ReplaceMCPTools: true, LongFormFinalize: &binding,

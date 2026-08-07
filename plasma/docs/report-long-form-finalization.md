@@ -62,15 +62,26 @@ default to `narrative-contract`. The reader-facing writing contract is a common
 baseline, and older profile values remain accepted only so stored events and
 direct API calls are not reinterpreted.
 
+Under the active long-form default, the planner does not script a reader
+reaction or require surprise. It derives each Section purpose and order from
+source-backed mechanisms, comparisons, causal sequences, groupings, tensions,
+or evaluation questions. The Section writer explains the subject rather than
+the plan. Each sentence must advance a claim, fact, mechanism, distinction,
+consequence, or limit; it does not add abstract restatements, ornamental
+contrasts, or redundant paragraph conclusions. Paragraph length and closing
+cadence are not regularized, and ordinary connectives are not treated as a
+blacklist.
+
 The active long-form default keeps the same visual-aid baseline: source shape
 should suggest the aid before the writer falls back to prose, so chronology
 tends toward timeline, dependency toward flowchart, actor handoff toward
 sequence diagram, lifecycle toward state diagram, ordered values toward
 source-backed chart, and scenario or trade-off toward matrix/table. It also
 uses the same Part assembly MCP handoff. The Section-reading Part assembler must bounded-read every
-immutable Section bound to that Part before writing intro, transitions, and
-closing, then returns the `PART_ASSEMBLY_SUBMITTED` sentinel. This assembler is
-not the post-assembly Part editor.
+immutable Section bound to that Part. Intro, transitions, and closing are not
+default output; it adds only the connective text needed to make an actual
+Section relationship clear, then returns the `PART_ASSEMBLY_SUBMITTED`
+sentinel. This assembler is not the post-assembly Part editor.
 
 The post-assembly Part editor runs only when `part_edit_enabled` is true. It is
 bound to exactly one immutable source Part artifact, receives only the
@@ -79,7 +90,12 @@ other Parts, or reader/style/gate tools. Its submitted outcome records the sourc
 Part event, source artifact, edited artifact, provider session, and profile
 metadata. A no-op submission is still a durable completion; it preserves the
 source Part as immutable input and binds the outcome to the source artifact
-instead of inventing a duplicate artifact.
+instead of inventing a duplicate artifact. For the active default, the Part
+editor reads each adjacent boundary as the previous Section's final substantive
+paragraph, connective text, and the next Section's first substantive paragraph.
+It edits one side only when a mechanism, conclusion, or reading instruction is
+repeated, or when a simple relationship is expressed unnecessarily abstractly;
+it does not rewrite ordinary Section-internal voice or rhythm.
 
 The shared reporting start contract writes one canonical
 `report.part_edit.started` event before any provider-owned Part-edit draft is

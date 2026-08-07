@@ -7,6 +7,8 @@
   const escapeAttr = root.Plasma.dom.escapeAttr;
   const ui = root.Plasma.ui;
 function openReportModal(header, kind, content, options = {}) {
+  const tableOfContents = kind === "markdown" && options.tableOfContents === true;
+  reports.tocController?.prepare(tableOfContents);
   $("detailTitle").textContent = header || "리포트 보기";
   state.detailText = String(content ?? "");
   let body;
@@ -36,12 +38,14 @@ function openReportModal(header, kind, content, options = {}) {
     reports.renderPlasmaMath?.($("detailBody"));
     if (kind === "markdown") reports.renderPlasmaMermaid?.($("detailBody"));
     if (kind === "markdown") reports.enhanceImages?.($("detailBody"));
+    if (tableOfContents) reports.tocController?.refresh();
   }
   ui.openDetailModal(true);
   ui.enableDetailScrollRatio();
 }
 
 function openReportModalLoading(header) {
+  reports.tocController?.reset();
   reports.redpenController?.reset();
   $("detailTitle").textContent = header || "리포트 불러오는 중";
   $("detailBody").innerHTML = `<div class="report-preview-loading"><span class="spinner"></span>불러오는 중…</div>`;

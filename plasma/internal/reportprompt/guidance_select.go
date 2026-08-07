@@ -14,10 +14,26 @@ func SelectReportGenerationGuidance(profile string) (string, string, error) {
 	return selectReportGenerationGuidanceText(profile, ReportGenerationGuidance)
 }
 
+func longFormDefaultGuidanceSelectionText(profile string) string {
+	return strings.TrimSpace(strings.Join([]string{
+		LongFormReportGenerationGuidance(profile),
+		longFormExperimentalPlanningGuidance(profile),
+		reportSectionDirectWritingGuidance(profile),
+		reportPartConnectiveEconomyGuidance(profile),
+		reportPartAdjacentBoundaryEditGuidance(profile),
+	}, "\n\n"))
+}
+
 // SelectReportGenerationGuidanceForMode는 리포트 모드와 profile을 함께 고려해 작성 지침을 고른다.
 func SelectReportGenerationGuidanceForMode(reportMode string, profile string) (string, string, error) {
 	if reportMode == reportexecution.ModeLongForm && strings.TrimSpace(profile) == "" {
 		profile = reportGenerationGuidanceProfileLongFormDefault
+	}
+	if reportMode == reportexecution.ModeLongForm && isReportGenerationGuidanceProfileLongFormDefault(profile) {
+		normalized := reportGenerationGuidanceProfileLongFormDefault
+		text := longFormDefaultGuidanceSelectionText(normalized)
+		sum := sha256.Sum256([]byte(text))
+		return normalized, hex.EncodeToString(sum[:]), nil
 	}
 	if isReportGenerationGuidanceProfilePartConnectiveSubjectDirectSynthesisVoice(profile) {
 		if reportMode != reportexecution.ModeLongForm {
@@ -66,6 +82,9 @@ func SelectReportGenerationGuidanceForMode(reportMode string, profile string) (s
 	}
 	if reportMode == reportexecution.ModeLongForm {
 		return selectReportGenerationGuidanceText(profile, LongFormReportGenerationGuidance)
+	}
+	if reportMode == reportexecution.ModePlanned {
+		return selectReportGenerationGuidanceText(profile, PlannedReportGenerationGuidance)
 	}
 	return SelectReportGenerationGuidance(profile)
 }
