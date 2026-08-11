@@ -257,10 +257,15 @@ MCP tool calls, and report requests are event producers over the same ledger:
 - MCP tool calls record bounded trace events for mission-bound research and
   workflow control operations.
 - Report requests record pending, artifact-created, or failed events and save
-  default reports as Markdown artifacts.
+  default reports as Markdown artifacts. A logical report-run projection in the
+  same SQLite database uses the root `report.draft.pending` event ID as the run
+  identity and stores only run state, revision, final artifact link, membership
+  identities, ownership roles, and a compact usage aggregate. Ledger payloads
+  and artifact bodies remain single-source in the mission ledger and raw
+  artifact tables.
 - Report attempts use `report.draft.pending` event IDs as durable identities.
-  The read model replays pending, plan, section, part, artifact, and terminal
-  events into discrete pipeline states. A failed retry appends a new pending
+  The read model replays pending, plan, section, section evidence-gap, part,
+  artifact, and terminal events into discrete pipeline states. A failed retry appends a new pending
   attempt with origin/parent lineage and a durable request ID; it never reopens
   or mutates the failed attempt. `resume_failed` may read only validated
   completed artifacts from its own ancestor chain, while `restart` starts with
@@ -277,6 +282,15 @@ MCP tool calls, and report requests are event producers over the same ledger:
   registry is process-local and assumes one report runner process per database;
   multi-process deployment must add a ledger-backed report-run lease before
   parallel server instances share the same Plasma database.
+- Completed canonical Markdown report artifacts have an explicit preview/delete
+  flow. Deletion is blocked for active work, ambiguous legacy lineage, open
+  pending attempts, any malformed out-of-run ledger payload in the same SQLite
+  DB, or unclear external references. A successful delete removes member report events and run-owned
+  unshared intermediate/final/derivative artifacts, preserves inputs and shared
+  artifacts, and leaves one purged report-run tombstone with mission identity,
+  run identity, purge metadata, revision, lifecycle state, and compact token
+  usage only. Mission hard delete removes report-run rows and tombstones inside
+  the mission-wide transaction.
 - Source lifecycle and observation events are ledger-backed. `source.removed`
   and `source.restored` project active/removed state without deleting source
   rows or raw artifacts. `source.observed` records bounded read/tree/grep
@@ -596,7 +610,8 @@ containers such as code fences and tables remain read-only. Saving never
 mutates the selected base or humanized Markdown report artifact. Instead it
 advances one logical workcopy, stores each changed body as a raw Markdown
 artifact, and appends `report.redpen.saved` with artifact IDs, revision, hash,
-media type, and filename only. Repeated saves update that workcopy, identical
+media type, filename, and whether the artifact was created or only referenced.
+Repeated saves update that workcopy, identical
 content is a no-op, stale browser tabs receive a conflict, and the browser view
 and download actions resolve the latest saved revision.
 
@@ -623,6 +638,38 @@ final Part author through the existing closed Part-edit tools. Part-plan replay
 validates the stored event's envelope and provenance and returns the stored
 canonical brief; it does not compare a retry request's newly generated brief to
 that canonical brief.
+
+The long-form report now runs through `internal/reportworkflow` as a typed
+product graph through canonical finalization. The root runner owns serial versus `section_fanout` selection,
+optional node activation from the canonical plan event, session forks, fan-out
+scheduling with a maximum concurrency of 8, and content-free node observations.
+The stage packages own their own prompt bytes, MCP allowlists, provider calls,
+validation, typed recovery APIs, and durable replay. Root recovery only iterates
+lineage, dispatches events to those stage recovery APIs, detects duplicate typed
+outputs, and aggregates recovered results by plan index. Requirements recovery
+may skip the legacy mapping stage only from an explicit matching started event or
+from a typed downstream signal after stage recovery has validated Section/Part
+artifact content, plan index bounds, and lineage; raw created-event envelopes are
+not enough. The Section draft stage returns a typed Markdown draft or typed
+evidence gap; an evidence gap is non-artifact stage data, retries only the same
+Section once in the same provider and tool session, and becomes a stable
+typed terminal gap on the second attempt unless a later created Section completed
+that coordinate. The root permits one bounded repair in the original report-plan
+session per retry lineage, using read-only research and source tools for all
+failed coordinates together. Only title, purpose, and `target_refs` at those
+coordinates may change. The canonical plan stays immutable while
+`report.plan.section_repair.completed` records an `applied` or `unrepairable`
+outcome and provider lineage. Applied repairs preserve successful Section
+artifacts and give only replacement coordinates a fresh two-attempt budget;
+unrepairable or post-repair terminal gaps are stable conflicts with no second
+repair round. Each budget is scoped to the current pending event, plan event, and
+1-based Part/Section coordinate. Web keeps request normalization, executor/service wiring, and
+response serialization. The legacy finalizer contract is now the
+`legacyfinalize` stage: serial uses `finalize sectional long-form markdown
+report`, fanout uses `finalize section-fanout long-form markdown report`, fanout
+always forks from the report-plan session, and serial forks only when Part edit
+is enabled. V1/V2/V3 final edit stages live under `internal/reportworkflow`
+stage packages and adopt the canonical result through `finalstore.AdoptGate`.
 
 New planned narrative long-form plans carry
 `final_edit_pipeline: assembly_writer_reader_style_validation_evidence_gate_v3`. After reviewed
@@ -689,8 +736,8 @@ providers. Each provider-backed stage gets one technical retry; completed interm
 artifacts remain durable, and a second failure before successful submission
 blocks canonical completion with the existing report failure events.
 
-Stored long-form plans that lack `final_edit_pipeline` keep the previous
-finalization path and do not run staged final-edit stages. Prior stored profile
+Stored long-form plans that lack `final_edit_pipeline` keep the legacy
+`legacyfinalize` path and do not run staged final-edit stages. Prior stored profile
 values also keep their C4 `sectional_preserve_markdown` and
 `c4_normalized_section_headings` semantics for replay and interrupted-work
 compatibility. CLI

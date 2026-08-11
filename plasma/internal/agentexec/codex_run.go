@@ -52,6 +52,9 @@ func (executor CodexExecutor) Run(ctx context.Context, req AgentRequest) (AgentR
 	}
 
 	args := []string{"exec"}
+	if req.IgnoreUserConfig {
+		args = append(args, "--ignore-user-config")
+	}
 	mcpArgs := codexMCPConfigArgs(executor.MCPServer, req)
 	if model := strings.TrimSpace(req.Model); model != "" {
 		args = append(args, "--model", model)

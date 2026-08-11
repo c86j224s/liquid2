@@ -58,6 +58,36 @@ Section의 목적과 전개를 정한다. Section 작성자는 그 계획을 해
 문단의 결론 반복을 덧붙이지 않는다. 문단 길이와 맺음을 한 형식으로 맞추거나
 접속사를 금칙어로 다루지도 않는다.
 
+Section 작성자는 먼저 title과 purpose가 약속한 주요 설명과 catalog metadata,
+판본·provenance 비교, 전승 주의, source 비교 표 같은 보조 작업을 구분한다. 자료비평,
+서지, 전승, 소장 이력이 명시적으로 Section의 주요 주제인 경우에만 보조 작업이
+본문의 중심이 될 수 있다. 현재 근거가 보조 작업만 뒷받침한다면 작성자는 계획된
+설명을 source tour로 대체하지 않고 evidence gap을 반환한다. 최종 재시도에서도 이
+근거 기준을 낮추지 않는다.
+
+Section 작성자의 유효한 결과는 Markdown Section draft 또는 정확한 control response
+`SECTION_EVIDENCE_GAP` 둘뿐이다. Gap은 fixed reason code
+`inadequate_section_evidence`, 현재 pending/plan ID, 1-based Part/Section 좌표,
+attempt number, provider/tool session lineage, duration, 표준 `agent_usage`만 담은
+`report.section.evidence_gap`을 기록한다. Section artifact나
+`report.section.created` event는 만들지 않으며, free-form diagnosis나 source content는
+저장하지 않는다. 실행기는 같은 provider session과 tool-session binding에서 해당
+Section만 한 번 재시도한다. Attempt 2에서는 기존 Section title/purpose 안에서 마지막
+replacement search 또는 bounded scope reduction을 수행한 뒤 Markdown이나 정확한 gap
+token을 반환한다.
+
+Attempt 2에서도 gap으로 끝난 좌표가 있으면 실행기는 해당 retry lineage에서 계획
+보정을 정확히 한 번만 허용한다. 원래 report-plan session의 계획자는 읽기 전용
+research/source 도구로 실패 좌표를 함께 검토하고, 같은 좌표의 title, purpose,
+`target_refs`만 자료가 뒷받침하는 설명 과제로 교체하거나 정확히
+`SECTION_PLAN_UNREPAIRABLE`을 반환한다. Part/Section 삭제·병합·이동, 성공한 Section
+변경, 사용자 요구사항 재배정은 허용하지 않는다. 교체 `target_refs`는 event 기록 전에
+기존 미션 범위 참조 검증을 통과해야 하며, 실패하면 보정 결과를 기록하지 않는다. 원 canonical plan event는 바꾸지
+않고 결과를 `report.plan.section_repair.completed`에 `applied` 또는 `unrepairable`로
+기록한다. `applied`이면 성공한 Section artifact는 그대로 두고 교체 좌표만 새로운
+attempt 1→2 예산으로 작성한다. `unrepairable`이거나 교체 뒤에도 attempt 2 gap이면
+명시적으로 실패하며 같은 lineage에서 계획자를 다시 호출하지 않는다.
+
 활성 장문 기본값은 같은 Part assembly MCP 인계를 사용한다. Section을 읽는 Part
 assembler는 현재 Part에 바인딩된 immutable Section을 모두 bounded read한다. Intro,
 transition, closing은 기본 산출물이 아니다. Section 관계를 이해하는 데 꼭 필요할
@@ -214,6 +244,16 @@ event가 모두 있을 때 완료된다. Gate submission만 있고 canonical eve
 같은 durable binding, tool session, idempotency key, artifact identity,
 provider-session chain을 재사용하며 계획, 섹션, Part, 완료된 final-edit stage는
 반복하지 않는다.
+
+Section evidence-gap attempt는 현재 pending event, plan event, 1-based Part/Section
+좌표에 scope된다. 복구가 attempt 1을 찾고 created Section이 없으면 같은 provider
+session과 tool-session binding에서 attempt 2로 이어간다. Attempt 2를 찾고 created
+Section이 없으면 provider 호출 없이 Section failure를 재구성한다. Gap 뒤에 created
+Section이 있으면 복구는 해당 Section을 완료로 본다. 명시적인 새 report retry pending은
+아직 계획 보정 결과가 없는 좌표에 fresh two-attempt Section budget을 받는다. 보정
+완료 event가 있으면 `resume_failed`는 canonical plan과 같은 좌표의 amendment를 합쳐
+유효 계획을 복원하고, 보정 전 gap만 교체 좌표의 새 예산에서 제외한다. `unrepairable`
+결과도 복원하므로 재시작이나 retry가 계획 보정을 두 번째로 실행하지 않는다.
 
 `resume_failed`는 실패한 시도의 조상 chain에서 검증된 계획, 섹션, Part, Part-edit
 outcome만 재사용한다. 실패한 시도가 Part assembly까지 도달했지만 Part edit

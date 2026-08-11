@@ -14,6 +14,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
+	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	"github.com/c86j224s/liquid2/plasma/internal/web"
 )
@@ -94,6 +95,11 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	if err != nil {
 		fmt.Fprintf(stderr, "local source roots: %v\n", err)
 		return 2
+	}
+	if closed, recoveryErr := sourcecandidates.FailInterruptedStaging(ctx, svc, cliNewID); recoveryErr != nil {
+		fmt.Fprintf(stderr, "source candidate recovery: %v\n", recoveryErr)
+	} else if closed > 0 {
+		fmt.Fprintf(stderr, "source candidate recovery: marked %d interrupted fetches as failed\n", closed)
 	}
 	effectiveLocalRoots := cfg.LocalSourceRoots
 

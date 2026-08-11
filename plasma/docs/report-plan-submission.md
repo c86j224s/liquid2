@@ -4,8 +4,10 @@ Web planned and long-form reports use a durable MCP submission boundary between
 planning and writing. The report runner creates a tool-session binding for the
 provider planning turn and exposes `plasma.report.plan.submit` in addition to
 the normal research tools. The binding does not create or select a provider
-session; the existing `same_session` or `isolated_fork` policy remains the
-provider-session authority.
+session. Automatic planned and long-form reports start their initial plan in a
+fresh provider session, then continue writing in that plan session. One-take
+reports keep the existing conversation session; explicit `same_session` and
+`isolated_fork` remain compatibility inputs.
 
 The transition is:
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
 )
 
 func TestPartConnectiveEconomyGuidanceStaysWithPartAssembler(t *testing.T) {
@@ -50,7 +51,10 @@ func TestPartConnectiveEconomyGuidanceStaysWithPartAssembler(t *testing.T) {
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalPrompt := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], plan, nil, profile, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalPrompt := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: plan, GenerationGuidanceProfile: profile,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 
 	for name, prompt := range map[string]string{"plan": planPrompt, "section": sectionPrompt, "final": finalPrompt} {
 		if strings.Contains(prompt, "Part connective-economy guidance:") {

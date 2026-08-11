@@ -16,6 +16,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -191,14 +192,23 @@ func TestReaderStyleGateRestartRejectsOpenGateAfterCanonicalWithoutProvider(t *t
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_open_gate_terminal_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: req.artifactID,
+		MissionID:  req.missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "final.md",
+		Producer:   app.Producer{Type: "agent_session", ID: "provider-terminal"},
+		Content:    []byte("# Restart Report\n\nCanonical final report.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	w4BAppendTerminalCanonical(t, ctx, svc, req, "evt_w4b_open_gate_terminal_final")
 	closeStore()
 
 	reopened, closeReopened := openW4BRestartService(t, ctx, dbPath)
 	defer closeReopened()
 	executor := &w4BRestartExecutor{service: reopened}
-	server := NewServer(reopened, Options{}).(*Server)
-	_, err := server.runLongFormReaderStyleGatePipeline(ctx, req, executor)
+	_, err := finalizePrefixForWebTest(ctx, reopened, newID, req, executor)
 	if !errors.Is(err, app.ErrConflict) {
 		t.Fatalf("open gate terminal error=%v, want conflict", err)
 	}
@@ -376,6 +386,74 @@ func TestAssemblyWriterReaderStyleGateV2RestartResumesSubmittedGateWithoutCanoni
 	}
 }
 
+func TestAssemblyWriterReaderStyleValidationEvidenceGateV3RestartSkipsSubmittedStyleSemanticValidation(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	svc, closeStore := openW4BRestartService(t, ctx, dbPath)
+	req := seedW4BRestartFixtureWithPipeline(t, ctx, svc, reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, reporting.FinalEditHumanizeEnabled)
+	writer := w4BSubmitWriter(t, ctx, svc, req, "v3_semantic", true)
+	reader := w4BSubmitV2Reader(t, ctx, svc, req, writer, "v3_semantic", true)
+	style := w4BSubmitStyle(t, ctx, svc, req, reader, "v3_semantic")
+	semantic := w4BSubmitStyleSemanticValidation(t, ctx, svc, req, style, "v3_semantic")
+	closeStore()
+
+	executor := &w4BRestartExecutor{}
+	reopened, closeReopened, _ := runW4BRestartPipeline(t, ctx, dbPath, req, executor)
+	defer closeReopened()
+	for _, stage := range []string{reporting.FinalEditStageWriter, reporting.FinalEditStageReader, reporting.FinalEditStageStyle, reporting.FinalEditStageStyleSemanticValidation} {
+		if got := len(w4BStageRequests(executor.requests, stage)); got != 0 {
+			t.Fatalf("submitted %s reran provider %d time(s): %#v", stage, got, executor.requests)
+		}
+	}
+	evidenceRequests := w4BStageRequests(executor.requests, reporting.FinalEditStageEvidenceGate)
+	if len(evidenceRequests) != 1 || evidenceRequests[0].FinalEditStage.SourceArtifactID != semantic.Artifact.ArtifactID {
+		t.Fatalf("evidence gate did not consume submitted semantic artifact: requests=%#v semantic=%#v", evidenceRequests, semantic.Artifact)
+	}
+	events := w4BEvents(t, ctx, reopened, req.missionID)
+	assertW4BEventCount(t, events, reporting.FinalEditStyleSemanticValidationSubmittedEventType, 1)
+	assertW4BEventCount(t, events, reporting.FinalEditEvidenceGateSubmittedEventType, 1)
+	assertW4BEventCount(t, events, "report.artifact.created", 1)
+}
+
+func TestAssemblyWriterReaderStyleValidationEvidenceGateV3RestartResumesSubmittedEvidenceGateWithoutCanonical(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	svc, closeStore := openW4BRestartService(t, ctx, dbPath)
+	req := seedW4BRestartFixtureWithPipeline(t, ctx, svc, reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, reporting.FinalEditHumanizeEnabled)
+	writer := w4BSubmitWriter(t, ctx, svc, req, "v3_evidence", true)
+	reader := w4BSubmitV2Reader(t, ctx, svc, req, writer, "v3_evidence", true)
+	style := w4BSubmitStyle(t, ctx, svc, req, reader, "v3_evidence")
+	semantic := w4BSubmitStyleSemanticValidation(t, ctx, svc, req, style, "v3_evidence")
+	evidenceBinding, _ := w4BEvidenceGateBinding(req, semantic.Artifact.ArtifactID, "provider-evidence-gate-v3-submitted")
+	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_v3_submitted_evidence_start", evidenceBinding); err != nil || !created {
+		t.Fatalf("v3 evidence gate start created=%t err=%v", created, err)
+	}
+	w4BAppendEvidenceGateSubmission(t, ctx, svc, evidenceBinding, "evt_w4b_v3_submitted_evidence_submit")
+	closeStore()
+
+	executor := &w4BRestartExecutor{}
+	reopened, closeReopened, result := runW4BRestartPipeline(t, ctx, dbPath, req, executor)
+	defer closeReopened()
+	if len(executor.requests) != 0 {
+		t.Fatalf("submitted v3 evidence gate reran provider requests: %#v", executor.requests)
+	}
+	events := w4BEvents(t, ctx, reopened, req.missionID)
+	assertW4BEventCount(t, events, reporting.FinalEditEvidenceGateSubmittedEventType, 1)
+	assertW4BEventCount(t, events, "report.artifact.created", 1)
+	canonical := w4BCanonicalEvent(t, events)
+	artifact := w4BResultArtifact(t, result)
+	event := w4BResultEvent(t, result)
+	payload := w4BPayload(t, canonical)
+	if artifact.ArtifactID != semantic.Artifact.ArtifactID || event.EventID != canonical.EventID ||
+		payload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 ||
+		payload["artifact_id"] != artifact.ArtifactID ||
+		payload["planned_final_artifact_id"] != req.artifactID ||
+		payload["final_edit_gate_event_id"] != "evt_w4b_v3_submitted_evidence_submit" ||
+		payload["artifact_sha256"] != artifact.SHA256 {
+		t.Fatalf("resumed v3 canonical lineage mismatch artifact=%#v event=%#v payload=%#v", artifact, event, payload)
+	}
+}
+
 type w4BRestartExecutor struct {
 	service  *app.Service
 	requests []AgentRequest
@@ -424,7 +502,7 @@ func (executor *w4BRestartExecutor) Run(ctx context.Context, req AgentRequest) (
 		if err != nil {
 			return AgentResult{}, err
 		}
-		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+		return AgentResult{Text: finalEditGateSubmittedText, SessionID: binding.ProviderSessionID}, nil
 	}
 	if binding.Stage == reporting.FinalEditStageStyleSemanticValidation {
 		comparison, err := reporting.FinalEditSemanticComparison(ctx, executor.service, binding, string(source.Content))
@@ -441,7 +519,7 @@ func (executor *w4BRestartExecutor) Run(ctx context.Context, req AgentRequest) (
 		if _, err := reporting.SubmitFinalEditStyleSemanticValidation(ctx, executor.service, binding, fmt.Sprintf("evt_w4b_restart_submit_%d", len(executor.requests)), semanticAcceptance); err != nil {
 			return AgentResult{}, err
 		}
-		return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+		return AgentResult{Text: finalEditStageSubmittedText, SessionID: binding.ProviderSessionID}, nil
 	}
 	if binding.Stage == reporting.FinalEditStageEvidenceGate {
 		if req.LongFormFinalize == nil {
@@ -456,12 +534,12 @@ func (executor *w4BRestartExecutor) Run(ctx context.Context, req AgentRequest) (
 		}); err != nil {
 			return AgentResult{}, err
 		}
-		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+		return AgentResult{Text: finalEditGateSubmittedText, SessionID: binding.ProviderSessionID}, nil
 	}
 	if _, err := reporting.SubmitFinalEditStage(ctx, executor.service, binding, fmt.Sprintf("evt_w4b_restart_submit_%d", len(executor.requests)), string(source.Content), 0); err != nil {
 		return AgentResult{}, err
 	}
-	return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+	return AgentResult{Text: finalEditStageSubmittedText, SessionID: binding.ProviderSessionID}, nil
 }
 
 func (executor *w4BRestartExecutor) ForkSession(_ context.Context, sourceSessionID string) (AgentSessionForkResult, error) {
@@ -474,16 +552,16 @@ func (executor *w4BRestartExecutor) CheckForkSession(context.Context, string) er
 	return nil
 }
 
-func runW4BRestartPipeline(t *testing.T, ctx context.Context, dbPath string, req longFormReaderStyleGatePipelineRequest, executor *w4BRestartExecutor) (*app.Service, func(), map[string]any) {
+func runW4BRestartPipeline(t *testing.T, ctx context.Context, dbPath string, req finalizationPrefixFixture, executor *w4BRestartExecutor) (*app.Service, func(), map[string]any) {
 	t.Helper()
 	svc, closeStore := openW4BRestartService(t, ctx, dbPath)
 	executor.service = svc
-	server := NewServer(svc, Options{}).(*Server)
-	result, err := server.runLongFormReaderStyleGatePipeline(ctx, req, executor)
+	output, err := finalizePrefixForWebTest(ctx, svc, newID, req, executor)
 	if err != nil {
 		closeStore()
 		t.Fatal(err)
 	}
+	result := map[string]any{"artifact": output.Artifact, "event": output.Event, "markdown": output.Markdown}
 	if strings.TrimSpace(fmt.Sprint(result["markdown"])) == "" {
 		closeStore()
 		t.Fatalf("pipeline returned empty markdown: %#v", result)
@@ -500,13 +578,20 @@ func openW4BRestartService(t *testing.T, ctx context.Context, dbPath string) (*a
 	return app.NewService(store), func() { _ = store.Close() }
 }
 
-func seedW4BRestartFixture(t *testing.T, ctx context.Context, svc *app.Service, humanize string) longFormReaderStyleGatePipelineRequest {
+func seedW4BRestartFixture(t *testing.T, ctx context.Context, svc *app.Service, humanize string) finalizationPrefixFixture {
 	t.Helper()
 	return seedW4BRestartFixtureWithPipeline(t, ctx, svc, reporting.FinalEditPipelineReaderStyleGateV1, humanize)
 }
 
-func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *app.Service, pipeline string, humanize string) longFormReaderStyleGatePipelineRequest {
+func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *app.Service, pipeline string, humanize string) finalizationPrefixFixture {
 	t.Helper()
+	finalTail := reportworkflow.FinalTailV1
+	switch strings.TrimSpace(pipeline) {
+	case reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2:
+		finalTail = reportworkflow.FinalTailV2
+	case reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3:
+		finalTail = reportworkflow.FinalTailV3
+	}
 	missionID := "mis_w4b_restart"
 	pendingID := "evt_w4b_pending"
 	planID := "evt_w4b_plan"
@@ -530,8 +615,15 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: w4BJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
 		{EventID: planID, MissionID: missionID, EventType: "report.plan.created", Producer: producer, Payload: w4BJSON(map[string]any{
 			"pending_event_id": pendingID, "report_mode": reportexecution.ModeLongForm, "artifact_id": finalID,
+			"agent_session_id": "provider-plan", "previous_agent_session_id": "provider-plan",
+			"agent_executor": "codex", "agent_model": "model", "agent_reasoning_effort": "high",
+			"agent_selection_source": "request", "mcp_mode": "auto",
+			"report_session_policy": reportSessionPolicySameSession, "report_session_policy_selection": "default",
+			"session_chain_kind": "same_session_report", "pre_report_research_session_id": "provider-research",
+			"report_plan_session_id": "provider-plan", "fork_source_agent_session_id": "provider-plan",
+			"generation_guidance_profile": reportprompt.ProfileNarrativeContract, "generation_guidance_sha256": "guidance-sha",
 			"final_edit_pipeline": strings.TrimSpace(pipeline), "post_report_humanize": humanize,
-			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"section 1"}}}},
+			"plan": map[string]any{"summary": "plan", "parts": []any{map[string]any{"title": "Part", "sections": []any{map[string]any{"title": "Section"}}}}},
 		})},
 		{EventID: "evt_w4b_part", MissionID: missionID, EventType: "report.part.created", Producer: producer, Payload: w4BJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": partID, "part_index": 1})},
 		{EventID: "evt_w4b_section", MissionID: missionID, EventType: "report.section.created", Producer: producer, Payload: w4BJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": sectionID, "part_index": 1, "section_index": 1})},
@@ -546,7 +638,7 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 			planEvent = appended
 		}
 	}
-	return longFormReaderStyleGatePipelineRequest{
+	return finalizationPrefixFixture{
 		missionID: missionID, title: title, executorName: "codex", agentModel: "model", agentReasoningEffort: "high",
 		agentSelectionSource: "request", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
 		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: "default",
@@ -554,11 +646,11 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 		generationGuidanceSHA256: "guidance-sha", pendingEventID: pendingID, artifactID: finalID, planEvent: planEvent,
 		plan: agentSectionalReportPlan{Summary: "plan"}, partArtifactIDs: []string{partID}, sectionArtifactIDs: []string{sectionID},
 		sectionWordTotal: 3, sessionChainKind: "same_session_report", preReportResearchSessionID: "provider-research",
-		reportPlanSessionID: "provider-plan", forkSourceAgentSessionID: "provider-plan", started: time.Now().UTC(),
+		reportPlanSessionID: "provider-plan", forkSourceAgentSessionID: "provider-plan", finalTail: finalTail, started: time.Now().UTC(),
 	}
 }
 
-func w4BSubmitWriter(t *testing.T, ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, suffix string, changed bool) reporting.FinalEditStageResult {
+func w4BSubmitWriter(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, suffix string, changed bool) reporting.FinalEditStageResult {
 	t.Helper()
 	binding := w4BWriterBinding(req, "provider-writer-"+suffix)
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_writer_"+suffix+"_start", binding); err != nil || !created {
@@ -584,7 +676,7 @@ func w4BSubmitWriter(t *testing.T, ctx context.Context, svc *app.Service, req lo
 	return result
 }
 
-func w4BSubmitV2Reader(t *testing.T, ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, writer reporting.FinalEditStageResult, suffix string, changed bool) reporting.FinalEditStageResult {
+func w4BSubmitV2Reader(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, writer reporting.FinalEditStageResult, suffix string, changed bool) reporting.FinalEditStageResult {
 	t.Helper()
 	binding := req.finalEditStageBinding(reporting.FinalEditStageReader, writer.Artifact.ArtifactID, "art_w4b_reader_v2_"+suffix, "ses_reader_v2_"+suffix, "provider-reader-"+suffix, req.reportPlanSessionID, req.reportPlanSessionID)
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_reader_v2_"+suffix+"_start", binding); err != nil || !created {
@@ -606,7 +698,7 @@ func w4BSubmitV2Reader(t *testing.T, ctx context.Context, svc *app.Service, req 
 	return result
 }
 
-func w4BSubmitReader(t *testing.T, ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, suffix string) reporting.FinalEditStageResult {
+func w4BSubmitReader(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, suffix string) reporting.FinalEditStageResult {
 	t.Helper()
 	binding := w4BReaderBinding(req, "provider-reader-"+suffix)
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_reader_"+suffix+"_start", binding); err != nil || !created {
@@ -627,7 +719,7 @@ func w4BSubmitReader(t *testing.T, ctx context.Context, svc *app.Service, req lo
 	return result
 }
 
-func w4BSubmitStyle(t *testing.T, ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, reader reporting.FinalEditStageResult, suffix string) reporting.FinalEditStageResult {
+func w4BSubmitStyle(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, reader reporting.FinalEditStageResult, suffix string) reporting.FinalEditStageResult {
 	t.Helper()
 	binding := req.finalEditStageBinding(reporting.FinalEditStageStyle, reader.Artifact.ArtifactID, "art_w4b_style_"+suffix, "ses_style_"+suffix, "provider-style-"+suffix, "provider-reader-"+suffix, "provider-reader-"+suffix)
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_style_"+suffix+"_start", binding); err != nil || !created {
@@ -647,7 +739,31 @@ func w4BSubmitStyle(t *testing.T, ctx context.Context, svc *app.Service, req lon
 	return result
 }
 
-func w4BWriterBinding(req longFormReaderStyleGatePipelineRequest, providerSessionID string) reporting.FinalEditStageBinding {
+func w4BSubmitStyleSemanticValidation(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, style reporting.FinalEditStageResult, suffix string) reporting.FinalEditStageResult {
+	t.Helper()
+	binding := req.finalEditStageBinding(reporting.FinalEditStageStyleSemanticValidation, style.Artifact.ArtifactID, "art_w4b_semantic_"+suffix, "ses_semantic_"+suffix, "provider-semantic-"+suffix, req.reportPlanSessionID, req.reportPlanSessionID)
+	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_semantic_"+suffix+"_start", binding); err != nil || !created {
+		t.Fatalf("semantic validation start created=%t err=%v", created, err)
+	}
+	comparison, err := reporting.FinalEditSemanticComparison(ctx, svc, binding, string(style.Artifact.Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	semanticAcceptance := make([]reporting.FinalEditSemanticAcceptance, 0, len(comparison))
+	for _, item := range comparison {
+		semanticAcceptance = append(semanticAcceptance, reporting.FinalEditSemanticAcceptance{
+			ParagraphOrdinal: item.ParagraphOrdinal,
+			Verdict:          reporting.FinalEditSemanticAcceptedEquivalent,
+		})
+	}
+	result, err := reporting.SubmitFinalEditStyleSemanticValidation(ctx, svc, binding, "evt_w4b_semantic_"+suffix+"_submit", semanticAcceptance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+func w4BWriterBinding(req finalizationPrefixFixture, providerSessionID string) reporting.FinalEditStageBinding {
 	sourceID := reporting.FinalEditAssemblyArtifactID(req.planEvent.EventID, req.partArtifactIDs)
 	suffix := strings.TrimPrefix(strings.TrimSpace(providerSessionID), "provider-writer-")
 	if suffix == "" {
@@ -656,7 +772,7 @@ func w4BWriterBinding(req longFormReaderStyleGatePipelineRequest, providerSessio
 	return req.finalEditStageBinding(reporting.FinalEditStageWriter, sourceID, "art_w4b_writer_"+suffix, "ses_writer_"+suffix, providerSessionID, req.reportPlanSessionID, req.reportPlanSessionID)
 }
 
-func w4BReaderBinding(req longFormReaderStyleGatePipelineRequest, providerSessionID string) reporting.FinalEditStageBinding {
+func w4BReaderBinding(req finalizationPrefixFixture, providerSessionID string) reporting.FinalEditStageBinding {
 	sourceID := reporting.FinalEditReaderSourceArtifactID(req.planEvent.EventID, req.partArtifactIDs)
 	suffix := strings.TrimPrefix(strings.TrimSpace(providerSessionID), "provider-reader-")
 	if suffix == "" {
@@ -665,17 +781,24 @@ func w4BReaderBinding(req longFormReaderStyleGatePipelineRequest, providerSessio
 	return req.finalEditStageBinding(reporting.FinalEditStageReader, sourceID, "art_w4b_reader_"+suffix, "ses_reader_"+suffix, providerSessionID, providerSessionID, req.reportPlanSessionID)
 }
 
-func w4BGateBinding(req longFormReaderStyleGatePipelineRequest, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
+func w4BGateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
 	final := req.longFormFinalBinding("ses_gate_"+strings.TrimPrefix(providerSessionID, "provider-corrective-gate-"), providerSessionID, providerSessionID, req.reportPlanSessionID)
 	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
 	gate := req.finalEditStageBinding(reporting.FinalEditStageGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
 	return gate, final
 }
 
-func w4BV2GateBinding(req longFormReaderStyleGatePipelineRequest, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
+func w4BV2GateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
 	final := req.longFormFinalBinding("ses_gate_"+strings.TrimPrefix(providerSessionID, "provider-corrective-gate-"), providerSessionID, req.reportPlanSessionID, req.reportPlanSessionID)
 	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
 	gate := req.finalEditStageBinding(reporting.FinalEditStageGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
+	return gate, final
+}
+
+func w4BEvidenceGateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
+	final := req.longFormFinalBinding("ses_evidence_"+strings.TrimPrefix(providerSessionID, "provider-evidence-gate-"), providerSessionID, req.reportPlanSessionID, req.reportPlanSessionID)
+	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
+	gate := req.finalEditStageBinding(reporting.FinalEditStageEvidenceGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
 	return gate, final
 }
 
@@ -716,7 +839,40 @@ func w4BAppendGateSubmission(t *testing.T, ctx context.Context, svc *app.Service
 	}
 }
 
-func w4BAppendTerminalCanonical(t *testing.T, ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, eventID string) {
+func w4BAppendEvidenceGateSubmission(t *testing.T, ctx context.Context, svc *app.Service, binding reporting.FinalEditStageBinding, eventID string) {
+	t.Helper()
+	source, err := svc.GetRawArtifact(ctx, binding.SourceArtifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"kind": "long_form_final_edit_" + binding.Stage + "_submitted", "pending_event_id": binding.PendingEventID,
+		"plan_event_id": binding.PlanEventID, "final_edit_pipeline": reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3,
+		"title": binding.Title, "stage": binding.Stage, "stage_id": "evidence-gate", "source_artifact_id": binding.SourceArtifactID,
+		"artifact_id": source.ArtifactID, "edited_artifact_id": binding.EditedArtifactID, "filename": binding.Filename,
+		"tool_session_id": binding.ToolSessionID, "provider_session_id": binding.ProviderSessionID,
+		"previous_provider_session_id": binding.PreviousProviderSessionID, "idempotency_key": binding.IdempotencyKey,
+		"agent_executor": binding.AgentExecutor, "agent_model": binding.AgentModel, "agent_reasoning_effort": binding.AgentReasoningEffort,
+		"agent_selection_source": binding.AgentSelectionSource, "mcp_mode": binding.MCPMode, "rigor_level": binding.RigorLevel,
+		"rigor_label": binding.RigorLabel, "report_session_policy": binding.ReportSessionPolicy,
+		"report_session_policy_selection": binding.ReportSessionPolicySelection, "post_report_humanize": binding.PostReportHumanize,
+		"generation_guidance_profile": binding.GenerationGuidanceProfile, "generation_guidance_sha256": binding.GenerationGuidanceSHA256,
+		"session_chain_kind": binding.SessionChainKind, "pre_report_research_session_id": binding.PreReportResearchSessionID,
+		"report_plan_session_id": binding.ReportPlanSessionID, "fork_source_agent_session_id": binding.ForkSourceAgentSessionID,
+		"operation_count": 0, "source_word_count": len(strings.Fields(string(source.Content))),
+		"edited_word_count": len(strings.Fields(string(source.Content))), "source_sha256": w4BSHA256(source.Content),
+		"artifact_sha256": w4BSHA256(source.Content), "changed": false,
+		"text": "장문 리포트 evidence_gate 단계를 durable artifact로 제출했습니다.",
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: strings.TrimSpace(eventID), MissionID: binding.MissionID, EventType: reporting.FinalEditEvidenceGateSubmittedEventType,
+		Producer: binding.Producer, CausationEventID: binding.PlanEventID, CorrelationID: binding.IdempotencyKey, Payload: w4BJSON(payload),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func w4BAppendTerminalCanonical(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, eventID string) {
 	t.Helper()
 	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
 		EventID: strings.TrimSpace(eventID), MissionID: req.missionID, EventType: "report.artifact.created",
@@ -826,4 +982,42 @@ func w4BJSON(value any) json.RawMessage {
 func w4BSHA256(content []byte) string {
 	sum := sha256.Sum256(content)
 	return hex.EncodeToString(sum[:])
+}
+
+func (req finalizationPrefixFixture) finalEditStageBinding(stage string, sourceArtifactID string, editedArtifactID string, toolSessionID string, providerSessionID string, previousProviderSessionID string, forkSourceAgentSessionID string) reporting.FinalEditStageBinding {
+	binding := reporting.FinalEditStageBinding{
+		MissionID: req.missionID, PendingEventID: req.pendingEventID, PlanEventID: req.planEvent.EventID, Title: req.title,
+		Stage: stage, SourceArtifactID: sourceArtifactID, EditedArtifactID: editedArtifactID, Filename: safeFilename(req.title, ".md"),
+		ToolSessionID: toolSessionID, ProviderSessionID: providerSessionID, PreviousProviderSessionID: previousProviderSessionID,
+		IdempotencyKey: reporting.FinalEditStageIdempotencyKey(stage, req.pendingEventID, req.planEvent.EventID),
+		AgentExecutor:  req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: firstNonEmpty(req.agentReasoningEffort, "default"), AgentSelectionSource: req.agentSelectionSource,
+		MCPMode: req.mcpMode, RigorLevel: req.rigor.level, RigorLabel: req.rigor.label,
+		ReportSessionPolicy: req.reportSessionPolicy, ReportSessionPolicySelection: req.reportSessionPolicySelection,
+		PostReportHumanize: req.postReportHumanize, GenerationGuidanceProfile: req.generationGuidanceProfile, GenerationGuidanceSHA256: req.generationGuidanceSHA256,
+		SessionChainKind: req.sessionChainKind, PreReportResearchSessionID: req.preReportResearchSessionID, ReportPlanSessionID: req.reportPlanSessionID,
+		ForkSourceAgentSessionID: forkSourceAgentSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+	}
+	state, ok, err := reporting.FinalEditPipelineFromPlanEvent(req.planEvent)
+	if err == nil && ok && (state.Pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 || state.Pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3) {
+		binding.FinalEditPipeline = state.Pipeline
+	}
+	return binding
+}
+
+func (req finalizationPrefixFixture) longFormFinalBinding(toolSessionID string, providerSessionID string, previousProviderSessionID string, forkSourceAgentSessionID string) reporting.LongFormFinalizeBinding {
+	return reporting.LongFormFinalizeBinding{
+		MissionID: req.missionID, PendingEventID: req.pendingEventID, PlanEventID: req.planEvent.EventID, ArtifactID: req.artifactID,
+		Filename: safeFilename(req.title, ".md"), Title: req.title, ToolSessionID: toolSessionID,
+		IdempotencyKey:    "report-long-form-finalize:" + req.pendingEventID + ":" + req.planEvent.EventID,
+		ProviderSessionID: providerSessionID, PreviousProviderSessionID: previousProviderSessionID,
+		PartArtifactIDs: req.partArtifactIDs, SectionArtifactIDs: req.sectionArtifactIDs, SectionWordCount: req.sectionWordTotal,
+		CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
+		AgentExecutor:       req.executorName, AgentModel: req.agentModel, AgentReasoningEffort: firstNonEmpty(req.agentReasoningEffort, "default"), AgentSelectionSource: req.agentSelectionSource,
+		MCPMode: req.mcpMode, RigorLevel: req.rigor.level, RigorLabel: req.rigor.label,
+		ReportSessionPolicy: req.reportSessionPolicy, ReportSessionPolicySelection: req.reportSessionPolicySelection,
+		PostReportHumanize: req.postReportHumanize, GenerationGuidanceProfile: req.generationGuidanceProfile, GenerationGuidanceSHA256: req.generationGuidanceSHA256,
+		SessionChainKind: req.sessionChainKind, PreReportResearchSessionID: req.preReportResearchSessionID, ReportPlanSessionID: req.reportPlanSessionID,
+		ForkSourceAgentSessionID: forkSourceAgentSessionID, PlanToolSessionID: reportEventString(req.planEvent, "tool_session_id"), StartedAt: req.started,
+		Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+	}
 }

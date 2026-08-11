@@ -15,9 +15,19 @@ func TestValidateAppendPreservesExecutorLock(t *testing.T) {
 	if err := ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.part_plan.created", "codex")}); err != nil {
 		t.Fatalf("same executor append returned error: %v", err)
 	}
-	err := ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.part_plan.created", "claude")})
+	if err := ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.section.evidence_gap", "codex")}); err != nil {
+		t.Fatalf("evidence gap append should preserve executor lock: %v", err)
+	}
+	if err := ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.plan.section_repair.completed", "codex")}); err != nil {
+		t.Fatalf("Section plan repair append should preserve executor lock: %v", err)
+	}
+	err := ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.section.evidence_gap", "claude")})
 	if !errors.Is(err, producterror.ErrInvalidInput) {
 		t.Fatalf("expected executor conflict, got %v", err)
+	}
+	err = ValidateAppend(existing, []ledger.Event{lockingEvent(t, "report.plan.section_repair.completed", "claude")})
+	if !errors.Is(err, producterror.ErrInvalidInput) {
+		t.Fatalf("expected Section plan repair executor conflict, got %v", err)
 	}
 }
 

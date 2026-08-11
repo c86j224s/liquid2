@@ -133,6 +133,30 @@ func TestProjectReportProgressProjectsParallelSectionStarts(t *testing.T) {
 	}
 }
 
+func TestProjectReportProgressEvidenceGapStaysOnSectionNode(t *testing.T) {
+	events := []Event{
+		reportEvent("evt_pending", "report.draft.pending", map[string]any{"report_mode": "long_form"}),
+		reportEvent("evt_plan", "report.plan.created", map[string]any{"pending_event_id": "evt_pending", "plan": map[string]any{"parts": []any{
+			map[string]any{"sections": []any{"one"}},
+		}}}),
+		reportEvent("evt_gap", "report.section.evidence_gap", map[string]any{
+			"pending_event_id": "evt_pending", "plan_event_id": "evt_plan",
+			"part_index": 1, "section_index": 1, "attempt_number": 1,
+			"reason_code": "inadequate_section_evidence",
+		}),
+	}
+
+	progress := ProjectReportProgress(events)
+	if got := reportNodeState(progress.Nodes, "section-1-1"); got != "running" {
+		t.Fatalf("evidence gap should keep Section node running, got %q: %#v", got, progress.Nodes)
+	}
+	for _, node := range progress.Nodes {
+		if node.Kind == "evidence_gap" {
+			t.Fatalf("evidence gap must not create a visible node: %#v", progress.Nodes)
+		}
+	}
+}
+
 func TestProjectReportProgressTimesPartAssemblyAfterEverySection(t *testing.T) {
 	base := time.Date(2026, 7, 14, 1, 0, 0, 0, time.UTC)
 	events := []Event{
@@ -599,6 +623,51 @@ func TestProjectReportProgressDoesNotCompleteRetryFromAncestorArtifact(t *testin
 		if node.ID == "artifact" && node.State == "completed" {
 			t.Fatal("ancestor artifact must not complete selected attempt")
 		}
+	}
+}
+
+func TestProjectReportProgressResumedSectionReplacesAncestorFailure(t *testing.T) {
+	base := time.Date(2026, 8, 10, 4, 0, 0, 0, time.UTC)
+	resumedAt := base.Add(2*time.Hour + 40*time.Minute)
+	events := []Event{
+		{EventID: "evt_root", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form"}), CreatedAt: base},
+		{EventID: "evt_plan", EventType: "report.plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_root",
+			"plan":             map[string]any{"parts": []any{map[string]any{"sections": []any{"one"}}}},
+		}), CreatedAt: base.Add(time.Minute)},
+		{EventID: "evt_root_section_start", EventType: "report.section.started", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_root", "part_index": 1, "section_index": 1,
+		}), CreatedAt: base.Add(2 * time.Minute)},
+		{EventID: "evt_root_section_failed", EventType: "report.section.failed", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_root", "part_index": 1, "section_index": 1,
+		}), CreatedAt: base.Add(3 * time.Minute)},
+		{EventID: "evt_root_failed", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_root", "failed_stage_kind": "section", "failed_stage_id": "section-1-1",
+		}), CreatedAt: base.Add(3 * time.Minute)},
+		{EventID: "evt_retry", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "origin_pending_event_id": "evt_root", "retry_of_pending_event_id": "evt_root",
+			"retry_strategy": "resume_failed", "attempt_number": 2,
+		}), CreatedAt: resumedAt},
+		{EventID: "evt_retry_section_start", EventType: "report.section.started", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": "evt_retry", "part_index": 1, "section_index": 1,
+		}), CreatedAt: resumedAt.Add(time.Second)},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	section := nodes["section-1-1"]
+	if progress.State != "running" || section.State != "running" || section.AttemptID != "evt_retry" {
+		t.Fatalf("resumed Section must replace ancestor failure: %#v", progress)
+	}
+	if section.StartedAt == nil || !section.StartedAt.Equal(resumedAt.Add(time.Second)) || section.DurationMS != nil {
+		t.Fatalf("resumed Section must use the retry start time: %#v", section)
+	}
+	part := nodes["part-1"]
+	if part.State != "pending" || part.StartedAt != nil || part.DurationMS != nil {
+		t.Fatalf("part assembly must remain pending while the resumed Section runs: %#v", part)
 	}
 }
 

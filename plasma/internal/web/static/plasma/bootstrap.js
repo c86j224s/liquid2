@@ -25,7 +25,6 @@
 	  $("missionForm").addEventListener("submit", mission.createMission);
   $("turnForm").addEventListener("submit", conversation.sendTurn);
   $("workflowInstruction").addEventListener("input", workflow.onWorkflowRawInput);
-  $("turnText").addEventListener("input", workflow.onWorkflowRawInput);
   $("workflowStepInstructionMode").addEventListener("change", workflow.updateWorkflowStepInstructionMode);
   $("draftWorkflowGoalButton").addEventListener("click", workflow.draftWorkflowGoal);
   $("startWorkflowButton").addEventListener("click", workflow.startWorkflow);

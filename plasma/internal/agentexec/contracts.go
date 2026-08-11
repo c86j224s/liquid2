@@ -33,6 +33,7 @@ type AgentRequest struct {
 	MCPMode            string
 	Compaction         bool
 	DisableTools       bool
+	IgnoreUserConfig   bool
 	ExtraMCPTools      []string
 	ReplaceMCPTools    bool
 	ReportPatch        *AgentReportPatchContext

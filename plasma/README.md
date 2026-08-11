@@ -279,9 +279,10 @@ emphasis, interpretation, ordering, and presentation; it must not reduce the
 mission-relevant coverage or depth required by the objective and sources.
 Plasma does not copy the hint into later report requests or explicitly inject it
 into conversation, humanization, semantic validation, evidence-gate, patching,
-or HTML-export prompts. This is a prompt-routing guarantee, not deletion of
-provider-session history: a path that deliberately resumes the same provider
-session may still retain the earlier report prompt in that session's context.
+or HTML-export prompts. Automatic planned and long-form reports start the
+initial plan in a fresh provider session and continue writing in that plan
+session, so they do not inherit an earlier report prompt. A compatibility path
+that explicitly resumes the same provider session may still retain it.
 
 Patch an existing Markdown report artifact from the CLI:
 

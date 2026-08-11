@@ -6,6 +6,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
 )
 
 func TestMarkdownReportPromptsRequireMermaidValidation(t *testing.T) {
@@ -28,7 +29,10 @@ func TestMarkdownReportPromptsRequireMermaidValidation(t *testing.T) {
 		"planned markdown":  agentMarkdownReportPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentReportPlan{}, ""),
 		"long section":      agentSectionDraftPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], sectionalPlan, sectionalPlan.Parts[0], section, 0, 0, ""),
 		"part assembly":     agentPartAssemblyPrompt("Report", "mis_1", "ses_1", reportRigorProfiles["balanced"], sectionalPlan, sectionalPlan.Parts[0], nil, 0, ""),
-		"long final":        agentLongFormFinalizePrompt("Report", "mis_1", reportRigorProfiles["balanced"], sectionalPlan, nil, "", binding, 1, false, reporting.LongFormFinalizationHint{}),
+		"long final": legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+			MissionID: "mis_1", Title: "Report", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+			Plan: sectionalPlan,
+		}, binding, 1, false, reporting.LongFormFinalizationHint{}),
 	}
 	for name, prompt := range prompts {
 		if !strings.Contains(prompt, "plasma.mermaid.validate") || !strings.Contains(prompt, "static preflight pass") {

@@ -58,7 +58,7 @@ package로 나눠야 합니다. 같은 DB 엔진이나 같은 report 영역이�
 | Conversation과 research result | Turn/result 의미, projection된 대화 상태, 저장된 research record | `internal/app`, `internal/conversation`, `internal/researchproposal` | Result 정책을 Web과 MCP 밖에 유지 |
 | Source | Artifact, snapshot, locator, candidate 승인, retrieval policy, source state | `internal/artifact`, `internal/source`, `internal/sourceingest`, `internal/sourceretrieval`, `internal/pdfdocument`, `internal/sourceevents`, `internal/sourcecandidates`, `internal/sources/*`; 임시 `internal/app` facade | URL 수집과 PDF 문서 규칙을 transport에서 분리하고 browser·local-file adapter와 구분 |
 | Workflow | Run/step lifecycle, stop/cancel, continue, recovery, 실행 | `internal/workflow`, `internal/workflowruns`, `internal/workflowstate`; `internal/app`의 임시 요청 facade | `workflow.Supervisor`가 process 실행과 재조정을 소유하고 transport는 provider adapter와 protocol 변환만 제공 |
-| Reporting | Requirement, plan, section, part, assembly, edit, render, prompt policy, terminal state, recovery | `internal/reportexecution`, `internal/reporting`, `internal/reportprompt`, `internal/web`; `internal/app`의 임시 facade | 실행 수명주기는 `reportexecution`, 생성 prompt 정책은 `reportprompt`에 두고, 남은 보고서 하위 기능은 독립 변경 단위로 나누며 호환 표면은 얇게 유지 |
+| Reporting | Requirement, plan, section, part, assembly, edit, render, prompt policy, terminal state, recovery | `internal/reportexecution`, `internal/reportworkflow`, `internal/reporting`, `internal/reportprompt`, `internal/web`; `internal/app`의 임시 facade | 실행 수명주기는 `reportexecution`, 고정 report graph 선택과 typed stage 연결은 `reportworkflow`, durable report 계약은 `reporting`, 생성 prompt 정책은 `reportprompt`에 두고, 독립 변경 단위별 보고서 하위 기능과 얇은 호환 표면을 유지 |
 | Agent 실행 | Provider request/result, model 선택 입력, session, fork/reset, usage | `internal/agentexec`, `internal/agentpolicy`, `internal/agentmodels`, `internal/agentusage`; 임시 Web alias | `agentexec`가 provider process와 session을 소유하고 transport는 prompt와 요청 변환을 소유 |
 | 외부 connector | 외부 identity, access, browse, refresh, version metadata | `internal/confluenceaccess`, `internal/connectors/*`; 임시 `internal/app` facade | Source 또는 connector 기능 port 뒤의 구현 |
 | Persistence | Connection, transaction, migration, 기능별 repository 구현 | `internal/storage/sqlite` | 작은 SQLite 기반부와 기능 port별 adapter |
@@ -83,9 +83,9 @@ package로 나눠야 합니다. 같은 DB 엔진이나 같은 report 영역이�
 | 경계 | 현재 문제 | 추적 |
 | --- | --- | --- |
 | `internal/app` | Service 이관 동안 기능 소유 model을 임시로 재노출 | Issue #66 |
-| `internal/web` | HTTP와 orchestration, provider 동작, recovery, source fetch를 혼합 | Issue #66 |
+| `internal/web` | HTTP와 상류 report orchestration, terminal finalization 밖의 provider 동작, recovery, source fetch를 혼합 | Issue #66 |
 | `internal/mcp` | Research 도구는 분리했지만 mission, source, workflow, report adapter가 여전히 루트 transport package를 공유 | Issue #66 |
-| `internal/reporting` | 실행 생명주기를 분리한 뒤에도 plan, writing, edit, render, long-form finalization이 큰 package 하나를 공유 | Issue #66 |
+| `internal/reporting` | 실행 생명주기와 terminal finalization을 분리한 뒤에도 plan, writing, edit, render, durable final-edit 계약이 큰 package 하나에 남아 있음 | Issue #66 |
 
 이 예외들은 선례가 아니라 이행 부채입니다. Refactoring은 공개 Web, MCP, CLI, event, storage 동작을 보존하며
 각 단계가 독립적으로 검증 가능한 형태로 진행해야 합니다.

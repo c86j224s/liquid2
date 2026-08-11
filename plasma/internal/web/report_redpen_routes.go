@@ -47,6 +47,12 @@ func (server *Server) handleReportRedpenRoute(w http.ResponseWriter, r *http.Req
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		unlockReports := server.reports.lock(missionID)
+		defer unlockReports()
+		source, ok = server.reportRedpenSourceArtifact(w, r, missionID, rest[0])
+		if !ok {
+			return
+		}
 		workcopy, err := server.service.SaveReportRedpenWorkcopy(r.Context(), app.SaveReportRedpenRequest{
 			EventID:                   newID("evt"),
 			ArtifactID:                newID("art"),

@@ -16,6 +16,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/modeldefaultsrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/reportrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/reportrunrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/researchrepo"
 
 	_ "modernc.org/sqlite"
@@ -35,6 +36,7 @@ type Store struct {
 	artifacts     *artifactrepo.Repository
 	research      *researchrepo.Repository
 	reports       *reportrepo.Repository
+	reportRuns    *reportrunrepo.Repository
 	confluence    *confluencerepo.Repository
 	modelDefaults *modeldefaultsrepo.Repository
 }
@@ -60,6 +62,7 @@ func Open(ctx context.Context, dbPath string) (*Store, error) {
 		artifacts:     artifactrepo.New(db),
 		research:      researchrepo.New(db),
 		reports:       reportrepo.New(db),
+		reportRuns:    reportrunrepo.New(db),
 		confluence:    confluencerepo.New(db),
 		modelDefaults: modeldefaultsrepo.New(db),
 	}

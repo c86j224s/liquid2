@@ -72,6 +72,42 @@ contrasts, or redundant paragraph conclusions. Paragraph length and closing
 cadence are not regularized, and ordinary connectives are not treated as a
 blacklist.
 
+Before writing, the Section writer separates the main explanatory job promised
+by the Section title and purpose from supporting work such as catalog metadata,
+version or provenance comparison, transmission notes, and source-comparison
+tables. Supporting work may remain central only when source criticism,
+bibliography, transmission, or holdings history is explicitly the Section's
+main subject. If the available evidence supports only supporting work, the
+writer returns an evidence gap instead of substituting a source tour for the
+planned explanation. A final retry does not lower this evidence threshold.
+
+The Section writer has only two valid outcomes: a Markdown Section draft or the
+exact control response `SECTION_EVIDENCE_GAP`. A gap records
+`report.section.evidence_gap` with the fixed reason code
+`inadequate_section_evidence`, current pending/plan IDs, 1-based Part/Section
+coordinates, attempt number, provider/tool session lineage, duration, and
+standard `agent_usage`; it does not create a Section artifact or
+`report.section.created` event and does not persist free-form diagnosis or
+source content. The runner retries only that Section once in the same provider
+session and tool-session binding. On attempt 2, the writer performs the final
+replacement search or bounded scope reduction inside the existing Section title
+and purpose, then returns Markdown or the exact gap token.
+
+If any coordinate still ends in a gap on attempt 2, the runner permits exactly
+one plan-repair round for that report retry lineage. The planner in the original
+report-plan session uses read-only research and source tools to review all failed
+coordinates together. It may replace only the title, purpose, and `target_refs`
+at those same coordinates with supportable explanatory jobs, or return exactly
+`SECTION_PLAN_UNREPAIRABLE`. It cannot delete, merge, move, or change successful
+Sections, nor can it reassign user requirements. Replacement `target_refs` must
+pass the existing mission-scoped reference validation before an outcome is
+recorded; a validation failure records no repair. The canonical plan event stays
+immutable; `report.plan.section_repair.completed` records an `applied` or
+`unrepairable` outcome. An applied repair preserves successful Section artifacts
+and gives only replacement coordinates a fresh attempt 1-to-2 budget. An
+unrepairable outcome or a second post-repair gap fails explicitly, and the
+planner is not called again in the same lineage.
+
 The active long-form default keeps the same visual-aid baseline: source shape
 should suggest the aid before the writer falls back to prose, so chronology
 tends toward timeline, dependency toward flowchart, actor handoff toward
@@ -330,6 +366,19 @@ without re-running the provider. Only when the required durable state is absent
 may a stage receive one technical retry. Both invocations reuse the same durable
 binding, tool session, idempotency key, artifact identity, and provider-session
 chain; plan, section, Part, and completed final-edit stages are not repeated.
+
+Section evidence-gap attempts are scoped to the current pending event, plan
+event, and 1-based Part/Section coordinate. If recovery finds attempt 1 and no
+created Section, it resumes attempt 2 in the same provider session and
+tool-session binding. If recovery finds attempt 2 and no created Section, it
+reconstructs the Section failure without a provider call. If a created Section
+exists after a gap, recovery treats the Section as complete. A new explicit
+report retry pending receives a fresh two-attempt Section budget only while no
+plan-repair outcome exists for those coordinates. When the completion event
+exists, `resume_failed` reconstructs the effective plan from the immutable
+canonical plan plus its same-coordinate amendment and excludes only pre-repair
+gaps from the replacement budget. It also recovers an `unrepairable` outcome, so
+a restart or retry cannot invoke a second plan-repair round.
 
 For `resume_failed`, the runner reuses only validated plan, section, Part, and
 Part-edit outcomes from the failed attempt's ancestor chain. If the failed

@@ -22,6 +22,28 @@ func TestLatestAgentSessionIDKeepsResearchSessionForIsolatedReport(t *testing.T)
 	}
 }
 
+func TestLatestAgentSessionIDKeepsResearchSessionForFreshReport(t *testing.T) {
+	events := []app.LedgerEvent{
+		ledgerEvent(t, "turn.agent.response", map[string]any{
+			"kind":             "agent_response",
+			"agent_executor":   "codex",
+			"agent_session_id": "research-session",
+		}),
+		ledgerEvent(t, "report.artifact.created", map[string]any{
+			"agent_executor":                 "codex",
+			"agent_session_id":               "fresh-report-session",
+			"report_session_policy":          "fresh_session",
+			"pre_report_research_session_id": "research-session",
+		}),
+	}
+	events[0].Sequence = 1
+	events[1].Sequence = 2
+
+	if got := LatestAgentSessionID(events, "codex"); got != "research-session" {
+		t.Fatalf("expected pre-report research session, got %q", got)
+	}
+}
+
 func TestLatestAgentSessionIDIgnoresIsolatedReportWithoutPreReportSession(t *testing.T) {
 	events := []app.LedgerEvent{
 		ledgerEvent(t, "report.artifact.created", map[string]any{

@@ -7,7 +7,10 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
-const isolatedForkReportSessionPolicy = "isolated_fork"
+const (
+	isolatedForkReportSessionPolicy = "isolated_fork"
+	freshReportSessionPolicy        = "fresh_session"
+)
 
 // OpenAgentPending은 원장에서 복원한 미완료 에이전트 턴의 실행 단위다.
 // UserEventID는 닫힘 판정의 안정 식별자이고, WorkflowRunID와 WorkflowStepID는
@@ -20,7 +23,7 @@ type OpenAgentPending struct {
 }
 
 // LatestAgentSessionID는 특정 executor가 다음 대화 턴에서 재개할 세션 ID를
-// 원장 이벤트에서 복원한다. isolated fork 보고서 세션은 보고서 작성용 세션을
+// 원장 이벤트에서 복원한다. isolated/fresh 보고서 세션은 보고서 작성용 세션을
 // 이어 쓰지 않도록 pre-report 연구 세션으로 되돌린다.
 func LatestAgentSessionID(events []app.LedgerEvent, executorName string) string {
 	latestOrder := int64(-1)
@@ -57,7 +60,7 @@ func LatestAgentSessionID(events []app.LedgerEvent, executorName string) string 
 			latestSessionID = ""
 			continue
 		}
-		if event.EventType == "report.artifact.created" && isIsolatedForkReportSessionPolicy(payload.ReportSessionPolicy) {
+		if event.EventType == "report.artifact.created" && isReportSessionIsolatedFromResearch(payload.ReportSessionPolicy) {
 			preReportSessionID := strings.TrimSpace(payload.PreReportResearchSessionID)
 			if preReportSessionID == "" {
 				continue
@@ -262,9 +265,9 @@ func defaultAgentExecutor(value string) string {
 	return value
 }
 
-func isIsolatedForkReportSessionPolicy(value string) bool {
+func isReportSessionIsolatedFromResearch(value string) bool {
 	switch strings.TrimSpace(strings.ToLower(value)) {
-	case isolatedForkReportSessionPolicy, "isolated-fork", "fork":
+	case isolatedForkReportSessionPolicy, "isolated-fork", "fork", freshReportSessionPolicy:
 		return true
 	default:
 		return false

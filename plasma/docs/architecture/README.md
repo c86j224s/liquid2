@@ -61,7 +61,7 @@ unbounded package.
 | Conversation and research results | Turn/result meaning, projected conversation state, saved research records | `internal/app`, `internal/conversation`, `internal/researchproposal` | Keep result policy outside Web and MCP |
 | Sources | Artifacts, snapshots, locators, candidate acceptance, retrieval policy, and source state | `internal/artifact`, `internal/source`, `internal/sourceingest`, `internal/sourceretrieval`, `internal/pdfdocument`, `internal/sourceevents`, `internal/sourcecandidates`, `internal/sources/*`; temporary `internal/app` facade | Keep URL retrieval and PDF document rules transport-neutral; separate them from browser and local-file adapters |
 | Workflow | Run and step lifecycle, stop/cancel, continuation, recovery, and execution | `internal/workflow`, `internal/workflowruns`, `internal/workflowstate`; temporary request facade in `internal/app` | `workflow.Supervisor` owns process execution and reconciliation; transports supply provider adapters and protocol mapping |
-| Reporting | Requirements, plans, sections, parts, assembly, editing, rendering, prompt policy, terminal state, and recovery | `internal/reportexecution`, `internal/reporting`, `internal/reportprompt`, `internal/web`; temporary `internal/app` facade | Keep execution lifecycle in `reportexecution` and generation prompt policy in `reportprompt`; split the remaining independently changing report sub-capabilities and keep compatibility surfaces thin |
+| Reporting | Requirements, plans, sections, parts, assembly, editing, rendering, prompt policy, terminal state, and recovery | `internal/reportexecution`, `internal/reportworkflow`, `internal/reporting`, `internal/reportprompt`, `internal/web`; temporary `internal/app` facade | Keep execution lifecycle in `reportexecution`, fixed report graph selection and typed stage wiring in `reportworkflow`, durable report contracts in `reporting`, and generation prompt policy in `reportprompt`; split independently changing report sub-capabilities and keep compatibility surfaces thin |
 | Agent execution | Provider request/result, model selection inputs, sessions, fork/reset, and usage | `internal/agentexec`, `internal/agentpolicy`, `internal/agentmodels`, `internal/agentusage`; temporary Web aliases | `agentexec` owns provider processes and sessions; transports own prompts and request mapping |
 | External connectors | External identity, access, browse, refresh, and version metadata | `internal/confluenceaccess`, `internal/connectors/*`; temporary `internal/app` facade | Connector implementations behind source or connector capability ports |
 | Persistence | Connection, transactions, migrations, and feature repository implementations | `internal/storage/sqlite` | Small SQLite core plus feature adapters implementing capability ports |
@@ -92,9 +92,9 @@ characterizing public behavior.
 | Boundary | Current problem | Tracking |
 | --- | --- | --- |
 | `internal/app` | Temporarily re-exports capability-owned models while service methods are migrated | Issue #66 |
-| `internal/web` | Mixes HTTP with orchestration, provider behavior, recovery, and source fetching | Issue #66 |
+| `internal/web` | Mixes HTTP with upstream report orchestration, provider behavior outside terminal finalization, recovery, and source fetching | Issue #66 |
 | `internal/mcp` | Research tools are separated, but mission, source, workflow, and report adapters still share the root transport package | Issue #66 |
-| `internal/reporting` | Planning, writing, editing, rendering, and long-form finalization still share one large package after execution lifecycle extraction | Issue #66 |
+| `internal/reporting` | Planning, writing, editing, rendering, and durable final-edit contracts still share one large package after execution lifecycle and terminal finalization extraction | Issue #66 |
 
 These exceptions are migration debt, not precedent. Refactoring must preserve
 public Web, MCP, CLI, event, and storage behavior and proceed in independently

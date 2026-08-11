@@ -157,7 +157,7 @@ func finalWriterV2BlindSeal(archive string) (string, map[string]string, error) {
 	return mappingSHA, packSHA, nil
 }
 
-func finalWriterV2StageTrace(ctx context.Context, svc *app.Service, req longFormReaderStyleGatePipelineRequest, arm string, requests []AgentRequest) ([]map[string]any, []string) {
+func finalWriterV2StageTrace(ctx context.Context, svc *app.Service, req finalizationPrefixFixture, arm string, requests []AgentRequest) ([]map[string]any, []string) {
 	styleEnabled := req.postReportHumanize == reporting.FinalEditHumanizeEnabled
 	pipeline := finalWriterV2PipelineForArm(arm)
 	events, err := svc.ListEvents(ctx, req.missionID)
@@ -353,7 +353,7 @@ func finalWriterV2ExpectedTraceRows(arm string, styleEnabled bool) []finalWriter
 	return rows
 }
 
-func finalWriterV2ValidateStageAncestry(req longFormReaderStyleGatePipelineRequest, binding *reporting.FinalEditStageBinding, forkFrom string) error {
+func finalWriterV2ValidateStageAncestry(req finalizationPrefixFixture, binding *reporting.FinalEditStageBinding, forkFrom string) error {
 	switch forkFrom {
 	case "none":
 		return nil

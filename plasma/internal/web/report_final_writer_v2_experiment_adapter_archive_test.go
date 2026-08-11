@@ -299,7 +299,7 @@ func finalWriterV2ValidateFinalArtifact(ctx context.Context, svc *app.Service, e
 	return fmt.Errorf("final report artifact event missing")
 }
 
-func finalWriterV2MachineCheck(pair finalWriterV2ExperimentPair, arm string, req longFormReaderStyleGatePipelineRequest, manifest finalWriterV2FrozenManifest, manifestDigest string, run finalWriterV2ExperimentRun, markdown string, trace []map[string]any, traceErrors []string) map[string]any {
+func finalWriterV2MachineCheck(pair finalWriterV2ExperimentPair, arm string, req finalizationPrefixFixture, manifest finalWriterV2FrozenManifest, manifestDigest string, run finalWriterV2ExperimentRun, markdown string, trace []map[string]any, traceErrors []string) map[string]any {
 	citationLoss := 0
 	for _, part := range manifest.Parts {
 		for _, token := range finalWriterV2ProtectedCitationTokens(part.Markdown) {

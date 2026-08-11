@@ -25,6 +25,7 @@ var staticFiles embed.FS
 // 필요한 process-local 상태만 보관한다.
 type Server struct {
 	service                     *app.Service
+	reportFinalizationNewID     func(string) string
 	liquid2                     app.Liquid2SourceConnector
 	agent                       AgentExecutor
 	agents                      map[string]AgentExecutor
@@ -110,6 +111,7 @@ func NewServer(service *app.Service, options Options) http.Handler {
 	}
 	server := &Server{
 		service:                     service,
+		reportFinalizationNewID:     newID,
 		liquid2:                     options.Liquid2Connector,
 		agent:                       options.AgentExecutor,
 		agents:                      agents,

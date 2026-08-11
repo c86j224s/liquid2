@@ -95,8 +95,11 @@ go test ./internal/architecturecheck -args -update
 Issue #66은 넓은 `internal/app`, `internal/web`, `internal/mcp`, `internal/reporting` 경계를 추적합니다.
 현재 이 package들이 존재한다는 사실은 같은 형태의 새 의존을 허용하지 않습니다.
 
-첫 이관 단계에서는 ledger, mission, artifact, source와 안정된 오류 model 및 소비자 소유 port를 좁은
-package로 옮겼습니다. `internal/app`의 호환 alias는 이행용 표면이며 새 소유 경계가 아닙니다.
+첫 이관 단계에서는 ledger, mission, artifact, source, 안정된 오류 model, 일부 report 실행 경계를 좁은
+package로 옮겼습니다. #111부터 `internal/reportworkflow`가 제품 고정 report topology, typed stage 연결,
+장문 prefix stage, final edit stage, legacy finalization stage를 소유합니다. 각 stage package는 자기 prompt,
+MCP allowlist, provider 실행, 검증, durable replay 경계를 맡고, `internal/reporting`은 durable final-edit
+계약과 artifact lineage를 유지합니다. `internal/app`의 호환 alias는 이행용 표면이며 새 소유 경계가 아닙니다.
 
 SQLite 이관은 connection, migration, maintenance와 기능 간 transaction을 안정된 루트 facade에
 유지합니다. 기능별 repository package는 이 facade의 구현 세부사항입니다. 루트 package만 이를 import할

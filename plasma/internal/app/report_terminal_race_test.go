@@ -93,6 +93,16 @@ func TestAppendReportTerminalIfOpenRejectsWrongPendingTypeAndCorrelation(t *test
 	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "terminal validation"}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_1",
+		MissionID:  missionID,
+		MediaType:  "text/markdown",
+		Filename:   "report.md",
+		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Content:    []byte("report"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_design_pending", MissionID: missionID, EventType: "report.design.pending", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"source_artifact_id": "art_1"})}); err != nil {
 		t.Fatal(err)
 	}

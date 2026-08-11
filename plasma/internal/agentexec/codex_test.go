@@ -2,6 +2,7 @@ package agentexec
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +71,68 @@ printf 'done' > "$out"
 	if info, err := os.Stat(workDir); err != nil || !info.IsDir() {
 		t.Fatalf("expected workdir to be created, info=%#v err=%v", info, err)
 	}
+}
+
+func TestCodexExecutorIgnoreUserConfigIsOptInForExec(t *testing.T) {
+	args := runCodexArgsRecorder(t, AgentRequest{
+		Prompt:           "test prompt",
+		AgentExecutor:    "codex",
+		IgnoreUserConfig: true,
+	})
+	if len(args) < 2 || args[0] != "exec" || args[1] != "--ignore-user-config" {
+		t.Fatalf("ignore-user-config args = %#v, want exec subcommand option", args)
+	}
+
+	defaultArgs := runCodexArgsRecorder(t, AgentRequest{
+		Prompt:        "test prompt",
+		AgentExecutor: "codex",
+	})
+	for _, arg := range defaultArgs {
+		if arg == "--ignore-user-config" {
+			t.Fatalf("default args unexpectedly ignored user config: %#v", defaultArgs)
+		}
+	}
+}
+
+func runCodexArgsRecorder(t *testing.T, req AgentRequest) []string {
+	t.Helper()
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	command := filepath.Join(dir, "fake-codex")
+	script := fmt.Sprintf(`#!/bin/sh
+out=""
+want_out=0
+: > %q
+for arg in "$@"; do
+  printf '%%s\n' "$arg" >> %q
+  if [ "$want_out" = "1" ]; then
+    out="$arg"
+    want_out=0
+  elif [ "$arg" = "--output-last-message" ]; then
+    want_out=1
+  fi
+done
+cat >/dev/null
+printf 'session id: args-session\n'
+printf 'done' > "$out"
+`, argsPath, argsPath)
+	if err := os.WriteFile(command, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := (CodexExecutor{
+		Command: command,
+		WorkDir: dir,
+		Timeout: 10 * time.Second,
+		Env:     []string{"PATH=/usr/bin:/bin"},
+	}).Run(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Fields(string(raw))
 }
 
 func containsEnv(env []string, value string) bool {

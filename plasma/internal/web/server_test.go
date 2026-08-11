@@ -340,8 +340,8 @@ func TestWorkspaceFlow(t *testing.T) {
 				Purpose: "Explain the approved source-backed facts.",
 			}},
 			CoverageNotes: []string{"Approved HTTPS DNS source cluster."},
-		}), SessionID: "agent-session-1"},
-		{Text: "# DNS report\n\nHTTPS DNS records should be explained through the pinned source.", SessionID: "agent-session-1"},
+		}), SessionID: "report-plan-session-1"},
+		{Text: "# DNS report\n\nHTTPS DNS records should be explained through the pinned source.", SessionID: "report-plan-session-1", Resumed: true},
 	}}
 	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
@@ -433,8 +433,11 @@ func TestWorkspaceFlow(t *testing.T) {
 		t.Fatalf("expected report agent request, got %#v", agent.requests)
 	}
 	planReq := agent.requests[1]
-	if planReq.PreviousSessionID != "agent-session-1" {
-		t.Fatalf("report planning must continue the mission session, got %q", planReq.PreviousSessionID)
+	if planReq.PreviousSessionID != "" {
+		t.Fatalf("report planning must start without a previous provider session, got %q", planReq.PreviousSessionID)
+	}
+	if planReq.ReportPlan == nil || planReq.ReportPlan.PreviousProviderSessionID != "" {
+		t.Fatalf("report planning MCP context must bind an empty previous provider session, got %#v", planReq.ReportPlan)
 	}
 	for _, expected := range []string{
 		"Create a user-visible Korean report generation plan",
@@ -448,7 +451,7 @@ func TestWorkspaceFlow(t *testing.T) {
 		}
 	}
 	reportReq := agent.requests[2]
-	if reportReq.PreviousSessionID != "agent-session-1" {
+	if reportReq.PreviousSessionID != "report-plan-session-1" {
 		t.Fatalf("report generation must continue the planning session, got %q", reportReq.PreviousSessionID)
 	}
 	if reportReq.ToolSessionID == "" {
@@ -494,6 +497,21 @@ func TestWorkspaceFlow(t *testing.T) {
 	planPayload := lastEventPayload(t, detailWithReport, "report.plan.created")
 	if planPayload["pending_event_id"] != reportPayload["pending_event_id"] || planPayload["artifact_id"] != reportPayload["artifact_id"] {
 		t.Fatalf("expected report plan to be linked to artifact, plan=%#v artifact=%#v", planPayload, reportPayload)
+	}
+	if planPayload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		planPayload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "agent-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["fork_source_agent_session_id"] != "" {
+		t.Fatalf("expected fresh workspace report plan metadata, got %#v", planPayload)
+	}
+	if reportPayload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		reportPayload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		reportPayload["session_chain_kind"] != "fresh_session_report" ||
+		reportPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		reportPayload["report_session_id"] != "report-plan-session-1" {
+		t.Fatalf("expected fresh workspace report artifact metadata, got %#v", reportPayload)
 	}
 	artifact, err := svc.GetRawArtifact(ctx, reportPayload["artifact_id"].(string))
 	if err != nil {
@@ -2929,7 +2947,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	agent := &fakeAgentExecutor{responses: []AgentResult{
 		{Text: "mission answer", SessionID: "agent-session-1"},
 		{Text: agentReportPlanJSON(agentReportPlan{
-			Summary: "Use the current mission session for a planned report.",
+			Summary: "Start report planning from a fresh provider session.",
 			WritingContract: &reporting.ReportWritingContract{
 				CentralQuestion: "What should the reader understand?", ReaderTakeaway: "The operational trade-off.",
 				ReadingPath: []string{"state the answer", "explain the evidence"}, MustKeep: []string{"the operational trade-off"},
@@ -2939,15 +2957,15 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 				Title:   "Mission summary",
 				Purpose: "Summarize the mission.",
 			}},
-		}), SessionID: "agent-session-1"},
-		{Text: "# Planned report\n\nA planned report can use the existing mission session.", SessionID: "agent-session-1"},
+		}), SessionID: "report-plan-session-1"},
+		{Text: "# Planned report\n\nA planned report continues from the fresh plan session.", SessionID: "report-plan-session-1", Resumed: true},
 	}}
 	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
 		"title":     "Quick report test",
-		"objective": "Check one-take report generation",
+		"objective": "Check planned report generation",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
@@ -2966,11 +2984,11 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	if mode := nestedString(t, response, "pending_event", "Payload", "report_mode"); mode != reportModePlanned {
 		t.Fatalf("expected planned report mode in pending event, got %q", mode)
 	}
-	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicySameSession {
-		t.Fatalf("expected same-session report policy in pending event, got %q", policy)
+	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyFreshSession {
+		t.Fatalf("expected fresh report policy in pending event, got %q", policy)
 	}
-	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoSameSessionNoForker {
-		t.Fatalf("expected non-forking executor selection in pending event, got %q", selection)
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh session selection in pending event, got %q", selection)
 	}
 	if humanize := nestedString(t, response, "pending_event", "Payload", "post_report_humanize"); humanize != "disabled" {
 		t.Fatalf("expected default report draft to leave H5 disabled, got %q", humanize)
@@ -2999,8 +3017,11 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected answer turn, plan request, and planned report request, got %d", len(agent.requests))
 	}
 	planReq := agent.requests[1]
-	if planReq.PreviousSessionID != "agent-session-1" {
-		t.Fatalf("planned report should continue the mission session while planning, got %q", planReq.PreviousSessionID)
+	if planReq.PreviousSessionID != "" {
+		t.Fatalf("planned report should start planning without a previous provider session, got %q", planReq.PreviousSessionID)
+	}
+	if planReq.ReportPlan == nil || planReq.ReportPlan.PreviousProviderSessionID != "" {
+		t.Fatalf("planned report MCP lifecycle should bind an empty previous provider session, got %#v", planReq.ReportPlan)
 	}
 	assertReportMCPToolSurface(t, planReq, plasmamcp.ToolReportPlanSubmit, plasmamcp.ToolSourcesRead)
 	if !strings.Contains(planReq.Prompt, "Emphasize operational trade-offs.") || !strings.Contains(planReq.Prompt, reportexecution.DirectionAdvisory) {
@@ -3013,7 +3034,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		t.Fatalf("planned report default writing contract did not reach the product path: request=%#v\nprompt=%s", planReq.ReportPlan, planReq.Prompt)
 	}
 	reportReq := agent.requests[2]
-	if reportReq.PreviousSessionID != "agent-session-1" {
+	if reportReq.PreviousSessionID != "report-plan-session-1" {
 		t.Fatalf("planned report should continue planning session, got %q", reportReq.PreviousSessionID)
 	}
 	assertReportMCPToolSurface(t, reportReq, plasmamcp.ToolSourcesRead)
@@ -3034,11 +3055,22 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		"use only \\(...\\) for inline math and \\[...\\] for display math",
 	} {
 		if !strings.Contains(reportReq.Prompt, expected) {
-			t.Fatalf("expected one-take report prompt to contain %q:\n%s", expected, reportReq.Prompt)
+			t.Fatalf("expected planned report prompt to contain %q:\n%s", expected, reportReq.Prompt)
 		}
 	}
 	if strings.Contains(reportReq.Prompt, "Long-form human-writer guidance:") {
 		t.Fatalf("planned report prompt must not include long-form writing guidance:\n%s", reportReq.Prompt)
+	}
+	planPayload := lastEventPayload(t, detail, "report.plan.created")
+	if planPayload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		planPayload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		planPayload["session_chain_kind"] != "fresh_session_report" ||
+		planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "agent-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["fork_source_agent_session_id"] != "" ||
+		planPayload["agent_resumed"] == true {
+		t.Fatalf("expected fresh plan chain metadata, got %#v", planPayload)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModePlanned || payload["report_mode_label"] != reportModeLabelPlan {
@@ -3051,15 +3083,15 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 		payload["generation_guidance_profile"] != reportprompt.ProfileNarrativeContract || strings.TrimSpace(fmt.Sprint(payload["generation_guidance_sha256"])) == "" {
 		t.Fatalf("expected default narrative-contract and disabled H5 metadata, got %#v", payload)
 	}
-	if payload["report_session_policy"] != reportSessionPolicySameSession ||
-		payload["session_chain_kind"] != "same_session_report" ||
+	if payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" ||
 		payload["pre_report_research_session_id"] != "agent-session-1" ||
-		payload["report_plan_session_id"] != "agent-session-1" ||
-		payload["report_session_id"] != "agent-session-1" ||
+		payload["report_plan_session_id"] != "report-plan-session-1" ||
+		payload["report_session_id"] != "report-plan-session-1" ||
 		payload["fork_source_agent_session_id"] != "" ||
 		payload["post_report_research_session_id"] != "" ||
-		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoSameSessionNoForker {
-		t.Fatalf("expected same-session report chain metadata, got %#v", payload)
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected fresh report chain metadata, got %#v", payload)
 	}
 	artifact, err := svc.GetRawArtifact(ctx, payload["artifact_id"].(string))
 	if err != nil {
@@ -3070,7 +3102,7 @@ func TestReportDraftDefaultCreatesPlannedMarkdownArtifact(t *testing.T) {
 	}
 }
 
-func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
+func TestReportDraftDefaultUsesFreshReportSessionWhenForkIsAvailable(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -3083,7 +3115,174 @@ func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
 		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 			{Text: "mission answer", SessionID: "research-session-1"},
 			{Text: agentReportPlanJSON(agentReportPlan{
-				Summary: "Use an isolated report session for report work.",
+				Summary: "Use a fresh report planning session for report work.",
+				Sections: []agentReportSection{{
+					Title:   "Mission summary",
+					Purpose: "Summarize the mission.",
+				}},
+			}), SessionID: "report-plan-session-1"},
+			{Text: "# Fresh report\n\nA report generated from a fresh plan session.", SessionID: "report-plan-session-1", Resumed: true},
+		}},
+		forkSessionID: "report-fork-1",
+	}
+	handler := NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
+		"title":     "Fresh report test",
+		"objective": "Check automatic fresh report planning",
+	})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
+		"text": "Prepare an isolated report later.",
+	})
+	waitForEventType(t, server.URL, missionID, "turn.agent.response")
+
+	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title":       "Isolated report",
+		"report_mode": "planned",
+	})
+	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyFreshSession {
+		t.Fatalf("expected fresh report policy in pending event, got %q", policy)
+	}
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh selection in pending event, got %q", selection)
+	}
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if len(agent.forkSources) != 0 {
+		t.Fatalf("automatic fresh planned report must not fork, got %#v", agent.forkSources)
+	}
+	if len(agent.requests) != 3 {
+		t.Fatalf("expected answer turn, plan request, and planned report request, got %d", len(agent.requests))
+	}
+	if got := agent.requests[1].PreviousSessionID; got != "" {
+		t.Fatalf("expected report plan to start fresh, got %q", got)
+	}
+	if agent.requests[1].ReportPlan == nil || agent.requests[1].ReportPlan.PreviousProviderSessionID != "" {
+		t.Fatalf("expected report plan MCP context to bind no previous session, got %#v", agent.requests[1].ReportPlan)
+	}
+	if got := agent.requests[2].PreviousSessionID; got != "report-plan-session-1" {
+		t.Fatalf("expected report body to resume returned plan session, got %q", got)
+	}
+
+	planPayload := lastEventPayload(t, detail, "report.plan.created")
+	if planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "research-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["fork_source_agent_session_id"] != "" ||
+		planPayload["agent_resumed"] == true {
+		t.Fatalf("expected fresh plan metadata, got %#v", planPayload)
+	}
+	payload := lastEventPayload(t, detail, "report.artifact.created")
+	if payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" ||
+		payload["pre_report_research_session_id"] != "research-session-1" ||
+		payload["report_plan_session_id"] != "report-plan-session-1" ||
+		payload["report_session_id"] != "report-plan-session-1" ||
+		payload["fork_source_agent_session_id"] != "" ||
+		payload["post_report_research_session_id"] != "" ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected fresh report chain metadata, got %#v", payload)
+	}
+	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "research-session-1" {
+		t.Fatalf("expected fresh planned report to preserve ordinary research session, got %q", got)
+	}
+}
+
+func TestReportDraftExplicitSameSessionResumesPriorResearchSession(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	agent := &fakeAgentExecutor{responses: []AgentResult{
+		{Text: "mission answer", SessionID: "research-session-1"},
+		{Text: agentReportPlanJSON(agentReportPlan{
+			Summary: "Resume the existing research session for an explicit report.",
+			Sections: []agentReportSection{{
+				Title:   "Mission summary",
+				Purpose: "Summarize the mission from the existing session.",
+			}},
+		}), SessionID: "research-session-1", Resumed: true},
+		{Text: "# Same-session report\n\nA report generated from the existing session.", SessionID: "research-session-1", Resumed: true},
+	}}
+	handler := NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
+		"title":     "Explicit same-session report test",
+		"objective": "Check report session policy override",
+	})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
+		"text": "Prepare report context in the ordinary research session.",
+	})
+	waitForEventType(t, server.URL, missionID, "turn.agent.response")
+
+	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title":                 "Same-session report",
+		"report_mode":           "planned",
+		"report_session_policy": reportSessionPolicySameSession,
+	})
+	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicySameSession {
+		t.Fatalf("expected explicit same-session policy in pending event, got %q", policy)
+	}
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportexecution.SessionPolicySelectionExplicitSameSession {
+		t.Fatalf("expected explicit same-session selection in pending event, got %q", selection)
+	}
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if len(agent.requests) != 3 ||
+		agent.requests[1].PreviousSessionID != "research-session-1" ||
+		agent.requests[2].PreviousSessionID != "research-session-1" {
+		t.Fatalf("expected explicit same-session plan/body to resume prior research session, got %#v", agent.requests)
+	}
+	if agent.requests[1].ReportPlan == nil || agent.requests[1].ReportPlan.PreviousProviderSessionID != "research-session-1" {
+		t.Fatalf("expected planning MCP context to bind prior research session, got %#v", agent.requests[1].ReportPlan)
+	}
+	planPayload := lastEventPayload(t, detail, "report.plan.created")
+	if planPayload["report_session_policy"] != reportSessionPolicySameSession ||
+		planPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitSameSession ||
+		planPayload["previous_agent_session_id"] != "research-session-1" ||
+		planPayload["pre_report_research_session_id"] != "research-session-1" ||
+		planPayload["report_plan_session_id"] != "research-session-1" ||
+		planPayload["session_chain_kind"] != "same_session_report" {
+		t.Fatalf("expected explicit same-session plan metadata, got %#v", planPayload)
+	}
+	payload := lastEventPayload(t, detail, "report.artifact.created")
+	if payload["report_session_policy"] != reportSessionPolicySameSession ||
+		payload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitSameSession ||
+		payload["pre_report_research_session_id"] != "research-session-1" ||
+		payload["report_plan_session_id"] != "research-session-1" ||
+		payload["report_session_id"] != "research-session-1" ||
+		payload["session_chain_kind"] != "same_session_report" {
+		t.Fatalf("expected explicit same-session report metadata, got %#v", payload)
+	}
+	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "research-session-1" {
+		t.Fatalf("expected explicit same-session report to preserve ordinary research session, got %q", got)
+	}
+}
+
+func TestReportDraftExplicitIsolatedForkUsesForkedReportSession(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	agent := &fakeForkingAgentExecutor{
+		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
+			{Text: "mission answer", SessionID: "research-session-1"},
+			{Text: agentReportPlanJSON(agentReportPlan{
+				Summary: "Use an explicitly isolated report session.",
 				Sections: []agentReportSection{{
 					Title:   "Mission summary",
 					Purpose: "Summarize the mission.",
@@ -3099,8 +3298,8 @@ func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
-		"title":     "Isolated report test",
-		"objective": "Check report session isolation",
+		"title":     "Explicit isolated report test",
+		"objective": "Check explicit report session isolation",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
@@ -3109,46 +3308,41 @@ func TestReportDraftDefaultUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":       "Isolated report",
-		"report_mode": "planned",
+		"title":                 "Isolated report",
+		"report_mode":           "planned",
+		"report_session_policy": reportSessionPolicyIsolatedFork,
 	})
 	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyIsolatedFork {
 		t.Fatalf("expected isolated fork report policy in pending event, got %q", policy)
 	}
-	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected automatic isolated fork selection in pending event, got %q", selection)
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportexecution.SessionPolicySelectionExplicitIsolatedFork {
+		t.Fatalf("expected explicit isolated fork selection in pending event, got %q", selection)
 	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if len(agent.forkSources) != 1 || agent.forkSources[0] != "research-session-1" {
 		t.Fatalf("expected one fork from research session, got %#v", agent.forkSources)
 	}
-	if len(agent.requests) != 3 {
-		t.Fatalf("expected answer turn, plan request, and planned report request, got %d", len(agent.requests))
+	if len(agent.requests) != 3 ||
+		agent.requests[1].PreviousSessionID != "report-fork-1" ||
+		agent.requests[2].PreviousSessionID != "report-fork-1" {
+		t.Fatalf("expected explicit isolated report to resume forked session, got %#v", agent.requests)
 	}
-	if got := agent.requests[1].PreviousSessionID; got != "report-fork-1" {
-		t.Fatalf("expected report plan to resume forked session, got %q", got)
-	}
-	if got := agent.requests[2].PreviousSessionID; got != "report-fork-1" {
-		t.Fatalf("expected report body to resume forked session, got %q", got)
-	}
-
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_session_policy"] != reportSessionPolicyIsolatedFork ||
+		payload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitIsolatedFork ||
 		payload["session_chain_kind"] != "isolated_fork_report" ||
 		payload["pre_report_research_session_id"] != "research-session-1" ||
 		payload["report_plan_session_id"] != "report-fork-1" ||
 		payload["report_session_id"] != "report-fork-1" ||
-		payload["fork_source_agent_session_id"] != "research-session-1" ||
-		payload["post_report_research_session_id"] != "" ||
-		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected isolated report chain metadata, got %#v", payload)
+		payload["fork_source_agent_session_id"] != "research-session-1" {
+		t.Fatalf("expected explicit isolated report metadata, got %#v", payload)
 	}
 	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "research-session-1" {
 		t.Fatalf("expected isolated report not to replace research session, got %q", got)
 	}
 }
 
-func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
+func TestReportDraftLongFormUsesFreshReportSessionWhenForkIsAvailable(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -3161,19 +3355,19 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 		fakeAgentExecutor: fakeAgentExecutor{rejectDeadline: true, responses: []AgentResult{
 			{Text: "mission answer", SessionID: "research-session-1"},
 			{Text: agentReportAnyJSON(agentSectionalReportPlan{
-				Summary: "Use an isolated session for the long-form report.",
+				Summary: "Use a fresh session for the long-form report plan.",
 				Parts: []agentReportPart{{
 					Title:   "Core Part",
 					Purpose: "Write one preserved section.",
 					Sections: []agentReportSection{{
 						Title:   "Core Section",
-						Purpose: "Draft the section in the report fork.",
+						Purpose: "Draft the section from the plan session.",
 					}},
 				}},
-			}), SessionID: "report-fork-1", Resumed: true},
-			{Text: "Forked long-form section body.", SessionID: "report-fork-1", Resumed: true},
-			{Text: `{"intro":"Forked part intro.","transitions":[],"closing":"Forked part closing."}`, SessionID: "report-fork-1", Resumed: true},
-			{Text: `{"front_matter":"# Forked Long Report\n\nForked opening.","closing":"Forked final closing."}`, SessionID: "report-fork-1", Resumed: true},
+			}), SessionID: "report-plan-session-1"},
+			{Text: "Fresh long-form section body.", SessionID: "report-plan-session-1", Resumed: true},
+			{Text: `{"intro":"Fresh part intro.","transitions":[],"closing":"Fresh part closing."}`, SessionID: "report-plan-session-1", Resumed: true},
+			{Text: `{"front_matter":"# Fresh Long Report\n\nFresh opening.","closing":"Fresh final closing."}`, SessionID: "report-plan-session-1", Resumed: true},
 		}},
 		forkSessionID: "report-fork-1",
 	}
@@ -3183,8 +3377,8 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	defer server.Close()
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
-		"title":     "Long-form isolated report test",
-		"objective": "Check long-form report session isolation",
+		"title":     "Long-form fresh report test",
+		"objective": "Check automatic fresh long-form planning",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{
@@ -3193,45 +3387,60 @@ func TestReportDraftLongFormUsesForkedReportSessionWhenAvailable(t *testing.T) {
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
 	response := postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                       "Forked Long Report",
+		"title":                       "Fresh Long Report",
 		"report_mode":                 "long_form",
 		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
-	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyIsolatedFork {
-		t.Fatalf("expected isolated fork policy for long-form pending event, got %q", policy)
+	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyFreshSession {
+		t.Fatalf("expected fresh policy for long-form pending event, got %q", policy)
 	}
-	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected automatic isolated fork selection for long-form pending event, got %q", selection)
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh selection for long-form pending event, got %q", selection)
 	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
-	if len(agent.forkSources) != 1 || agent.forkSources[0] != "research-session-1" {
-		t.Fatalf("expected one fork from research session, got %#v", agent.forkSources)
+	if len(agent.forkSources) != 0 {
+		t.Fatalf("automatic fresh serial long-form report must not fork, got %#v", agent.forkSources)
 	}
 	if len(agent.requests) != 6 {
 		t.Fatalf("expected answer, plan, requirements, section, part, and frame requests, got %d", len(agent.requests))
 	}
-	for index := 1; index < len(agent.requests); index++ {
-		if got := agent.requests[index].PreviousSessionID; got != "report-fork-1" {
-			t.Fatalf("expected long-form report request %d to resume forked session, got %q", index, got)
+	if got := agent.requests[1].PreviousSessionID; got != "" {
+		t.Fatalf("expected long-form plan to start fresh, got %q", got)
+	}
+	if agent.requests[1].ReportPlan == nil || agent.requests[1].ReportPlan.PreviousProviderSessionID != "" {
+		t.Fatalf("expected long-form plan MCP context to bind no previous session, got %#v", agent.requests[1].ReportPlan)
+	}
+	for index := 2; index < len(agent.requests); index++ {
+		if got := agent.requests[index].PreviousSessionID; got != "report-plan-session-1" {
+			t.Fatalf("expected long-form report request %d to resume returned plan session, got %q", index, got)
 		}
+	}
+	planPayload := lastEventPayload(t, detail, "report.plan.created")
+	if planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "research-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["session_chain_kind"] != "fresh_session_report" ||
+		planPayload["fork_source_agent_session_id"] != "" ||
+		planPayload["agent_resumed"] == true {
+		t.Fatalf("expected fresh long-form plan metadata, got %#v", planPayload)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModeLongForm ||
-		payload["report_session_policy"] != reportSessionPolicyIsolatedFork ||
-		payload["session_chain_kind"] != "isolated_fork_report" ||
+		payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" ||
 		payload["pre_report_research_session_id"] != "research-session-1" ||
-		payload["report_plan_session_id"] != "report-fork-1" ||
-		payload["report_session_id"] != "report-fork-1" ||
-		payload["fork_source_agent_session_id"] != "research-session-1" ||
-		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected isolated long-form report chain metadata, got %#v", payload)
+		payload["report_plan_session_id"] != "report-plan-session-1" ||
+		payload["report_session_id"] != "report-plan-session-1" ||
+		payload["fork_source_agent_session_id"] != "" ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected fresh long-form report chain metadata, got %#v", payload)
 	}
 	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "research-session-1" {
-		t.Fatalf("expected isolated long-form report not to replace research session, got %q", got)
+		t.Fatalf("expected fresh long-form report to preserve ordinary research session, got %q", got)
 	}
 }
 
-func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
+func TestReportDraftLongFormSectionFanoutUsesFreshPlanAndForkedStageSessions(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -3253,7 +3462,7 @@ func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
 						Purpose: "Draft the independent section.",
 					}},
 				}},
-			}), SessionID: "report-fork-1", Resumed: true},
+			}), SessionID: "report-plan-session-1"},
 			{Text: "Fanout section body.", SessionID: "report-fork-1", Resumed: true},
 			{Text: `{"intro":"Fanout part intro.","transitions":[],"closing":"Fanout part closing."}`, SessionID: "report-fork-1", Resumed: true},
 			{Text: `{"front_matter":"# Fanout Long Report\n\nFanout opening.","closing":"Fanout final closing."}`, SessionID: "report-fork-1", Resumed: true},
@@ -3293,17 +3502,41 @@ func TestReportDraftLongFormSectionFanoutUsesForkedStageSessions(t *testing.T) {
 		t.Fatalf("expected dedicated requirement mapper request, got %#v", agent.requests[2])
 	}
 	assertReportMCPToolSurface(t, agent.requests[2], plasmamcp.ToolReportRequirementsSubmit)
-	for index := 1; index < len(agent.requests); index++ {
+	if agent.requests[1].PreviousSessionID != "" {
+		t.Fatalf("expected fanout plan to start fresh, got %q", agent.requests[1].PreviousSessionID)
+	}
+	if agent.requests[1].ReportPlan == nil || agent.requests[1].ReportPlan.PreviousProviderSessionID != "" {
+		t.Fatalf("expected fanout plan MCP context to bind no previous session, got %#v", agent.requests[1].ReportPlan)
+	}
+	if agent.requests[2].PreviousSessionID != "report-plan-session-1" {
+		t.Fatalf("expected requirement mapper to resume returned plan session, got %q", agent.requests[2].PreviousSessionID)
+	}
+	for index := 3; index < len(agent.requests); index++ {
 		if got := agent.requests[index].PreviousSessionID; got != "report-fork-1" {
-			t.Fatalf("expected fanout report request %d to resume a forked session, got %q", index, got)
+			t.Fatalf("expected fanout downstream request %d to resume a forked stage session, got %q", index, got)
 		}
 	}
-	if len(agent.forkSources) != 4 || agent.forkSources[0] != "research-session-1" || agent.forkSources[1] != "report-fork-1" || agent.forkSources[2] != "report-fork-1" || agent.forkSources[3] != "report-fork-1" {
-		t.Fatalf("expected report, section, part, and final forks, got %#v", agent.forkSources)
+	if len(agent.forkSources) != 3 || agent.forkSources[0] != "report-plan-session-1" || agent.forkSources[1] != "report-plan-session-1" || agent.forkSources[2] != "report-plan-session-1" {
+		t.Fatalf("expected section, part, and final forks from plan session, got %#v", agent.forkSources)
+	}
+	planPayload := lastEventPayload(t, detail, "report.plan.created")
+	if planPayload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		planPayload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "research-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["session_chain_kind"] != "section_fanout_report" ||
+		planPayload["fork_source_agent_session_id"] != "" ||
+		planPayload["agent_resumed"] == true {
+		t.Fatalf("expected fresh section-fanout plan metadata, got %#v", planPayload)
 	}
 	payload := lastEventPayload(t, detail, "report.artifact.created")
 	if payload["report_mode"] != reportModeLongForm ||
+		payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
 		payload["session_chain_kind"] != "section_fanout_report" ||
+		payload["pre_report_research_session_id"] != "research-session-1" ||
+		payload["report_plan_session_id"] != "report-plan-session-1" ||
 		payload["composition_strategy"] != "sectional_preserve_markdown" ||
 		payload["assembly_strategy"] != "c4_normalized_section_headings" {
 		t.Fatalf("expected section fanout long-form metadata, got %#v", payload)
@@ -3426,6 +3659,78 @@ func TestReportPatchUsesPreviousReportSessionNotLatestConversationSession(t *tes
 		patchReq.ReportPatch.ReportSessionID != "report-patch-fork" ||
 		patchReq.ReportPatch.PendingEventID == "" {
 		t.Fatalf("expected bound report patch MCP context, got %#v", patchReq.ReportPatch)
+	}
+}
+
+func TestReportPatchExplicitFreshSessionRejectedBeforeProviderWork(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	svc := app.NewService(store)
+	agent := &fakeForkingAgentExecutor{forkSessionID: "report-patch-fork"}
+	handler := NewServer(svc, Options{AgentExecutor: agent})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
+		"title":     "Patch fresh policy rejection",
+		"objective": "Reject auto-only patch policy before provider work",
+	})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_patch_fresh_reject_base",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "base-report.md",
+		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.created", map[string]any{
+		"kind":              "markdown_report_artifact",
+		"title":             "Base Report",
+		"artifact_id":       reportArtifact.ArtifactID,
+		"media_type":        reportArtifact.MediaType,
+		"agent_executor":    "codex",
+		"agent_session_id":  "report-session-1",
+		"report_session_id": "report-session-1",
+	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/reports/patch", map[string]any{
+		"base_artifact_id":      reportArtifact.ArtifactID,
+		"instruction":           "Make the report clearer.",
+		"report_session_policy": reportSessionPolicyFreshSession,
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected invalid input for explicit fresh patch policy, got %d %#v", status, body)
+	}
+	if message := nestedString(t, body, "error", "message"); !strings.Contains(message, "automatic-only") {
+		t.Fatalf("expected automatic-only policy message, got %q", message)
+	}
+	if len(agent.requests) != 0 || len(agent.forkSources) != 0 {
+		t.Fatalf("fresh patch policy must not call provider or fork: requests=%#v forks=%#v", agent.requests, agent.forkSources)
+	}
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchPendingCount := 0
+	for _, event := range events {
+		if event.EventType == "report.patch.pending" {
+			patchPendingCount++
+		}
+	}
+	if patchPendingCount != 0 {
+		t.Fatalf("fresh patch policy must not append patch pending, got %#v", events)
 	}
 }
 
@@ -4128,6 +4433,40 @@ func TestReportDraftRejectsUnavailableIsolatedForkPolicy(t *testing.T) {
 	}
 }
 
+func TestReportDraftRejectsExplicitFreshSessionPolicy(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	agent := &fakeAgentExecutor{}
+	server := httptest.NewServer(NewServer(app.NewService(store), Options{AgentExecutor: agent}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{
+		"title":     "Report fresh policy test",
+		"objective": "Check explicit fresh report policy rejection",
+	})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+
+	status, body := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
+		"title":                 "Fresh report",
+		"report_mode":           "planned",
+		"report_session_policy": reportSessionPolicyFreshSession,
+	})
+	if status != http.StatusBadRequest {
+		t.Fatalf("expected explicit fresh policy to return 400, got %d %#v", status, body)
+	}
+	if !strings.Contains(nestedString(t, body, "error", "message"), "automatic only") {
+		t.Fatalf("expected automatic-only error message, got %#v", body)
+	}
+	if len(agent.requests) != 0 {
+		t.Fatalf("explicit fresh preflight must not start an agent request, got %#v", agent.requests)
+	}
+}
+
 func TestReportDraftRejectsExplicitIsolatedForkWithoutResearchSession(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -4196,6 +4535,24 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 		t.Fatalf("expected recovered report generation metadata, got %#v", req)
 	}
 
+	freshPayload, err := json.Marshal(map[string]any{
+		"title":                           "Recover fresh report",
+		"report_mode":                     "planned",
+		"report_session_policy":           reportSessionPolicyFreshSession,
+		"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	freshReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: freshPayload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freshReq.ReportSessionPolicy != reportSessionPolicyFreshSession ||
+		freshReq.ReportSessionPolicySelection != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected recovered fresh session policy metadata, got %#v", freshReq)
+	}
+
 	legacyPayload, err := json.Marshal(map[string]any{
 		"title":       "Recover pre-profile report",
 		"report_mode": reportModeLongForm,
@@ -4209,6 +4566,9 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	}
 	if legacyReq.GenerationGuidanceProfile != reportprompt.ProfileVisualPlan {
 		t.Fatalf("pre-profile pending report must recover through legacy preserve path, got %#v", legacyReq)
+	}
+	if legacyReq.ReportSessionPolicy != reportSessionPolicySameSession {
+		t.Fatalf("legacy missing report session policy must recover as same-session, got %#v", legacyReq)
 	}
 	if legacyReq.RigorLevel != legacyPendingReportRigorLevel {
 		t.Fatalf("pre-rigor pending report must recover through legacy balanced rigor, got %#v", legacyReq)
@@ -4279,11 +4639,11 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 	if mode := nestedString(t, response, "pending_event", "Payload", "report_mode"); mode != reportModeLongForm {
 		t.Fatalf("expected long-form report mode in pending event, got %q", mode)
 	}
-	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicySameSession {
-		t.Fatalf("expected non-forking long-form report to use same session, got %q", policy)
+	if policy := nestedString(t, response, "pending_event", "Payload", "report_session_policy"); policy != reportSessionPolicyFreshSession {
+		t.Fatalf("expected non-forking long-form report to use fresh session, got %q", policy)
 	}
-	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoSameSessionNoForker {
-		t.Fatalf("expected non-forking long-form selection, got %q", selection)
+	if selection := nestedString(t, response, "pending_event", "Payload", "report_session_policy_selection"); selection != reportSessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh long-form selection, got %q", selection)
 	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
 	if countEvents(detail, "report.plan.created") != 1 || countEvents(detail, "report.section.created") != 2 || countEvents(detail, "report.part.created") != 1 {
@@ -4337,10 +4697,10 @@ func TestReportDraftLongFormCreatesSectionalPreservedMarkdownArtifact(t *testing
 		payload["assembly_strategy"] != "c4_normalized_section_headings" {
 		t.Fatalf("expected sectional long-form payload, got %#v", payload)
 	}
-	if payload["report_session_policy"] != reportSessionPolicySameSession ||
-		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoSameSessionNoForker ||
-		payload["session_chain_kind"] != "same_session_report" {
-		t.Fatalf("expected same-session long-form report metadata, got %#v", payload)
+	if payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" {
+		t.Fatalf("expected fresh long-form report metadata, got %#v", payload)
 	}
 	if payload["returned_agent_session_id"] != "" || payload["agent_usage"] != nil {
 		t.Fatalf("canonical must contain only bound session provenance: %#v", payload)
@@ -5711,6 +6071,16 @@ func TestCancelReportDraftEndpointClosesHumanizePending(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_report",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "report.md",
+		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Content:    []byte("# Canceled report\n\nOriginal report.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.created", map[string]any{
 		"kind":             "markdown_report_artifact",
 		"pending_event_id": reportPending.EventID,
@@ -5946,6 +6316,491 @@ func TestReportDraftStalePendingKeepsFrozenSelection(t *testing.T) {
 	}
 }
 
+func TestReportDraftStaleLegacyPendingWithResearchSessionUsesSameSessionLineage(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	agent := &fakeAgentExecutor{responses: []AgentResult{
+		{Text: agentReportPlanJSON(agentReportPlan{
+			Summary: "Recover a legacy same-session pending report.",
+			Sections: []agentReportSection{{
+				Title:   "Recovered section",
+				Purpose: "Write from the existing research session.",
+			}},
+		}), SessionID: "research-session-1", Resumed: true},
+		{Text: "# Legacy recovered report\n\nRecovered from the prior research session.", SessionID: "research-session-1", Resumed: true},
+	}}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Legacy pending recovery"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	appendLegacyCodexSession(t, ctx, svc, missionID, "research-session-1")
+	appendStaleReportPending(t, ctx, svc, missionID, "evt_legacy_no_policy_pending")
+
+	getJSON(t, server.URL+"/api/missions/"+missionID)
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if len(agent.requests) != 2 ||
+		agent.requests[0].PreviousSessionID != "research-session-1" ||
+		agent.requests[1].PreviousSessionID != "research-session-1" {
+		t.Fatalf("expected legacy recovered plan/body to resume prior research session, got %#v", agent.requests)
+	}
+	if agent.requests[0].ReportPlan == nil || agent.requests[0].ReportPlan.PreviousProviderSessionID != "research-session-1" {
+		t.Fatalf("expected recovered planning MCP context to bind prior research session, got %#v", agent.requests[0].ReportPlan)
+	}
+	for _, eventType := range []string{"report.plan.created", "report.artifact.created"} {
+		payload := lastEventPayload(t, detail, eventType)
+		if payload["report_session_policy"] != reportSessionPolicySameSession ||
+			payload["session_chain_kind"] != "same_session_report" ||
+			payload["pre_report_research_session_id"] != "research-session-1" ||
+			payload["report_plan_session_id"] != "research-session-1" ||
+			payload["fork_source_agent_session_id"] != "" {
+			t.Fatalf("expected %s to store legacy same-session lineage, got %#v", eventType, payload)
+		}
+	}
+}
+
+func TestReportDraftRecoveryResumesFreshPlannedPendingFromStoredPlanSession(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	agent := &fakeAgentExecutor{responses: []AgentResult{
+		{Text: "# Recovered planned report\n\nRecovered from the stored plan session.", SessionID: "fresh-plan-session", Resumed: true},
+	}}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Fresh planned recovery"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	appendLegacyCodexSession(t, ctx, svc, missionID, "research-session-1")
+	pendingID := "evt_fresh_planned_recovery_pending"
+	planEventID := "evt_fresh_planned_recovery_plan"
+	finalArtifactID := "art_fresh_planned_recovery_final"
+	plan := agentReportPlan{
+		Summary: "Recover a planned report from a stored fresh plan session.",
+		Sections: []agentReportSection{{
+			Title:   "Recovered section",
+			Purpose: "Write the final report from the stored plan.",
+		}},
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   pendingID,
+		MissionID: missionID,
+		EventType: "report.draft.pending",
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Payload: mustJSON(map[string]any{
+			"kind":                            "markdown_report_artifact_pending",
+			"title":                           "Recovered planned report",
+			"agent_executor":                  "codex",
+			"mcp_mode":                        "auto",
+			"rigor_level":                     "balanced",
+			"report_mode":                     reportModePlanned,
+			"report_session_policy":           reportSessionPolicyFreshSession,
+			"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+			"post_report_humanize":            "disabled",
+			"generation_guidance_profile":     reportprompt.ProfileVisualPlan,
+			"text":                            "리포트 초안 생성 중입니다.",
+			"started_at":                      time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
+		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
+			EventID:                      planEventID,
+			MissionID:                    missionID,
+			PendingEventID:               pendingID,
+			Title:                        "Recovered planned report",
+			AgentExecutor:                "codex",
+			AgentSessionID:               "fresh-plan-session",
+			PreviousAgentSessionID:       "",
+			ReturnedAgentSessionID:       "fresh-plan-session",
+			ToolSessionID:                "ses_stored_planned_plan",
+			MCPMode:                      "auto",
+			RigorLevel:                   "balanced",
+			RigorLabel:                   "Balanced",
+			ReportMode:                   reportModePlanned,
+			ReportModeLabel:              reportModeLabelPlan,
+			ReportSessionPolicy:          reportSessionPolicyFreshSession,
+			ReportSessionPolicySelection: reportSessionPolicySelectionAutoFreshSession,
+			PostReportHumanize:           "disabled",
+			HumanizeEnabled:              false,
+			GenerationGuidanceProfile:    reportprompt.ProfileVisualPlan,
+			SessionChainKind:             "fresh_session_report",
+			PreReportResearchSessionID:   "research-session-1",
+			ReportPlanSessionID:          "fresh-plan-session",
+			ReportSessionID:              "",
+			ForkSourceAgentSessionID:     "",
+			PostReportResearchSessionID:  "",
+			CompositionStrategy:          "planned_markdown",
+			Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
+			Producer:                     app.Producer{Type: "agent_session", ID: "fresh-plan-session"},
+		},
+		ArtifactID:         finalArtifactID,
+		Plan:               plan,
+		PlanReviewRequired: false,
+		PlanReviewState:    "auto_accepted",
+	})); err != nil {
+		t.Fatal(err)
+	}
+
+	getJSON(t, server.URL+"/api/missions/"+missionID)
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if countEvents(detail, "report.plan.created") != 1 {
+		t.Fatalf("fresh planned recovery must reuse stored plan instead of replanning, got %#v", detail["events"])
+	}
+	if len(agent.requests) != 1 || agent.requests[0].ReportPlan != nil || agent.requests[0].PreviousSessionID != "fresh-plan-session" {
+		t.Fatalf("expected writer-only recovery from stored plan session, got %#v", agent.requests)
+	}
+	payload := lastEventPayload(t, detail, "report.artifact.created")
+	if payload["artifact_id"] != finalArtifactID ||
+		payload["plan_event_id"] != planEventID ||
+		payload["plan_tool_session_id"] != "ses_stored_planned_plan" ||
+		payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" ||
+		payload["pre_report_research_session_id"] != "research-session-1" ||
+		payload["report_plan_session_id"] != "fresh-plan-session" ||
+		payload["report_session_id"] != "fresh-plan-session" ||
+		payload["fork_source_agent_session_id"] != "" {
+		t.Fatalf("expected recovered fresh planned lineage metadata, got %#v", payload)
+	}
+}
+
+func TestLoadPlannedReportProgressRejectsConflictingCanonicalState(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	handler := NewServer(svc, Options{})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned recovery conflict"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	pendingID := "evt_planned_conflict_pending"
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   pendingID,
+		MissionID: missionID,
+		EventType: "report.draft.pending",
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Payload: mustJSON(map[string]any{
+			"kind":           "markdown_report_artifact_pending",
+			"title":          "Conflict",
+			"agent_executor": "codex",
+			"report_mode":    reportModePlanned,
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	appendStoredPlannedRecoveryPlan(t, ctx, svc, missionID, pendingID, "evt_planned_conflict_one", "art_planned_conflict_one", "session-one", "ses_plan_one", agentReportPlan{Summary: "One"})
+	appendStoredPlannedRecoveryPlan(t, ctx, svc, missionID, pendingID, "evt_planned_conflict_two", "art_planned_conflict_two", "session-two", "ses_plan_two", agentReportPlan{Summary: "Two"})
+
+	if _, err := webServer.loadPlannedReportProgress(ctx, missionID, pendingID); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("expected duplicate planned recovery plan conflict, got %v", err)
+	}
+}
+
+func TestLoadPlannedReportProgressRejectsMalformedCanonicalPlan(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	handler := NewServer(svc, Options{})
+	webServer := handler.(*Server)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned recovery malformed"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	pendingID := "evt_planned_malformed_pending"
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   pendingID,
+		MissionID: missionID,
+		EventType: "report.draft.pending",
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Payload: mustJSON(map[string]any{
+			"kind":           "markdown_report_artifact_pending",
+			"title":          "Malformed",
+			"agent_executor": "codex",
+			"report_mode":    reportModePlanned,
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   "evt_planned_malformed_plan",
+		MissionID: missionID,
+		EventType: "report.plan.created",
+		Producer:  app.Producer{Type: "agent_session", ID: "session-one"},
+		Payload: mustJSON(map[string]any{
+			"kind":                            "markdown_report_plan",
+			"pending_event_id":                pendingID,
+			"artifact_id":                     "art_planned_malformed",
+			"agent_executor":                  "codex",
+			"agent_session_id":                "session-one",
+			"tool_session_id":                 "ses_plan_one",
+			"report_mode":                     reportModePlanned,
+			"report_session_policy":           reportSessionPolicyFreshSession,
+			"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+			"session_chain_kind":              "fresh_session_report",
+			"report_plan_session_id":          "session-one",
+			"plan":                            "not a report plan object",
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := webServer.loadPlannedReportProgress(ctx, missionID, pendingID); !errors.Is(err, app.ErrConflict) {
+		t.Fatalf("expected malformed planned recovery plan conflict, got %v", err)
+	}
+}
+
+func TestReportDraftRecoveryRejectsContradictoryPlannedLineageBeforeProviderWork(t *testing.T) {
+	tests := []struct {
+		name      string
+		overrides map[string]any
+	}{
+		{
+			name: "conflicting plan and agent session ids",
+			overrides: map[string]any{
+				"agent_session_id":       "other-plan-session",
+				"report_plan_session_id": "stored-plan-session",
+			},
+		},
+		{
+			name: "fresh policy selection mismatch",
+			overrides: map[string]any{
+				"report_session_policy":           reportSessionPolicyFreshSession,
+				"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
+			},
+		},
+		{
+			name: "isolated fork lineage mismatch",
+			overrides: map[string]any{
+				"previous_agent_session_id":       "stored-plan-session",
+				"report_session_policy":           reportSessionPolicyIsolatedFork,
+				"report_session_policy_selection": reportSessionPolicySelectionAutoIsolatedFork,
+				"session_chain_kind":              "isolated_fork_report",
+				"pre_report_research_session_id":  "research-session-1",
+				"fork_source_agent_session_id":    "other-research-session",
+			},
+		},
+		{
+			name: "same session pre-report mismatch",
+			overrides: map[string]any{
+				"previous_agent_session_id":       "stored-plan-session",
+				"report_session_policy":           reportSessionPolicySameSession,
+				"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
+				"session_chain_kind":              "same_session_report",
+				"pre_report_research_session_id":  "other-research-session",
+			},
+		},
+		{
+			name: "no pre-report selection with stored session",
+			overrides: map[string]any{
+				"previous_agent_session_id":       "stored-plan-session",
+				"report_session_policy":           reportSessionPolicySameSession,
+				"report_session_policy_selection": reportexecution.SessionPolicySelectionAutoSameSessionNoSession,
+				"session_chain_kind":              "same_session_report",
+				"pre_report_research_session_id":  "",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			svc := app.NewService(store)
+			agent := &fakeAgentExecutor{}
+			server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
+			defer server.Close()
+			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned lineage conflict"})
+			missionID := nestedString(t, mission, "projection", "mission_id")
+			pendingID := "evt_planned_lineage_conflict_pending"
+			if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+				EventID:   pendingID,
+				MissionID: missionID,
+				EventType: "report.draft.pending",
+				Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+				Payload: mustJSON(map[string]any{
+					"kind":           "markdown_report_artifact_pending",
+					"title":          "Lineage conflict",
+					"agent_executor": "codex",
+					"mcp_mode":       "auto",
+					"report_mode":    reportModePlanned,
+					"text":           "리포트 초안 생성 중입니다.",
+					"started_at":     time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+				}),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			appendStoredPlannedRecoveryPlanPayload(t, ctx, svc, missionID, pendingID, "evt_planned_lineage_conflict_plan", tt.overrides)
+
+			getJSON(t, server.URL+"/api/missions/"+missionID)
+			detail := waitForEventType(t, server.URL, missionID, "report.draft.failed")
+			if countEvents(detail, "report.draft.failed") != 1 {
+				t.Fatalf("expected contradictory planned lineage to fail recovery, got %#v", detail["events"])
+			}
+			if len(agent.requests) != 0 {
+				t.Fatalf("contradictory planned lineage must fail before provider calls, got %#v", agent.requests)
+			}
+			if countEvents(detail, "report.artifact.created") != 0 {
+				t.Fatalf("contradictory planned lineage must not create a report artifact, got %#v", detail["events"])
+			}
+		})
+	}
+}
+
+func TestValidatePlannedReportRecoveryLineageDefaultsChainForPolicy(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload plannedReportPlanPayload
+		want    string
+	}{
+		{name: "fresh", payload: plannedReportPlanPayload{ReportSessionPolicy: reportSessionPolicyFreshSession}, want: "fresh_session_report"},
+		{name: "same session", payload: plannedReportPlanPayload{ReportSessionPolicy: reportSessionPolicySameSession, PreviousAgentSessionID: "plan-session"}, want: "same_session_report"},
+		{name: "isolated fork", payload: plannedReportPlanPayload{ReportSessionPolicy: reportSessionPolicyIsolatedFork, PreviousAgentSessionID: "plan-session", PreReportResearchSessionID: "research-session", ForkSourceSessionID: "research-session"}, want: "isolated_fork_report"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lineage, err := validatePlannedReportRecoveryLineage(tt.payload, "plan-session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lineage.sessionChainKind != tt.want {
+				t.Fatalf("session chain kind=%q, want %q", lineage.sessionChainKind, tt.want)
+			}
+		})
+	}
+}
+
+func TestReportDraftRecoveryResumesFreshLongFormPendingFromStoredPlanSession(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := app.NewService(store)
+	plan := agentSectionalReportPlan{
+		Summary: "Recover a fresh-session report plan.",
+		Parts: []agentReportPart{{
+			Title:   "Recovered Part",
+			Purpose: "Show downstream recovery from the stored plan session.",
+			Sections: []agentReportSection{{
+				Title:   "Recovered Section",
+				Purpose: "Write the missing section.",
+			}},
+		}},
+	}
+	agent := &fakeAgentExecutor{responses: []AgentResult{
+		{Text: "Recovered fresh section body.", SessionID: "fresh-plan-session", Resumed: true},
+		{Text: `{"intro":"Recovered part intro.","transitions":[],"closing":"Recovered part closing."}`, SessionID: "fresh-plan-session", Resumed: true},
+		{Text: `{"front_matter":"# Recovered Fresh Report\n\nRecovered opening.","closing":"Recovered closing."}`, SessionID: "fresh-plan-session", Resumed: true},
+	}}
+	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: withReportPlanSubmissionFixture(svc, agent)}))
+	defer server.Close()
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Fresh pending recovery"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	pendingID := "evt_fresh_recovery_pending"
+	planEventID := "evt_fresh_recovery_plan"
+	finalArtifactID := "art_fresh_recovery_final"
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   pendingID,
+		MissionID: missionID,
+		EventType: "report.draft.pending",
+		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Payload: mustJSON(map[string]any{
+			"kind":                            "markdown_report_artifact_pending",
+			"title":                           "Recovered Fresh Report",
+			"agent_executor":                  "codex",
+			"mcp_mode":                        "auto",
+			"rigor_level":                     "balanced",
+			"report_mode":                     reportModeLongForm,
+			"report_session_policy":           reportSessionPolicyFreshSession,
+			"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+			"generation_guidance_profile":     reportprompt.ProfileVisualPlan,
+			"text":                            "리포트 초안 생성 중입니다.",
+			"started_at":                      time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   planEventID,
+		MissionID: missionID,
+		EventType: "report.plan.created",
+		Producer:  app.Producer{Type: "agent_session", ID: "fresh-plan-session"},
+		Payload: mustJSON(map[string]any{
+			"kind":                            "sectional_markdown_report_plan",
+			"pending_event_id":                pendingID,
+			"title":                           "Recovered Fresh Report",
+			"artifact_id":                     finalArtifactID,
+			"agent_executor":                  "codex",
+			"agent_session_id":                "fresh-plan-session",
+			"previous_agent_session_id":       "",
+			"returned_agent_session_id":       "fresh-plan-session",
+			"mcp_mode":                        "auto",
+			"report_mode":                     reportModeLongForm,
+			"report_session_policy":           reportSessionPolicyFreshSession,
+			"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+			"session_chain_kind":              "fresh_session_report",
+			"pre_report_research_session_id":  "research-session-1",
+			"report_plan_session_id":          "fresh-plan-session",
+			"fork_source_agent_session_id":    "",
+			"generation_guidance_profile":     reportprompt.ProfileVisualPlan,
+			"composition_strategy":            "sectional_preserve_markdown",
+			"assembly_strategy":               "c4_normalized_section_headings",
+			"plan":                            plan,
+			"text":                            "섹션별 장문 Markdown 리포트 생성 계획을 만들었습니다.",
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	getJSON(t, server.URL+"/api/missions/"+missionID)
+	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	if countEvents(detail, "report.plan.created") != 1 {
+		t.Fatalf("fresh recovery must reuse the stored plan instead of replanning, got %#v", detail["events"])
+	}
+	if len(agent.requests) != 4 ||
+		agent.requests[0].ReportRequirements == nil ||
+		agent.requests[0].ReportPlan != nil {
+		t.Fatalf("expected requirements, section, part, and final requests only, got %#v", agent.requests)
+	}
+	for index, req := range agent.requests {
+		if req.PreviousSessionID != "fresh-plan-session" {
+			t.Fatalf("recovered request %d did not resume stored plan session: %#v", index, req)
+		}
+	}
+	payload := lastEventPayload(t, detail, "report.artifact.created")
+	if payload["report_session_policy"] != reportSessionPolicyFreshSession ||
+		payload["report_session_policy_selection"] != reportSessionPolicySelectionAutoFreshSession ||
+		payload["session_chain_kind"] != "fresh_session_report" ||
+		payload["pre_report_research_session_id"] != "research-session-1" ||
+		payload["report_plan_session_id"] != "fresh-plan-session" ||
+		payload["report_session_id"] != "fresh-plan-session" ||
+		payload["fork_source_agent_session_id"] != "" {
+		t.Fatalf("expected recovered fresh lineage metadata, got %#v", payload)
+	}
+}
+
 func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -5970,6 +6825,16 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 		"text":           "리포트 초안 생성 중입니다.",
 	}, app.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_report",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "report.md",
+		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Content:    []byte("# Recovered report\n\nOriginal report.\n"),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.created", map[string]any{
@@ -8270,13 +9135,24 @@ func TestReportArtifactSessionContributesToLatestAgentSession(t *testing.T) {
 	}
 	defer store.Close()
 
-	handler := NewServer(app.NewService(store), Options{})
+	svc := app.NewService(store)
+	handler := NewServer(svc, Options{})
 	server := handler.(*Server)
 	mission, err := server.createMission(ctx, createMissionRequest{Title: "Report session test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	missionID := mission.Projection.MissionID
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_report_session",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "report-session.md",
+		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Content:    []byte("# Report session\n\nSession report.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := appendTestEvent(t, server, ctx, missionID, "report.artifact.created", map[string]any{
 		"kind":             "markdown_report_artifact",
 		"artifact_id":      "art_report_session",
@@ -8299,7 +9175,8 @@ func TestIsolatedReportArtifactDoesNotReplaceResearchSession(t *testing.T) {
 	}
 	defer store.Close()
 
-	handler := NewServer(app.NewService(store), Options{})
+	svc := app.NewService(store)
+	handler := NewServer(svc, Options{})
 	server := handler.(*Server)
 	mission, err := server.createMission(ctx, createMissionRequest{Title: "Report isolation session test"})
 	if err != nil {
@@ -8311,6 +9188,16 @@ func TestIsolatedReportArtifactDoesNotReplaceResearchSession(t *testing.T) {
 		"agent_executor":   "codex",
 		"agent_session_id": "research-session-1",
 	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_isolated_report_session",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "isolated-report-session.md",
+		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Content:    []byte("# Isolated report session\n\nSession report.\n"),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := appendTestEvent(t, server, ctx, missionID, "report.artifact.created", map[string]any{
@@ -10544,6 +11431,92 @@ func appendStaleReportPending(t *testing.T, ctx context.Context, svc *app.Servic
 	}
 }
 
+func appendStoredPlannedRecoveryPlan(t *testing.T, ctx context.Context, svc *app.Service, missionID string, pendingID string, eventID string, artifactID string, sessionID string, toolSessionID string, plan agentReportPlan) {
+	t.Helper()
+	if _, err := svc.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
+		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
+			EventID:                      eventID,
+			MissionID:                    missionID,
+			PendingEventID:               pendingID,
+			Title:                        "Recovered planned report",
+			AgentExecutor:                "codex",
+			AgentSessionID:               sessionID,
+			PreviousAgentSessionID:       "",
+			ReturnedAgentSessionID:       sessionID,
+			ToolSessionID:                toolSessionID,
+			MCPMode:                      "auto",
+			RigorLevel:                   "balanced",
+			RigorLabel:                   "Balanced",
+			ReportMode:                   reportModePlanned,
+			ReportModeLabel:              reportModeLabelPlan,
+			ReportSessionPolicy:          reportSessionPolicyFreshSession,
+			ReportSessionPolicySelection: reportSessionPolicySelectionAutoFreshSession,
+			PostReportHumanize:           "disabled",
+			HumanizeEnabled:              false,
+			GenerationGuidanceProfile:    reportprompt.ProfileVisualPlan,
+			SessionChainKind:             "fresh_session_report",
+			PreReportResearchSessionID:   "research-session-1",
+			ReportPlanSessionID:          sessionID,
+			ReportSessionID:              "",
+			ForkSourceAgentSessionID:     "",
+			PostReportResearchSessionID:  "",
+			CompositionStrategy:          "planned_markdown",
+			Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
+			Producer:                     app.Producer{Type: "agent_session", ID: sessionID},
+		},
+		ArtifactID:         artifactID,
+		Plan:               plan,
+		PlanReviewRequired: false,
+		PlanReviewState:    "auto_accepted",
+	})); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendStoredPlannedRecoveryPlanPayload(t *testing.T, ctx context.Context, svc *app.Service, missionID string, pendingID string, eventID string, overrides map[string]any) {
+	t.Helper()
+	payload := map[string]any{
+		"kind":                            "markdown_report_plan",
+		"pending_event_id":                pendingID,
+		"title":                           "Recovered planned report",
+		"artifact_id":                     "art_planned_lineage_conflict",
+		"agent_executor":                  "codex",
+		"agent_session_id":                "stored-plan-session",
+		"previous_agent_session_id":       "",
+		"returned_agent_session_id":       "stored-plan-session",
+		"tool_session_id":                 "ses_planned_lineage_conflict",
+		"mcp_mode":                        "auto",
+		"report_mode":                     reportModePlanned,
+		"report_session_policy":           reportSessionPolicyFreshSession,
+		"report_session_policy_selection": reportSessionPolicySelectionAutoFreshSession,
+		"session_chain_kind":              "fresh_session_report",
+		"pre_report_research_session_id":  "research-session-1",
+		"report_plan_session_id":          "stored-plan-session",
+		"fork_source_agent_session_id":    "",
+		"composition_strategy":            "planned_markdown",
+		"plan": agentReportPlan{
+			Summary: "A valid stored plan with overridden lineage metadata.",
+			Sections: []agentReportSection{{
+				Title:   "Recovered section",
+				Purpose: "Write the recovered report.",
+			}},
+		},
+		"text": "Markdown 리포트 생성 계획을 만들었습니다.",
+	}
+	for key, value := range overrides {
+		payload[key] = value
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   eventID,
+		MissionID: missionID,
+		EventType: "report.plan.created",
+		Producer:  app.Producer{Type: "agent_session", ID: "stored-plan-session"},
+		Payload:   mustJSON(payload),
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func appendStaleAgentPending(t *testing.T, ctx context.Context, svc *app.Service, missionID string, userEventID string, pendingEventID string) {
 	t.Helper()
 	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
@@ -11154,7 +12127,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		return result, err
 	}
 	markdown := result.Text
-	if strings.TrimSpace(markdown) == "" || strings.TrimSpace(markdown) == finalEditStageSubmittedSentinel || strings.TrimSpace(markdown) == finalEditGateSubmittedSentinel {
+	if strings.TrimSpace(markdown) == "" || strings.TrimSpace(markdown) == finalEditStageSubmittedText || strings.TrimSpace(markdown) == finalEditGateSubmittedText {
 		markdown = string(source.Content)
 	}
 	operationCount := 0
@@ -11190,7 +12163,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		if err != nil {
 			return result, err
 		}
-		result.Text = finalEditGateSubmittedSentinel
+		result.Text = finalEditGateSubmittedText
 		return result, nil
 	}
 	if binding.Stage == reporting.FinalEditStageStyleSemanticValidation {
@@ -11209,7 +12182,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		if err != nil {
 			return result, err
 		}
-		result.Text = finalEditStageSubmittedSentinel
+		result.Text = finalEditStageSubmittedText
 		return result, nil
 	}
 	if binding.Stage == reporting.FinalEditStageEvidenceGate {
@@ -11226,7 +12199,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 		if err != nil {
 			return result, err
 		}
-		result.Text = finalEditGateSubmittedSentinel
+		result.Text = finalEditGateSubmittedText
 		return result, nil
 	}
 	if binding.Stage == reporting.FinalEditStageStyle {
@@ -11237,7 +12210,7 @@ func (executor *reportPlanFixtureExecutor) submitFinalEditStage(ctx context.Cont
 	if err != nil {
 		return result, err
 	}
-	result.Text = finalEditStageSubmittedSentinel
+	result.Text = finalEditStageSubmittedText
 	return result, nil
 }
 

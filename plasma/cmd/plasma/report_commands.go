@@ -161,15 +161,19 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 2
 	}
-	_, canFork := executor.(agentexec.AgentSessionForker)
-	_, canCheckFork := executor.(agentexec.AgentSessionForkReadiness)
-	reportSessionPolicy, reportSessionPolicySelection, err := reportexecution.SelectSessionPolicy(reportexecution.SessionPolicySelectionInput{
-		RequestedPolicy:             cliRequestedReportSessionPolicy(*reportSessionPolicyFlag),
-		ReportMode:                  reportMode,
-		CanForkSession:              canFork,
-		HasPreReportResearchSession: strings.TrimSpace(preReportSessionID) != "",
-		ForkReady:                   canFork && canCheckFork && agentexec.AgentSessionForkReady(ctx, executor, preReportSessionID),
-	})
+	requestedReportSessionPolicy := cliRequestedReportSessionPolicy(*reportSessionPolicyFlag)
+	selectionInput := reportexecution.SessionPolicySelectionInput{
+		RequestedPolicy: requestedReportSessionPolicy,
+		ReportMode:      reportMode,
+	}
+	if requestedCanonical, normalizeErr := reportexecution.NormalizeSessionPolicy(requestedReportSessionPolicy); normalizeErr == nil && requestedCanonical == reportexecution.SessionPolicyIsolatedFork {
+		_, canFork := executor.(agentexec.AgentSessionForker)
+		_, canCheckFork := executor.(agentexec.AgentSessionForkReadiness)
+		selectionInput.CanForkSession = canFork
+		selectionInput.HasPreReportResearchSession = strings.TrimSpace(preReportSessionID) != ""
+		selectionInput.ForkReady = canFork && canCheckFork && agentexec.AgentSessionForkReady(ctx, executor, preReportSessionID)
+	}
+	reportSessionPolicy, reportSessionPolicySelection, err := reportexecution.SelectSessionPolicy(selectionInput)
 	if err != nil {
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 1

@@ -37,8 +37,14 @@ func decodeReportRedpenPayload(event LedgerEvent) (reportRedpenEventPayload, err
 	payload.SHA256 = strings.TrimSpace(payload.SHA256)
 	payload.MediaType = strings.TrimSpace(payload.MediaType)
 	payload.Filename = strings.TrimSpace(payload.Filename)
+	payload.ArtifactOwnership = strings.TrimSpace(payload.ArtifactOwnership)
 	if payload.Kind != ReportRedpenArtifactKind || payload.Revision < 1 || len(payload.SHA256) != 64 ||
 		!isMarkdownArtifactMediaType(payload.MediaType) || payload.Filename == "" {
+		return payload, fmt.Errorf("%w: invalid report redpen event payload", ErrInvalidInput)
+	}
+	if payload.ArtifactOwnership != "" &&
+		payload.ArtifactOwnership != ReportRedpenArtifactOwnershipCreated &&
+		payload.ArtifactOwnership != ReportRedpenArtifactOwnershipReferenced {
 		return payload, fmt.Errorf("%w: invalid report redpen event payload", ErrInvalidInput)
 	}
 	if err := validateID("rwc_", payload.WorkcopyID); err != nil {

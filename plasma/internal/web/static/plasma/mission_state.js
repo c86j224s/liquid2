@@ -20,6 +20,7 @@
     state.selectedProposals.clear();
     state.selectedReportKey = "";
     state.reportPreview = null;
+    state.reportDeletePreview = null;
     state.confluenceSearchResults = [];
     state.confluenceSearchContext = null;
     state.confluenceSpaces = [];

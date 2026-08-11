@@ -11,6 +11,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -23,7 +25,10 @@ func TestReportDirectionPromptAllowlist(t *testing.T) {
 	for name, prompt := range map[string]string{
 		"patch": AgentReportPatchPrompt("t", "mis_1", "ses_1", "evt_1", "art_1", "edit", reportexecution.PatchRequest{}),
 		"part":  agentPartAssemblyPrompt("t", "mis_1", "ses_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, agentReportPart{}, nil, 0, ""),
-		"final": agentLongFormFinalizePrompt("t", "mis_1", reportRigorProfiles["balanced"], agentSectionalReportPlan{}, nil, "", reporting.LongFormFinalizeBinding{ToolSessionID: "ses_1", PendingEventID: "evt_1", PlanEventID: "evt_2", IdempotencyKey: "key"}, 1, false, reporting.LongFormFinalizationHint{}),
+		"final": legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+			MissionID: "mis_1", Title: "t", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+			Plan: agentSectionalReportPlan{},
+		}, reporting.LongFormFinalizeBinding{ToolSessionID: "ses_1", PendingEventID: "evt_1", PlanEventID: "evt_2", IdempotencyKey: "key"}, 1, false, reporting.LongFormFinalizationHint{}),
 	} {
 		if strings.Contains(prompt, hint) || strings.Contains(prompt, reportexecution.DirectionAdvisory) {
 			t.Fatalf("%s leaked direction", name)
@@ -53,7 +58,10 @@ func TestLongFormDirectionPlanningAndDownstreamPromptContract(t *testing.T) {
 	}
 	partEditor := withLongFormDownstreamDirection(agentPartEditorPrompt(partEditorReq, reporting.PartEditBinding{MissionID: "mis_1", ToolSessionID: "ses_1"}, "draft_1"), hint)
 	partAuthor := withLongFormDownstreamDirection(agentPartAuthorPrompt(reportPartAuthorRequest{editor: partEditorReq, partPlanningBrief: "brief"}, reporting.PartEditBinding{MissionID: "mis_1", ToolSessionID: "ses_1"}, "draft_1"), hint)
-	final := withLongFormDownstreamDirection(agentLongFormFinalizePromptWithRequirements("Long", "mis_1", reportRigorProfiles["balanced"], plan, nil, "", reporting.LongFormFinalizeBinding{ToolSessionID: "ses_final", PendingEventID: "evt_pending", PlanEventID: "evt_plan", IdempotencyKey: "key_final"}, reporting.ReportRequirementMap{}, 1, false, reporting.LongFormFinalizationHint{}), hint)
+	final := withLongFormDownstreamDirection(legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: "mis_1", Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: plan, RequirementMap: reporting.ReportRequirementMap{},
+	}, reporting.LongFormFinalizeBinding{ToolSessionID: "ses_final", PendingEventID: "evt_pending", PlanEventID: "evt_plan", IdempotencyKey: "key_final"}, 1, false, reporting.LongFormFinalizationHint{}), hint)
 	for _, prompt := range map[string]string{"section": section, "part_planning": partPlanning, "part_assembly": partAssembly, "part_editor": partEditor, "part_author": partAuthor, "final": final} {
 		assertLongFormDownstreamDirectionPrompt(t, prompt, hint)
 		assertLongFormWritingContractPrompt(t, prompt)
@@ -107,37 +115,12 @@ func TestLongFormDirectionSerialAndFanoutCallSiteParity(t *testing.T) {
 func TestLongFormDirectionExcludedVerificationAndStylePrompts(t *testing.T) {
 	hint := "DIRECTION_SENTINEL"
 	plan := longFormDirectionTestPlan()
-	req := longFormReaderStyleGatePipelineRequest{
-		title: "Long", missionID: "mis_1", directionHint: hint, plan: plan,
-		rigor: reportRigorProfiles["balanced"],
-		planEvent: app.LedgerEvent{EventID: "evt_plan", Payload: mustJSON(map[string]any{
-			"final_edit_pipeline": reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3,
-		})},
-	}
-	binding := reporting.FinalEditStageBinding{MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_1", ProviderSessionID: "provider_1"}
-
-	for _, prompt := range map[string]string{
-		"writer":    agentLongFormWriterEditPrompt(req, binding, "draft_1", 1),
-		"reader":    agentLongFormReaderEditPrompt(req, binding, "draft_1", 1),
-		"v2_reader": agentLongFormV2ReaderEditPrompt(req, binding, "draft_1", 1),
-	} {
-		assertLongFormDownstreamDirectionPrompt(t, prompt, hint)
-		assertLongFormWritingContractPrompt(t, prompt)
-		for _, forbidden := range []string{plan.Summary, `"parts"`} {
-			if strings.Contains(prompt, forbidden) {
-				t.Fatalf("final writer/reader prompt received full plan field %q:\n%s", forbidden, prompt)
-			}
-		}
-	}
-
 	for name, prompt := range map[string]string{
-		"style":                agentLongFormStyleEditPrompt(req, binding, "draft_1", 1),
-		"style_validation":     agentLongFormStyleSemanticValidationPrompt(req, binding, "draft_1", 1),
-		"corrective_gate":      agentLongFormGatePrompt(req, binding, "draft_1", 1),
-		"semantic_gate":        agentLongFormSemanticGatePrompt(req, binding, "draft_1", 1),
-		"evidence_gate":        agentLongFormEvidenceGatePrompt(req, binding, "draft_1", 1),
-		"patch":                AgentReportPatchPrompt("Long", "mis_1", "ses_1", "evt_patch", "art_1", "edit", reportexecution.PatchRequest{}),
-		"canonical_final_edit": agentLongFormFinalEditPrompt("Long", "mis_1", reportRigorProfiles["balanced"], plan, "", reporting.LongFormFinalizeBinding{}, reporting.ReportRequirementMap{}, 2, true),
+		"patch": AgentReportPatchPrompt("Long", "mis_1", "ses_1", "evt_patch", "art_1", "edit", reportexecution.PatchRequest{}),
+		"canonical_final_edit": legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+			MissionID: "mis_1", Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+			Plan: plan, RequirementMap: reporting.ReportRequirementMap{}, GenerationGuidanceProfile: reportprompt.ProfileNarrativeContract,
+		}, reporting.LongFormFinalizeBinding{}, 2, true, reporting.LongFormFinalizationHint{}),
 	} {
 		assertNoLongFormDirectionPrompt(t, name, prompt, hint)
 	}

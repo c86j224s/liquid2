@@ -6,6 +6,7 @@
 	  const captureMissionSelection = root.Plasma.mission.captureMissionSelection;
 	  const ownsMissionSelection = root.Plasma.mission.ownsMissionSelection;
 	  const missionApi = root.Plasma.transport.missionApi;
+  const formatBytes = root.Plasma.dom.formatBytes;
   const schedulePendingPoll = root.Plasma.polling.schedulePendingPoll;
   const requireMission = () => reports.call("requireMission");
   const reloadMission = (...args) => reports.call("reloadMission", ...args);
@@ -137,6 +138,62 @@ async function cancelReport() {
   }
 }
 
+async function deleteReportArtifact(artifactID) {
+  if (!requireMission()) return;
+  artifactID = (artifactID || "").trim();
+  if (!artifactID) return;
+  const owner = captureMissionSelection();
+  let preview;
+  try {
+    preview = await missionApi(owner, `/artifacts/${encodeURIComponent(artifactID)}/report_delete_preview`);
+  } catch (err) {
+    if (ownsMissionSelection(owner)) showError(err);
+    return;
+  }
+  if (!ownsMissionSelection(owner)) return;
+  state.reportDeletePreview = preview;
+  if (!preview.eligible) {
+    const message = (preview.blockers || []).map((item) => item.message).filter(Boolean).join("\n") || "이 보고서는 삭제할 수 없습니다.";
+    const err = new Error(message);
+    err.userMessage = message;
+    showError(err);
+    return;
+  }
+  if (!confirmReportDelete(preview)) return;
+  try {
+    await missionApi(owner, `/artifacts/${encodeURIComponent(artifactID)}/report`, {
+      method: "DELETE",
+      body: { confirm_artifact_id: artifactID, expected_revision: preview.revision, delete_facts_hash: preview.delete_facts_hash }
+    });
+    if (!ownsMissionSelection(owner)) return;
+    state.reportDeletePreview = null;
+    state.reportPreview = null;
+    state.selectedReportKey = "";
+    reports.setReportNotice("보고서를 삭제했습니다.");
+  } catch (err) {
+    if (!ownsMissionSelection(owner)) return;
+    reports.setReportNotice(`보고서 삭제 실패\n\n${err.userMessage || err.message || String(err)}`, "error");
+    showError(err);
+    return;
+  }
+  try {
+    await reloadMission(owner.missionId);
+  } catch (err) {
+    if (ownsMissionSelection(owner)) reports.setReportNotice(`보고서를 삭제했습니다. 새로고침은 실패했습니다.\n\n${err.userMessage || err.message || String(err)}`, "error");
+  }
+}
+
+function confirmReportDelete(preview) {
+  const bytes = formatBytes(preview.deletable_artifact_bytes || 0) || "0 B";
+  const shared = Number(preview.shared_artifact_count || 0);
+  const lines = [
+    `장부 이벤트 ${Number(preview.deletable_event_count || 0)}개`,
+    `artifact ${Number(preview.deletable_artifact_count || 0)}개 / ${bytes}`,
+    `보존되는 공유 artifact ${shared}개`
+  ];
+  return window.confirm(`보고서를 삭제할까요?\n\n${lines.join("\n")}\n\n삭제한 보고서는 복구할 수 없습니다.`);
+}
+
 function setReportBusy(busy) {
   state.reportPending = busy;
 	syncReportControls();
@@ -156,5 +213,5 @@ function syncReportControls() {
 	window.Plasma.ui.setElementDisabled("draftQuickReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftLongReport", blocked);
 }
-  Object.assign(reports, { draftReport, patchReportArtifact, cancelReport, setReportBusy, syncReportControls });
+  Object.assign(reports, { draftReport, patchReportArtifact, deleteReportArtifact, cancelReport, setReportBusy, syncReportControls });
 })(window);

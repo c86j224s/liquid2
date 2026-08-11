@@ -14,6 +14,8 @@ import (
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partassembly"
 )
 
 func TestCodexEnvironmentUsesAllowlist(t *testing.T) {
@@ -632,7 +634,10 @@ func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileReaderParagraphContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, GenerationGuidanceProfile: reportprompt.ProfileReaderParagraphContract,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Reader-facing explanation guidance:", "Reader paragraph-contract writing guidance:", "paragraph_quality_pass", "Do not mention reader_brief"} {
 			if !strings.Contains(prompt, expected) {
@@ -641,8 +646,8 @@ func TestReaderParagraphContractGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		}
 	}
 
-	if slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportPartSectionRead) != true ||
-		slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportLongFormEditStart) != true {
+	if slices.Contains(partassembly.MCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportPartSectionRead) != true ||
+		slices.Contains(legacyfinalize.MCPTools(reportprompt.ProfileReaderParagraphContract), plasmamcp.ToolReportLongFormEditStart) != true {
 		t.Fatalf("reader paragraph contract lost narrative Part/final editor tools")
 	}
 }
@@ -681,7 +686,10 @@ func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityLedExplanation, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, GenerationGuidanceProfile: reportprompt.ProfileCuriosityLedExplanation,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "reader's reason to care", "Do not organize the surface as", "Do not mention curiosity-led explanation"} {
 			if !strings.Contains(prompt, expected) {
@@ -690,8 +698,8 @@ func TestCuriosityLedExplanationGuidanceIsExperimentOnlyNarrativeProfile(t *test
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(partassembly.MCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(legacyfinalize.MCPTools(reportprompt.ProfileCuriosityLedExplanation), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity-led explanation lost narrative Part/final editor tools")
 	}
 }
@@ -730,7 +738,10 @@ func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testin
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityNaturalVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, GenerationGuidanceProfile: reportprompt.ProfileCuriosityNaturalVoice,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "stock emphasis frames", "Do not include horizontal-rule separators", "Do not mention natural curiosity voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -739,8 +750,8 @@ func TestCuriosityNaturalVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testin
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(partassembly.MCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(legacyfinalize.MCPTools(reportprompt.ProfileCuriosityNaturalVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity natural voice lost narrative Part/final editor tools")
 	}
 }
@@ -779,7 +790,10 @@ func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileCuriosityTightVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, GenerationGuidanceProfile: reportprompt.ProfileCuriosityTightVoice,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Tight curiosity-voice writing guidance:", "Natural voice means less framing", "Do not mention tight curiosity voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -788,8 +802,8 @@ func TestCuriosityTightVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(partassembly.MCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(legacyfinalize.MCPTools(reportprompt.ProfileCuriosityTightVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("curiosity tight voice lost narrative Part/final editor tools")
 	}
 }
@@ -828,7 +842,10 @@ func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalWrite := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, nil, reportprompt.ProfileEditedReadingVoice, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalWrite := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{Summary: "plan", WritingContract: contract}, GenerationGuidanceProfile: reportprompt.ProfileEditedReadingVoice,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for name, prompt := range map[string]string{"planned": plannedWrite, "section": sectionWrite, "final": finalWrite} {
 		for _, expected := range []string{"Curiosity-led explanation writing guidance:", "Natural curiosity-voice writing guidance:", "Edited reading-voice writing guidance:", "Avoid self-framing sentences", "Do not mention edited reading voice"} {
 			if !strings.Contains(prompt, expected) {
@@ -837,8 +854,8 @@ func TestEditedReadingVoiceGuidanceIsExperimentOnlyNarrativeProfile(t *testing.T
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(partassembly.MCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(legacyfinalize.MCPTools(reportprompt.ProfileEditedReadingVoice), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("edited reading voice lost narrative Part/final editor tools")
 	}
 }
@@ -864,11 +881,11 @@ func TestNarrativeContractPartEditorMustReadBoundSections(t *testing.T) {
 	if strings.Contains(prompt, "art_section_1") || strings.Contains(prompt, "section_artifact_ids") {
 		t.Fatalf("narrative Part prompt leaked internal Section artifact identity:\n%s", prompt)
 	}
-	tools := reportPartAssemblyMCPTools(reportprompt.ProfileNarrativeContract)
+	tools := partassembly.MCPTools(reportprompt.ProfileNarrativeContract)
 	if !slices.Contains(tools, plasmamcp.ToolReportPartSectionRead) {
 		t.Fatalf("narrative Part tool allowlist lost Section read: %#v", tools)
 	}
-	if slices.Contains(reportPartAssemblyMCPTools(reportprompt.ProfileVisualPlan), plasmamcp.ToolReportPartSectionRead) {
+	if slices.Contains(partassembly.MCPTools(reportprompt.ProfileVisualPlan), plasmamcp.ToolReportPartSectionRead) {
 		t.Fatal("legacy visual-plan unexpectedly exposes Part Section reads")
 	}
 }
@@ -878,9 +895,13 @@ func TestNarrativeContractFinalEditorUsesBoundManuscriptTools(t *testing.T) {
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	prompt := agentLongFormFinalizePrompt("Report", binding.MissionID, reportRigorProfiles["balanced"], agentSectionalReportPlan{
-		Summary: "Plan", WritingContract: &reporting.ReportWritingContract{CentralQuestion: "question", MustKeep: []string{"detail"}},
-	}, []sectionalReportPartDraft{{Title: "private inventory marker"}}, reportprompt.ProfileNarrativeContract, binding, 1, false, reporting.LongFormFinalizationHint{})
+	prompt := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Report", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: agentSectionalReportPlan{
+			Summary: "Plan", WritingContract: &reporting.ReportWritingContract{CentralQuestion: "question", MustKeep: []string{"detail"}},
+		}, Parts: []legacyfinalize.Part{{Title: "private inventory marker"}},
+		GenerationGuidanceProfile: reportprompt.ProfileNarrativeContract,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 	for _, expected := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit, "Read the entire manuscript", "returned next_offset", "restart at offset 0", "must_keep", "source scarcity", ":patch-N"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("narrative final prompt missing %q:\n%s", expected, prompt)
@@ -889,13 +910,13 @@ func TestNarrativeContractFinalEditorUsesBoundManuscriptTools(t *testing.T) {
 	if strings.Contains(prompt, "private inventory marker") || strings.Contains(prompt, plasmamcp.ToolReportLongFormFinalize) {
 		t.Fatalf("narrative final prompt leaked Part inventory or legacy tool:\n%s", prompt)
 	}
-	candidateTools := reportFinalizeMCPTools(reportprompt.ProfileNarrativeContract)
+	candidateTools := legacyfinalize.MCPTools(reportprompt.ProfileNarrativeContract)
 	for _, name := range []string{plasmamcp.ToolReportLongFormEditStart, plasmamcp.ToolReportLongFormEditRead, plasmamcp.ToolReportLongFormEditPatch, plasmamcp.ToolReportLongFormEditSubmit} {
 		if !slices.Contains(candidateTools, name) {
 			t.Fatalf("candidate final tools missing %s: %#v", name, candidateTools)
 		}
 	}
-	legacyTools := reportFinalizeMCPTools(reportprompt.ProfileVisualPlan)
+	legacyTools := legacyfinalize.MCPTools(reportprompt.ProfileVisualPlan)
 	if !slices.Equal(legacyTools, []string{plasmamcp.ToolReportLongFormFinalize}) {
 		t.Fatalf("legacy final tools changed: %#v", legacyTools)
 	}
@@ -1032,7 +1053,7 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 			if !reportprompt.RequireReportWritingContract(profile) || reportprompt.LongFormCompositionStrategy(profile) != reporting.LongFormCompositionNarrativeEdit {
 				t.Fatalf("active choice %q lost the common editorial contract", profile)
 			}
-			if !slices.Contains(reportPartAssemblyMCPTools(profile), plasmamcp.ToolReportPartSectionRead) || !slices.Contains(reportFinalizeMCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
+			if !slices.Contains(partassembly.MCPTools(profile), plasmamcp.ToolReportPartSectionRead) || !slices.Contains(legacyfinalize.MCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
 				t.Fatalf("active choice %q lost Part or final editor tools", profile)
 			}
 		})
@@ -1045,7 +1066,7 @@ func TestActiveWritingChoicesShareNarrativeContractWithoutReinterpretingLegacyPr
 		if reportprompt.RequireReportWritingContract(legacy) || reportprompt.LongFormCompositionStrategy(legacy) != reporting.LongFormCompositionPreserveMarkdown {
 			t.Fatalf("legacy profile %q was reinterpreted through the new contract", legacy)
 		}
-		if slices.Contains(reportPartAssemblyMCPTools(legacy), plasmamcp.ToolReportPartSectionRead) || slices.Contains(reportFinalizeMCPTools(legacy), plasmamcp.ToolReportLongFormEditStart) {
+		if slices.Contains(partassembly.MCPTools(legacy), plasmamcp.ToolReportPartSectionRead) || slices.Contains(legacyfinalize.MCPTools(legacy), plasmamcp.ToolReportLongFormEditStart) {
 			t.Fatalf("legacy profile %q unexpectedly received new editor tools", legacy)
 		}
 	}

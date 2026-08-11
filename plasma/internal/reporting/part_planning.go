@@ -30,8 +30,13 @@ type PartPlanResult struct {
 	PartIndex         int
 }
 
+// PartPlanStore는 part plan conditional append에 필요한 저장소 계약이다.
+type PartPlanStore interface {
+	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
+}
+
 // FinalizePartPlan는 part plan 제출을 검증하고 저장용 이벤트 요청으로 만든다.
-func FinalizePartPlan(ctx context.Context, service *app.Service, req PartPlanCreatedEventRequest) (PartPlanResult, error) {
+func FinalizePartPlan(ctx context.Context, service PartPlanStore, req PartPlanCreatedEventRequest) (PartPlanResult, error) {
 	req.Brief = strings.TrimSpace(req.Brief)
 	base := req.MarkdownReportStageEventBase
 	if service == nil || strings.TrimSpace(base.MissionID) == "" || strings.TrimSpace(base.PendingEventID) == "" || strings.TrimSpace(base.PlanEventID) == "" || req.PartIndex < 1 || req.Brief == "" {

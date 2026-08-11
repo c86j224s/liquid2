@@ -234,6 +234,35 @@ large artifacts live outside the repository under `research-artifacts/`.
       fanout. Direct full-report reading found no material quality loss after
       the correction. A Korean summary is available in
       [`61-report-direction-layering-2026-08-07.ko.md`](61-report-direction-layering-2026-08-07.ko.md).
+62. [`62-report-context-isolation-2026-08-07.ko.md`](62-report-context-isolation-2026-08-07.ko.md)
+    - Compared the current report-session fork against starting a new report
+      plan in a fresh provider session on one repeated-report mission. The
+      current fork promoted the immediately preceding report-review answer into
+      the plan's required framing and reused it in the report introduction. The
+      fresh session retained source access and produced a more independently
+      organized, shorter report. A blind review preferred that report for flow,
+      scope, readability, and independence, while finding the current fork
+      marginally stronger on factual discipline. This one-pair result is not
+      statistical proof, but it establishes a concrete contamination path and
+      supports a narrow product change at the initial report-plan session
+      boundary without replacing factual validation.
+63. [`63-report-context-isolation-confirmatory-2026-08-07.ko.md`](63-report-context-isolation-confirmatory-2026-08-07.ko.md)
+    - Completed a preregistered replication of experiment 62 across five
+      source-backed missions. Fresh sessions reduced plan leakage from 10 to 2
+      points with no worse pair, but won four of five topic units because both
+      SQLite plan comparisons tied; the all-five primary gate therefore failed.
+      Final-report leakage fell from 16 to 2 and improved in all five topics,
+      while all 16 fresh reports completed with source reads, all five required
+      frames were preserved, and no Critical or High defect was found. The
+      result supports the mechanism but does not authorize a product change or
+      a claim of confirmatory statistical superiority.
+64. [`64-fixed-part-finalization-runner-2026-08-09.md`](64-fixed-part-finalization-runner-2026-08-09.md)
+    - Documents the issue #111 follow-up runner for executing archive-local
+      reviewed Part fixtures through the current product V3 finalization tail
+      after strict preflight validation. The runner is a developer command, not
+      a product CLI surface, and writes report, ledger, DB, and compact manifest
+      under the local archive root while using the authenticated product Codex
+      home for real provider session files.
 
 ## Controller Experiment Sequence
 

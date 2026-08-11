@@ -9,7 +9,9 @@ const (
 	DefaultSessionPolicy      = SessionPolicySameSession
 	SessionPolicySameSession  = "same_session"
 	SessionPolicyIsolatedFork = "isolated_fork"
+	SessionPolicyFreshSession = "fresh_session"
 
+	SessionPolicySelectionAutoFreshSession          = "auto_fresh_session"
 	SessionPolicySelectionAutoIsolatedFork          = "auto_isolated_fork"
 	SessionPolicySelectionAutoSameSessionNoSession  = "auto_same_session_no_pre_report_session"
 	SessionPolicySelectionAutoSameSessionNoForker   = "auto_same_session_no_forkable_executor"

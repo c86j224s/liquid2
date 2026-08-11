@@ -275,7 +275,7 @@ func TestModeNormalizationKeepsOneTakeExplicit(t *testing.T) {
 	}
 }
 
-func TestSelectSessionPolicyAutoIsolatedForkForReadyPlannedReport(t *testing.T) {
+func TestSelectSessionPolicyAutoFreshForReadyPlannedReport(t *testing.T) {
 	policy, selection, err := SelectSessionPolicy(SessionPolicySelectionInput{
 		ReportMode:                  ModePlanned,
 		CanForkSession:              true,
@@ -285,12 +285,12 @@ func TestSelectSessionPolicyAutoIsolatedForkForReadyPlannedReport(t *testing.T) 
 	if err != nil {
 		t.Fatalf("SelectSessionPolicy returned error: %v", err)
 	}
-	if policy != SessionPolicyIsolatedFork || selection != SessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected automatic isolated fork, got policy=%q selection=%q", policy, selection)
+	if policy != SessionPolicyFreshSession || selection != SessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh session, got policy=%q selection=%q", policy, selection)
 	}
 }
 
-func TestSelectSessionPolicyAutoIsolatedForkForReadyLongFormReport(t *testing.T) {
+func TestSelectSessionPolicyAutoFreshForReadyLongFormReport(t *testing.T) {
 	policy, selection, err := SelectSessionPolicy(SessionPolicySelectionInput{
 		ReportMode:                  ModeLongForm,
 		CanForkSession:              true,
@@ -300,12 +300,12 @@ func TestSelectSessionPolicyAutoIsolatedForkForReadyLongFormReport(t *testing.T)
 	if err != nil {
 		t.Fatalf("SelectSessionPolicy returned error: %v", err)
 	}
-	if policy != SessionPolicyIsolatedFork || selection != SessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected automatic isolated fork for long-form reports, got policy=%q selection=%q", policy, selection)
+	if policy != SessionPolicyFreshSession || selection != SessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh session for long-form reports, got policy=%q selection=%q", policy, selection)
 	}
 }
 
-func TestSelectSessionPolicyAutoFallsBackWhenForkIsUnavailable(t *testing.T) {
+func TestSelectSessionPolicyAutoFreshWhenForkIsUnavailable(t *testing.T) {
 	policy, selection, err := SelectSessionPolicy(SessionPolicySelectionInput{
 		ReportMode:                  ModeLongForm,
 		CanForkSession:              true,
@@ -315,8 +315,8 @@ func TestSelectSessionPolicyAutoFallsBackWhenForkIsUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SelectSessionPolicy returned error: %v", err)
 	}
-	if policy != SessionPolicySameSession || selection != SessionPolicySelectionAutoSameSessionForkFailed {
-		t.Fatalf("expected same-session fork-unavailable fallback, got policy=%q selection=%q", policy, selection)
+	if policy != SessionPolicyFreshSession || selection != SessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected automatic fresh session despite fork-unavailable input, got policy=%q selection=%q", policy, selection)
 	}
 }
 
@@ -1041,6 +1041,56 @@ func TestBuildMarkdownReportSectionCreatedAppendRequestPreservesPayloadContract(
 	for _, unexpected := range []string{"mcp_mode", "rigor_level", "rigor_label", "plan_review_required", "plan_review_state"} {
 		if _, ok := payload[unexpected]; ok {
 			t.Fatalf("unexpected section payload key %q in %#v", unexpected, payload)
+		}
+	}
+	assertRunnerAgentUsage(t, payload, "report_section", 111, "ses_plan", "ses_section", true)
+}
+
+func TestBuildMarkdownReportSectionEvidenceGapAppendRequestIsNonArtifactStageData(t *testing.T) {
+	usage := agentusage.New("codex", "codex", "gpt-5.5", "medium", "section prompt")
+	req := BuildMarkdownReportSectionEvidenceGapAppendRequest(MarkdownReportSectionEvidenceGapEventRequest{
+		EventID: "evt_gap", MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan",
+		PartIndex: 1, SectionIndex: 2, Attempt: 1, ReasonCode: "inadequate_section_evidence",
+		AgentExecutor: "codex", AgentSessionID: "ses_section", PreviousAgentSessionID: "ses_plan",
+		ReturnedAgentSessionID: "ses_section", ToolSessionID: "ses_tool",
+		SessionChainKind: "forked_report", PreReportResearchSessionID: "ses_research",
+		ReportPlanSessionID: "ses_plan", ReportSessionID: "ses_section",
+		ForkSourceAgentSessionID: "ses_research", DurationMS: 111,
+		AgentUsage: usage, AgentUsageSurface: "report_section", AgentUsageDurationMS: 111,
+		AgentResumed: true, Producer: ledger.Producer{Type: "agent_session", ID: "ses_section"},
+	})
+	if req.EventID != "evt_gap" || req.MissionID != "mis_1" || req.EventType != "report.section.evidence_gap" ||
+		req.Producer.Type != "agent_session" || req.Producer.ID != "ses_section" {
+		t.Fatalf("unexpected evidence gap event shell: %#v", req)
+	}
+	payload := runnerPayload(t, ledger.Event{Payload: req.Payload})
+	expected := map[string]any{
+		"pending_event_id":               "evt_pending",
+		"plan_event_id":                  "evt_plan",
+		"part_index":                     float64(1),
+		"section_index":                  float64(2),
+		"attempt_number":                 float64(1),
+		"reason_code":                    "inadequate_section_evidence",
+		"agent_executor":                 "codex",
+		"agent_session_id":               "ses_section",
+		"previous_agent_session_id":      "ses_plan",
+		"returned_agent_session_id":      "ses_section",
+		"tool_session_id":                "ses_tool",
+		"session_chain_kind":             "forked_report",
+		"pre_report_research_session_id": "ses_research",
+		"report_plan_session_id":         "ses_plan",
+		"report_session_id":              "ses_section",
+		"fork_source_agent_session_id":   "ses_research",
+		"duration_ms":                    float64(111),
+	}
+	for key, want := range expected {
+		if got := payload[key]; got != want {
+			t.Fatalf("payload key %q mismatch: got %#v want %#v in %#v", key, got, want, payload)
+		}
+	}
+	for _, unexpected := range []string{"kind", "artifact_id", "media_type", "title", "text", "diagnosis", "source_content"} {
+		if _, ok := payload[unexpected]; ok {
+			t.Fatalf("unexpected evidence gap payload key %q in %#v", unexpected, payload)
 		}
 	}
 	assertRunnerAgentUsage(t, payload, "report_section", 111, "ses_plan", "ses_section", true)

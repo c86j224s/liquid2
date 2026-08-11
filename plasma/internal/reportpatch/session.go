@@ -39,7 +39,8 @@ func SelectSession(ctx context.Context, executor agentexec.AgentExecutor, source
 		if err != nil {
 			return PatchSessionSelection{}, err
 		}
-		if policy == reportexecution.SessionPolicySameSession {
+		switch policy {
+		case reportexecution.SessionPolicySameSession:
 			return PatchSessionSelection{
 				SessionID:                    sourceSessionID,
 				PreviousAgentSessionID:       sourceSessionID,
@@ -47,27 +48,32 @@ func SelectSession(ctx context.Context, executor agentexec.AgentExecutor, source
 				ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
 				SessionChainKind:             "same_report_session_patch",
 			}, nil
+		case reportexecution.SessionPolicyFreshSession:
+			return PatchSessionSelection{}, fmt.Errorf("%w: fresh report sessions are automatic-only", producterror.ErrInvalidInput)
+		case reportexecution.SessionPolicyIsolatedFork:
+			forker, ok := executor.(agentexec.AgentSessionForker)
+			if !ok {
+				return PatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session requires a forkable executor", producterror.ErrInvalidInput)
+			}
+			if !agentexec.AgentSessionForkReady(ctx, executor, sourceSessionID) {
+				return PatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session is not ready for fork", producterror.ErrInvalidInput)
+			}
+			fork, err := forker.ForkSession(ctx, sourceSessionID)
+			if err != nil {
+				return PatchSessionSelection{}, fmt.Errorf("report patch session fork failed: %w", err)
+			}
+			forkSource := firstNonEmpty(fork.SourceSessionID, sourceSessionID)
+			return PatchSessionSelection{
+				SessionID:                    fork.SessionID,
+				PreviousAgentSessionID:       fork.SessionID,
+				ForkSourceAgentSessionID:     forkSource,
+				ReportSessionPolicy:          reportexecution.SessionPolicyIsolatedFork,
+				ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitIsolatedFork,
+				SessionChainKind:             "isolated_fork_report_patch",
+			}, nil
+		default:
+			return PatchSessionSelection{}, fmt.Errorf("%w: unsupported report session policy %q", producterror.ErrInvalidInput, policy)
 		}
-		forker, ok := executor.(agentexec.AgentSessionForker)
-		if !ok {
-			return PatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session requires a forkable executor", producterror.ErrInvalidInput)
-		}
-		if !agentexec.AgentSessionForkReady(ctx, executor, sourceSessionID) {
-			return PatchSessionSelection{}, fmt.Errorf("%w: isolated report patch session is not ready for fork", producterror.ErrInvalidInput)
-		}
-		fork, err := forker.ForkSession(ctx, sourceSessionID)
-		if err != nil {
-			return PatchSessionSelection{}, fmt.Errorf("report patch session fork failed: %w", err)
-		}
-		forkSource := firstNonEmpty(fork.SourceSessionID, sourceSessionID)
-		return PatchSessionSelection{
-			SessionID:                    fork.SessionID,
-			PreviousAgentSessionID:       fork.SessionID,
-			ForkSourceAgentSessionID:     forkSource,
-			ReportSessionPolicy:          reportexecution.SessionPolicyIsolatedFork,
-			ReportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitIsolatedFork,
-			SessionChainKind:             "isolated_fork_report_patch",
-		}, nil
 	}
 
 	forker, canFork := executor.(agentexec.AgentSessionForker)

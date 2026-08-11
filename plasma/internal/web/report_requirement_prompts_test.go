@@ -9,6 +9,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
 )
 
 func TestReportRequirementPromptOwnsDirectionAfterFixedOutline(t *testing.T) {
@@ -29,7 +30,7 @@ func TestReportRequirementPromptOwnsDirectionAfterFixedOutline(t *testing.T) {
 }
 
 func TestReportRequirementToolsExposeOnlyEligibleEventReadAndSubmit(t *testing.T) {
-	tools := reportRequirementMCPTools()
+	tools := requirements.MCPTools()
 	if len(tools) != 2 || tools[0] != plasmamcp.ToolResearchRead || tools[1] != plasmamcp.ToolReportRequirementsSubmit {
 		t.Fatalf("unexpected report requirement tools: %#v", tools)
 	}

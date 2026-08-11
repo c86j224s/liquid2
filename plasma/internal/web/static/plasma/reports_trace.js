@@ -25,7 +25,6 @@ function showReportPlanPayload(plan) {
     $("detailModal").classList.remove("hidden");
     return;
   }
-  const sections = Array.isArray(data.sections) ? data.sections : [];
   $("detailBody").innerHTML = `
     <section class="detail-section">
       <h3>계획 요약</h3>
@@ -34,15 +33,7 @@ function showReportPlanPayload(plan) {
     </section>
     <section class="detail-section">
       <h3>섹션 계획</h3>
-      ${sections.length ? sections.map((section) => `
-        <div class="trace-entry">
-          <div class="trace-entry-head">
-            <strong>${escapeHTML(section.title || "제목 없음")}</strong>
-          </div>
-          <p>${escapeHTML(section.purpose || "목적 없음")}</p>
-          ${detailChips(refValues(section.target_refs || {}))}
-        </div>
-      `).join("") : `<p class="detail-meta">섹션 계획 없음</p>`}
+      ${renderPlanOutline(data)}
     </section>
     <section class="detail-grid">
       <div class="detail-box">
@@ -56,6 +47,52 @@ function showReportPlanPayload(plan) {
     </section>
   `;
   $("detailModal").classList.remove("hidden");
+}
+
+function renderPlanOutline(data) {
+  const parts = Array.isArray(data.parts) ? data.parts : [];
+  if (parts.length) return parts.map(renderPlanPart).join("");
+  const sections = Array.isArray(data.sections) ? data.sections : [];
+  return sections.length ? sections.map((section) => `
+        <div class="trace-entry">
+          <div class="trace-entry-head">
+            <strong>${escapeHTML(section.title || "제목 없음")}</strong>
+          </div>
+          <p>${escapeHTML(section.purpose || "목적 없음")}</p>
+          ${detailChips(refValues(section.target_refs || {}))}
+        </div>
+      `).join("") : `<p class="detail-meta">섹션 계획 없음</p>`;
+}
+
+function renderPlanPart(part, partIndex) {
+  const partNumber = partIndex + 1;
+  const sections = Array.isArray(part?.sections) ? part.sections : [];
+  return `
+    <article class="trace-entry plan-part-entry">
+      <div class="trace-entry-head">
+        <div class="plan-entry-title">
+          <span class="badge">Part ${partNumber}</span>
+          <strong>${escapeHTML(part?.title || "제목 없는 Part")}</strong>
+        </div>
+        <span class="badge muted">${sections.length}개 Section</span>
+      </div>
+      <p>${escapeHTML(part?.purpose || "목적 없음")}</p>
+      ${sections.length ? `<ol class="plan-section-list" role="list">${sections.map((section, sectionIndex) => renderPlanPartSection(section, partNumber, sectionIndex + 1)).join("")}</ol>` : `<p class="detail-meta">Section 계획 없음</p>`}
+    </article>
+  `;
+}
+
+function renderPlanPartSection(section, partNumber, sectionNumber) {
+  return `
+    <li class="plan-section-item">
+      <div class="plan-section-head">
+        <span class="badge muted">Section ${partNumber}.${sectionNumber}</span>
+        <strong>${escapeHTML(section?.title || "제목 없는 Section")}</strong>
+      </div>
+      <p>${escapeHTML(section?.purpose || "목적 없음")}</p>
+      ${detailChips(refValues(section?.target_refs || {}))}
+    </li>
+  `;
 }
 
 function showMCPTrace(versionID) {
@@ -131,6 +168,11 @@ function refValues(refs) {
 function detailList(items, emptyText) {
   if (!Array.isArray(items) || !items.length) return `<p class="detail-meta">${escapeHTML(emptyText)}</p>`;
   return `<ul>${items.map((item) => `<li>${escapeHTML(item)}</li>`).join("")}</ul>`;
+}
+
+function detailChips(values) {
+  if (!values.length) return `<p class="detail-meta">연결된 근거 없음</p>`;
+  return `<div class="chip-row">${values.map((value) => `<span class="badge muted">${escapeHTML(value)}</span>`).join("")}</div>`;
 }
 
 

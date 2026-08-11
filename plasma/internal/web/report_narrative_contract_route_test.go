@@ -17,24 +17,6 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
-func TestFinalEditGatePromptAndToolsAreHumanizeAware(t *testing.T) {
-	req := longFormReaderStyleGatePipelineRequest{title: "Report", missionID: "mis_gate", rigor: reportRigorProfiles["balanced"]}
-	binding := reporting.FinalEditStageBinding{Stage: reporting.FinalEditStageGate, PostReportHumanize: reporting.FinalEditHumanizeDisabled}
-	disabledPrompt := agentLongFormGatePromptForHumanize(reporting.FinalEditHumanizeDisabled)(req, binding, "rfe_gate", 1)
-	if slices.Contains(reportFinalEditGateMCPToolsForHumanize(reporting.FinalEditHumanizeDisabled), plasmamcp.ToolReportLongFormStyleReviewRead) ||
-		strings.Contains(disabledPrompt, "style_review") ||
-		strings.Contains(disabledPrompt, "semantic_acceptance") ||
-		!strings.Contains(disabledPrompt, "5. Submit with plasma.report.long_form.final_edit.submit and gate_findings") {
-		t.Fatalf("disabled gate prompt/tools leaked semantic review:\n%s", disabledPrompt)
-	}
-	enabledPrompt := agentLongFormGatePromptForHumanize(reporting.FinalEditHumanizeEnabled)(req, binding, "rfe_gate", 1)
-	if !slices.Contains(reportFinalEditGateMCPToolsForHumanize(reporting.FinalEditHumanizeEnabled), plasmamcp.ToolReportLongFormStyleReviewRead) ||
-		!strings.Contains(enabledPrompt, "plasma.report.long_form.style_review.read") ||
-		!strings.Contains(enabledPrompt, "semantic_acceptance") {
-		t.Fatalf("enabled gate prompt/tools omitted semantic review:\n%s", enabledPrompt)
-	}
-}
-
 func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
@@ -53,7 +35,7 @@ func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 			{Text: "# Part 1. Core Part\n\n파트 편집자가 문단 연결을 확인했습니다.\n\n## 1.1 Core Section\n\n근거를 소화해 직접 설명한 본문입니다.\n\n파트 판단을 정리합니다.\n", SessionID: "part-editor-fork-serial"},
 			{Text: writerMarkdown, SessionID: "writer-editor-fork-serial"},
 			{Text: finalMarkdown, SessionID: "reader-editor-fork-serial"},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-fork-serial"},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-editor-fork-serial"},
 		}},
 		forkSessionIDs: []string{"part-editor-fork-serial", "writer-editor-fork-serial", "reader-editor-fork-serial", "gate-editor-fork-serial"},
 	}
@@ -131,17 +113,16 @@ func TestNarrativeContractSectionFanoutUsesSameProductEditorPath(t *testing.T) {
 	agent := &fakeForkingAgentExecutor{
 		fakeAgentExecutor: fakeAgentExecutor{responses: []AgentResult{
 			{Text: "research context", SessionID: "research-session-1"},
-			{Text: agentReportAnyJSON(narrativeContractTestPlan()), SessionID: "report-fork-1", Resumed: true},
+			{Text: agentReportAnyJSON(narrativeContractTestPlan()), SessionID: "report-plan-session-1"},
 			{Text: "독자가 이해할 질문에서 근거와 한계로 자연스럽게 이동합니다.", SessionID: "part-owner-session", Resumed: true},
 			{Text: "병렬 섹션의 근거를 독자에게 직접 설명합니다.", SessionID: "section-session", Resumed: true},
 			{Text: `{"intro":"파트의 질문을 먼저 설명합니다.","transitions":[],"closing":"파트 판단을 정리합니다."}`, SessionID: "part-assembly-session", Resumed: true},
 			{Text: "# Part 1. Core Part\n\n파트 최종 작성자가 병렬 섹션 연결을 확인했습니다.\n\n## 1.1 Core Section\n\n병렬 섹션의 근거를 독자에게 직접 설명합니다.\n\n파트 판단을 정리합니다.\n", SessionID: "part-owner-session", Resumed: true},
 			{Text: writerMarkdown, SessionID: "writer-editor-session", Resumed: true},
 			{Text: finalMarkdown, SessionID: "reader-editor-session", Resumed: true},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-session", Resumed: true},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-editor-session", Resumed: true},
 		}},
 		forkSessionIDs: []string{
-			"report-fork-1",
 			"part-owner-session",
 			"section-session",
 			"part-assembly-session",
@@ -167,7 +148,7 @@ func TestNarrativeContractSectionFanoutUsesSameProductEditorPath(t *testing.T) {
 	if planPayload["final_edit_pipeline"] != reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
 		t.Fatalf("fanout plan did not activate v3 writer/reader/evidence pipeline: %#v", planPayload)
 	}
-	if !slices.Equal(agent.forkSources, []string{"research-session-1", "report-fork-1", "part-owner-session", "part-owner-session", "report-fork-1", "report-fork-1", "report-fork-1"}) {
+	if !slices.Equal(agent.forkSources, []string{"report-plan-session-1", "part-owner-session", "part-owner-session", "report-plan-session-1", "report-plan-session-1", "report-plan-session-1"}) {
 		t.Fatalf("fanout session ownership differs: %#v", agent.forkSources)
 	}
 	partPlanPayload := lastEventPayload(t, detail, reporting.PartPlanCreatedEventType)
@@ -219,9 +200,9 @@ func TestReaderStyleGateUsesHumanizeAsPreCanonicalStyleOnly(t *testing.T) {
 			{Text: "# Part 1. Core Part\n\n근거를 소화해 직접 설명한 본문입니다.\n", SessionID: "part-editor-style"},
 			{Text: writerMarkdown, SessionID: "writer-editor-style"},
 			{Text: finalMarkdown, SessionID: "reader-editor-style"},
-			{Text: finalEditStageSubmittedSentinel, SessionID: "style-editor-style"},
-			{Text: finalEditStageSubmittedSentinel, SessionID: "style-semantic-editor-style"},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-style"},
+			{Text: finalEditStageSubmittedText, SessionID: "style-editor-style"},
+			{Text: finalEditStageSubmittedText, SessionID: "style-semantic-editor-style"},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-editor-style"},
 		}},
 		forkSessionIDs: []string{"part-editor-style", "writer-editor-style", "reader-editor-style", "style-editor-style", "style-semantic-editor-style", "gate-editor-style"},
 	}
@@ -308,8 +289,8 @@ func TestReaderStyleGatePipelineAllowsStructurallySafeKoreanStylePolish(t *testi
 			{Text: writerMarkdown, SessionID: "writer-editor-korean-style"},
 			{Text: readerMarkdown, SessionID: "reader-editor-korean-style"},
 			{Text: styleMarkdown, SessionID: "style-editor-korean-style"},
-			{Text: finalEditStageSubmittedSentinel, SessionID: "style-semantic-editor-korean-style"},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-korean-style"},
+			{Text: finalEditStageSubmittedText, SessionID: "style-semantic-editor-korean-style"},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-editor-korean-style"},
 		}},
 		forkSessionIDs: []string{"part-editor-korean-style", "writer-editor-korean-style", "reader-editor-korean-style", "style-editor-korean-style", "style-semantic-editor-korean-style", "gate-editor-korean-style"},
 	}
@@ -358,7 +339,7 @@ func TestReaderStyleGateAdoptsDurableStageAfterAckMismatch(t *testing.T) {
 			{Text: "# Part 1. Core Part\n\nEdited Part body.\n", SessionID: "part-editor-ack"},
 			{Text: writerMarkdown, SessionID: "writer-editor-ack"},
 			{Text: finalMarkdown, SessionID: "reader-editor-ack"},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-editor-ack"},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-editor-ack"},
 		}},
 		forkSessionIDs: []string{"part-editor-ack", "writer-editor-ack", "reader-editor-ack", "gate-editor-ack"},
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partedit"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -22,10 +23,6 @@ func TestSectionFanoutPartEditorRecoversCrashAfterCurrentStart(t *testing.T) {
 	svc := app.NewService(store)
 	delegate := &partEditRecoveryExecutor{}
 	executor := withReportPlanSubmissionFixture(svc, delegate)
-	forker, ok := executor.(AgentSessionForker)
-	if !ok {
-		t.Fatal("fixture executor must fork")
-	}
 	server := NewServer(svc, Options{}).(*Server)
 
 	const (
@@ -62,20 +59,32 @@ func TestSectionFanoutPartEditorRecoversCrashAfterCurrentStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	editedParts, _, err := server.editSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
-		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
-		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
-	}, sectionFanoutPlanState{
-		artifactID: progress.artifactID, plan: plan, planEvent: progress.planEvent, reportPlanSessionID: "editor_start-plan-session",
-		reportSessionPolicy: reportSessionPolicySameSession, sessionChainKind: "section_fanout_report", partEditEnabled: true,
-	}, progress, []sectionalReportPartDraft{{
-		Title: plan.Parts[0].Title, Markdown: string(partArtifact.Content),
-		ArtifactID: partArtifact.ArtifactID, WordCount: reportWordCount(string(partArtifact.Content)),
-	}}, forker, executor)
+	editInput := partEditInput(reportPartEditorRequest{
+		title: "Reader Report", missionID: missionID, pendingEventID: pendingID, planEventID: progress.planEvent.EventID,
+		executorName: "codex", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
+		plan: plan, part: plan.Parts[0], partIndex: 0,
+		source: sectionalReportPartDraft{
+			Title: plan.Parts[0].Title, Markdown: string(partArtifact.Content),
+			ArtifactID: partArtifact.ArtifactID, WordCount: reportWordCount(string(partArtifact.Content)),
+		},
+		reportSessionPolicy: reportSessionPolicySameSession, generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
+		sessionChainKind: "section_fanout_report", reportPlanSessionID: "editor_start-plan-session",
+		forkSourceAgentSessionID: "editor_start-plan-session",
+	}, false, "")
+	recovered, ok, err := (partedit.Runner{Service: svc}).CurrentStart(ctx, editInput, "")
+	if err != nil || !ok {
+		t.Fatalf("Part edit start was not recovered: binding=%#v err=%v", recovered, err)
+	}
+	editInput.ToolSessionID = recovered.ToolSessionID
+	editInput.PreviousSessionID = recovered.ProviderSessionID
+	editInput.EditedArtifactID = recovered.EditedArtifactID
+	editInput.Filename = recovered.Filename
+	editInput.ForkSourceAgentSessionID = recovered.ForkSourceAgentSessionID
+	out, err := (partedit.Runner{Service: svc, Executor: executor, NewID: newID}).Run(ctx, editInput)
 	if err != nil {
 		t.Fatal(err)
 	}
+	editedParts := []sectionalReportPartDraft{partEditDraft(out)}
 	requests := partEditAgentRequests(delegate.snapshotRequests())
 	if len(editedParts) != 1 || len(requests) != 1 || requests[0].PartEdit == nil {
 		t.Fatalf("Part editor did not run from recovered start: parts=%#v requests=%#v", editedParts, requests)
@@ -151,21 +160,29 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 	if _, _, err := reporting.StartPartEdit(ctx, svc, "evt_author_start_open", binding); err != nil {
 		t.Fatal(err)
 	}
-	authored, _, err := server.authorSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
-		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
-		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
-		generationGuidanceProfile:    reportprompt.ProfilePartConnectiveEconomyVoice,
-		pendingEventID:               pendingID,
-	}, sectionFanoutPlanState{
-		plan: plan, planEvent: planEvent, reportPlanSessionID: label + "-report-plan-session",
+	editInput := partEditInput(reportPartEditorRequest{
+		title: "Reader Report", missionID: missionID, pendingEventID: pendingID, planEventID: planEvent.EventID,
+		previousSessionID: partOwnerSessionID, executorName: "codex", mcpMode: "auto",
+		rigor: reportRigorProfiles["balanced"], plan: plan, part: plan.Parts[0], partIndex: 0, source: source,
 		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: reportexecution.SessionPolicySelectionExplicitSameSession,
-		sessionChainKind: "section_fanout_report", partEditEnabled: true, partPlanningEnabled: true,
-		partPlans: map[int]sectionFanoutPartPlan{0: {brief: label + " Part owner brief.", providerSessionID: partOwnerSessionID}},
-	}, sectionalReportProgress{editedParts: map[int]sectionalReportPartDraft{}}, []sectionalReportPartDraft{source}, executor)
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
+		sessionChainKind:          "section_fanout_report", reportPlanSessionID: label + "-report-plan-session",
+		forkSourceAgentSessionID: label + "-report-plan-session",
+	}, true, label+" Part owner brief.")
+	recovered, ok, err := (partedit.Runner{Service: svc}).CurrentStart(ctx, editInput, partOwnerSessionID)
+	if err != nil || !ok {
+		t.Fatalf("Part author start was not recovered: binding=%#v err=%v", recovered, err)
+	}
+	editInput.ToolSessionID = recovered.ToolSessionID
+	editInput.PreviousSessionID = recovered.ProviderSessionID
+	editInput.EditedArtifactID = recovered.EditedArtifactID
+	editInput.Filename = recovered.Filename
+	editInput.ForkSourceAgentSessionID = recovered.ForkSourceAgentSessionID
+	out, err := (partedit.Runner{Service: svc, Executor: executor, NewID: newID}).Run(ctx, editInput)
 	if err != nil {
 		t.Fatal(err)
 	}
+	authored := []sectionalReportPartDraft{partEditDraft(out)}
 	requests := partEditAgentRequests(delegate.snapshotRequests())
 	if len(authored) != 1 || len(requests) != 1 || requests[0].PartEdit == nil {
 		t.Fatalf("Part author did not run from recovered start: authored=%#v requests=%#v", authored, requests)

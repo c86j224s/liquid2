@@ -16,6 +16,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
@@ -87,51 +88,26 @@ func prepareFinalWriterV2FrozenReviewedManifest(ctx context.Context, cfg finalWr
 	}); err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
-	req := sectionFanoutLongFormRequest{
-		missionID: missionID, title: pair.TopicTitle, directionHint: finalWriterV2PrepDirectionHint(pair),
-		executorName: cfg.ExecutorName, agentModel: cfg.AgentModel, agentReasoningEffort: cfg.ReasoningEffort,
-		agentSelectionSource: "experiment", mcpMode: "auto", rigor: rigor, reportSessionPolicy: reportSessionPolicySameSession,
-		reportSessionPolicySelection: "experiment-product-reviewed-part-prep", postReportHumanize: reporting.FinalEditHumanizeDisabled,
-		generationGuidanceProfile: guidanceProfile, generationGuidanceSHA256: guidanceSHA, pendingEventID: pendingID,
-	}
-	progress, err := server.loadSectionalReportProgress(ctx, req.missionID, req.pendingEventID)
+	prefix, err := reportworkflow.NewRunner(reportworkflow.RunnerConfig{
+		Service: server.service, Lifecycle: reporting.Runner(server.reportRunner()),
+		Executor: executor, NewID: newID, LatestSessionID: server.latestAgentSessionID,
+	}).RunLongFormPrefix(ctx, reportworkflow.DraftInput{
+		MissionID: missionID, PendingEventID: pendingID, Title: pair.TopicTitle,
+		DirectionHint: finalWriterV2PrepDirectionHint(pair), ExecutionStrategy: reportExecutionStrategySectionFanout,
+		AgentExecutor: cfg.ExecutorName, AgentModel: cfg.AgentModel, AgentReasoningEffort: cfg.ReasoningEffort,
+		AgentSelectionSource: "experiment", MCPMode: "auto", Rigor: reportWorkflowRigor(rigor),
+		ReportMode: reportModeLongForm, ReportSessionPolicy: reportSessionPolicySameSession,
+		ReportSessionPolicySelection: "experiment-product-reviewed-part-prep",
+		PostReportHumanize:           reporting.FinalEditHumanizeDisabled,
+		GenerationGuidanceProfile:    guidanceProfile, GenerationGuidanceSHA256: guidanceSHA,
+	})
 	if err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
-	state, err := server.ensureSectionFanoutPlan(ctx, req, progress, executor)
-	if err != nil {
-		return finalWriterV2FrozenManifest{}, "", err
-	}
-	state.requirementMap, state.requirementMapEvent, err = server.ensureReportRequirementMap(ctx, reportRequirementStageRequest{
-		missionID: req.missionID, title: req.title, directionHint: req.directionHint, executorName: req.executorName,
-		agentModel: req.agentModel, reasoningEffort: req.agentReasoningEffort, mcpMode: req.mcpMode,
-		pendingEventID: req.pendingEventID, planEventID: state.planEvent.EventID, planSessionID: state.reportPlanSessionID, plan: state.plan,
-	}, progress, executor)
-	if err != nil {
-		return finalWriterV2FrozenManifest{}, "", err
-	}
-	if state.partPlanningEnabled {
-		state.partPlans, err = server.ensureSectionFanoutPartPlans(ctx, req, state, progress, executor, executor)
-		if err != nil {
-			return finalWriterV2FrozenManifest{}, "", err
-		}
-	}
-	sections, sectionArtifactIDs, _, err := server.draftSectionFanoutSections(ctx, req, state, progress, executor, executor)
-	if err != nil {
-		return finalWriterV2FrozenManifest{}, "", err
-	}
-	parts, _, err := server.assembleSectionFanoutParts(ctx, req, state, progress, sections, executor, executor)
-	if err != nil {
-		return finalWriterV2FrozenManifest{}, "", err
-	}
-	if state.partEditEnabled {
-		if state.partPlanningEnabled {
-			parts, _, err = server.authorSectionFanoutParts(ctx, req, state, progress, parts, executor)
-		} else {
-			parts, _, err = server.editSectionFanoutParts(ctx, req, state, progress, parts, executor, executor)
-		}
-		if err != nil {
-			return finalWriterV2FrozenManifest{}, "", err
+	parts := make([]sectionalReportPartDraft, len(prefix.Parts))
+	for index, part := range prefix.Parts {
+		parts[index] = sectionalReportPartDraft{
+			Title: part.Title, Markdown: part.Markdown, ArtifactID: part.ArtifactID, WordCount: part.WordCount,
 		}
 	}
 	events, err := svc.ListEvents(ctx, missionID)
@@ -144,11 +120,11 @@ func prepareFinalWriterV2FrozenReviewedManifest(ctx context.Context, cfg finalWr
 	}
 	return writeFinalWriterV2FrozenManifestFromParts(cfg.ArchiveRoot, pair, finalWriterV2PrepProvenance{
 		ProductPath: "section_fanout_plan_requirement_sections_part_assembly_part_author",
-		MissionID:   missionID, PendingEventID: pendingID, PlanEventID: state.planEvent.EventID, DBPath: dbPath,
+		MissionID:   missionID, PendingEventID: pendingID, PlanEventID: prefix.PlanEvent.EventID, DBPath: dbPath,
 		LedgerEventsPath: ledgerPath, LedgerEventsSHA256: finalWriterV2SHA256FileNoErr(ledgerPath),
 		SourceSnapshotIDs: sourceSnapshotIDs, SourceArtifactIDs: sourceArtifactIDs, SourceEventIDs: sourceEventIDs,
 		DiscardedFinalReport: true,
-	}, parts, sectionArtifactIDs)
+	}, parts, prefix.SectionArtifactIDs)
 }
 
 func createFinalWriterV2PrepSources(ctx context.Context, svc *app.Service, archive string, pair finalWriterV2ExperimentPair, missionID string, fragment string) ([]string, []string, []string, error) {
@@ -285,17 +261,17 @@ func loadFinalWriterV2FrozenManifest(archive string, pair finalWriterV2Experimen
 	return manifest, digest, nil
 }
 
-func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.Service, pair finalWriterV2ExperimentPair, arm string, manifest finalWriterV2FrozenManifest, cfg finalWriterV2AdapterConfig, planSessionID string) (longFormReaderStyleGatePipelineRequest, error) {
+func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.Service, pair finalWriterV2ExperimentPair, arm string, manifest finalWriterV2FrozenManifest, cfg finalWriterV2AdapterConfig, planSessionID string) (finalizationPrefixFixture, error) {
 	if manifest.PairID != pair.PairID {
-		return longFormReaderStyleGatePipelineRequest{}, fmt.Errorf("manifest pair mismatch")
+		return finalizationPrefixFixture{}, fmt.Errorf("manifest pair mismatch")
 	}
 	rigor, ok := reportRigorProfiles[pair.Rigor]
 	if !ok {
-		return longFormReaderStyleGatePipelineRequest{}, fmt.Errorf("unknown rigor %q", pair.Rigor)
+		return finalizationPrefixFixture{}, fmt.Errorf("unknown rigor %q", pair.Rigor)
 	}
 	pipeline := finalWriterV2PipelineForArm(arm)
 	if pipeline == "" {
-		return longFormReaderStyleGatePipelineRequest{}, fmt.Errorf("unknown arm %q", arm)
+		return finalizationPrefixFixture{}, fmt.Errorf("unknown arm %q", arm)
 	}
 	fragment := finalWriterV2IDFragment(pair.PairID + "_" + arm + "_" + finalWriterV2ExperimentRunNamespace)
 	missionID := "mis_exp55_" + fragment
@@ -304,17 +280,17 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 	finalArtifactID := "art_exp55_" + fragment + "_final"
 	producer := app.Producer{Type: "agent_session", ID: planSessionID}
 	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
-		return longFormReaderStyleGatePipelineRequest{}, err
+		return finalizationPrefixFixture{}, err
 	}
 	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
 		EventID: "evt_exp55_" + fragment + "_mission", MissionID: missionID, Title: pair.TopicTitle,
 		Objective: "Run fixed reviewed Part final-edit experiment", Producer: app.Producer{Type: "user", ID: "experiment"},
 	})); err != nil {
-		return longFormReaderStyleGatePipelineRequest{}, err
+		return finalizationPrefixFixture{}, err
 	}
 	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportModeLongForm, reportprompt.ProfilePartConnectiveEconomyVoice)
 	if err != nil {
-		return longFormReaderStyleGatePipelineRequest{}, err
+		return finalizationPrefixFixture{}, err
 	}
 	plan := finalWriterV2PlanForPair(pair, manifest)
 	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
@@ -326,7 +302,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 			"generation_guidance_sha256": guidanceSHA, "post_report_humanize": cfg.PostHumanize,
 		}),
 	}); err != nil {
-		return longFormReaderStyleGatePipelineRequest{}, err
+		return finalizationPrefixFixture{}, err
 	}
 	planEvent, err := svc.AppendEvent(ctx, reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
 		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
@@ -347,7 +323,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 		PartPlanningEnabled: false,
 	}))
 	if err != nil {
-		return longFormReaderStyleGatePipelineRequest{}, err
+		return finalizationPrefixFixture{}, err
 	}
 	partArtifactIDs, sectionArtifactIDs := []string{}, []string{}
 	parts := make([]sectionalReportPartDraft, 0, len(manifest.Parts))
@@ -355,7 +331,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 	for _, part := range manifest.Parts {
 		content := []byte(part.Markdown)
 		if part.SHA256 != sha256Hex(content) {
-			return longFormReaderStyleGatePipelineRequest{}, fmt.Errorf("frozen reviewed Part digest mismatch for %s part %d", pair.PairID, part.PartIndex)
+			return finalizationPrefixFixture{}, fmt.Errorf("frozen reviewed Part digest mismatch for %s part %d", pair.PairID, part.PartIndex)
 		}
 		partID := fmt.Sprintf("art_exp55_%s_part_%02d", fragment, part.PartIndex)
 		sectionID := partID
@@ -365,7 +341,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 			Filename: fmt.Sprintf("part-%02d.md", part.PartIndex), Producer: producer, Content: content,
 		})
 		if err != nil {
-			return longFormReaderStyleGatePipelineRequest{}, err
+			return finalizationPrefixFixture{}, err
 		}
 		stageBase := reporting.MarkdownReportStageEventBase{
 			MissionID: missionID, PendingEventID: pendingID, PlanEventID: planID, Title: pair.TopicTitle, Artifact: artifact,
@@ -382,28 +358,35 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 		if _, err := svc.AppendEvent(ctx, reporting.BuildMarkdownReportPartCreatedAppendRequest(reporting.MarkdownReportPartCreatedEventRequest{
 			MarkdownReportStageEventBase: stageBase, PartIndex: part.PartIndex, SectionCount: 1, WordCount: len(strings.Fields(part.Markdown)),
 		})); err != nil {
-			return longFormReaderStyleGatePipelineRequest{}, err
+			return finalizationPrefixFixture{}, err
 		}
 		stageBase.EventID = fmt.Sprintf("evt_exp55_%s_section_%02d", fragment, part.PartIndex)
 		if _, err := svc.AppendEvent(ctx, reporting.BuildMarkdownReportSectionCreatedAppendRequest(reporting.MarkdownReportSectionCreatedEventRequest{
 			MarkdownReportStageEventBase: stageBase, PartIndex: part.PartIndex, SectionIndex: 1, WordCount: len(strings.Fields(part.Markdown)),
 		})); err != nil {
-			return longFormReaderStyleGatePipelineRequest{}, err
+			return finalizationPrefixFixture{}, err
 		}
 		partArtifactIDs = append(partArtifactIDs, partID)
 		sectionArtifactIDs = append(sectionArtifactIDs, sectionID)
 		sectionWordTotal += len(strings.Fields(part.Markdown))
 		parts = append(parts, sectionalReportPartDraft{Title: part.Title, Markdown: part.Markdown, ArtifactID: partID, WordCount: len(strings.Fields(part.Markdown))})
 	}
-	return longFormReaderStyleGatePipelineRequest{
+	return finalizationPrefixFixture{
 		missionID: missionID, title: pair.TopicTitle, executorName: cfg.ExecutorName, agentModel: cfg.AgentModel, agentReasoningEffort: cfg.ReasoningEffort,
 		agentSelectionSource: "experiment", mcpMode: "auto", rigor: rigor, reportSessionPolicy: reportSessionPolicySameSession,
 		reportSessionPolicySelection: "experiment-fixed-reviewed-part", postReportHumanize: cfg.PostHumanize,
 		generationGuidanceProfile: guidanceProfile, generationGuidanceSHA256: guidanceSHA, pendingEventID: pendingID, artifactID: finalArtifactID,
 		planEvent: planEvent, plan: plan, parts: parts, partArtifactIDs: partArtifactIDs, sectionArtifactIDs: sectionArtifactIDs, sectionWordTotal: sectionWordTotal,
 		sessionChainKind: "fixed_reviewed_part_terminal_experiment", preReportResearchSessionID: planSessionID, reportPlanSessionID: planSessionID,
-		forkSourceAgentSessionID: planSessionID, requirementMap: finalWriterV2RequirementMapForPair(pair, plan, pendingID), started: cfg.Started,
+		forkSourceAgentSessionID: planSessionID, requirementMap: finalWriterV2RequirementMapForPair(pair, plan, pendingID), finalTail: finalWriterV2TailForArm(arm), started: cfg.Started,
 	}, nil
+}
+
+func finalWriterV2TailForArm(arm string) reportworkflow.FinalTail {
+	if arm == "A" {
+		return reportworkflow.FinalTailV1
+	}
+	return reportworkflow.FinalTailV2
 }
 
 func finalWriterV2PlanForPair(pair finalWriterV2ExperimentPair, manifest finalWriterV2FrozenManifest) agentSectionalReportPlan {

@@ -12,6 +12,10 @@ import (
 
 const ReportPlanSchemaVersion = "plasma.report_plan.v1"
 
+// ReportPlanSourceRefs names the source-reference contract consumed by report
+// planning without moving its application-owned storage model.
+type ReportPlanSourceRefs = app.ReportBlockSourceRefs
+
 // ReportPlan는 단문 보고서의 섹션 순서와 작성 계약을 담는 plan이다.
 type ReportPlan struct {
 	Summary          string                 `json:"summary"`
@@ -163,8 +167,8 @@ func ReportPlanHash(plan any) (string, json.RawMessage, error) {
 }
 
 // ReportPlanRefs는 plan 안의 source reference를 dedupe된 목록으로 모은다.
-func ReportPlanRefs(plan any) []app.ReportBlockSourceRefs {
-	refs := []app.ReportBlockSourceRefs{}
+func ReportPlanRefs(plan any) []ReportPlanSourceRefs {
+	refs := []ReportPlanSourceRefs{}
 	switch value := plan.(type) {
 	case ReportPlan:
 		for _, section := range value.Sections {

@@ -9,7 +9,7 @@
   const workflow = Plasma.workflow = Plasma.workflow || {};
 
   function workflowRawInputValue() {
-    return $("workflowInstruction").value.trim() || workflow._callbacks.rawInputFallback();
+    return $("workflowInstruction").value.trim();
   }
 
   function onWorkflowRawInput() {

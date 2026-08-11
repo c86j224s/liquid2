@@ -1,6 +1,7 @@
 # Known package-boundary debt.
 # Format: rule<TAB>file<TAB>import path
 # Remove entries as refactors eliminate the corresponding import.
+app-hub	cmd/plasma-report-experiment/main.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	cmd/plasma/cli_output.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	cmd/plasma/cli_service.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	cmd/plasma/health_commands.go	github.com/c86j224s/liquid2/plasma/internal/app
@@ -116,27 +117,14 @@ app-hub	internal/web/mission_routes.go	github.com/c86j224s/liquid2/plasma/intern
 app-hub	internal/web/report_assembly.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_design_renderer.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_export_routes.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_long_form_pipeline.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_model_selection.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_models.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_part_assembly_agent.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_part_author.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_part_editor.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_part_editor_start.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_recovery.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_redpen_routes.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_requirement_recovery.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_requirements.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_routes.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/report_section_fanout.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_events.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_final.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_part_editors.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_part_plans.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_parts.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_plan.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_sections.go	github.com/c86j224s/liquid2/plasma/internal/app
-app-hub	internal/web/report_section_fanout_workers.go	github.com/c86j224s/liquid2/plasma/internal/app
+app-hub	internal/web/report_section_fanout_recovery.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/request_models.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/research_routes.go	github.com/c86j224s/liquid2/plasma/internal/app
 app-hub	internal/web/server.go	github.com/c86j224s/liquid2/plasma/internal/app

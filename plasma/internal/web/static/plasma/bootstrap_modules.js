@@ -28,7 +28,6 @@
     syncReportControls: reports.syncReportControls,
     workflowControlsBlocked: c.workflowControlsBlocked,
     workflowContinueBlocked: c.workflowContinueBlocked,
-    rawInputFallback: () => $("turnText").value.trim(),
     setFormsEnabled: c.setFormsEnabled
   });
   window.Plasma.sources.configure({

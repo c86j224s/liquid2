@@ -97,8 +97,8 @@ func TestLongFormRequirementReviewRunsWithoutDirectionHint(t *testing.T) {
 			{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: "report-session"},
 			{Text: "# Part 1. Part\n\nReviewed Part body.\n", SessionID: "part-edit-session"},
 			{Text: writerMarkdown, SessionID: "writer-edit-session"},
-			{Text: finalEditStageSubmittedSentinel, SessionID: "reader-edit-session"},
-			{Text: finalEditGateSubmittedSentinel, SessionID: "gate-edit-session"},
+			{Text: finalEditStageSubmittedText, SessionID: "reader-edit-session"},
+			{Text: finalEditGateSubmittedText, SessionID: "gate-edit-session"},
 		}},
 		forkSessionIDs: []string{"part-edit-session", "writer-edit-session", "reader-edit-session", "gate-edit-session"},
 	}
@@ -448,9 +448,9 @@ func (agent *fanoutRequirementAgent) Run(_ context.Context, req AgentRequest) (A
 	case req.PartAssembly != nil:
 		return AgentResult{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: sessionID}, nil
 	case req.FinalEditStage != nil && (req.FinalEditStage.Stage == reporting.FinalEditStageGate || req.FinalEditStage.Stage == reporting.FinalEditStageEvidenceGate):
-		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: sessionID}, nil
+		return AgentResult{Text: finalEditGateSubmittedText, SessionID: sessionID}, nil
 	case req.FinalEditStage != nil:
-		return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: sessionID}, nil
+		return AgentResult{Text: finalEditStageSubmittedText, SessionID: sessionID}, nil
 	case req.LongFormFinalize != nil:
 		return AgentResult{Text: agent.finalMarkdown, SessionID: sessionID}, nil
 	case strings.Contains(req.UserText, "draft section 1.1"):

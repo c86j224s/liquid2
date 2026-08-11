@@ -35,6 +35,8 @@ func NormalizeSessionPolicy(policy string) (string, error) {
 		return SessionPolicySameSession, nil
 	case "isolated-fork", "isolated_fork", "fork":
 		return SessionPolicyIsolatedFork, nil
+	case "fresh_session":
+		return SessionPolicyFreshSession, nil
 	default:
 		return "", fmt.Errorf("%w: unsupported report session policy", producterror.ErrInvalidInput)
 	}
@@ -46,6 +48,9 @@ func SelectSessionPolicy(input SessionPolicySelectionInput) (string, string, err
 		policy, err := NormalizeSessionPolicy(input.RequestedPolicy)
 		if err != nil {
 			return "", "", err
+		}
+		if policy == SessionPolicyFreshSession {
+			return "", "", fmt.Errorf("%w: report session policy %q is automatic only", producterror.ErrInvalidInput, policy)
 		}
 		if err := ValidateSessionPolicy(policy, input.ReportMode, input.CanForkSession, input.HasPreReportResearchSession, input.ForkReady); err != nil {
 			return "", "", err
@@ -62,16 +67,7 @@ func SelectSessionPolicy(input SessionPolicySelectionInput) (string, string, err
 	if mode == ModeOneTake {
 		return SessionPolicySameSession, SessionPolicySelectionAutoSameSessionOneTake, nil
 	}
-	if !input.CanForkSession {
-		return SessionPolicySameSession, SessionPolicySelectionAutoSameSessionNoForker, nil
-	}
-	if !input.HasPreReportResearchSession {
-		return SessionPolicySameSession, SessionPolicySelectionAutoSameSessionNoSession, nil
-	}
-	if !input.ForkReady {
-		return SessionPolicySameSession, SessionPolicySelectionAutoSameSessionForkFailed, nil
-	}
-	return SessionPolicyIsolatedFork, SessionPolicySelectionAutoIsolatedFork, nil
+	return SessionPolicyFreshSession, SessionPolicySelectionAutoFreshSession, nil
 }
 
 // ValidateSessionPolicy는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
@@ -86,6 +82,12 @@ func ValidateSessionPolicy(policy string, reportMode string, canForkSession bool
 	mode, err := NormalizeMode(reportMode)
 	if err != nil {
 		return err
+	}
+	if policy == SessionPolicyFreshSession {
+		if mode == ModeOneTake {
+			return fmt.Errorf("%w: report session policy %q is not supported for one-take reports", producterror.ErrInvalidInput, policy)
+		}
+		return nil
 	}
 	if mode == ModeOneTake {
 		return fmt.Errorf("%w: report session policy %q is not supported for one-take reports", producterror.ErrInvalidInput, policy)

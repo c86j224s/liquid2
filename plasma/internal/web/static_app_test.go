@@ -943,13 +943,16 @@ workflow.configure({
   syncReportControls: () => { calls.push(["sync"]); },
   workflowControlsBlocked: () => false,
   workflowContinueBlocked: () => blockedContinue,
-  rawInputFallback: () => nodes.turnText.value.trim(),
   setFormsEnabled: () => { calls.push(["setFormsEnabled"]); }
 });
-if (workflow.workflowRawInputValue() !== "fallback turn") throw new Error("raw input fallback changed");
+if (workflow.workflowRawInputValue() !== "") throw new Error("conversation input leaked into workflow input");
+await workflow.draftWorkflowGoal();
+await workflow.startWorkflow();
+if (errors !== 2) throw new Error("empty workflow input was not rejected");
+if (calls.some((call) => call[0] === "missionApi" && (call[1] === "/workflows/goal_draft" || call[1] === "/workflows"))) throw new Error("conversation input started workflow work");
+nodes.workflowInstruction.value = "raw";
 await workflow.draftWorkflowGoal();
 if (nodes.workflowRunGoal.value !== "draft goal" || nodes.workflowStepInstruction.value !== "draft step") throw new Error("goal draft public method changed");
-nodes.workflowInstruction.value = "raw";
 nodes.workflowRunGoal.value = "goal";
 nodes.workflowStepInstruction.value = "step";
 state.workflowGoalDraftRaw = "";
@@ -1652,7 +1655,7 @@ window.Plasma.mission.configure({api, rememberMissionID, markMissionActivitySeen
 window.Plasma.polling.configure({api, refreshSelectedMissionDetail, renderMissions});
 window.Plasma.conversation.configure({requireMission, reloadMission, showError, syncReportControls});
 window.Plasma.conversation.configureRendering({renderMarkdown:(value)=>String(value), empty:(value)=>String(value)});
-window.Plasma.workflow.configure({requireMission, reloadMission, showError, syncReportControls, rawInputFallback:()=>"Research", setFormsEnabled:()=>{}});
+window.Plasma.workflow.configure({requireMission, reloadMission, showError, syncReportControls, setFormsEnabled:()=>{}});
 const sendTurn = window.Plasma.conversation.sendTurn;
 const startWorkflow = window.Plasma.workflow.startWorkflow;
 window.Plasma.mission.refreshMissionList = refreshMissionList;
@@ -2255,6 +2258,192 @@ func mustReadPlasmaSettingsScripts(t *testing.T) string {
 		combined.Write(mustReadStatic(t, "static/plasma/"+name))
 	}
 	return combined.String()
+}
+
+func TestStaticAppReportPlanDisplaysLongFormHierarchy(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for report plan display regression")
+	}
+	nodeScript := `
+const fs = require("fs");
+const vm = require("vm");
+function makeNode(id) {
+  const classes = new Set(["hidden"]);
+  return {
+    id,
+    textContent: "",
+    innerHTML: "",
+    classList: {
+      add(value){ classes.add(value); },
+      remove(value){ classes.delete(value); },
+      contains(value){ return classes.has(value); }
+    }
+  };
+}
+const nodes = {
+  detailTitle: makeNode("detailTitle"),
+  detailBody: makeNode("detailBody"),
+  detailModal: makeNode("detailModal")
+};
+const context = {
+  console, Date, Math, JSON, RegExp, Error, TypeError, Set, Map, Array, Object, String, Number, Boolean,
+  document: { getElementById(id){ return nodes[id] || (nodes[id] = makeNode(id)); } }
+};
+context.window = context;
+context.globalThis = context;
+vm.createContext(context);
+for (const file of [
+  "static/plasma/namespace.js",
+  "static/plasma/dom.js",
+  "static/plasma/state.js",
+  "static/plasma/reports.js",
+  "static/plasma/reports_constants.js",
+  "static/plasma/reports_state.js",
+  "static/plasma/reports_view_state.js",
+  "static/plasma/reports_trace.js",
+  "static/plasma/reports_cards_artifacts.js"
+]) {
+  vm.runInContext(fs.readFileSync(file, "utf8"), context, {filename: file});
+}
+const Plasma = context.Plasma;
+const reports = Plasma.reports;
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+reports.reportGenerationSummaryHTML = () => "";
+reports.reportSourceContextHTML = () => "";
+reports.reportPreviewInlineHTML = () => "";
+reports.reportActionMenu = (_label, body) => body;
+Plasma.state.detail = {
+  reports: [{report_id: "r_single", title: "Single"}, {report_id: "r_single_no_summary", title: "Single no summary"}, {report_id: "r_long", title: "Long"}, {report_id: "r_long_no_summary", title: "Long no summary"}],
+  events: [
+    {
+      EventID: "evt_single_plan",
+      EventType: "report.plan.created",
+      Payload: {
+        report_version_id: "ver_single",
+        pending_event_id: "pending_single",
+        plan: {
+          summary: "Single summary",
+          sections: [{title: "Single <Title>", purpose: "Purpose & one", target_refs: {claim_ids: ["clm_<one>"]}}]
+        }
+      }
+    },
+    {
+      EventID: "evt_single_no_summary",
+      EventType: "report.plan.created",
+      Payload: {
+        report_version_id: "ver_single_no_summary",
+        pending_event_id: "pending_single_no_summary",
+        artifact_id: "art_single_no_summary",
+        plan: {
+          sections: [
+            {title: "Single no summary one", purpose: "First purpose", target_refs: {claim_ids: ["clm_1"]}},
+            {title: "Single no summary two", purpose: "Second purpose", target_refs: {evidence_ids: ["evd_2"]}}
+          ]
+        }
+      }
+    },
+    {
+      EventID: "evt_long_plan",
+      EventType: "report.plan.created",
+      Payload: {
+        report_version_id: "ver_long",
+        pending_event_id: "pending_long",
+        artifact_id: "art_long",
+        plan: {
+          summary: "Long summary",
+          sections: [{title: "Wrong fallback section"}],
+          parts: [
+            {
+              title: "Unsafe <script>Part</script>",
+              purpose: "Part purpose & one",
+              sections: [
+                {title: "Section <One>", purpose: "First purpose", target_refs: {claim_ids: ["clm_<one>"]}},
+                {title: "Section Two", purpose: "Second purpose", target_refs: {evidence_ids: ["evd_2"]}}
+              ]
+            },
+            {
+              title: "Part Two",
+              purpose: "Part purpose two",
+              sections: [{title: "Section Three", purpose: "Third purpose", target_refs: {question_ids: ["qst_3"]}}]
+            },
+            {
+              title: "Empty <Part>",
+              purpose: "No sections",
+              sections: []
+            }
+          ]
+        }
+      }
+    },
+    {
+      EventID: "evt_long_no_summary",
+      EventType: "report.plan.created",
+      Payload: {
+        report_version_id: "ver_long_no_summary",
+        pending_event_id: "pending_long_no_summary",
+        artifact_id: "art_long_no_summary",
+        plan: {
+          parts: [
+            {
+              title: "No summary part one",
+              purpose: "No summary purpose one",
+              sections: [{title: "No summary section one", purpose: "No summary section purpose one", target_refs: {snapshot_ids: ["snap_1"]}}]
+            },
+            {
+              title: "No summary part two",
+              purpose: "No summary purpose two",
+              sections: [{title: "No summary section two", purpose: "No summary section purpose two", target_refs: {option_ids: ["opt_2"]}}]
+            }
+          ]
+        }
+      }
+    }
+  ]
+};
+assert(reports.reportPlanLabel({sections: [{title: "One"}]}) === "1개 섹션", "summary-less single outline label changed");
+assert(reports.reportPlanLabel({}) === "", "empty plan label should stay empty");
+const singleVM = reports.reportViewModel({report_version_id: "ver_single", report_id: "r_single", state: "draft"}, 0);
+const singleNoSummaryVM = reports.reportViewModel({report_version_id: "ver_single_no_summary", report_id: "r_single_no_summary", state: "draft"}, 0);
+const longVM = reports.reportViewModel({report_version_id: "ver_long", report_id: "r_long", state: "draft"}, 0);
+const longNoSummaryVM = reports.reportViewModel({report_version_id: "ver_long_no_summary", report_id: "r_long_no_summary", state: "draft"}, 0);
+assert(singleVM.planLabel === "1개 섹션 / Single summary", "single plan card count changed: " + singleVM.planLabel);
+assert(singleNoSummaryVM.planLabel === "2개 섹션", "summary-less single legacy label should contain only section count: " + singleNoSummaryVM.planLabel);
+assert(longVM.planLabel === "3개 섹션 / Long summary", "long-form legacy card count did not use parts: " + longVM.planLabel);
+assert(longNoSummaryVM.planLabel === "2개 섹션", "summary-less long-form legacy label should contain only section count: " + longNoSummaryVM.planLabel);
+const artifactHTML = reports.renderArtifactReportSection([{key: "artifact:art_long", isLatest: true, payload: {artifact_id: "art_long", plan_event_id: "evt_long_plan", pending_event_id: "pending_long", report_mode: "long_form", title: "Artifact"}}], "");
+assert(artifactHTML.includes("3개 섹션 / Long summary"), "artifact card count did not use parts");
+const artifactSingleNoSummaryHTML = reports.renderArtifactReportSection([{key: "artifact:art_single_no_summary", isLatest: false, payload: {artifact_id: "art_single_no_summary", plan_event_id: "evt_single_no_summary", pending_event_id: "pending_single_no_summary", report_mode: "planned", title: "Single artifact no summary"}}], "");
+assert(artifactSingleNoSummaryHTML.includes("<span>2개 섹션</span>") && !artifactSingleNoSummaryHTML.includes("2개 섹션 /") && !artifactSingleNoSummaryHTML.includes("기록된 생성 계획 없음"), "summary-less single artifact label should contain only section count");
+const artifactNoSummaryHTML = reports.renderArtifactReportSection([{key: "artifact:art_long_no_summary", isLatest: true, payload: {artifact_id: "art_long_no_summary", plan_event_id: "evt_long_no_summary", pending_event_id: "pending_long_no_summary", report_mode: "long_form", title: "Artifact no summary"}}], "");
+assert(artifactNoSummaryHTML.includes("<span>2개 섹션</span>") && !artifactNoSummaryHTML.includes("2개 섹션 /") && !artifactNoSummaryHTML.includes("기록된 생성 계획 없음"), "summary-less artifact label should contain only section count");
+const oneTakeHTML = reports.renderArtifactReportSection([{key: "artifact:art_one_take", isLatest: false, payload: {artifact_id: "art_one_take", report_mode: "one_take", title: "One take"}}], "");
+assert(oneTakeHTML.includes("원테이크 생성: 별도 계획 없음"), "one_take artifact fallback changed");
+reports.showReportPlanEvent("evt_single_plan");
+const singleHTML = nodes.detailBody.innerHTML;
+assert(singleHTML.includes("Single &lt;Title&gt;") && singleHTML.includes("Purpose &amp; one"), "single plan detail lost escaped section content");
+assert(!singleHTML.includes("Part 1") && !singleHTML.includes("Section 1.1"), "single plan detail should keep existing non-hierarchical section list");
+reports.showReportPlanEvent("evt_long_plan");
+const longHTML = nodes.detailBody.innerHTML;
+for (const expected of ["Part 1", "Part 2", "Part 3", "Section 1.1", "Section 1.2", "Section 2.1", "0개 Section", "Section 계획 없음", "clm_&lt;one&gt;", "qst_3"]) {
+  assert(longHTML.includes(expected), "long-form hierarchy missing " + expected);
+}
+assert(longHTML.indexOf("Part 1") < longHTML.indexOf("Section 1.1") && longHTML.indexOf("Section 1.2") < longHTML.indexOf("Part 2"), "long-form hierarchy order changed");
+assert(longHTML.includes("Unsafe &lt;script&gt;Part&lt;/script&gt;") && longHTML.includes("Section &lt;One&gt;") && longHTML.includes("Empty &lt;Part&gt;"), "plan-derived titles were not escaped");
+assert(!longHTML.includes("<script>") && !longHTML.includes("Wrong fallback section"), "long-form detail rendered unsafe or fallback-only content");
+assert(longHTML.includes("<ol class=\"plan-section-list\" role=\"list\">") && longHTML.includes("<li class=\"plan-section-item\">"), "long-form sections are not rendered as semantic lists");
+reports.showReportPlanEvent("evt_long_no_summary");
+const noSummaryHTML = nodes.detailBody.innerHTML;
+assert(noSummaryHTML.includes("<ol class=\"plan-section-list\" role=\"list\">"), "summary-less long-form list role missing");
+assert(!noSummaryHTML.includes("연결된 근거 없음"), "Part-level missing-evidence noise was rendered even though all Sections have refs");
+reports.showReportPlanPayload({});
+assert(nodes.detailBody.innerHTML.includes("저장된 생성 계획이 없습니다."), "empty plan state changed");
+`
+	command := exec.Command("node", "-e", nodeScript)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("report plan display regression failed: %v\n%s", err, output)
+	}
 }
 
 func TestPlasmaT6ProductionOrderRuntimeContracts(t *testing.T) {
@@ -3448,7 +3637,6 @@ func TestStaticAppExposesWorkflowControlsWithoutTerminalUI(t *testing.T) {
 		`id="stopWorkflowButton"`,
 		"/workflows/goal_draft",
 		"workflowRawInputValue",
-		`$("turnText").addEventListener("input", workflow.onWorkflowRawInput)`,
 		"state.workflowGoalDraftPending &&",
 		"/workflows",
 		"workflow_runs",
@@ -3469,6 +3657,8 @@ func TestStaticAppExposesWorkflowControlsWithoutTerminalUI(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"rawInputFallback",
+		`$("turnText").addEventListener("input", workflow.onWorkflowRawInput)`,
 		"PTY",
 		`<option value="current"`,
 		`id="workflowStepInstructionMode">`,

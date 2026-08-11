@@ -121,6 +121,14 @@ func TestLoadCurrentPartEditStartRejectsInvalidCompletionArtifact(t *testing.T) 
 	svc, closeStore, binding := newPartEditFixture(t, ctx)
 	defer closeStore()
 	startPartEdit(t, ctx, svc, binding)
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID,
+		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
+		Producer: app.Producer{Type: "agent_session", ID: "provider-unrelated"},
+		Content:  []byte("# Part 1\n\nInvalid completion artifact.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.AppendEvent(ctx, partEditedRecoveryEvent(binding)); err != nil {
 		t.Fatal(err)
 	}

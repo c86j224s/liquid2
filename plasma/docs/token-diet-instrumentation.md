@@ -160,9 +160,10 @@ Preferred placement:
 
 - `turn.agent.response` gets `agent_usage`.
 - `turn.agent.compacted` gets `agent_usage`.
-- `report.plan.created`, `report.section.created`, `report.part.created`, and
+- `report.plan.created`, `report.plan.section_repair.completed`, `report.section.created`,
+  `report.section.evidence_gap`, `report.part.created`, and
   `report.artifact.created` get `agent_usage` for the agent call that produced
-  that event.
+  that event. `report.section.evidence_gap` remains non-artifact stage data.
 - `report.design.failed` and `report.draft.failed` get partial `agent_usage`
   when a provider call already returned usage before the failure was recorded.
 - Agent error responses get partial `agent_usage` when the provider emitted
@@ -237,9 +238,9 @@ The first implementation slice records:
   `turn.completed.usage`;
 - local prompt metrics for Codex executor calls;
 - `agent_usage` on browser turn responses, workflow step responses, compaction
-  events, report planning events, report section/part events, final Markdown
-  report artifact events, designed HTML export events, and report failure
-  events when partial provider usage is available;
+  events, report planning/plan-repair events, report section/section evidence-gap/part
+  events, final Markdown report artifact events, designed HTML export events,
+  and report failure events when partial provider usage is available;
 - `io_metrics` on `mcp.tool.called` events, including normalized read metrics
   for `plasma.sources.read` and `plasma.research.read`:
   requested offset/max bytes, returned content bytes, response truncation,

@@ -184,7 +184,15 @@ call, report request는 모두 같은 ledger 위의 event producer입니다.
   `workflow_steering` user turn과 agent result가 있는 일반 conversation path를 재사용합니다.
 - MCP call은 mission-bound research와 workflow control operation을 bounded trace event로 기록합니다.
 - Report request는 pending, artifact-created, failed event를 기록하고 기본 보고서를 Markdown artifact로
-  저장합니다.
+  저장합니다. 같은 SQLite database 안의 논리 report-run projection은 root `report.draft.pending`
+  event ID를 실행 identity로 쓰며, run state, revision, final artifact link, membership identity,
+  ownership role, compact usage aggregate만 저장합니다. Ledger payload와 artifact body는 계속 mission
+  ledger와 raw artifact table이 단일 원본입니다.
+- Report attempt는 `report.draft.pending` event ID를 durable identity로 씁니다. Retry pending ID는
+  같은 run 안의 attempt이며, root/original pending ID가 report-run identity입니다. 계보가 명시 링크로
+  결정되지 않는 legacy report는 읽을 수 있지만 삭제할 수 없는 ambiguous run으로 남깁니다.
+  Read model은 Section evidence-gap event를 artifact 없는 stage data로 다루며, Section 완료는 계속
+  `report.section.created`만으로 판단합니다.
 - Long-running report work는 browser, CLI, export surface가 공유하는 report runner boundary를 통과합니다.
   Runner는 pending/failure event, mode default, in-flight ownership을 소유합니다. 각 surface는 report
   policy를 직접 갖지 않고 executor와 request만 넘깁니다. 재시작 뒤에도 같은 pending event에 runner를
@@ -192,6 +200,13 @@ call, report request는 모두 같은 ledger 위의 event producer입니다.
   plan, section, part artifact를 재사용한 뒤 계속 진행합니다. 현재 in-flight ownership registry는
   process-local이고, database 하나당 report runner process 하나를 전제로 합니다. 여러 서버 인스턴스가
   같은 Plasma database를 공유하려면 ledger-backed report-run lease가 먼저 필요합니다.
+- 완료된 canonical Markdown report artifact는 명시적인 preview/delete 흐름으로만 삭제합니다. Active work,
+  ambiguous legacy lineage, terminal event 없는 pending attempt, 같은 SQLite DB의 run 외부 malformed ledger
+  payload, unclear external reference가 있으면 삭제를 막습니다. 성공하면 member report event와 run-owned unshared intermediate/final/
+  derivative artifact를 지우고 input과 shared artifact는 보존합니다. `plasma_report_runs`에는 mission
+  identity, run identity, purge metadata, revision, lifecycle state, compact token usage만 담은 purged
+  tombstone 하나를 남깁니다. Mission hard delete는 같은 mission-wide transaction 안에서 report-run row와
+  tombstone도 함께 지웁니다.
 - Source lifecycle과 observation event도 ledger-backed입니다. `source.removed`, `source.restored`는 source
   row나 raw artifact를 삭제하지 않고 projection만 바꿉니다. `source.observed`는 mutable live source를
   read/tree/grep할 때 bounded metadata를 남깁니다.
@@ -392,10 +407,12 @@ MCP read로 찾아야 합니다.
 
 원테이크 작성과 계획형 보고서의 계획·작성 단계에는 요청 방향을 직접 전달한다. 장문 보고서에서는 계획을 확정하기 전에 계획자가 사용자의 원문을 받고, 보고서 구조와 `ReportWritingContract`에 그 뜻을 가볍게 반영한다. 방향 지시는 강조점, 해석, 순서, 표현 방식을 조정할 수 있지만, 보고서 목표와 자료가 요구하는 범위와 깊이를 줄이는 근거로 사용해서는 안 된다. 장문 보고서의 섹션 작성, 파트 계획, 파트 조립과 편집, 최종 작성, 독자 편집 단계에는 사용자 원문과 작성 계약을 함께 전달한다. 원문이 최종 기준으로 남고, 계획자의 해석은 여러 작성 단계가 공유하는 편집 축으로만 작동한다.
 
-일반 대화와 재개 대화, 미션 알림, 상태 회상, 자율 진행, 결정적 조립, H5 또는 정식 보고서 확정 전 말투 편집, 의미 검증, 근거 연결 검증, 보고서 수정, 기본·디자인 HTML 내보내기에는 새로운 방향 블록을 넣지 않는다. 원문은 요청의 대기 이벤트에만 영속적으로 남고, 장문 계획에는 원문을 다른 상태 필드로 복제하지 않고 해석된 작성 계약만 저장한다. 이 허용 목록은 애플리케이션이 새 프롬프트를 만드는 방식을 보장할 뿐 제공자 세션 기록을 지우지는 않는다. 같은 제공자 세션을 의도적으로 이어 쓰는 경로에서는 앞선 보고서 프롬프트가 세션 맥락에 남아 있을 수 있다.
+일반 대화와 재개 대화, 미션 알림, 상태 회상, 자율 진행, 결정적 조립, H5 또는 정식 보고서 확정 전 말투 편집, 의미 검증, 근거 연결 검증, 보고서 수정, 기본·디자인 HTML 내보내기에는 새로운 방향 블록을 넣지 않는다. 원문은 요청의 대기 이벤트에만 영속적으로 남고, 장문 계획에는 원문을 다른 상태 필드로 복제하지 않고 해석된 작성 계약만 저장한다. 이 허용 목록은 애플리케이션이 새 프롬프트를 만드는 방식을 보장할 뿐 제공자 세션 기록을 지우지는 않는다. 자동 계획형·장문 보고서의 최초 계획은 새 제공자 세션에서 시작하므로 앞선 보고서 프롬프트를 상속하지 않는다. 명시적으로 같은 세션을 이어 쓰는 호환 경로에서는 그 기록이 남아 있을 수 있다.
 
-`one_take`를 제외한 agent-backed report generation은 가능한 경우 현재 research
-provider session을 fork하여 report-only session에서 실행합니다.
+자동 계획형·장문 보고서는 최초 계획을 빈 provider session에서 시작하고, 이후
+작성 단계는 반환된 계획 세션을 이어갑니다. 완료 뒤 일반 대화는 보고서 세션이 아닌
+기존 research session을 이어갑니다. `one_take`는 기존 대화 세션을 사용하며, 명시적
+`same_session`과 `isolated_fork`는 호환 경로로 유지합니다.
 
 기본 보고서 경로는 G2 generation-time guidance를 사용합니다. Manual post-canonical H5 export는 브라우저에서
 deprecated이며 historical artifact와 direct API compatibility로만 남습니다. H5는 original artifact를
@@ -432,7 +449,7 @@ request id, operation summary, provider session lineage, report-session policy s
 주변 보고서를 계속 보면서 지원되는 렌더링 블록 하나만 제자리에서 바꿀 수 있고, code fence나 table 같은 복합
 컨테이너는 읽기 전용으로 둡니다. 저장할 때 선택한 기본 또는 말투 보정 Markdown report artifact를 덮어쓰지
 않습니다. 대신 하나의 논리 작업본을 갱신하고, 바뀐 본문은 raw Markdown artifact로 저장하며,
-`report.redpen.saved`에는 artifact ID, revision, hash, media type, filename만 기록합니다. 같은 내용을 다시 저장하면
+`report.redpen.saved`에는 artifact ID, revision, hash, media type, filename과 artifact가 생성됐는지 참조만 됐는지를 기록합니다. 같은 내용을 다시 저장하면
 새 revision을 만들지 않고, 오래 열린 브라우저 탭의 저장은 conflict로 거부하며, 보기와 다운로드는 최신 저장
 revision을 가리킵니다.
 
@@ -456,6 +473,29 @@ writer와 Part assembler를 그 Part-owner session에서 fork한 뒤, 기계적 
 author로 resume해 기존 closed Part-edit tool을 사용합니다. Part-plan replay는 저장된 event의 envelope와
 provenance를 검증하고 저장된 canonical brief를 반환합니다. Retry 요청이 새 brief를 만들었더라도 그 값을
 canonical brief와 비교하지 않습니다.
+
+장문 보고서는 이제 canonical finalization까지 `internal/reportworkflow`의 typed 제품 graph로 실행합니다. root runner가 serial과
+`section_fanout` 선택, canonical plan event에서 나온 optional node 활성화, session fork, 최대 동시성 8의
+fan-out scheduling, 내용 없는 node observation을 소유합니다. 각 stage package는 자기 prompt bytes, MCP
+allowlist, provider 호출, 검증, typed recovery API, durable replay를 소유합니다. Root recovery는
+lineage를 순회하고 stage recovery API에 event를 넘긴 뒤, 중복 typed output을 감지하고 plan index별 결과를
+집계할 뿐입니다. Requirements recovery가 legacy mapping을 건너뛸 수 있는 경우는 명시적으로 일치하는 started
+event가 있거나, stage recovery가 Section/Part artifact content, plan index 범위, lineage 검증을 끝낸 뒤
+root가 넘기는 typed downstream 신호가 있을 때뿐입니다. Raw created-event envelope만으로는 건너뛰지 않습니다.
+Section draft stage는 typed Markdown draft 또는 typed evidence gap을 반환합니다. Evidence gap은 같은
+provider/tool session에서 같은 Section만 한 번 재시도하고, 같은 pending event, plan event, 1-based
+Part/Section 좌표에 묶인 two-attempt budget을 씁니다. 두 번째 gap은 나중에 created Section이 해당 좌표를
+완료하지 않는 한 root runner에 typed terminal gap으로 전달됩니다. Root는 retry lineage당 한 번 원래
+report-plan session에 실패 좌표 전체의 제한 보정을 요청합니다. 계획자는 읽기 전용 research/source 도구만
+쓰며 같은 좌표의 title, purpose, `target_refs`만 교체할 수 있습니다. Canonical plan event는 immutable이고,
+`report.plan.section_repair.completed`가 `applied` 또는 `unrepairable` 결과와 provider lineage를 보존합니다.
+적용 시 성공한 Section artifact는 재사용하고 교체 좌표만 새 two-attempt budget으로 실행합니다. 대체 불가
+또는 보정 뒤 terminal gap은 stable conflict failure이며 같은 lineage에서 두 번째 계획 보정은 없습니다.
+Web은 요청 정규화, executor/service wiring, 응답 직렬화만 유지합니다. Legacy finalizer 계약은
+`legacyfinalize` stage가 보존합니다. Serial은 `finalize sectional long-form markdown report`를 쓰고,
+fanout은 `finalize section-fanout long-form markdown report`를 쓰며, fanout은 항상 report-plan session에서
+fork하고 serial은 Part edit이 켜진 경우에만 fork합니다. V1/V2/V3 final edit stage는
+`internal/reportworkflow` 하위 stage package에 있으며 canonical 결과는 `finalstore.AdoptGate`가 채택합니다.
 
 이 작성 계약은 별도 글쓰기 선택지가 아닙니다. 브라우저는 더 이상 보고서 글쓰기 선택지를 노출하지 않으며,
 새 장문 요청은 `section-brief-cluster-memory-narrative-contract`를 기본값으로 사용합니다. 저장된 event와
@@ -507,7 +547,7 @@ Writer, reader, style, gate restart recovery는 저장된 start나 submission을
 각 provider-backed stage에는 기술 재시도가 한 번만 허용됩니다. 완료된 중간 artifact는 durable하게 남고, 성공한 submission 전에 두 번째
 실패가 발생하면 기존 보고서 실패 event로 canonical completion을 차단합니다.
 
-`final_edit_pipeline`이 없는 저장된 long-form 계획은 이전 finalization path를 유지하며 staged final-edit 단계를
+`final_edit_pipeline`이 없는 저장된 long-form 계획은 legacy `legacyfinalize` path를 유지하며 staged final-edit 단계를
 실행하지 않습니다. 이전 `visual-plan` profile은 C4의 `sectional_preserve_markdown`과 `c4_normalized_section_headings`
 의미를 저장 이벤트 replay와 중단 작업 복구에만 유지합니다. 이전 값을 새 공통 계약으로 재해석하지 않습니다.
 CLI `--mode long_form`은 CLI가 같은 section runner를 호출할 수 있을 때까지 거부하며, 단일 Markdown turn으로 흉내 내지
@@ -559,8 +599,8 @@ Plasma가 spawn한 기본 Codex/Claude 연구 에이전트의 MCP 도구 목록�
 구성한 MCP 클라이언트는 `-enabled-tool plasma.workflow.start`로 start를 계속 활성화할 수 있습니다.
 
 Report drafting도 provider-backed work입니다. Conversation이나 workflow가 terminal state에 도달한 뒤 실행할 수
-있지만, 같은 미션의 normal turn이나 workflow run과 겹치면 안 됩니다. Report가 provider session state를
-fork하거나 resume하고 durable report artifact를 쓰기 때문입니다.
+있지만, 같은 미션의 normal turn이나 workflow run과 겹치면 안 됩니다. Report가 별도 provider session에서
+계획·작성 단계를 이어가며 durable report artifact를 쓰기 때문입니다.
 
 첫 slice는 이 no-overlap rule을 shared service boundary에서 강제합니다. Normal turn start, report draft start,
 agent session reset, workflow run request는 새 pending/request event를 기록하는 conditional ledger append 안에서

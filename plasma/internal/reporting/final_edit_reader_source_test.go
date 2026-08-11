@@ -237,6 +237,13 @@ func TestFinalEditReaderSourceRejectsForeignBoundPlanPending(t *testing.T) {
 			t.Fatal(err)
 		}
 		payload["pending_event_id"] = "evt_foreign_pending"
+		if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+			ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
+			MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
+			Producer: binding.Producer, Content: []byte("# Report\n\nSynthetic foreign-bound final.\n"),
+		}); err != nil {
+			t.Fatal(err)
+		}
 		if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
 			EventID: event.EventID + "_foreign", MissionID: binding.MissionID, EventType: event.EventType,
 			Producer: event.Producer, CausationEventID: event.CausationEventID, CorrelationID: event.CorrelationID, Payload: testJSON(payload),

@@ -12,6 +12,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partplan"
+	workflowplan "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -203,33 +205,48 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 
 	executor := &sectionFanoutPlanReplayExecutor{service: svc, plan: narrativeContractTestPlan()}
 	server := NewServer(svc, Options{AgentExecutor: executor}).(*Server)
-	req := sectionFanoutLongFormRequest{
-		missionID: missionID, pendingEventID: pendingID, title: "Reader Report",
-		executorName: "claude", agentModel: "request-model", agentReasoningEffort: "request-reasoning",
-		agentSelectionSource: "request-selection", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
-		reportSessionPolicy: reportSessionPolicySameSession, reportSessionPolicySelection: "request-policy-selection",
-		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, generationGuidanceSHA256: "request-guidance-sha",
-	}
-	state, err := server.ensureSectionFanoutPlan(ctx, req, sectionalReportProgress{}, executor)
+	planOut, err := (workflowplan.Runner{
+		Service: svc, Lifecycle: reporting.Runner(server.reportRunner()), Executor: executor,
+		NewID: newID, LatestSessionID: server.latestAgentSessionID,
+	}).RunLongForm(ctx, workflowplan.LongFormInput{
+		Input: workflowplan.Input{
+			MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
+			AgentExecutor: "claude", AgentModel: "request-model", AgentReasoningEffort: "request-reasoning",
+			AgentSelectionSource: "request-selection", MCPMode: "auto", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+			ReportSessionPolicy: reportSessionPolicySameSession, ReportSessionPolicySelection: "request-policy-selection",
+			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, GenerationGuidanceSHA256: "request-guidance-sha",
+		},
+		SectionFanout: true,
+	})
 	if err != nil {
 		t.Fatalf("%v: %v", err, errors.Unwrap(err))
 	}
-	if state.reportPlanSessionID != "stored-report-plan-session" ||
-		state.agentExecutor != "claude" ||
-		state.agentModel != "stored-model" ||
-		state.agentReasoningEffort != "stored-reasoning" ||
-		state.agentSelectionSource != "stored-selection" ||
-		state.reportSessionPolicySelection != reportexecution.SessionPolicySelectionExplicitSameSession ||
-		state.generationGuidanceSHA256 != "stored-guidance-sha" ||
-		!state.partPlanningEnabled {
-		t.Fatalf("fresh state did not use replayed lifecycle event provenance: %#v", state)
+	if planOut.ReportPlanSessionID != "stored-report-plan-session" ||
+		planOut.AgentExecutor != "claude" ||
+		planOut.AgentModel != "stored-model" ||
+		planOut.AgentReasoningEffort != "stored-reasoning" ||
+		planOut.AgentSelectionSource != "stored-selection" ||
+		planOut.ReportSessionPolicySelection != reportexecution.SessionPolicySelectionExplicitSameSession ||
+		planOut.GenerationGuidanceSHA256 != "stored-guidance-sha" ||
+		!planOut.PartPlanningEnabled {
+		t.Fatalf("fresh state did not use replayed lifecycle event provenance: %#v", planOut)
 	}
 
-	outcome := server.runSectionFanoutPartPlan(ctx, req, state, sectionFanoutPartPlanTask{
-		partIndex: 0, part: state.plan.Parts[0], providerSession: "stored-part-owner-session", forkSourceSession: state.reportPlanSessionID,
-	}, executor)
-	if outcome.err != nil {
-		t.Fatal(outcome.err)
+	partOut, err := (partplan.Runner{Service: svc, Executor: executor, NewID: newID}).Run(ctx, partplan.Input{
+		Base: partplan.BaseInput{
+			MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
+			AgentExecutor: planOut.AgentExecutor, AgentModel: planOut.AgentModel, AgentReasoningEffort: planOut.AgentReasoningEffort,
+			AgentSelectionSource: planOut.AgentSelectionSource, MCPMode: "auto", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+			ReportSessionPolicy: planOut.ReportSessionPolicy, ReportSessionPolicySelection: planOut.ReportSessionPolicySelection,
+			GenerationGuidanceProfile: planOut.GenerationGuidanceProfile, GenerationGuidanceSHA256: planOut.GenerationGuidanceSHA256,
+			Plan: planOut.Plan, PlanEvent: planOut.Event, ReportPlanSessionID: planOut.ReportPlanSessionID,
+			SessionChainKind: planOut.SessionChainKind, PreReportResearchSessionID: planOut.PreReportResearchSessionID,
+		},
+		Part: planOut.Plan.Parts[0], PartIndex: 0,
+		ProviderSessionID: "stored-part-owner-session", ForkSourceSession: planOut.ReportPlanSessionID,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	if len(executor.partPlanRequests) != 1 {
 		t.Fatalf("expected one downstream Part-plan request, got %#v", executor.partPlanRequests)
@@ -242,7 +259,7 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 		t.Fatalf("downstream Part-plan invocation did not use stored parent provenance: %#v", partReq)
 	}
 	payload := map[string]any{}
-	if err := json.Unmarshal(outcome.plan.event.Payload, &payload); err != nil {
+	if err := json.Unmarshal(partOut.Event.Payload, &payload); err != nil {
 		t.Fatal(err)
 	}
 	if payload["agent_executor"] != "claude" ||

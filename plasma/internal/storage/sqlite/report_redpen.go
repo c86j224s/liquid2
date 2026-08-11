@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/artifactrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
 )
@@ -13,7 +14,7 @@ import (
 func (s *Store) CommitReportRedpenRevision(
 	ctx context.Context,
 	candidate app.RawArtifact,
-	build func([]app.LedgerEvent, app.RawArtifact) (app.LedgerEvent, bool, error),
+	build func([]app.LedgerEvent, app.RawArtifact, string) (app.LedgerEvent, bool, error),
 ) (app.RawArtifact, app.LedgerEvent, bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -32,7 +33,11 @@ func (s *Store) CommitReportRedpenRevision(
 	if !exists {
 		target = candidate
 	}
-	event, appendEvent, err := build(events, target)
+	ownership := app.ReportRedpenArtifactOwnershipReferenced
+	if !exists {
+		ownership = app.ReportRedpenArtifactOwnershipCreated
+	}
+	event, appendEvent, err := build(events, target, ownership)
 	if err != nil {
 		return app.RawArtifact{}, app.LedgerEvent{}, false, err
 	}
@@ -51,6 +56,11 @@ func (s *Store) CommitReportRedpenRevision(
 	}
 	if !exists {
 		if err := artifactrepo.InsertRawArtifactTx(ctx, tx, candidate); err != nil {
+			return app.RawArtifact{}, app.LedgerEvent{}, false, err
+		}
+	}
+	if reportrun.IsReportEventType(committed.EventType) {
+		if err := s.applyReportRunRegistrationTx(ctx, tx, candidate.MissionID); err != nil {
 			return app.RawArtifact{}, app.LedgerEvent{}, false, err
 		}
 	}

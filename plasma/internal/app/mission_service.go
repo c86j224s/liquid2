@@ -46,51 +46,8 @@ func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pen
 		return nil, false, fmt.Errorf("%w: pending event and terminal events are required", ErrInvalidInput)
 	}
 	appended, err := s.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
-		pending, found := reportPendingEvent(events, pendingEventID)
-		if !found {
-			return nil, fmt.Errorf("%w: report pending event %q does not exist", ErrInvalidInput, pendingEventID)
-		}
-		completed := ledgerstate.CompletedReportPendingEventIDs(ledgerStateEventsFromApp(events))
-		if _, closed := completed[strings.TrimSpace(pendingEventID)]; closed {
-			return nil, nil
-		}
-		built := make([]LedgerEvent, 0, len(reqs))
-		terminalCount := 0
-		terminalID := ""
-		for _, req := range reqs {
-			if strings.TrimSpace(req.MissionID) != missionID {
-				return nil, fmt.Errorf("%w: event mission_id must match %s", ErrInvalidInput, missionID)
-			}
-			event, err := buildLedgerEvent(req)
-			if err != nil {
-				return nil, err
-			}
-			terminal, err := validateReportTerminalAppend(pending, event)
-			if err != nil {
-				return nil, err
-			}
-			if terminal {
-				terminalCount++
-				terminalID = event.EventID
-			}
-			built = append(built, event)
-		}
-		if terminalCount != 1 {
-			return nil, fmt.Errorf("%w: report closure requires exactly one terminal event", ErrInvalidInput)
-		}
-		for _, event := range built {
-			if event.EventType != "report.plan.failed" && event.EventType != "report.requirements.failed" && event.EventType != "report.part_plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.part_edit.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" {
-				continue
-			}
-			var payload struct {
-				TerminalID string `json:"terminal_event_id"`
-			}
-			_ = json.Unmarshal(event.Payload, &payload)
-			if event.CorrelationID != terminalID || payload.TerminalID != terminalID {
-				return nil, fmt.Errorf("%w: stage companion must correlate to terminal event", ErrInvalidInput)
-			}
-		}
-		if err := ValidateAgentExecutorAppend(events, built); err != nil {
+		built, open, err := buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, reqs)
+		if err != nil || !open {
 			return nil, err
 		}
 		return built, nil
@@ -102,6 +59,57 @@ func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pen
 		return nil, false, nil
 	}
 	return appended, true, nil
+}
+
+func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEventID string, reqs []AppendEventRequest) ([]LedgerEvent, bool, error) {
+	pending, found := reportPendingEvent(events, pendingEventID)
+	if !found {
+		return nil, false, fmt.Errorf("%w: report pending event %q does not exist", ErrInvalidInput, pendingEventID)
+	}
+	completed := ledgerstate.CompletedReportPendingEventIDs(ledgerStateEventsFromApp(events))
+	if _, closed := completed[strings.TrimSpace(pendingEventID)]; closed {
+		return nil, false, nil
+	}
+	built := make([]LedgerEvent, 0, len(reqs))
+	terminalCount := 0
+	terminalID := ""
+	for _, req := range reqs {
+		if strings.TrimSpace(req.MissionID) != missionID {
+			return nil, false, fmt.Errorf("%w: event mission_id must match %s", ErrInvalidInput, missionID)
+		}
+		event, err := buildLedgerEvent(req)
+		if err != nil {
+			return nil, false, err
+		}
+		terminal, err := validateReportTerminalAppend(pending, event)
+		if err != nil {
+			return nil, false, err
+		}
+		if terminal {
+			terminalCount++
+			terminalID = event.EventID
+		}
+		built = append(built, event)
+	}
+	if terminalCount != 1 {
+		return nil, false, fmt.Errorf("%w: report closure requires exactly one terminal event", ErrInvalidInput)
+	}
+	for _, event := range built {
+		if event.EventType != "report.plan.failed" && event.EventType != "report.requirements.failed" && event.EventType != "report.part_plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.part_edit.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" {
+			continue
+		}
+		var payload struct {
+			TerminalID string `json:"terminal_event_id"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if event.CorrelationID != terminalID || payload.TerminalID != terminalID {
+			return nil, false, fmt.Errorf("%w: stage companion must correlate to terminal event", ErrInvalidInput)
+		}
+	}
+	if err := ValidateAgentExecutorAppend(events, built); err != nil {
+		return nil, false, err
+	}
+	return built, true, nil
 }
 
 func reportPendingEvent(events []LedgerEvent, pendingID string) (LedgerEvent, bool) {

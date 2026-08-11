@@ -131,6 +131,35 @@ type MarkdownReportSectionCreatedEventRequest struct {
 	WordCount    int
 }
 
+// MarkdownReportSectionEvidenceGapEventRequest records a Section writer control
+// outcome without persisting an artifact, source excerpt, or free-form diagnosis.
+type MarkdownReportSectionEvidenceGapEventRequest struct {
+	EventID                    string
+	MissionID                  string
+	PendingEventID             string
+	PlanEventID                string
+	PartIndex                  int
+	SectionIndex               int
+	Attempt                    int
+	ReasonCode                 string
+	AgentExecutor              string
+	AgentSessionID             string
+	PreviousAgentSessionID     string
+	ReturnedAgentSessionID     string
+	ToolSessionID              string
+	SessionChainKind           string
+	PreReportResearchSessionID string
+	ReportPlanSessionID        string
+	ReportSessionID            string
+	ForkSourceAgentSessionID   string
+	DurationMS                 int64
+	AgentUsage                 agentusage.AgentUsage
+	AgentUsageSurface          string
+	AgentUsageDurationMS       int64
+	AgentResumed               bool
+	Producer                   app.Producer
+}
+
 // MarkdownReportPartCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportPartCreatedEventRequest struct {
 	MarkdownReportStageEventBase
@@ -229,6 +258,41 @@ func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCre
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.section.created",
 		Producer:  base.Producer,
+		Payload:   mustJSON(payload),
+	}
+}
+
+// BuildMarkdownReportSectionEvidenceGapAppendRequest는 Section writer가 본문 대신
+// exact evidence-gap token을 낸 시도를 장부에 기록한다. Payload는 재시도/복구에
+// 필요한 고정 필드만 담고 artifact나 free-form diagnosis를 만들지 않는다.
+func BuildMarkdownReportSectionEvidenceGapAppendRequest(req MarkdownReportSectionEvidenceGapEventRequest) app.AppendEventRequest {
+	payload := map[string]any{
+		"pending_event_id":               strings.TrimSpace(req.PendingEventID),
+		"plan_event_id":                  strings.TrimSpace(req.PlanEventID),
+		"part_index":                     req.PartIndex,
+		"section_index":                  req.SectionIndex,
+		"attempt_number":                 req.Attempt,
+		"reason_code":                    strings.TrimSpace(req.ReasonCode),
+		"agent_executor":                 strings.TrimSpace(req.AgentExecutor),
+		"agent_session_id":               strings.TrimSpace(req.AgentSessionID),
+		"previous_agent_session_id":      strings.TrimSpace(req.PreviousAgentSessionID),
+		"returned_agent_session_id":      strings.TrimSpace(req.ReturnedAgentSessionID),
+		"tool_session_id":                strings.TrimSpace(req.ToolSessionID),
+		"session_chain_kind":             strings.TrimSpace(req.SessionChainKind),
+		"pre_report_research_session_id": strings.TrimSpace(req.PreReportResearchSessionID),
+		"report_plan_session_id":         strings.TrimSpace(req.ReportPlanSessionID),
+		"report_session_id":              strings.TrimSpace(req.ReportSessionID),
+		"fork_source_agent_session_id":   strings.TrimSpace(req.ForkSourceAgentSessionID),
+		"duration_ms":                    req.DurationMS,
+	}
+	if eventUsage, ok := req.AgentUsage.ForEvent(req.AgentUsageSurface, req.AgentUsageDurationMS, req.PreviousAgentSessionID, req.AgentSessionID, req.AgentResumed, false); ok {
+		payload["agent_usage"] = eventUsage
+	}
+	return app.AppendEventRequest{
+		EventID:   strings.TrimSpace(req.EventID),
+		MissionID: strings.TrimSpace(req.MissionID),
+		EventType: "report.section.evidence_gap",
+		Producer:  req.Producer,
 		Payload:   mustJSON(payload),
 	}
 }

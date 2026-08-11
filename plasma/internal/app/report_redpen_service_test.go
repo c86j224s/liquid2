@@ -35,7 +35,7 @@ func (s *reportRedpenTestStore) ListLedgerEvents(_ context.Context, missionID st
 func (s *reportRedpenTestStore) CommitReportRedpenRevision(
 	_ context.Context,
 	candidate RawArtifact,
-	build func([]LedgerEvent, RawArtifact) (LedgerEvent, bool, error),
+	build func([]LedgerEvent, RawArtifact, string) (LedgerEvent, bool, error),
 ) (RawArtifact, LedgerEvent, bool, error) {
 	target := candidate
 	exists := false
@@ -46,7 +46,11 @@ func (s *reportRedpenTestStore) CommitReportRedpenRevision(
 			break
 		}
 	}
-	event, appendEvent, err := build(append([]LedgerEvent(nil), s.events...), target)
+	ownership := ReportRedpenArtifactOwnershipReferenced
+	if !exists {
+		ownership = ReportRedpenArtifactOwnershipCreated
+	}
+	event, appendEvent, err := build(append([]LedgerEvent(nil), s.events...), target, ownership)
 	if err != nil {
 		return RawArtifact{}, LedgerEvent{}, false, err
 	}
@@ -87,6 +91,13 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	if strings.Contains(string(first.Event.Payload), "첫 교정입니다") || strings.Contains(string(first.Event.Payload), "content") {
 		t.Fatalf("redpen event leaked report content: %s", first.Event.Payload)
 	}
+	firstPayload, err := decodeReportRedpenPayload(first.Event)
+	if err != nil {
+		t.Fatalf("decode first redpen payload: %v", err)
+	}
+	if firstPayload.ArtifactOwnership != ReportRedpenArtifactOwnershipCreated {
+		t.Fatalf("first redpen ownership=%q, want created", firstPayload.ArtifactOwnership)
+	}
 
 	noOp := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_noop", ArtifactID: "art_redpen_noop", NewWorkcopyID: "rwc_unused",
@@ -106,7 +117,7 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 		t.Fatalf("unexpected second redpen revision: %#v", second)
 	}
 
-	_, err := svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
+	_, err = svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen_stale", ArtifactID: "art_redpen_stale", NewWorkcopyID: "rwc_unused_3",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: first.Artifact.ArtifactID,
 		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("stale edit"),
@@ -123,6 +134,13 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	if reverted.Artifact.ArtifactID != source.ArtifactID || reverted.Revision != 3 || reverted.Filename != "report-redpen.md" || len(store.artifacts) != 3 {
 		t.Fatalf("revert should reuse the source artifact: result=%#v artifacts=%d", reverted, len(store.artifacts))
 	}
+	revertedPayload, err := decodeReportRedpenPayload(reverted.Event)
+	if err != nil {
+		t.Fatalf("decode reverted redpen payload: %v", err)
+	}
+	if revertedPayload.ArtifactOwnership != ReportRedpenArtifactOwnershipReferenced {
+		t.Fatalf("reverted redpen ownership=%q, want referenced", revertedPayload.ArtifactOwnership)
+	}
 
 	loaded, err := svc.GetReportRedpenWorkcopy(ctx, "mis_1", source.ArtifactID)
 	if err != nil {
@@ -130,6 +148,59 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	}
 	if !loaded.Exists || loaded.Revision != 3 || loaded.Artifact.ArtifactID != source.ArtifactID || string(loaded.Artifact.Content) != string(source.Content) {
 		t.Fatalf("unexpected loaded redpen workcopy: %#v", loaded)
+	}
+}
+
+func TestReportRedpenWorkcopyAcceptsLegacyMissingOwnershipAndRejectsInvalidOwnership(t *testing.T) {
+	ctx := context.Background()
+	source := mustReportRedpenArtifact(t, "art_source_legacy", "mis_1", "report.md", "# 제목\n\n원문입니다.\n")
+	legacy := mustReportRedpenArtifact(t, "art_redpen_legacy", "mis_1", "report-redpen.md", "# 제목\n\n기존 교정입니다.\n")
+	legacyEvent := reportRedpenSavedEventForTest(t, "evt_redpen_legacy", source, legacy, "", 1, source.ArtifactID)
+	store := &reportRedpenTestStore{
+		artifacts: map[string]RawArtifact{source.ArtifactID: source, legacy.ArtifactID: legacy},
+		events:    []LedgerEvent{reportRedpenSourceEvent(source), legacyEvent},
+	}
+	svc := NewService(store)
+
+	loaded, err := svc.GetReportRedpenWorkcopy(ctx, source.MissionID, source.ArtifactID)
+	if err != nil {
+		t.Fatalf("GetReportRedpenWorkcopy returned error for legacy marker-less event: %v", err)
+	}
+	if !loaded.Exists || loaded.Artifact.ArtifactID != legacy.ArtifactID || loaded.WorkcopyID != "rwc_legacy" {
+		t.Fatalf("unexpected legacy workcopy: %#v", loaded)
+	}
+	emptyOwnershipEvent := legacyEvent
+	var emptyOwnershipPayload map[string]any
+	if err := json.Unmarshal(legacyEvent.Payload, &emptyOwnershipPayload); err != nil {
+		t.Fatalf("unmarshal legacy redpen payload: %v", err)
+	}
+	emptyOwnershipPayload["artifact_ownership"] = ""
+	emptyOwnershipEvent.Payload, err = json.Marshal(emptyOwnershipPayload)
+	if err != nil {
+		t.Fatalf("marshal empty-ownership redpen payload: %v", err)
+	}
+	if _, err := decodeReportRedpenPayload(emptyOwnershipEvent); err != nil {
+		t.Fatalf("decode empty-ownership redpen payload: %v", err)
+	}
+
+	updated := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
+		EventID: "evt_redpen_legacy_upgrade", ArtifactID: "art_redpen_legacy_upgrade", NewWorkcopyID: "rwc_unused",
+		MissionID: source.MissionID, SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: legacy.ArtifactID,
+		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n업데이트된 교정입니다.\n"),
+	})
+	payload, err := decodeReportRedpenPayload(updated.Event)
+	if err != nil {
+		t.Fatalf("decode upgraded redpen payload: %v", err)
+	}
+	if payload.ArtifactOwnership != ReportRedpenArtifactOwnershipCreated {
+		t.Fatalf("upgraded redpen ownership=%q, want created", payload.ArtifactOwnership)
+	}
+
+	invalidEvent := reportRedpenSavedEventForTest(t, "evt_redpen_invalid_ownership", source, legacy, "owned", 2, legacy.ArtifactID)
+	store.events = append(store.events, invalidEvent)
+	_, err = svc.GetReportRedpenWorkcopy(ctx, source.MissionID, source.ArtifactID)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected invalid non-empty ownership rejection, got %v", err)
 	}
 }
 
@@ -195,6 +266,32 @@ func TestGetReportRedpenWorkcopyRejectsCorruptedEvent(t *testing.T) {
 	_, err := NewService(store).GetReportRedpenWorkcopy(context.Background(), source.MissionID, source.ArtifactID)
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected corrupted redpen event rejection, got %v", err)
+	}
+}
+
+func reportRedpenSavedEventForTest(t *testing.T, eventID string, source RawArtifact, artifact RawArtifact, ownership string, revision int, previousArtifactID string) LedgerEvent {
+	t.Helper()
+	fields := map[string]any{
+		"kind":                 ReportRedpenArtifactKind,
+		"workcopy_id":          "rwc_legacy",
+		"source_artifact_id":   source.ArtifactID,
+		"artifact_id":          artifact.ArtifactID,
+		"previous_artifact_id": previousArtifactID,
+		"revision":             revision,
+		"sha256":               artifact.SHA256,
+		"media_type":           artifact.MediaType,
+		"filename":             artifact.Filename,
+	}
+	if ownership != "" {
+		fields["artifact_ownership"] = ownership
+	}
+	payload, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("marshal redpen event: %v", err)
+	}
+	return LedgerEvent{
+		EventID: eventID, MissionID: source.MissionID, EventType: ReportRedpenSavedEvent,
+		Producer: Producer{Type: "user", ID: "legacy"}, Payload: payload,
 	}
 }
 

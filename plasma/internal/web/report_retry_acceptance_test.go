@@ -16,6 +16,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partedit"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -649,18 +651,30 @@ func TestReportRecoveryIgnoresMalformedPartEditOutcomeAndRerunsEditor(t *testing
 		Title: plan.Parts[0].Title, Markdown: string(partArtifact.Content),
 		ArtifactID: partArtifact.ArtifactID, WordCount: reportWordCount(string(partArtifact.Content)),
 	}}
-	editedParts, editedArtifactIDs, err := server.editSectionFanoutParts(ctx, sectionFanoutLongFormRequest{
-		missionID: missionID, title: "Reader Report", executorName: "codex", mcpMode: "auto",
-		rigor: reportRigorProfiles["balanced"], reportSessionPolicy: reportSessionPolicySameSession,
-		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice, pendingEventID: pendingID,
-	}, sectionFanoutPlanState{
-		artifactID: progress.artifactID, plan: plan, planEvent: progress.planEvent, reportPlanSessionID: progress.reportPlanSessionID,
-		reportSessionPolicy: progress.reportSessionPolicy, reportSessionPolicySelection: progress.reportSessionPolicySelection,
-		sessionChainKind: progress.sessionChainKind, partEditEnabled: true,
-	}, progress, parts, forker, executor)
+	previousSessionID, forkSourceID, err := legacyfinalize.ForkSession(ctx, forker, progress.reportPlanSessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if forkSourceID == "" {
+		forkSourceID = progress.reportPlanSessionID
+	}
+	editInput := partEditInput(reportPartEditorRequest{
+		title: "Reader Report", missionID: missionID, pendingEventID: pendingID, planEventID: progress.planEvent.EventID,
+		toolSessionID: newID("ses"), previousSessionID: previousSessionID,
+		editedArtifactID: newID("art"), filename: safeFilename("Reader Report part 01 edited", ".md"),
+		executorName: "codex", mcpMode: "auto", rigor: reportRigorProfiles["balanced"],
+		plan: plan, part: plan.Parts[0], partIndex: 0, source: parts[0],
+		reportSessionPolicy: progress.reportSessionPolicy, reportSessionPolicySelection: progress.reportSessionPolicySelection,
+		generationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
+		sessionChainKind:          progress.sessionChainKind, reportPlanSessionID: progress.reportPlanSessionID,
+		forkSourceAgentSessionID: forkSourceID,
+	}, false, "")
+	out, err := (partedit.Runner{Service: svc, Executor: executor, NewID: newID}).Run(ctx, editInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedParts := []sectionalReportPartDraft{partEditDraft(out)}
+	editedArtifactIDs := []string{out.Draft.ArtifactID}
 	if len(editedParts) != 1 || len(editedArtifactIDs) != 1 || editedArtifactIDs[0] == fakeArtifact.ArtifactID {
 		t.Fatalf("Part editor was skipped or reused malformed artifact: parts=%#v ids=%#v fake=%s", editedParts, editedArtifactIDs, fakeArtifact.ArtifactID)
 	}

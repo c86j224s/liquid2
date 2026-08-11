@@ -265,7 +265,10 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	previousSessionID := preReportResearchSessionID
 	forkSourceSessionID := ""
 	sessionChainKind := "same_session_report"
-	if reportSessionPolicy == reportexecution.SessionPolicyIsolatedFork {
+	if reportSessionPolicy == reportexecution.SessionPolicyFreshSession {
+		previousSessionID = ""
+		sessionChainKind = "fresh_session_report"
+	} else if reportSessionPolicy == reportexecution.SessionPolicyIsolatedFork {
 		forker, ok := executor.(agentexec.AgentSessionForker)
 		if !ok {
 			return cliReportDraftRunResult{Err: reportexecution.ValidateSessionPolicy(reportSessionPolicy, reportMode, false, strings.TrimSpace(preReportResearchSessionID) != "", false)}

@@ -112,7 +112,7 @@ func TestFinalWriterV2ExperimentAdapterPreservesFrozenReviewedPartBytes(t *testi
 		t.Fatalf("frozen manifest did not replay byte-identically digest=%s/%s manifest=%#v loaded=%#v", digest, loadedDigest, manifest, loaded)
 	}
 
-	reqs := map[string]longFormReaderStyleGatePipelineRequest{}
+	reqs := map[string]finalizationPrefixFixture{}
 	for _, arm := range []string{"A", "B"} {
 		dbPath := filepath.Join(t.TempDir(), arm+".db")
 		svc, closeStore := openFinalWriterV2ExperimentService(t, ctx, dbPath)
@@ -144,9 +144,17 @@ func TestFinalWriterV2ExperimentAdapterPreservesFrozenReviewedPartBytes(t *testi
 		reqs["A"].reportPlanSessionID == reqs["B"].reportPlanSessionID {
 		t.Fatalf("A/B lineages were not independent: A=%#v B=%#v", reqs["A"], reqs["B"])
 	}
-	if reqs["A"].finalEditPipeline() != reporting.FinalEditPipelineReaderStyleGateV1 ||
-		reqs["B"].finalEditPipeline() != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
-		t.Fatalf("unexpected pipelines A=%q B=%q", reqs["A"].finalEditPipeline(), reqs["B"].finalEditPipeline())
+	pipelineA, _, err := reporting.FinalEditPipelineFromPlanEvent(reqs["A"].planEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipelineB, _, err := reporting.FinalEditPipelineFromPlanEvent(reqs["B"].planEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pipelineA.Pipeline != reporting.FinalEditPipelineReaderStyleGateV1 ||
+		pipelineB.Pipeline != reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 {
+		t.Fatalf("unexpected pipelines A=%q B=%q", pipelineA.Pipeline, pipelineB.Pipeline)
 	}
 }
 
@@ -177,12 +185,11 @@ func TestFinalWriterV2ExperimentAdapterRoutesPrivateRunnerThroughProductStages(t
 				t.Fatal(err)
 			}
 			executor := &finalWriterV2FixtureExecutor{service: svc}
-			server := NewServer(svc, Options{}).(*Server)
-			result, err := server.runLongFormReaderStyleGatePipeline(ctx, req, executor)
+			result, err := finalizePrefixForWebTest(ctx, svc, newID, req, executor)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.TrimSpace(fmt.Sprint(result["markdown"])) == "" {
+			if strings.TrimSpace(result.Markdown) == "" {
 				t.Fatalf("empty final markdown: %#v", result)
 			}
 			if got := finalWriterV2StageSequence(executor.requests); !slices.Equal(got, tc.wantStages) {

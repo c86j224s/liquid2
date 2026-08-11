@@ -8,6 +8,8 @@ import (
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partassembly"
 )
 
 func TestSectionDirectReadingGuidanceStaysWithSectionWriter(t *testing.T) {
@@ -47,7 +49,10 @@ func TestSectionDirectReadingGuidanceStaysWithSectionWriter(t *testing.T) {
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_final",
 		IdempotencyKey: "final-key", CompositionStrategy: reporting.LongFormCompositionNarrativeEdit,
 	}
-	finalPrompt := agentLongFormFinalizePrompt("Long", binding.MissionID, reportRigorProfiles["balanced"], plan, nil, profile, binding, 1, false, reporting.LongFormFinalizationHint{})
+	finalPrompt := legacyfinalize.PromptWithRequirements(legacyfinalize.Input{
+		MissionID: binding.MissionID, Title: "Long", Rigor: reportWorkflowRigor(reportRigorProfiles["balanced"]),
+		Plan: plan, GenerationGuidanceProfile: profile,
+	}, binding, 1, false, reporting.LongFormFinalizationHint{})
 
 	for name, prompt := range map[string]string{"plan": planPrompt, "part": partPrompt, "final": finalPrompt} {
 		if strings.Contains(prompt, "Section direct-writing guidance:") {
@@ -69,8 +74,8 @@ func TestSectionDirectReadingGuidanceStaysWithSectionWriter(t *testing.T) {
 		}
 	}
 
-	if !slices.Contains(reportPartAssemblyMCPTools(profile), plasmamcp.ToolReportPartSectionRead) ||
-		!slices.Contains(reportFinalizeMCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
+	if !slices.Contains(partassembly.MCPTools(profile), plasmamcp.ToolReportPartSectionRead) ||
+		!slices.Contains(legacyfinalize.MCPTools(profile), plasmamcp.ToolReportLongFormEditStart) {
 		t.Fatalf("section-direct profile lost narrative Part/final editor tools")
 	}
 }

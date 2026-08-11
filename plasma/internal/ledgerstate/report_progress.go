@@ -286,7 +286,14 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			id = stageID("part_plan", q.Part, 0)
 		case "report.section.started":
 			id = stageID("section", q.Part, q.Section)
-			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+			if i, ok := index[id]; ok && nodes[i].State != "completed" && nodes[i].AttemptID != q.PendingID {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			}
+			continue
+		case "report.section.evidence_gap":
+			id = stageID("section", q.Part, q.Section)
+			if i, ok := index[id]; ok && nodes[i].State != "completed" && nodes[i].State != "failed" {
 				nodes[i].AttemptID = q.PendingID
 				nodes[i].State = "running"
 			}

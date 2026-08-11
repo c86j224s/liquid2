@@ -6,6 +6,21 @@
   const escapeAttr = root.Plasma.dom.escapeAttr;
   const timeShort = root.Plasma.dom.timeShort;
   const REPORT_RIGOR_LABELS = reports.REPORT_RIGOR_LABELS;
+function reportPlanSectionCount(planData) {
+  const parts = Array.isArray(planData?.parts) ? planData.parts : [];
+  if (parts.length) {
+    return parts.reduce((count, part) => count + (Array.isArray(part?.sections) ? part.sections.length : 0), 0);
+  }
+  return Array.isArray(planData?.sections) ? planData.sections.length : 0;
+}
+
+function reportPlanLabel(planData) {
+  const summary = planData?.summary || "";
+  if (summary) return `${reportPlanSectionCount(planData)}개 섹션 / ${summary}`;
+  if (Array.isArray(planData?.sections) || (Array.isArray(planData?.parts) && planData.parts.length)) return `${reportPlanSectionCount(planData)}개 섹션`;
+  return "";
+}
+
 function reportViewModel(version, index) {
   const versionID = version.report_version_id || "";
   const drafted = reportDraftedPayload(versionID);
@@ -17,7 +32,6 @@ function reportViewModel(version, index) {
   const createdLabel = version.created_at ? timeShort(version.created_at) : "생성 시각 없음";
   const exportTargets = exports.map((item) => exportTargetLabel(item.target)).filter(Boolean);
   const planData = plan.plan || {};
-  const sectionCount = Array.isArray(planData.sections) ? planData.sections.length : 0;
   return {
     version,
     versionID,
@@ -29,7 +43,7 @@ function reportViewModel(version, index) {
     exportLabel: exportTargets.length ? `내보냄: ${exportTargets.join(", ")}` : "아직 내보낸 파일 없음",
     plan,
     trace,
-    planLabel: planData.summary ? `${sectionCount}개 섹션 / ${planData.summary}` : "기록된 생성 계획 없음",
+    planLabel: reportPlanLabel(planData) || "기록된 생성 계획 없음",
     traceLabel: trace.total ? `총 ${trace.total}회, 오류 ${trace.errors}회` : "기록된 MCP 호출 없음"
   };
 }
@@ -156,5 +170,5 @@ function toolShortName(name) {
 
 
 
-  Object.assign(reports, { reportViewModel, reportDraftedPayload, reportPlanPayload, reportPlanPayloadByEventID, mcpTraceEvents, mcpTraceSummary, renderTraceBars, reportExportPayloads, reportTitle, reportStateLabel, exportTargetLabel, toolShortName });
+  Object.assign(reports, { reportViewModel, reportPlanSectionCount, reportPlanLabel, reportDraftedPayload, reportPlanPayload, reportPlanPayloadByEventID, mcpTraceEvents, mcpTraceSummary, renderTraceBars, reportExportPayloads, reportTitle, reportStateLabel, exportTargetLabel, toolShortName });
 })(window);

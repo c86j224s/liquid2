@@ -63,7 +63,7 @@ func (executor *finalWriterV2FixtureExecutor) Run(ctx context.Context, req Agent
 		if err != nil {
 			return AgentResult{}, err
 		}
-		return AgentResult{Text: finalEditGateSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+		return AgentResult{Text: finalEditGateSubmittedText, SessionID: binding.ProviderSessionID}, nil
 	}
 	if binding.Stage == reporting.FinalEditStageStyle {
 		_, err = reporting.SubmitFinalEditStyleStage(ctx, executor.service, binding, fmt.Sprintf("evt_exp55_submit_%d", len(executor.requests)), markdown, operationCount, finalEditStyleDiagnosesForWebTest(operationCount))
@@ -73,7 +73,7 @@ func (executor *finalWriterV2FixtureExecutor) Run(ctx context.Context, req Agent
 	if err != nil {
 		return AgentResult{}, err
 	}
-	return AgentResult{Text: finalEditStageSubmittedSentinel, SessionID: binding.ProviderSessionID}, nil
+	return AgentResult{Text: finalEditStageSubmittedText, SessionID: binding.ProviderSessionID}, nil
 }
 
 func (executor *finalWriterV2FixtureExecutor) ForkSession(_ context.Context, sourceSessionID string) (AgentSessionForkResult, error) {
@@ -176,13 +176,12 @@ func runFinalWriterV2ExperimentArm(ctx context.Context, cfg finalWriterV2Adapter
 		closeStore()
 		return finalWriterV2ExperimentRun{}, err
 	}
-	server := NewServer(svc, Options{}).(*Server)
-	result, err := server.runLongFormReaderStyleGatePipeline(ctx, req, executor)
+	result, err := finalizePrefixForWebTest(ctx, svc, newID, req, executor)
 	if err != nil {
 		closeStore()
 		return finalWriterV2ExperimentRun{}, err
 	}
-	markdown := strings.TrimSpace(fmt.Sprint(result["markdown"]))
+	markdown := strings.TrimSpace(result.Markdown)
 	if markdown == "" {
 		closeStore()
 		return finalWriterV2ExperimentRun{}, fmt.Errorf("empty final report markdown")

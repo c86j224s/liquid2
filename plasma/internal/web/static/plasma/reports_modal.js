@@ -66,6 +66,7 @@ function applyReportPreview(key, kind, header, content, options = {}) {
 }
 
 function clearReportPreview() {
+  state.reportDeletePreview = null;
   ui.hideDetail();
 }
 

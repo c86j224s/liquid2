@@ -28,7 +28,9 @@ const (
 
 	reportSessionPolicySameSession  = reportexecution.SessionPolicySameSession
 	reportSessionPolicyIsolatedFork = reportexecution.SessionPolicyIsolatedFork
+	reportSessionPolicyFreshSession = reportexecution.SessionPolicyFreshSession
 
+	reportSessionPolicySelectionAutoFreshSession        = reportexecution.SessionPolicySelectionAutoFreshSession
 	reportSessionPolicySelectionAutoIsolatedFork        = reportexecution.SessionPolicySelectionAutoIsolatedFork
 	reportSessionPolicySelectionAutoSameSessionNoForker = reportexecution.SessionPolicySelectionAutoSameSessionNoForker
 	reportSessionPolicySelectionAutoSameSessionOneTake  = reportexecution.SessionPolicySelectionAutoSameSessionOneTake

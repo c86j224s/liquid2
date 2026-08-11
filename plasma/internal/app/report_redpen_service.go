@@ -60,7 +60,7 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 		return ReportRedpenWorkcopy{}, err
 	}
 
-	artifact, event, changed, err := store.CommitReportRedpenRevision(ctx, candidate, func(events []LedgerEvent, target RawArtifact) (LedgerEvent, bool, error) {
+	artifact, event, changed, err := store.CommitReportRedpenRevision(ctx, candidate, func(events []LedgerEvent, target RawArtifact, artifactOwnership string) (LedgerEvent, bool, error) {
 		currentPayload, currentEvent, exists, err := latestReportRedpenEvent(events, source.ArtifactID)
 		if err != nil {
 			return LedgerEvent{}, false, err
@@ -97,6 +97,7 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 			SHA256:             target.SHA256,
 			MediaType:          candidate.MediaType,
 			Filename:           candidate.Filename,
+			ArtifactOwnership:  artifactOwnership,
 		}
 		eventReq, err := payload.appendRequest(req, currentEvent)
 		if err != nil {

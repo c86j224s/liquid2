@@ -7,14 +7,24 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const ReportPlanSubmittedSentinel = "PLAN_SUBMITTED"
 
+// ReportPlanSubmissionQuery는 planned/long_form plan 제출 선택에 쓰는 reporting 표면 타입이다.
+type ReportPlanSubmissionQuery = app.ReportPlanSubmissionQuery
+
+// ReportPlanSubmissionSelection은 선택된 plan 제출과 hash metadata를 담는다.
+type ReportPlanSubmissionSelection = app.ReportPlanSubmissionSelection
+
+// PromoteReportPlanRequest는 선택된 제출을 canonical plan event로 승격하는 요청이다.
+type PromoteReportPlanRequest = app.PromoteReportPlanRequest
+
 // ReportPlanLifecycleService는 report plan 제출과 조회에 필요한 service 포트다.
 type ReportPlanLifecycleService interface {
-	SelectReportPlanSubmission(context.Context, app.ReportPlanSubmissionQuery) (app.ReportPlanSubmissionSelection, error)
-	PromoteReportPlan(context.Context, app.PromoteReportPlanRequest) (app.LedgerEvent, error)
+	SelectReportPlanSubmission(context.Context, ReportPlanSubmissionQuery) (ReportPlanSubmissionSelection, error)
+	PromoteReportPlan(context.Context, PromoteReportPlanRequest) (ledger.Event, error)
 }
 
 // ReportPlanLifecycleBinding는 재실행과 검증에 쓰는 binding 계약이다.
@@ -31,15 +41,15 @@ type ReportPlanLifecycleAgentResult struct {
 type ReportPlanLifecycleRequest struct {
 	MissionID, PendingEventID, ReportMode, AgentExecutor, AgentModel, AgentReasoningEffort, PreviousProviderSessionID string
 	Invoke                                                                                                            func(context.Context, ReportPlanLifecycleBinding) (ReportPlanLifecycleAgentResult, error)
-	BuildCanonical                                                                                                    func(any, app.ReportPlanSubmissionSelection, ReportPlanLifecycleBinding) (app.AppendEventRequest, error)
+	BuildCanonical                                                                                                    func(any, ReportPlanSubmissionSelection, ReportPlanLifecycleBinding) (ledger.AppendRequest, error)
 }
 
 // ReportPlanLifecycleResult는 report plan 제출 이벤트와 agent 결과를 함께 반환한다.
 type ReportPlanLifecycleResult struct {
 	Plan       any
-	Event      app.LedgerEvent
+	Event      ledger.Event
 	Binding    ReportPlanLifecycleBinding
-	Submission app.ReportPlanSubmissionSelection
+	Submission ReportPlanSubmissionSelection
 	Agent      ReportPlanLifecycleAgentResult
 }
 

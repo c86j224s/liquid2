@@ -11,6 +11,7 @@ import (
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partedit"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -68,7 +69,7 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 				plasmamcp.ToolReportPartEditPatch,
 				plasmamcp.ToolReportPartEditSubmit,
 			)
-			if !slices.Equal(req.ExtraMCPTools, reportPartEditMCPTools()) || slices.Contains(req.ExtraMCPTools, plasmamcp.ToolResearchRead) || slices.Contains(req.ExtraMCPTools, plasmamcp.ToolSourcesRead) {
+			if !slices.Equal(req.ExtraMCPTools, partedit.MCPTools()) || slices.Contains(req.ExtraMCPTools, plasmamcp.ToolResearchRead) || slices.Contains(req.ExtraMCPTools, plasmamcp.ToolSourcesRead) {
 				t.Fatalf("Part editor tool surface is not closed: %#v", req.ExtraMCPTools)
 			}
 			if !strings.Contains(req.Prompt, "PART_EDIT_SUBMITTED") || !strings.Contains(req.Prompt, "If no material edit is justified") || strings.Contains(req.Prompt, "plasma.research.read") || strings.Contains(req.Prompt, "plasma.sources.read") {

@@ -115,9 +115,15 @@ Issue #66 tracks the broad `internal/app`, `internal/web`, `internal/mcp`,
 and `internal/reporting` boundaries. Their current existence does not authorize
 new dependencies with the same shape.
 
-The first migration wave moved ledger, mission, artifact, source, and stable
-error models plus consumer-side ports to focused packages. Compatibility aliases
-in `internal/app` are temporary migration surfaces, not new ownership.
+The first migration wave moved ledger, mission, artifact, source, stable error
+models, and selected report execution boundaries to focused packages.
+Starting with #111, `internal/reportworkflow` owns the product-fixed report
+topologies, typed stage wiring, long-form prefix stages, final edit stages, and
+legacy finalization stage. Each stage package owns its prompts, MCP allowlists,
+provider execution, validation, and durable replay boundaries, while
+`internal/reporting` keeps the durable final-edit contracts and artifact
+lineage. Compatibility aliases in `internal/app` are temporary migration
+surfaces, not new ownership.
 
 The SQLite migration keeps one stable root facade for connection ownership,
 migrations, maintenance, and cross-capability transactions. Feature repository

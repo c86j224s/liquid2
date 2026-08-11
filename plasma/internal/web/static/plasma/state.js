@@ -49,6 +49,7 @@
     detailText: "",
     selectedReportKey: "",
     reportPreview: null,
+    reportDeletePreview: null,
     detailScrollRatioEnabled: false,
     turnScrollMission: "",
     agentModelTouched: false,

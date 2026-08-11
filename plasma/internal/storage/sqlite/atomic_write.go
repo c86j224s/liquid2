@@ -5,6 +5,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/artifactrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/reportrepo"
@@ -69,6 +70,17 @@ func (s *Store) CommitAtomicWrite(ctx context.Context, write app.AtomicWrite) (a
 	}
 	for _, block := range write.ReportBlocks {
 		if err := reportrepo.InsertReportBlockTx(ctx, tx, block); err != nil {
+			return app.AtomicWriteResult{}, err
+		}
+	}
+	missionIDs := map[string]bool{}
+	for _, event := range events {
+		if reportrun.IsReportEventType(event.EventType) {
+			missionIDs[event.MissionID] = true
+		}
+	}
+	for missionID := range missionIDs {
+		if err := s.applyReportRunRegistrationTx(ctx, tx, missionID); err != nil {
 			return app.AtomicWriteResult{}, err
 		}
 	}

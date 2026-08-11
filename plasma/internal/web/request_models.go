@@ -16,6 +16,12 @@ type missionHardDeleteRequest struct {
 	ConfirmMissionID string `json:"confirm_mission_id"`
 }
 
+type reportDeleteRequest struct {
+	ConfirmArtifactID string `json:"confirm_artifact_id"`
+	ExpectedRevision  int64  `json:"expected_revision"`
+	DeleteFactsHash   string `json:"delete_facts_hash"`
+}
+
 type turnRequest struct {
 	Text               string `json:"text"`
 	AgentExecutor      string `json:"agent_executor"`

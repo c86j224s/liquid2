@@ -87,6 +87,20 @@ func TestSelectSessionExplicitIsolatedForkSuccess(t *testing.T) {
 	}
 }
 
+func TestSelectSessionExplicitFreshSessionRejectedWithoutForkSideEffects(t *testing.T) {
+	executor := &fakeForkExecutor{forkSessionID: "forked-session", forkSourceID: "source-session"}
+	_, err := SelectSession(context.Background(), executor, "source-session", "fresh_session")
+	if err == nil {
+		t.Fatalf("SelectSession returned nil error")
+	}
+	if !errors.Is(err, producterror.ErrInvalidInput) || !strings.Contains(err.Error(), "automatic-only") {
+		t.Fatalf("expected automatic-only invalid input, got %v", err)
+	}
+	if len(executor.readyCalls) != 0 || len(executor.forkCalls) != 0 {
+		t.Fatalf("fresh_session must not check readiness or fork: ready=%v fork=%v", executor.readyCalls, executor.forkCalls)
+	}
+}
+
 func TestSelectSessionExplicitIsolatedForkErrors(t *testing.T) {
 	tests := []struct {
 		name     string

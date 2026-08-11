@@ -13,7 +13,6 @@
     syncReportControls: () => {},
     workflowControlsBlocked: () => false,
     workflowContinueBlocked: () => false,
-    rawInputFallback: () => "",
     setFormsEnabled: () => {}
   };
 

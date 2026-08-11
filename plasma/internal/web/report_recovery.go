@@ -44,6 +44,44 @@ type sectionalReportProgress struct {
 	editedParts                  map[int]sectionalReportPartDraft
 }
 
+type plannedReportProgress struct {
+	hasPlan                      bool
+	planEvent                    app.LedgerEvent
+	plan                         reporting.ReportPlan
+	artifactID                   string
+	reportPlanSessionID          string
+	planToolSessionID            string
+	reportSessionPolicy          string
+	reportSessionPolicySelection string
+	sessionChainKind             string
+	preReportResearchSessionID   string
+	forkSourceSessionID          string
+}
+
+type plannedReportPlanPayload struct {
+	PendingEventID               string          `json:"pending_event_id"`
+	ReportMode                   string          `json:"report_mode"`
+	ArtifactID                   string          `json:"artifact_id"`
+	AgentSessionID               string          `json:"agent_session_id"`
+	PreviousAgentSessionID       string          `json:"previous_agent_session_id"`
+	ToolSessionID                string          `json:"tool_session_id"`
+	ReportSessionPolicy          string          `json:"report_session_policy"`
+	ReportSessionPolicySelection string          `json:"report_session_policy_selection"`
+	SessionChainKind             string          `json:"session_chain_kind"`
+	PreReportResearchSessionID   string          `json:"pre_report_research_session_id"`
+	ReportPlanSessionID          string          `json:"report_plan_session_id"`
+	ForkSourceSessionID          string          `json:"fork_source_agent_session_id"`
+	Plan                         json.RawMessage `json:"plan"`
+}
+
+type plannedReportLineage struct {
+	reportSessionPolicy          string
+	reportSessionPolicySelection string
+	sessionChainKind             string
+	preReportResearchSessionID   string
+	forkSourceSessionID          string
+}
+
 type sectionalReportIndex struct {
 	part    int
 	section int
@@ -214,6 +252,171 @@ func (server *Server) loadSectionalReportProgress(ctx context.Context, missionID
 		}
 	}
 	return progress, nil
+}
+
+func (server *Server) loadPlannedReportProgress(ctx context.Context, missionID string, pendingEventID string) (plannedReportProgress, error) {
+	events, err := server.service.ListEvents(ctx, missionID)
+	if err != nil {
+		return plannedReportProgress{}, err
+	}
+	lineage, err := reportRecoveryLineage(events, pendingEventID)
+	if err != nil {
+		return plannedReportProgress{}, err
+	}
+	var progress plannedReportProgress
+	for _, attemptID := range lineage {
+		for _, event := range events {
+			if event.EventType != "report.plan.created" {
+				continue
+			}
+			if err := applyPlannedReportProgress(attemptID, event, &progress); err != nil {
+				return plannedReportProgress{}, err
+			}
+		}
+	}
+	return progress, nil
+}
+
+func applyPlannedReportProgress(pendingEventID string, event app.LedgerEvent, progress *plannedReportProgress) error {
+	var payload plannedReportPlanPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return nil
+	}
+	if strings.TrimSpace(payload.PendingEventID) != pendingEventID || strings.TrimSpace(payload.ReportMode) != reportModePlanned {
+		return nil
+	}
+	if progress.hasPlan {
+		return fmt.Errorf("%w: multiple recovered planned report plans match one pending event", app.ErrConflict)
+	}
+	var plan reporting.ReportPlan
+	if len(payload.Plan) == 0 || string(payload.Plan) == "null" {
+		return fmt.Errorf("%w: recovered planned report plan is missing", app.ErrConflict)
+	}
+	if err := json.Unmarshal(payload.Plan, &plan); err != nil {
+		return fmt.Errorf("%w: invalid recovered planned report plan: %v", app.ErrConflict, err)
+	}
+	normalized, err := reporting.NormalizeReportPlan(plan)
+	if err != nil {
+		return fmt.Errorf("%w: invalid recovered planned report plan: %v", app.ErrConflict, err)
+	}
+	artifactID := strings.TrimSpace(payload.ArtifactID)
+	reportPlanSessionID := firstNonEmpty(payload.ReportPlanSessionID, payload.AgentSessionID)
+	planToolSessionID := strings.TrimSpace(payload.ToolSessionID)
+	if artifactID == "" || reportPlanSessionID == "" || planToolSessionID == "" {
+		return fmt.Errorf("%w: recovered planned report plan is incomplete", app.ErrConflict)
+	}
+	lineage, err := validatePlannedReportRecoveryLineage(payload, reportPlanSessionID)
+	if err != nil {
+		return err
+	}
+	progress.hasPlan = true
+	progress.planEvent = event
+	progress.plan = normalized
+	progress.artifactID = artifactID
+	progress.reportPlanSessionID = reportPlanSessionID
+	progress.planToolSessionID = planToolSessionID
+	progress.reportSessionPolicy = lineage.reportSessionPolicy
+	progress.reportSessionPolicySelection = lineage.reportSessionPolicySelection
+	progress.sessionChainKind = lineage.sessionChainKind
+	progress.preReportResearchSessionID = lineage.preReportResearchSessionID
+	progress.forkSourceSessionID = lineage.forkSourceSessionID
+	return nil
+}
+
+func validatePlannedReportRecoveryLineage(payload plannedReportPlanPayload, reportPlanSessionID string) (plannedReportLineage, error) {
+	agentSessionID := strings.TrimSpace(payload.AgentSessionID)
+	storedPlanSessionID := strings.TrimSpace(payload.ReportPlanSessionID)
+	if agentSessionID != "" && storedPlanSessionID != "" && agentSessionID != storedPlanSessionID {
+		return plannedReportLineage{}, fmt.Errorf("%w: recovered planned report plan has conflicting session ids", app.ErrConflict)
+	}
+	policy := reportSessionPolicySameSession
+	if strings.TrimSpace(payload.ReportSessionPolicy) != "" {
+		normalized, err := reportexecution.NormalizeSessionPolicy(payload.ReportSessionPolicy)
+		if err != nil {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered planned report plan has invalid session policy", app.ErrConflict)
+		}
+		policy = normalized
+	}
+	selection := strings.TrimSpace(payload.ReportSessionPolicySelection)
+	chainKind := strings.TrimSpace(payload.SessionChainKind)
+	previousSessionID := strings.TrimSpace(payload.PreviousAgentSessionID)
+	preReportSessionID := strings.TrimSpace(payload.PreReportResearchSessionID)
+	forkSourceSessionID := strings.TrimSpace(payload.ForkSourceSessionID)
+	switch policy {
+	case reportSessionPolicyFreshSession:
+		if selection != "" && selection != reportSessionPolicySelectionAutoFreshSession {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered fresh planned report has invalid session policy selection", app.ErrConflict)
+		}
+		if chainKind != "" && chainKind != "fresh_session_report" {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered fresh planned report has invalid session chain kind", app.ErrConflict)
+		}
+		if previousSessionID != "" || forkSourceSessionID != "" {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered fresh planned report has conflicting lineage", app.ErrConflict)
+		}
+	case reportSessionPolicyIsolatedFork:
+		if selection != "" && selection != reportSessionPolicySelectionAutoIsolatedFork && selection != reportexecution.SessionPolicySelectionExplicitIsolatedFork {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered isolated planned report has invalid session policy selection", app.ErrConflict)
+		}
+		if chainKind != "" && chainKind != "isolated_fork_report" {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered isolated planned report has invalid session chain kind", app.ErrConflict)
+		}
+		if preReportSessionID == "" || forkSourceSessionID == "" || preReportSessionID != forkSourceSessionID {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered isolated planned report has conflicting fork lineage", app.ErrConflict)
+		}
+		if previousSessionID != "" && previousSessionID != reportPlanSessionID {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered isolated planned report has conflicting previous session", app.ErrConflict)
+		}
+	case reportSessionPolicySameSession:
+		if selection != "" && !isRecoveredPlannedSameSessionSelection(selection) {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report has invalid session policy selection", app.ErrConflict)
+		}
+		if selection == reportexecution.SessionPolicySelectionAutoSameSessionNoSession && (previousSessionID != "" || preReportSessionID != "") {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report unexpectedly has a pre-report session", app.ErrConflict)
+		}
+		if chainKind != "" && chainKind != "same_session_report" {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report has invalid session chain kind", app.ErrConflict)
+		}
+		if forkSourceSessionID != "" {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report has conflicting fork source", app.ErrConflict)
+		}
+		if previousSessionID != "" && previousSessionID != reportPlanSessionID {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report has conflicting previous session", app.ErrConflict)
+		}
+		if preReportSessionID != "" && preReportSessionID != reportPlanSessionID {
+			return plannedReportLineage{}, fmt.Errorf("%w: recovered same-session planned report has conflicting pre-report session", app.ErrConflict)
+		}
+	default:
+		return plannedReportLineage{}, fmt.Errorf("%w: recovered planned report plan has invalid session policy", app.ErrConflict)
+	}
+	if chainKind == "" {
+		switch policy {
+		case reportSessionPolicyFreshSession:
+			chainKind = "fresh_session_report"
+		case reportSessionPolicyIsolatedFork:
+			chainKind = "isolated_fork_report"
+		default:
+			chainKind = "same_session_report"
+		}
+	}
+	return plannedReportLineage{
+		reportSessionPolicy:          policy,
+		reportSessionPolicySelection: selection,
+		sessionChainKind:             chainKind,
+		preReportResearchSessionID:   firstNonEmpty(preReportSessionID, previousSessionID),
+		forkSourceSessionID:          forkSourceSessionID,
+	}, nil
+}
+
+func isRecoveredPlannedSameSessionSelection(selection string) bool {
+	switch strings.TrimSpace(selection) {
+	case reportexecution.SessionPolicySelectionExplicitSameSession,
+		reportexecution.SessionPolicySelectionAutoSameSessionNoSession,
+		reportexecution.SessionPolicySelectionAutoSameSessionNoForker,
+		reportexecution.SessionPolicySelectionAutoSameSessionForkFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func reportRecoveryLineage(events []app.LedgerEvent, pendingID string) ([]string, error) {

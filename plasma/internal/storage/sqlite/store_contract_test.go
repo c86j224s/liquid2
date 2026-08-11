@@ -14,11 +14,21 @@ type conditionalRawArtifactStoreContract interface {
 	) (app.RawArtifact, app.LedgerEvent, bool, error)
 }
 
+type conditionalDesignedReportHTMLExportStoreContract interface {
+	CommitDesignedReportHTMLExportConditionally(
+		context.Context,
+		string,
+		app.RawArtifact,
+		app.RawArtifact,
+		func([]app.LedgerEvent) ([]app.LedgerEvent, bool, error),
+	) (app.RawArtifact, app.RawArtifact, app.LedgerEvent, bool, error)
+}
+
 type reportRedpenRevisionStoreContract interface {
 	CommitReportRedpenRevision(
 		context.Context,
 		app.RawArtifact,
-		func([]app.LedgerEvent, app.RawArtifact) (app.LedgerEvent, bool, error),
+		func([]app.LedgerEvent, app.RawArtifact, string) (app.LedgerEvent, bool, error),
 	) (app.RawArtifact, app.LedgerEvent, bool, error)
 }
 
@@ -35,4 +45,5 @@ var _ app.ModelDefaultsStore = (*Store)(nil)
 var _ app.MissionHardDeleteStore = (*Store)(nil)
 var _ app.ConfluenceConnectionStore = (*Store)(nil)
 var _ conditionalRawArtifactStoreContract = (*Store)(nil)
+var _ conditionalDesignedReportHTMLExportStoreContract = (*Store)(nil)
 var _ reportRedpenRevisionStoreContract = (*Store)(nil)

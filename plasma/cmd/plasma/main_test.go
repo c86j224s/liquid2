@@ -1608,14 +1608,14 @@ func TestCLIWorkflowAgentAdapterForwardsCompactionAndUsage(t *testing.T) {
 	}
 }
 
-func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
+func TestRunReportsDraftWaitUsesFreshPlanSessionAndMarkdownArtifact(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
 	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
-		{Text: "- Plan CLI report.", SessionID: "agent-session-1"},
-		{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "agent-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "agent-session-1"},
+		{Text: "- Plan CLI report.", SessionID: "report-plan-session-1"},
+		{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "report-plan-session-1"},
+		{Text: "H5 patch finalized.", SessionID: "report-plan-session-1"},
 	}}
 	fake.onEveryRun = cliHumanizePatchFinalizer(t, dbPath, "# CLI Report\n\n보고서를 작성해야 한다.")
 	oldFactory := newCLIAgentExecutor
@@ -1640,9 +1640,9 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 		t.Fatalf("expected report.artifact.created, got %q", got)
 	}
 	if len(fake.requests) != 3 ||
-		fake.requests[1].PreviousSessionID != "agent-session-1" ||
-		fake.requests[2].PreviousSessionID != "agent-session-1" {
-		t.Fatalf("expected report request to resume same provider session, got %#v", fake.requests)
+		fake.requests[1].PreviousSessionID != "" ||
+		fake.requests[2].PreviousSessionID != "report-plan-session-1" {
+		t.Fatalf("expected report plan to start fresh and body to resume plan session, got %#v", fake.requests)
 	}
 	if !strings.Contains(fake.requests[1].Prompt, "Visual-aid planning guidance:") {
 		t.Fatalf("expected default CLI plan prompt to receive visual-plan guidance: %s", fake.requests[1].Prompt)
@@ -1676,9 +1676,9 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 		t.Fatalf("default CLI report path should create one report.plan.created event, got %#v", events)
 	}
 	pendingPayload := cliLatestEventPayload(t, events, "report.draft.pending")
-	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicySameSession ||
-		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoSameSessionNoForker {
-		t.Fatalf("expected non-forking CLI report to record same-session fallback, got %#v", pendingPayload)
+	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicyFreshSession ||
+		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected default CLI report to record automatic fresh session, got %#v", pendingPayload)
 	}
 	sourceContext, ok := pendingPayload["source_context"].(map[string]any)
 	if !ok || sourceContext["schema_version"] != "plasma.report_source_context.v1" {
@@ -1687,13 +1687,24 @@ func TestRunReportsDraftWaitUsesSameSessionAndMarkdownArtifact(t *testing.T) {
 	if sources, ok := sourceContext["confluence_sources"].([]any); !ok || len(sources) != 0 {
 		t.Fatalf("source-free CLI report context changed: %#v", sourceContext)
 	}
+	planPayload := cliLatestEventPayload(t, events, "report.plan.created")
+	if planPayload["report_session_policy"] != reportexecution.SessionPolicyFreshSession ||
+		planPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoFreshSession ||
+		planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "agent-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["fork_source_agent_session_id"] != "" {
+		t.Fatalf("expected fresh CLI plan metadata, got %#v", planPayload)
+	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
-	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicySameSession ||
-		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoSameSessionNoForker ||
+	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicyFreshSession ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoFreshSession ||
 		artifactPayload["pre_report_research_session_id"] != "agent-session-1" ||
-		artifactPayload["report_plan_session_id"] != "agent-session-1" ||
-		artifactPayload["report_session_id"] != "agent-session-1" {
-		t.Fatalf("expected same-session report metadata, got %#v", artifactPayload)
+		artifactPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		artifactPayload["report_session_id"] != "report-plan-session-1" ||
+		artifactPayload["session_chain_kind"] != "fresh_session_report" ||
+		artifactPayload["fork_source_agent_session_id"] != "" {
+		t.Fatalf("expected fresh report metadata, got %#v", artifactPayload)
 	}
 	if artifactPayload["post_report_humanize"] != "disabled" ||
 		artifactPayload["humanize_enabled"] != false ||
@@ -1733,6 +1744,9 @@ func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
 	if len(fake.requests) != 2 {
 		t.Fatalf("expected plan and report requests only, got %#v", fake.requests)
 	}
+	if fake.requests[0].PreviousSessionID != "" || fake.requests[1].PreviousSessionID != "report-session-1" {
+		t.Fatalf("explicit same-session report should start without prior session then resume its plan session, got %#v", fake.requests)
+	}
 	if strings.Contains(fake.requests[0].Prompt, "Generation guidance:") {
 		t.Fatalf("plan prompt must not receive experimental generation guidance: %s", fake.requests[0].Prompt)
 	}
@@ -1768,6 +1782,11 @@ func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
 		t.Fatalf("expected pending event to record experimental guidance and disabled H5, got %#v", pendingPayload)
 	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
+	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicySameSession ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitSameSession ||
+		artifactPayload["session_chain_kind"] != "same_session_report" {
+		t.Fatalf("expected explicit same-session report metadata, got %#v", artifactPayload)
+	}
 	if artifactPayload["post_report_humanize"] != "disabled" ||
 		artifactPayload["humanize_enabled"] != false ||
 		artifactPayload["generation_guidance_profile"] != "g2" ||
@@ -1796,15 +1815,15 @@ func TestRunReportsDraftRejectsUnsupportedExperimentalGenerationGuidance(t *test
 	}
 }
 
-func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
+func TestRunReportsDraftWaitUsesFreshSessionWhenForkIsAvailable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
 	fake := &cliForkingFakeAgent{
 		cliFakeAgent: cliFakeAgent{responses: []agentexec.AgentResult{
 			{Text: "first answer", SessionID: "research-session-1"},
-			{Text: "- Plan CLI report.", SessionID: "report-fork-1"},
-			{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "report-fork-1"},
-			{Text: "H5 patch finalized.", SessionID: "report-fork-1"},
+			{Text: "- Plan CLI report.", SessionID: "report-plan-session-1"},
+			{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "report-plan-session-1"},
+			{Text: "H5 patch finalized.", SessionID: "report-plan-session-1"},
 		}},
 		forkSessionID: "report-fork-1",
 	}
@@ -1826,14 +1845,96 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("reports draft returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
-	if len(fake.forkSources) != 1 || fake.forkSources[0] != "research-session-1" {
-		t.Fatalf("expected report fork from research session, got %#v", fake.forkSources)
+	if len(fake.forkSources) != 0 {
+		t.Fatalf("automatic fresh CLI report must not fork, got %#v", fake.forkSources)
 	}
 	if len(fake.requests) != 3 ||
 		fake.requests[0].PreviousSessionID != "" ||
+		fake.requests[1].PreviousSessionID != "" ||
+		fake.requests[2].PreviousSessionID != "report-plan-session-1" {
+		t.Fatalf("expected report plan to start fresh and body to resume plan session, got %#v", fake.requests)
+	}
+
+	store, err := sqlite.Open(context.Background(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := app.NewService(store).ListEvents(context.Background(), missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingPayload := cliLatestEventPayload(t, events, "report.draft.pending")
+	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicyFreshSession ||
+		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoFreshSession {
+		t.Fatalf("expected pending event to record automatic fresh session, got %#v", pendingPayload)
+	}
+	planPayload := cliLatestEventPayload(t, events, "report.plan.created")
+	if planPayload["previous_agent_session_id"] != "" ||
+		planPayload["pre_report_research_session_id"] != "research-session-1" ||
+		planPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		planPayload["fork_source_agent_session_id"] != "" ||
+		planPayload["session_chain_kind"] != "fresh_session_report" {
+		t.Fatalf("expected fresh plan metadata, got %#v", planPayload)
+	}
+	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
+	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicyFreshSession ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoFreshSession ||
+		artifactPayload["previous_agent_session_id"] != "report-plan-session-1" ||
+		artifactPayload["pre_report_research_session_id"] != "research-session-1" ||
+		artifactPayload["report_plan_session_id"] != "report-plan-session-1" ||
+		artifactPayload["report_session_id"] != "report-plan-session-1" ||
+		artifactPayload["fork_source_agent_session_id"] != "" ||
+		artifactPayload["session_chain_kind"] != "fresh_session_report" {
+		t.Fatalf("expected fresh report metadata, got %#v", artifactPayload)
+	}
+	if got := workflowruntime.LatestAgentSessionID(events, "codex"); got != "research-session-1" {
+		t.Fatalf("expected later turns to resume research session, got %q", got)
+	}
+}
+
+func TestRunReportsDraftWaitUsesExplicitIsolatedFork(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	missionID := createCLITestMission(t, dbPath)
+	fake := &cliForkingFakeAgent{
+		cliFakeAgent: cliFakeAgent{responses: []agentexec.AgentResult{
+			{Text: "first answer", SessionID: "research-session-1"},
+			{Text: "- Plan CLI report.", SessionID: "report-fork-1"},
+			{Text: "# CLI Report\n\n보고서가 작성되어야 한다.", SessionID: "report-fork-1"},
+		}},
+		forkSessionID: "report-fork-1",
+	}
+	oldFactory := newCLIAgentExecutor
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) {
+		return fake, nil
+	}
+	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
+
+	var out, errOut bytes.Buffer
+	code := run(context.Background(), []string{"turns", "send", missionID, "-db", dbPath, "-text", "first", "-wait", "-json"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("turns send returned %d stderr=%q", code, errOut.String())
+	}
+	out.Reset()
+	errOut.Reset()
+	code = run(context.Background(), []string{
+		"reports", "draft", missionID,
+		"-db", dbPath,
+		"-title", "CLI Report",
+		"-wait",
+		"-json",
+		"-report-session-policy", "isolated_fork",
+	}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("reports draft returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+	}
+	if len(fake.forkSources) != 1 || fake.forkSources[0] != "research-session-1" {
+		t.Fatalf("expected explicit report fork from research session, got %#v", fake.forkSources)
+	}
+	if len(fake.requests) != 3 ||
 		fake.requests[1].PreviousSessionID != "report-fork-1" ||
 		fake.requests[2].PreviousSessionID != "report-fork-1" {
-		t.Fatalf("expected report plan/body to run on isolated fork, got %#v", fake.requests)
+		t.Fatalf("expected explicit isolated report plan/body to run on fork, got %#v", fake.requests)
 	}
 
 	store, err := sqlite.Open(context.Background(), dbPath)
@@ -1847,27 +1948,19 @@ func TestRunReportsDraftWaitUsesIsolatedForkWhenAvailable(t *testing.T) {
 	}
 	pendingPayload := cliLatestEventPayload(t, events, "report.draft.pending")
 	if pendingPayload["report_session_policy"] != reportexecution.SessionPolicyIsolatedFork ||
-		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoIsolatedFork {
-		t.Fatalf("expected pending event to record automatic isolated fork, got %#v", pendingPayload)
-	}
-	planPayload := cliLatestEventPayload(t, events, "report.plan.created")
-	if planPayload["previous_agent_session_id"] != "report-fork-1" ||
-		planPayload["pre_report_research_session_id"] != "research-session-1" ||
-		planPayload["report_plan_session_id"] != "report-fork-1" {
-		t.Fatalf("expected isolated plan metadata, got %#v", planPayload)
+		pendingPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitIsolatedFork {
+		t.Fatalf("expected pending event to record explicit isolated fork, got %#v", pendingPayload)
 	}
 	artifactPayload := cliLatestEventPayload(t, events, "report.artifact.created")
 	if artifactPayload["report_session_policy"] != reportexecution.SessionPolicyIsolatedFork ||
-		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionAutoIsolatedFork ||
+		artifactPayload["report_session_policy_selection"] != reportexecution.SessionPolicySelectionExplicitIsolatedFork ||
 		artifactPayload["previous_agent_session_id"] != "report-fork-1" ||
 		artifactPayload["pre_report_research_session_id"] != "research-session-1" ||
 		artifactPayload["report_plan_session_id"] != "report-fork-1" ||
 		artifactPayload["report_session_id"] != "report-fork-1" ||
-		artifactPayload["fork_source_agent_session_id"] != "research-session-1" {
-		t.Fatalf("expected isolated report metadata, got %#v", artifactPayload)
-	}
-	if got := workflowruntime.LatestAgentSessionID(events, "codex"); got != "research-session-1" {
-		t.Fatalf("expected later turns to resume research session, got %q", got)
+		artifactPayload["fork_source_agent_session_id"] != "research-session-1" ||
+		artifactPayload["session_chain_kind"] != "isolated_fork_report" {
+		t.Fatalf("expected explicit isolated report metadata, got %#v", artifactPayload)
 	}
 }
 
@@ -1925,16 +2018,16 @@ func TestRunReportsDraftWaitRecordsFailureOnSessionMismatch(t *testing.T) {
 	}
 }
 
-func TestRunEndToEndWorkflowThenConversationThenReportUsesSameLedgerAndSession(t *testing.T) {
+func TestRunEndToEndWorkflowThenConversationThenReportPreservesResearchAndUsesFreshPlan(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
 	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
 		{Text: "first answer", SessionID: "agent-session-1"},
 		{Text: "workflow answer\nPLASMA_WORKFLOW_CONTROL: {\"decision\":\"stop\",\"reason\":\"done\"}", SessionID: "agent-session-1"},
 		{Text: "resumed answer", SessionID: "agent-session-1"},
-		{Text: "- Plan final report.", SessionID: "agent-session-1"},
-		{Text: "# Final Report\n\n보고서가 작성되어야 합니다.", SessionID: "agent-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "agent-session-1"},
+		{Text: "- Plan final report.", SessionID: "report-plan-session-1"},
+		{Text: "# Final Report\n\n보고서가 작성되어야 합니다.", SessionID: "report-plan-session-1"},
+		{Text: "H5 patch finalized.", SessionID: "report-plan-session-1"},
 	}}
 	fake.onEveryRun = cliHumanizePatchFinalizer(t, dbPath, "# Final Report\n\n보고서를 작성해야 합니다.")
 	oldFactory := newCLIAgentExecutor
@@ -1979,9 +2072,9 @@ func TestRunEndToEndWorkflowThenConversationThenReportUsesSameLedgerAndSession(t
 	if fake.requests[0].PreviousSessionID != "" ||
 		fake.requests[1].PreviousSessionID != "agent-session-1" ||
 		fake.requests[2].PreviousSessionID != "agent-session-1" ||
-		fake.requests[3].PreviousSessionID != "agent-session-1" ||
-		fake.requests[4].PreviousSessionID != "agent-session-1" {
-		t.Fatalf("expected workflow and non-forking report fallback to resume the provider session, got %#v", fake.requests)
+		fake.requests[3].PreviousSessionID != "" ||
+		fake.requests[4].PreviousSessionID != "report-plan-session-1" {
+		t.Fatalf("expected workflow to resume research session and report body to resume fresh plan session, got %#v", fake.requests)
 	}
 
 	store, err := sqlite.Open(context.Background(), dbPath)
@@ -2343,6 +2436,85 @@ func TestRunReportsDraftFreezesExplicitSelectionAndRejectsInvalidPair(t *testing
 	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRunReportsPatchExplicitFreshSessionRejectedBeforeProviderWork(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	missionID := createCLITestMission(t, dbPath)
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(store)
+	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_cli_patch_fresh_reject_base",
+		MissionID:  missionID,
+		MediaType:  "text/markdown; charset=utf-8",
+		Filename:   "base-report.md",
+		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		EventID:   "evt_cli_patch_fresh_reject_base",
+		MissionID: missionID,
+		EventType: "report.artifact.created",
+		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Payload: cliMustJSON(t, map[string]any{
+			"kind":              "markdown_report_artifact",
+			"title":             "Base Report",
+			"artifact_id":       artifact.ArtifactID,
+			"media_type":        artifact.MediaType,
+			"agent_executor":    "codex",
+			"agent_session_id":  "report-session-1",
+			"report_session_id": "report-session-1",
+		}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fake := &cliForkingFakeAgent{forkSessionID: "report-patch-fork"}
+	oldFactory := newCLIAgentExecutor
+	newCLIAgentExecutor = func(context.Context, cliAgentConfig) (agentexec.AgentExecutor, error) { return fake, nil }
+	t.Cleanup(func() { newCLIAgentExecutor = oldFactory })
+
+	var out, errOut bytes.Buffer
+	code := run(ctx, []string{
+		"reports", "patch", missionID,
+		"-db", dbPath,
+		"-base-artifact", artifact.ArtifactID,
+		"-instruction", "Make the report clearer.",
+		"-report-session-policy", reportexecution.SessionPolicyFreshSession,
+		"-wait",
+		"-json",
+	}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("reports patch unexpectedly succeeded: stdout=%q", out.String())
+	}
+	if !strings.Contains(errOut.String(), "automatic-only") {
+		t.Fatalf("expected automatic-only policy error, got stderr=%q", errOut.String())
+	}
+	if len(fake.requests) != 0 || len(fake.forkSources) != 0 {
+		t.Fatalf("fresh patch policy must not call provider or fork: requests=%#v forks=%#v", fake.requests, fake.forkSources)
+	}
+	store, err = sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	events, err := app.NewService(store).ListEvents(ctx, missionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cliCountEventType(events, "report.patch.pending") != 0 {
+		t.Fatalf("fresh patch policy must not append patch pending, got %#v", events)
 	}
 }
 

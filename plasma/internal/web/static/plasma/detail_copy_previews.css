@@ -126,6 +126,29 @@
   overflow-wrap: anywhere;
 }
 
+.plan-entry-title,
+.plan-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.plan-section-list {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-section-item {
+  display: grid;
+  gap: 5px;
+  padding-left: 10px;
+}
+
 .trace-args,
 .trace-error {
   color: var(--ink2);

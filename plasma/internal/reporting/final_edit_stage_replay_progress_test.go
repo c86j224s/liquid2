@@ -151,6 +151,13 @@ func TestLoadFinalEditStageProgressRejectsOpenGateAfterCanonical(t *testing.T) {
 	if _, created, err := StartFinalEditStage(ctx, svc, "evt_gate_progress_open_terminal_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
+	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
+		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
+		Producer: binding.Producer, Content: []byte("# Report\n\nCanonical final report.\n"),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
 		EventID: "evt_gate_progress_open_terminal_final", MissionID: binding.MissionID, EventType: "report.artifact.created",
 		Producer: binding.Producer, CorrelationID: binding.IdempotencyKey, Payload: finalEditStageStoreJSON(map[string]any{

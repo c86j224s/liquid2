@@ -2,9 +2,13 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
+	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/reportrunrepo"
 )
 
 // CreateMission는 새 미션과 최초 장부 이벤트를 저장한다.
@@ -25,15 +29,73 @@ func (s *Store) ListMissionActivityInputs(ctx context.Context, missionIDs []stri
 
 // AppendLedgerEvent는 단일 장부 이벤트를 SQLite에 추가한다.
 func (s *Store) AppendLedgerEvent(ctx context.Context, event ledger.Event) (ledger.Event, error) {
-	return s.missions.AppendLedgerEvent(ctx, event)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	defer tx.Rollback()
+	committed, err := missionrepo.AppendLedgerEventTx(ctx, tx, event)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	if reportrun.IsReportEventType(committed.EventType) {
+		if err := s.applyReportRunRegistrationTx(ctx, tx, committed.MissionID); err != nil {
+			return ledger.Event{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return ledger.Event{}, err
+	}
+	return committed, nil
 }
 
 // AppendLedgerEventsConditionally는 조건 검사를 통과한 이벤트 묶음만 SQLite에 추가한다.
 func (s *Store) AppendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]ledger.Event) ([]ledger.Event, error)) ([]ledger.Event, error) {
-	return s.missions.AppendLedgerEventsConditionally(ctx, missionID, build)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	events, err := missionrepo.ListLedgerEventsTx(ctx, tx, missionID)
+	if err != nil {
+		return nil, err
+	}
+	toAppend, err := build(events)
+	if err != nil {
+		return nil, err
+	}
+	appended := make([]ledger.Event, 0, len(toAppend))
+	for _, event := range toAppend {
+		committed, err := missionrepo.AppendLedgerEventTx(ctx, tx, event)
+		if err != nil {
+			return nil, err
+		}
+		appended = append(appended, committed)
+	}
+	if containsReportLedgerEvent(appended) {
+		if err := s.applyReportRunRegistrationTx(ctx, tx, missionID); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return appended, nil
 }
 
 // ListLedgerEvents는 SQLite 저장소 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (s *Store) ListLedgerEvents(ctx context.Context, missionID string) ([]ledger.Event, error) {
 	return s.missions.ListLedgerEvents(ctx, missionID)
+}
+
+func (s *Store) applyReportRunRegistrationTx(ctx context.Context, tx *sql.Tx, missionID string) error {
+	events, err := missionrepo.ListLedgerEventsTx(ctx, tx, missionID)
+	if err != nil {
+		return err
+	}
+	registration, err := reportrun.BuildRegistration(reportrunEvents(events), reportrun.RegistrationNative, nowUTC())
+	if err != nil {
+		return err
+	}
+	return reportrunrepo.ApplyNativeRegistrationTx(ctx, tx, registration)
 }

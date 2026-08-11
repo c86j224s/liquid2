@@ -231,8 +231,13 @@ Markdown 리포트를 작성한다. 실험명, 프롬프트명, tool session id,
 
 리포트 생성은 요청 수명에 묶인 일회성 작업이 아니다. 요청 시
 `report.draft.pending` 이벤트를 먼저 남기고, 장문 리포트는
-`report.plan.created`, `report.section.created`, `report.part.created`,
-`report.artifact.created` 이벤트와 Markdown artifact를 단계별 진행 상태로 쓴다.
+`report.plan.created`, 필요할 때의 `report.plan.section_repair.completed`,
+`report.section.created`, `report.part.created`, `report.artifact.created` 이벤트와
+Markdown artifact를 단계별 진행 상태로 쓴다.
+root/original `report.draft.pending` 이벤트 ID가 보고서 실행의 durable identity이고,
+retry pending ID는 같은 실행 안의 attempt다. 같은 SQLite database 안의 report-run
+projection은 실행 state, revision, final artifact link, 명시 membership, compact
+usage aggregate만 보관하며, 장부 payload와 artifact body를 복사하지 않는다.
 Web planned와 long-form은 계획 에이전트가 `plasma.report.plan.submit`으로
 `report.plan.submitted` provenance를 먼저 남긴다. 이 제출의 `session_id`와 producer는 MCP 도구 세션이며
 공급자 세션 provenance가 아니다. 실행기는 정확한 완료 sentinel과 반환된 실제 공급자
@@ -256,6 +261,18 @@ generation worker를 시작하지 않는다. 별도 terminal-write-pending outbo
 `assembly_strategy: narrative_contract_final_edit`를 기록한다. 이전 profile로
 저장된 보고서는 C4의 `sectional_preserve_markdown` 의미를 유지하며 새 요청의
 공통 편집 계약으로 재해석하지 않는다.
+
+완료된 canonical Markdown report card는 `도구 ▾` 메뉴의 `보고서 삭제` action으로
+삭제할 수 있다. UI는 먼저 preview를 받아 삭제될 장부 이벤트 수, artifact 수와 용량,
+보존되는 shared artifact 수를 보여 주고, 사용자가 같은 artifact ID를 확인한 뒤에만
+DELETE 요청을 보낸다. 삭제는 active run, terminal event 없는 pending, ambiguous legacy
+lineage, 같은 SQLite DB의 run 외부 malformed ledger payload, unclear external reference를 막는다. 성공하면 같은
+report-run의 member report event와 run-owned unshared intermediate/final/derivative
+artifact를 지우고, input과 source snapshot link, 다른 non-purged run membership, out-of-run
+ledger reference가 있는 shared artifact는 보존한다. `plasma_report_runs`에는 mission
+identity, run identity, purge metadata, revision, lifecycle state, compact token usage만
+남긴 purged tombstone 하나만 유지하며, 삭제한 본문이나 provider/session 식별자를 새 ledger
+payload로 다시 남기지 않는다.
 
 Manual/post-canonical H5 Web initiation은 deprecated이며 direct API와 historical
 artifact compatibility로만 남는다. 새 브라우저 흐름에서 `말투 보정`은 장문 보고서
@@ -284,7 +301,7 @@ pass의 대상임을 명시한다.
 한 문단·제목·단순 목록 항목을 제자리에서 고칠 수 있다. 블록 수정 반영은 브라우저 안의
 작업 중 본문만 바꾸며, 헤더의 저장을 눌러야 내구성 있는 작업본 revision이 생긴다. 저장은
 기본 보고서나 말투 보정 보고서를 덮어쓰지 않고 하나의 논리 작업본을 갱신한다. 본문은 raw
-Markdown artifact에, 연결과 revision metadata는 `report.redpen.saved`에 둔다. 사용자는
+Markdown artifact에, 연결·revision·artifact ownership metadata는 `report.redpen.saved`에 둔다. 사용자는
 최신 작업본을 다시 열거나 별도 Markdown 파일로 받을 수 있다.
 
 AST-first 리포트 버전, repair turn, report block은 legacy history와 명시적 실험
@@ -435,7 +452,7 @@ metadata는 기존 source snapshot/raw artifact 경계에 남고, HTML 안의 �
 
 10. 사용자가 리포트를 만든다.
 
-   사용자는 이번 리포트에 적용할 방향 힌트를 선택적으로 입력할 수 있다. 힌트는 근거나 강제 범위가 아니라 약한 편집 축이며, 해당 요청의 계획과 본문 작성 프롬프트에만 명시적으로 넣는다. 요청이 접수되면 브라우저 입력값을 비우고, 접수에 실패하면 재시도를 위해 유지한다. 이후 대화, 자율 진행, 상태 회상, 말투 보정, 보고서 수정, HTML 내보내기, 다음 리포트 요청에는 힌트를 새로 넣거나 복사하지 않는다. 다만 같은 제공자 세션을 이어 쓰는 경우에는 앞선 보고서 프롬프트가 세션 기록에 남아 있을 수 있다.
+   사용자는 이번 리포트에 적용할 방향 힌트를 선택적으로 입력할 수 있다. 힌트는 근거나 강제 범위가 아니라 약한 편집 축이며, 해당 요청의 계획과 본문 작성 프롬프트에만 명시적으로 넣는다. 요청이 접수되면 브라우저 입력값을 비우고, 접수에 실패하면 재시도를 위해 유지한다. 이후 대화, 자율 진행, 상태 회상, 말투 보정, 보고서 수정, HTML 내보내기, 다음 리포트 요청에는 힌트를 새로 넣거나 복사하지 않는다. 자동 계획형·장문 보고서의 최초 계획은 새 제공자 세션에서 시작하므로 앞선 보고서 프롬프트를 상속하지 않는다. 명시적으로 같은 세션을 이어 쓰는 호환 경로에서는 그 기록이 남아 있을 수 있다.
 
    사용자는 active agent 작업이 없을 때 현재 미션 자료를 바탕으로 리포트를 요청할 수 있다. 리포트는
    대화의 원문 전체를 프롬프트에 다시 붙여 넣는 방식이 아니라, 에이전트가 미션 대화,
@@ -443,10 +460,11 @@ metadata는 기존 source snapshot/raw artifact 경계에 남고, HTML 안의 �
    리포트 작성은 큰 미션 리콜 JSON이나 사전 조립된 리포트 전용 자료 묶음을
    프롬프트에 넣는 방식에서 벗어나야 한다. 앞으로의 방향은 짧은 작성 지침과
    MCP 읽기 도구로 기존 장부의 소스, 근거, 저장 지식, 결과, artifact를 필요한 만큼
-   조회하는 것이다. 원테이크를 제외한 리포트 생성은 가능하면 기존 조사 세션을 fork한
-   보고서 전용 세션에서 Markdown artifact를 작성하고, 이후 일반 대화는 원래 조사 세션을 이어간다.
-   fork 가능한 executor나 기존 조사 세션이 없으면 같은 세션으로 작성하되,
-   `report_session_policy_selection`에 그 이유를 남긴다. 리포트 작성 지침은 얇은 요약을 요구하지 않고, 원자료가
+   조회하는 것이다. 자동 계획형·장문 리포트는 최초 계획을 빈 제공자 세션에서 시작하고,
+   이후 작성과 조립은 반환된 계획 세션을 이어간다. 작성 완료 뒤 일반 대화는 보고서 세션이
+   아니라 원래 조사 세션을 이어간다. 원테이크는 기존 대화 세션을 사용하고, 명시적
+   `same_session`과 `isolated_fork`는 호환 입력으로 유지한다. 선택 결과와 계보는
+   `report_session_policy_selection` 및 관련 세션 필드에 남긴다. 리포트 작성 지침은 얇은 요약을 요구하지 않고, 원자료가
    허용하는 범위에서 맥락, 비교, 결과, 긴장을 포함한 읽을 만한 글을 요구한다.
    다만 약한 신호와 추정은 명확히 표시한다. report draft가 pending인 동안에는 일반 turn과 workflow start를
    막아 같은 provider session을 병렬로 건드리지 않는다. completed workflow run이 자동으로
@@ -665,8 +683,9 @@ deferred MCP 작업이 아니며, active turn, workflow run, report draft가 없
 6. 사용자가 승인하거나 명시한 내용만 저장 지식으로 장부에 남긴다.
 7. 제한된 workflow run을 Web, CLI, MCP에서 같은 장부 projection으로 시작, 조회,
    중지할 수 있게 한다.
-8. workflow가 끝나면 같은 미션과 provider session에서 일반 대화를 이어가며, 리포트
-   요청은 가능하면 fork된 보고서 전용 세션에서 처리한다.
+8. workflow가 끝나면 같은 미션과 provider session에서 일반 대화를 이어간다. 자동
+   계획형·장문 리포트의 최초 계획은 별도의 새 provider session에서 시작하고 이후
+   작성은 그 계획 세션을 이어간다.
 9. 저장 지식과 근거, 필요한 명시적 소스 읽기를 바탕으로 Markdown 리포트 artifact를
    생성하고, 보고서 작성 세션이 일반 조사 세션을 오염시키지 않게 한다.
 
