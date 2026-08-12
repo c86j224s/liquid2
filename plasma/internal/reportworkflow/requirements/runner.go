@@ -57,7 +57,10 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 			if validateErr != nil {
 				return reporting.ReportRequirementMapAgentResult{}, longformutil.AgentFailure(validateErr, result, "report_requirements", durationMS, input.PlanSessionID)
 			}
-			return reporting.ReportRequirementMapAgentResult{Text: strings.TrimSpace(validated.Text), SessionID: validated.SessionID}, nil
+			return reporting.ReportRequirementMapAgentResult{
+				Text: strings.TrimSpace(validated.Text), SessionID: validated.SessionID, Resumed: validated.Resumed,
+				DurationMS: durationMS, Usage: validated.Usage,
+			}, nil
 		},
 	})
 	if err != nil {

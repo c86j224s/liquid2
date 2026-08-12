@@ -299,6 +299,176 @@
 .mission-settings-card[open] > .stack {
   gap: 12px;
 }
+
+.mission-usage-card[open] > .stack {
+  gap: 12px;
+}
+
+.mission-usage-card > summary .badge {
+  margin-left: auto;
+}
+
+.mission-usage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mission-usage-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mission-usage-total {
+  display: block;
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.mission-usage-content {
+  display: grid;
+  gap: 12px;
+}
+
+.mission-usage-metrics,
+.mission-usage-percentiles,
+.mission-usage-run-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+
+.mission-usage-metric {
+  display: grid;
+  min-width: 0;
+  padding: 9px 10px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.mission-usage-metric span,
+.mission-usage-metric small {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.mission-usage-metric strong {
+  color: var(--ink2);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mission-usage-meta {
+  display: flex;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.mission-usage-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.mission-usage-breakdown {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.mission-usage-breakdown h3 {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.mission-usage-category {
+  display: grid;
+  gap: 4px;
+}
+
+.mission-usage-category-copy {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink2);
+  font-size: 11px;
+}
+
+.mission-usage-category-copy span:last-child {
+  color: var(--muted);
+  text-align: right;
+}
+
+.mission-usage-bar {
+  height: 4px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.mission-usage-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent-from);
+}
+
+.mission-usage-runs {
+  border-top: 1px solid var(--line);
+}
+
+.mission-usage-runs > summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  color: var(--ink2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mission-usage-runs > summary span:last-child {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.mission-usage-run-list {
+  display: grid;
+}
+
+.mission-usage-run {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.mission-usage-run-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ink2);
+  font-size: 11px;
+}
+
+.mission-usage-run-head span {
+  color: var(--muted);
+  text-align: right;
+}
+
 .mission-lifecycle-settings,
 .mission-hard-delete-settings {
   display: flex;
@@ -390,6 +560,8 @@
 
 @media (max-width: 640px) {
 	.mission-banner { align-items: flex-start; }
+	.mission-usage-metrics,
+  .mission-usage-run-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 	.mission-metadata-scope { grid-template-columns: 1fr; }
   .mission-lifecycle-settings,
   .mission-hard-delete-settings {

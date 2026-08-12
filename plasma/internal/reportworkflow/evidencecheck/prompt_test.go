@@ -44,6 +44,28 @@ func TestDirectionDoesNotEnterGatePrompts(t *testing.T) {
 	}
 }
 
+func TestEvidencePromptBindsOneDraftSessionAndSequentialRead(t *testing.T) {
+	input := promptInput("")
+	binding := promptBinding()
+	binding.Stage = reporting.FinalEditStageEvidenceGate
+	binding.ToolSessionID = "ses_evidence"
+	prompt := evidencePrompt(input, binding, "rfe_evidence", 1)
+	for _, expected := range []string{
+		`draft_id "rfe_evidence"`,
+		`session_id "ses_evidence"`,
+		"provider session IDs are not MCP session IDs",
+		"offset 0",
+		"copy the returned next_offset exactly",
+		"Do not create or switch drafts",
+		"continuation content",
+		"exactly once with the same draft_id and session_id",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("evidence prompt missing %q:\n%s", expected, prompt)
+		}
+	}
+}
+
 func promptInput(direction string) finaledit.Input {
 	return finaledit.Input{
 		Title: "Report", MissionID: "mis_gate", DirectionHint: direction,

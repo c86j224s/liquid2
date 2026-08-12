@@ -228,6 +228,16 @@
   background: var(--surface);
 }
 
+.turn.compaction-event {
+  border-left-color: var(--green);
+  background: var(--green-dim);
+}
+
+.turn.compaction-event .turn-text {
+  color: var(--ink2);
+  font-size: 12.5px;
+}
+
 .turn-label {
   display: flex;
   align-items: center;
@@ -247,6 +257,39 @@
   color: var(--ink);
   font-size: 13.5px;
   line-height: 1.6;
+}
+
+.live-turn-status-text {
+  color: var(--ink2);
+  background: linear-gradient(
+    100deg,
+    var(--ink2) 0%,
+    var(--ink2) 32%,
+    var(--muted) 42%,
+    var(--ink) 50%,
+    var(--muted) 58%,
+    var(--ink2) 68%,
+    var(--ink2) 100%
+  );
+  background-size: 240% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: live-turn-text-shine 2.2s linear infinite;
+}
+
+@keyframes live-turn-text-shine {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-turn-status-text {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: var(--ink2);
+    color: var(--ink2);
+  }
 }
 
 .turn-markdown {

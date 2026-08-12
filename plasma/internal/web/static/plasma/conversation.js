@@ -43,7 +43,7 @@
     $("turnText").value = "";
     if (state.detail) conversation.renderTurns(state.detail.events || []);
     try {
-      await transport.missionApi(owner, "/turns", {
+      const response = await transport.missionApi(owner, "/turns", {
         method: "POST",
         body: {
           text,
@@ -53,7 +53,12 @@
         }
       });
       if (!mission.ownsMissionSelection(owner)) return;
-      state.pendingTurn = null;
+      const userEventID = response?.user_event?.EventID || "";
+      if (userEventID) {
+        state.pendingTurn = { ...(state.pendingTurn || {}), userEventID };
+        conversation.startLiveTurn?.(missionId, userEventID);
+        if (state.detail) conversation.renderTurns(state.detail.events || []);
+      }
       await callbacks.reloadMission(missionId);
     } catch (err) {
       if (!mission.ownsMissionSelection(owner)) return;
@@ -78,6 +83,7 @@
         body: {}
       });
       if (!mission.ownsMissionSelection(owner)) return;
+      conversation.clearLiveTurnForMission?.(owner.missionId);
       state.pendingTurn = null;
       await callbacks.reloadMission(owner.missionId);
     } catch (err) {

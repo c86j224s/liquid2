@@ -23,6 +23,7 @@
     state.activeTab = tab.dataset.tab;
     renderTabs();
     if (state.activeTab === "settings") {
+      deps.loadMissionUsage?.();
       deps.loadModelDefaults?.();
       deps.loadConfluenceConnections?.();
     }

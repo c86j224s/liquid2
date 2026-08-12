@@ -37,6 +37,7 @@ func TestListToolsSchemasAreValid(t *testing.T) {
 		ToolLocalPathRoots:          false,
 		ToolLocalPathTree:           false,
 		ToolResearchOutline:         false,
+		ToolResearchChanges:         false,
 		ToolResearchList:            false,
 		ToolResearchRead:            false,
 		ToolResearchGrep:            false,
@@ -1027,6 +1028,7 @@ func TestExperimentalReportFinalizeSucceedsWhenHumanizeReadyMarkerFails(t *testi
 func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 	service := &fakeMCPService{
 		outline: app.ResearchIDEOutline{MissionID: "mis_1", Title: "Mission"},
+		changes: app.ResearchIDEChanges{MissionID: "mis_1", CurrentSequence: 7, NextAfterSequence: 7, Items: []app.ResearchIDEObjectSummary{}},
 		page: app.ResearchIDEPage{
 			MissionID:  "mis_1",
 			ObjectKind: app.ResearchIDEObjectRawArtifact,
@@ -1069,6 +1071,7 @@ func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 
 	calls := []ToolCall{
 		{Name: ToolResearchOutline, Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1"})},
+		{Name: ToolResearchChanges, Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1", "after_sequence": 4, "limit": 10})},
 		{Name: ToolResearchList, Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1", "object_kind": "raw_artifact", "limit": 10})},
 		{Name: ToolResearchRead, Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1", "object_kind": "raw_artifact", "object_id": "art_1", "max_bytes": 5})},
 		{Name: ToolResearchGrep, Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1", "query": "hello", "limit": 10})},
@@ -1085,6 +1088,9 @@ func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 	}
 	if service.lastRead.MaxBytes != 5 || service.lastRead.ObjectID != "art_1" {
 		t.Fatalf("research read request was not forwarded: %#v", service.lastRead)
+	}
+	if service.lastChanges.AfterSequence != 4 || service.lastChanges.Limit != 10 {
+		t.Fatalf("research changes request was not forwarded: %#v", service.lastChanges)
 	}
 	var readTracePayload map[string]any
 	for _, event := range service.events {
@@ -3237,11 +3243,13 @@ type fakeMCPService struct {
 	claims       []app.ClaimRecord
 	questions    []app.QuestionRecord
 	outline      app.ResearchIDEOutline
+	changes      app.ResearchIDEChanges
 	page         app.ResearchIDEPage
 	read         app.ResearchIDEObjectRead
 	grep         app.ResearchIDEGrepResult
 	refs         app.ResearchIDEReferences
 	lastRead     app.ResearchIDEReadRequest
+	lastChanges  app.ResearchIDEChangesRequest
 	workflowRuns []app.WorkflowRunView
 
 	searchUsedConnector     bool
@@ -3645,6 +3653,21 @@ func (f *fakeMCPService) OutlineMission(_ context.Context, missionID string) (ap
 
 func (f *fakeMCPService) OutlineMissionLegacy(ctx context.Context, missionID string) (app.ResearchIDEOutline, error) {
 	return f.OutlineMission(ctx, missionID)
+}
+
+func (f *fakeMCPService) ListMissionChanges(_ context.Context, req app.ResearchIDEChangesRequest) (app.ResearchIDEChanges, error) {
+	f.lastChanges = req
+	changes := f.changes
+	if changes.MissionID == "" {
+		changes.MissionID = req.MissionID
+	}
+	if changes.AfterSequence == 0 {
+		changes.AfterSequence = req.AfterSequence
+	}
+	if changes.Limit == 0 {
+		changes.Limit = req.Limit
+	}
+	return changes, nil
 }
 
 func (f *fakeMCPService) ListMissionObjects(_ context.Context, missionID, objectKind string, limit int, cursor string) (app.ResearchIDEPage, error) {

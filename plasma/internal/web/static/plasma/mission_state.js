@@ -15,12 +15,17 @@
     state.missionHardDeletePending = false;
     state.workflowGoalDraftRaw = "";
     state.pendingTurn = null;
+    Plasma.conversation?.clearLiveTurn?.();
     state.sourceCandidateBusy.clear();
     state.selectedSourceCandidates.clear();
     state.selectedProposals.clear();
     state.selectedReportKey = "";
     state.reportPreview = null;
     state.reportDeletePreview = null;
+    state.missionUsage = null;
+    state.missionUsageMissionId = "";
+    state.missionUsageLoading = false;
+    state.missionUsageError = "";
     state.confluenceSearchResults = [];
     state.confluenceSearchContext = null;
     state.confluenceSpaces = [];
@@ -41,6 +46,7 @@
     clearDetailLists();
     Plasma.mission.renderMissionLoading();
     Plasma.sources.resetConfluenceMissionUI();
+    Plasma.settings?.renderMissionUsage?.();
   }
 
   function hideBulkBars() {

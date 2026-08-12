@@ -113,10 +113,12 @@ MCP 도구는 `root_id`와 `relative_path`만 사용하며 absolute path를 입�
 스니펫은 후보이며, 최종 답변이나 리포트 문장은 필요한 경우 명시적 read 관찰로
 확인해야 한다.
 
-MCP 조회면은 `plasma.research.outline`, `plasma.research.list`,
+MCP 조회면은 `plasma.research.outline`, `plasma.research.changes`, `plasma.research.list`,
 `plasma.research.read`, `plasma.research.grep`,
-`plasma.research.references`의 다섯 도구 모델을 따른다. 자동조사 에이전트는
-`plasma.research.outline`으로 미션 전체를 확인하고,
+`plasma.research.references`의 여섯 도구 모델을 따른다. 자동조사 에이전트는 새 provider session에서
+`plasma.research.outline`으로 미션 전체와 최신 ledger sequence를 확인한다. 기존 session을 재개한 뒤
+외부 mission 변경 확인이 필요하면 마지막으로 확인한 sequence 이후를 `plasma.research.changes`로 읽고,
+cursor 재동기화가 필요할 때만 outline으로 돌아간다. 이어서
 `plasma.research.list`와 `plasma.research.grep`으로 읽을 대상을 찾고,
 `plasma.research.read`로 source snapshot, raw artifact, ledger result event의
 필요한 부분만 임의 위치에서 확인한 뒤, `plasma.research.references`로 C1 객체의
@@ -172,6 +174,12 @@ credential-bearing URL은 후보 파싱과 MCP 제안 양쪽에서 거부한다.
 
 현재 기본 반복은 다음 순서다.
 
+0. 최신 Codex 응답에 신뢰할 수 있는 현재 컨텍스트 점유량이 있고 모델 창의 55%에
+   도달했다면, runner는 다음 step을 장부에 열기 전에 같은 provider session을
+   Codex App Server의 `thread/compact/start`로 선제 압축한다. runner는 요청 응답뿐
+   아니라 `contextCompaction` item과 해당 turn의 완료까지 확인한 뒤 다음 step을
+   연다. 압축을 유발한 응답 이벤트를 함께 기록해 재시작 후 중복 실행을 막는다.
+   점유량을 읽을 수 없으면 추정하지 않고 기존 오류 후 압축만 유지한다.
 1. `plasma.research.outline`으로 현재 미션 목표와 범위를 읽는다.
 2. 열린 질문과 이미 연결된 소스를 확인한다.
 3. 다음에 조사할 작은 질문을 만든다.

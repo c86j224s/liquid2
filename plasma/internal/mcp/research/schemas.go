@@ -4,6 +4,7 @@ import "encoding/json"
 
 var (
 	schemaOutline         = objectSchema([]string{"mission_id"}, map[string]any{"mission_id": prefixedStringSchema("mis_")})
+	schemaChanges         = objectSchema([]string{"mission_id", "after_sequence"}, researchChangesProperties())
 	schemaList            = researchListSchema(false)
 	schemaListLegacy      = researchListSchema(true)
 	schemaRead            = researchReadSchema(false)
@@ -78,6 +79,14 @@ var (
 		}),
 	)
 )
+
+func researchChangesProperties() map[string]any {
+	return map[string]any{
+		"mission_id":     prefixedStringSchema("mis_"),
+		"after_sequence": map[string]any{"type": "integer", "minimum": 0},
+		"limit":          map[string]any{"type": "integer", "minimum": 1, "maximum": 100},
+	}
+}
 
 func researchListSchema(legacy bool) json.RawMessage {
 	return objectSchema([]string{"mission_id", "object_kind"}, researchListProperties(legacy))

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -16,8 +18,11 @@ type ReportRequirementMapLifecycleService interface {
 
 // ReportRequirementMapAgentResult는 agent가 제출한 요구사항 map artifact와 실행 metadata다.
 type ReportRequirementMapAgentResult struct {
-	Text      string
-	SessionID string
+	Text       string
+	SessionID  string
+	Resumed    bool
+	DurationMS int64
+	Usage      agentusage.AgentUsage
 }
 
 // ReportRequirementMapLifecycleRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -91,6 +96,17 @@ func (runner Runner) RunReportRequirementMapLifecycle(ctx context.Context, req R
 	hash, _, err := ReportRequirementMapHash(requirementMap)
 	if err != nil || hash != selection.RequirementMapHash {
 		return ReportRequirementMapLifecycleResult{}, fmt.Errorf("%w: report requirement map hash mismatch", app.ErrConflict)
+	}
+	if usageStore, ok := runner.Service.(ReportAgentUsageStore); ok {
+		if _, _, usageErr := RecordReportAgentUsage(context.WithoutCancel(ctx), usageStore, ReportAgentUsageRequest{
+			MissionID: req.MissionID, PendingEventID: req.PendingEventID, CanonicalEventID: selection.Event.EventID,
+			Surface: "report_requirements", PreviousAgentSessionID: binding.PreviousProviderSessionID,
+			AgentSessionID: agent.SessionID, DurationMS: agent.DurationMS, Resumed: agent.Resumed, Usage: agent.Usage,
+		}); usageErr != nil {
+			log.Printf("report_agent_usage_write_failed mission_id=%q canonical_event_id=%q surface=%q err=%q", req.MissionID, selection.Event.EventID, "report_requirements", usageErr)
+		}
+	} else {
+		log.Printf("report_agent_usage_store_unavailable mission_id=%q canonical_event_id=%q surface=%q", req.MissionID, selection.Event.EventID, "report_requirements")
 	}
 	return ReportRequirementMapLifecycleResult{RequirementMap: requirementMap, Event: selection.Event, Binding: binding, Agent: agent}, nil
 }

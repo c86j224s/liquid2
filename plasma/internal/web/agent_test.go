@@ -48,6 +48,7 @@ func TestAgentPromptAutoUsesC1ReadLoopWithoutLegacyMutations(t *testing.T) {
 	prompt := agentPrompt("조사해줘", recall, "auto", false, "ses_1", selectControllerStrategy("", "조사해줘", recall, false))
 	for _, expected := range []string{
 		"plasma.research.outline",
+		"retain its last_sequence",
 		"plasma.research.list",
 		"plasma.research.grep",
 		"plasma.research.read",
@@ -88,6 +89,29 @@ func TestAgentPromptAutoUsesC1ReadLoopWithoutLegacyMutations(t *testing.T) {
 	} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("default C1 prompt contains legacy instruction %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestAgentPromptResumedUsesChangesWithoutForcedOutline(t *testing.T) {
+	recall := recallPreview{Mission: recallMission{MissionID: "mis_1", Title: "조사 미션"}}
+	for _, mode := range []string{"", "auto"} {
+		prompt := agentPrompt("이어서 조사해줘", recall, mode, true, "ses_1", selectControllerStrategy("", "이어서 조사해줘", recall, false))
+		for _, expected := range []string{
+			"Continue from the existing session context",
+			"plasma.research.changes",
+			"last confirmed sequence",
+			"retain current_sequence",
+			"resync_required is true",
+		} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("resumed prompt for mode %q is missing %q:\n%s", mode, expected, prompt)
+			}
+		}
+		for _, forbidden := range []string{"Start with plasma.research.outline", "First call plasma.research.outline"} {
+			if strings.Contains(prompt, forbidden) {
+				t.Fatalf("resumed prompt for mode %q forces full orientation with %q:\n%s", mode, forbidden, prompt)
+			}
 		}
 	}
 }
@@ -346,56 +370,6 @@ func (executor *fakeForkOnlyExecutor) Run(context.Context, AgentRequest) (AgentR
 
 func (executor *fakeForkOnlyExecutor) ForkSession(context.Context, string) (AgentSessionForkResult, error) {
 	return AgentSessionForkResult{SessionID: "forked-session"}, nil
-}
-
-func TestCodexExecutorUsesSlashCompactForCompactionResume(t *testing.T) {
-	dir := t.TempDir()
-	capturePath := filepath.Join(dir, "stdin.txt")
-	scriptPath := filepath.Join(dir, "fake-codex")
-	script := `#!/bin/sh
-out=""
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = "--output-last-message" ]; then
-    shift
-    out="$1"
-  fi
-  shift
-done
-/bin/cat > "$CAPTURE"
-printf 'session id: prior-session\n'
-printf 'done' > "$out"
-`
-	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	result, err := (CodexExecutor{
-		Command: scriptPath,
-		WorkDir: dir,
-		Timeout: 2 * time.Second,
-		Env: []string{
-			"CAPTURE=" + capturePath,
-			"PATH=/usr/bin:/bin",
-		},
-	}).Run(context.Background(), AgentRequest{
-		Prompt:            "custom compaction prompt must not be sent",
-		MissionID:         "mis_1",
-		ToolSessionID:     "ses_1",
-		PreviousSessionID: "prior-session",
-		Compaction:        true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.SessionID != "prior-session" {
-		t.Fatalf("expected prior session id, got %q", result.SessionID)
-	}
-	captured, err := os.ReadFile(capturePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(captured) != "/compact" {
-		t.Fatalf("expected slash compact stdin, got %q", string(captured))
-	}
 }
 
 func TestCodexExecutorInjectsPlasmaMCPConfig(t *testing.T) {
@@ -1463,8 +1437,8 @@ printf 'done' > "$out"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(captured), "--model\ngpt-5.5\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"medium\"") {
-		t.Fatalf("expected GPT-5.5/medium defaults, got %q", captured)
+	if !strings.Contains(string(captured), "--model\ngpt-5.6-luna\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"high\"") {
+		t.Fatalf("expected GPT-5.6 Luna/high defaults, got %q", captured)
 	}
 	if err := os.WriteFile(argsPath, nil, 0o600); err != nil {
 		t.Fatal(err)

@@ -292,6 +292,14 @@ judgments without raw passages or unapproved refs, and canonicalizes byte-
 identical source content with `operation_count=0`. Evidence judgments do not
 block canonicalization and do not trigger automatic repair.
 
+The runner assigns one evidence-gate `draft_id` and one bound tool session for
+each attempt. The agent uses that tool session as `session_id`, starts the packet
+read at offset 0, and continues the same draft only with returned `next_offset`
+values until `truncated=false`, then submits once. A wrong draft, session,
+offset, or early submit remains rejected, but the error result includes the
+active draft, bound session, next offset, packet-completion state, and next
+action so the same validation can continue without opening another draft.
+
 Legacy v1/v2 corrective gate events remain decodable and replayable with their
 historical semantics. The legacy corrective gate uses the existing final-edit
 tool names only in a gate-stage session with both the complete gate binding and
@@ -433,7 +441,10 @@ The final artifact and canonical event producer instead use the server-bound
 report provider session. The canonical payload preserves the existing report
 metadata and records the final tool session separately. Provider usage that is
 known only after the tool call is not fabricated into the canonical event or a
-conversation ledger event. The redacted operational log records only whether a
+conversation ledger event. After canonical submission is confirmed and
+provider usage is available, a content-free `report.agent_usage.recorded` event records only
+the canonical event ID, session lineage, and normalized `agent_usage`. The
+redacted operational log records only whether a
 returned session exists and matches the bound session, together with token
 aggregates and duration; it does not record the returned session ID or provider
 usage details in canonical state.

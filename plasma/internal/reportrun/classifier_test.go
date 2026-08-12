@@ -3,7 +3,6 @@ package reportrun
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"slices"
 	"testing"
 	"time"
@@ -385,92 +384,6 @@ func TestPreviewDeleteBlocksActiveRunWithOpenPending(t *testing.T) {
 		if !slices.Contains(got, want) {
 			t.Fatalf("missing blocker %s in %#v", want, got)
 		}
-	}
-}
-
-func TestAggregateUsageCountsEachMemberEventOnce(t *testing.T) {
-	events := []MemberEvent{
-		{Event: Event{EventID: "evt_a", Payload: jsonPayload(t, map[string]any{
-			"agent_usage": map[string]any{"provider_usage": map[string]any{
-				"input_tokens": 10, "cached_input_tokens": 3, "uncached_input_tokens": 7,
-				"output_tokens": 4, "reasoning_output_tokens": 2, "total_tokens": 16,
-			}},
-		})}},
-		{Event: Event{EventID: "evt_a", Payload: jsonPayload(t, map[string]any{
-			"agent_usage": map[string]any{"provider_usage": map[string]any{"total_tokens": 999}},
-		})}},
-		{Event: Event{EventID: "evt_b", Payload: jsonPayload(t, map[string]any{
-			"agent_usage": map[string]any{"usage_unavailable": true},
-		})}},
-		{Event: Event{EventID: "evt_c", Payload: jsonPayload(t, map[string]any{"note": "ignored"})}},
-	}
-
-	got := AggregateUsage(events)
-	if got.UsageRecordCount != 2 || got.UsageAvailableCount != 1 || got.UsageUnavailableCount != 1 {
-		t.Fatalf("unexpected usage counts: %#v", got)
-	}
-	if got.InputTokens != 10 || got.CachedInputTokens != 3 || got.UncachedInputTokens != 7 ||
-		got.OutputTokens != 4 || got.ReasoningOutputTokens != 2 || got.TotalTokens != 16 {
-		t.Fatalf("unexpected usage totals: %#v", got)
-	}
-	if !got.UsagePartial || got.AggregationVersion != UsageAggregationVersion {
-		t.Fatalf("unexpected usage metadata: %#v", got)
-	}
-}
-
-func TestAggregateUsageMalformedProviderUsageIsUnavailable(t *testing.T) {
-	got := AggregateUsage([]MemberEvent{{
-		Event: Event{EventID: "evt_bad_usage", Payload: []byte(`{"agent_usage":{"provider_usage":{"input_tokens":"10","total_tokens":15}}}`)},
-	}})
-	if got.UsageRecordCount != 1 || got.UsageAvailableCount != 0 || got.UsageUnavailableCount != 1 || !got.UsagePartial {
-		t.Fatalf("malformed usage should be retained as unavailable partial aggregate: %#v", got)
-	}
-	if got.TotalTokens != 0 || got.AggregationVersion != UsageAggregationVersion {
-		t.Fatalf("malformed usage should not create complete-looking totals: %#v", got)
-	}
-}
-
-func TestAggregateUsageInvalidTokenRecordIsUnavailable(t *testing.T) {
-	tests := []struct {
-		name    string
-		events  []MemberEvent
-		wantSum int64
-	}{
-		{
-			name: "negative token",
-			events: []MemberEvent{
-				{Event: Event{EventID: "evt_good", Payload: jsonPayload(t, map[string]any{
-					"agent_usage": map[string]any{"provider_usage": map[string]any{"input_tokens": 4, "total_tokens": 4}},
-				})}},
-				{Event: Event{EventID: "evt_negative", Payload: jsonPayload(t, map[string]any{
-					"agent_usage": map[string]any{"provider_usage": map[string]any{"input_tokens": -1, "total_tokens": 10}},
-				})}},
-			},
-			wantSum: 4,
-		},
-		{
-			name: "overflow token",
-			events: []MemberEvent{
-				{Event: Event{EventID: "evt_max", Payload: jsonPayload(t, map[string]any{
-					"agent_usage": map[string]any{"provider_usage": map[string]any{"input_tokens": math.MaxInt64, "total_tokens": math.MaxInt64}},
-				})}},
-				{Event: Event{EventID: "evt_overflow", Payload: jsonPayload(t, map[string]any{
-					"agent_usage": map[string]any{"provider_usage": map[string]any{"input_tokens": 1, "total_tokens": 1}},
-				})}},
-			},
-			wantSum: math.MaxInt64,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := AggregateUsage(tc.events)
-			if got.UsageRecordCount != 2 || got.UsageAvailableCount != 1 || got.UsageUnavailableCount != 1 || !got.UsagePartial {
-				t.Fatalf("invalid record should be unavailable partial aggregate: %#v", got)
-			}
-			if got.InputTokens != tc.wantSum || got.TotalTokens != tc.wantSum {
-				t.Fatalf("invalid record should not change prior totals: %#v", got)
-			}
-		})
 	}
 }
 

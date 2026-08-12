@@ -396,7 +396,11 @@ PDF extraction text, and alt text are results or artifacts, not sources.
 The MCP-first surface should remain narrow and retrieval-oriented:
 
 - `plasma.research.outline`: whole-mission overview of goals, scope, open
-  questions, result state, and report artifact state.
+  questions, result state, and report artifact state, with the latest ledger
+  sequence for later change checks.
+- `plasma.research.changes`: bounded summaries of meaningful mission changes
+  after a caller-owned ledger sequence. Execution telemetry and report events
+  stay out of this feed; an invalid future cursor requires a fresh outline.
 - `plasma.research.list`: discovery across sources, evidence, saved knowledge,
   raw artifacts, conversation results, ledger events, and report artifacts by
   default. Legacy claim/report-block object kinds require an explicit legacy
@@ -782,6 +786,13 @@ initial call, automatic compaction, and retry. Source refreshes, ledger appends,
 workflow terminal writes, normal conversation, workflow goal drafting, and all
 report generation paths use separate contexts that do not inherit this workflow
 step deadline.
+
+Before opening the next durable workflow step, the runner proactively compacts a
+resumed Codex research session when the latest trustworthy provider observation
+reaches 55% of the model context window. The compaction event records the
+triggering response event and numeric observation so runner restarts do not repeat
+the same attempt. Providers without trustworthy current-occupancy telemetry are
+not estimated and retain the existing error-triggered compaction path.
 
 If an active source is soft-removed during a workflow, the next step refreshes
 source state and appends `workflow.source.skipped` for that source and removal

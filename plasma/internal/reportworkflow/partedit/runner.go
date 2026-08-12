@@ -3,7 +3,9 @@ package partedit
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
@@ -26,6 +28,7 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 	if input.AuthorMode {
 		userText = fmt.Sprintf("write final part %d of the long-form report", input.PartIndex+1)
 	}
+	started := time.Now()
 	result, runErr := runner.Executor.Run(ctx, agentexec.AgentRequest{
 		UserText: userText,
 		Prompt:   reportprompt.WithLongFormDownstreamDirection(Prompt(input, binding, draftID), input.Base.DirectionHint),
@@ -34,6 +37,7 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 		AgentExecutor: input.Base.AgentExecutor, MCPMode: input.Base.MCPMode,
 		ExtraMCPTools: MCPTools(), ReplaceMCPTools: true, PartEdit: &binding,
 	})
+	durationMS := time.Since(started).Milliseconds()
 	if runErr == nil {
 		result, runErr = longformutil.ValidateSameSessionResult(result, input.PreviousSessionID)
 	}
@@ -50,6 +54,18 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 			message = "final Part author did not submit a durable Part"
 		}
 		return Output{Result: result}, fmt.Errorf("%w: %s", producterror.ErrConflict, message)
+	}
+	agentSessionID := strings.TrimSpace(result.SessionID)
+	if agentSessionID == "" {
+		agentSessionID = binding.ProviderSessionID
+	}
+	if _, _, usageErr := reporting.RecordReportAgentUsage(context.WithoutCancel(ctx), runner.Service, reporting.ReportAgentUsageRequest{
+		MissionID: input.Base.MissionID, PendingEventID: input.Base.PendingEventID, CanonicalEventID: edited.Event.EventID,
+		ForkSourceAgentSessionID: binding.ForkSourceAgentSessionID, Surface: "report_part_edit",
+		PreviousAgentSessionID: input.PreviousSessionID, AgentSessionID: agentSessionID,
+		DurationMS: durationMS, Resumed: result.Resumed, Usage: result.Usage,
+	}); usageErr != nil {
+		log.Printf("report_agent_usage_write_failed mission_id=%q canonical_event_id=%q surface=%q err=%q", input.Base.MissionID, edited.Event.EventID, "report_part_edit", usageErr)
 	}
 	if runErr == nil && strings.TrimSpace(result.Text) != reporting.PartEditSubmittedSentinel {
 		message := "Part editor acknowledgement was not exact"

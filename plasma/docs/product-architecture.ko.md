@@ -291,7 +291,9 @@ rendering, thumbnail, PDF extraction text, alt text는 result 또는 artifact이
 MCP-first surface는 좁고 retrieval-oriented해야 합니다.
 
 - `plasma.research.outline`: mission goal, scope, open question, result state, report artifact state를
-  포함한 미션 전체 개요.
+  포함하고 이후 변경 확인에 쓸 최신 ledger sequence를 반환하는 미션 전체 개요.
+- `plasma.research.changes`: 호출자가 기억한 ledger sequence 이후의 의미 있는 mission 변경 요약.
+  실행 telemetry와 report event는 제외하고, 현재보다 앞선 cursor이면 outline 재동기화를 요구합니다.
 - `plasma.research.list`: source, evidence, saved knowledge, raw artifact, conversation result, ledger
   event, report artifact를 찾는 discovery 도구. Legacy claim/report-block object kind는 명시적 legacy
   boundary 뒤에 둡니다.
@@ -581,6 +583,12 @@ run 전체 경과 시간 예산이 없음을 뜻하고, 양의 `max_duration_ms`
 최초 agent 호출, 자동 압축, 재시도가 공유하는 고정 25분 마감 시간을 하나 가집니다.
 Source 갱신, ledger append, workflow terminal 기록, 일반 대화, workflow 목표 초안,
 모든 report 생성 경로는 workflow step 마감을 상속하지 않는 별도 context를 사용합니다.
+
+Runner는 다음 durable workflow step을 열기 전에, 최신의 신뢰할 수 있는 provider 관측치가
+모델 컨텍스트 창의 55%에 도달한 Codex 연구 세션을 선제 압축합니다. 압축 이벤트에는 이를
+유발한 응답 이벤트와 숫자 관측치를 기록해 runner 재시작 뒤 같은 압축을 반복하지 않습니다.
+현재 점유량을 신뢰할 수 있게 제공하지 않는 provider는 추정하지 않으며 기존 오류 후 압축
+경로를 유지합니다.
 
 Workflow 중 active source가 soft-removed되면 다음 step은 source state를 새로 읽습니다. 그리고 해당 source와
 removal event에 대해 `workflow.source.skipped`를 append한 뒤 계속 진행합니다. Runner는 removed source를

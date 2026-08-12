@@ -266,6 +266,7 @@ func (server *Server) reconcileWorkflowState(ctx context.Context, missionID stri
 }
 
 type workflowAgentAdapter struct {
+	server   *Server
 	executor AgentExecutor
 }
 

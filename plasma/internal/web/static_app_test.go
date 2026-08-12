@@ -52,6 +52,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 	conversationAgentSession := string(mustReadStatic(t, "static/plasma/conversation_agent_session.js"))
 	conversationActiveWork := string(mustReadStatic(t, "static/plasma/conversation_active_work.js"))
 	conversationTurnState := string(mustReadStatic(t, "static/plasma/conversation_turn_state.js"))
+	conversationLiveTurn := string(mustReadStatic(t, "static/plasma/conversation_live_turn.js"))
 	conversationTurnNav := string(mustReadStatic(t, "static/plasma/conversation_turn_nav.js"))
 	conversationTurns := string(mustReadStatic(t, "static/plasma/conversation_turns.js"))
 	workflow := string(mustReadStatic(t, "static/plasma/workflow.js"))
@@ -75,6 +76,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 		`/static/plasma/conversation_agent_session.js`,
 		`/static/plasma/conversation_active_work.js`,
 		`/static/plasma/conversation_turn_state.js`,
+		`/static/plasma/conversation_live_turn.js`,
 		`/static/plasma/conversation_turn_nav.js`,
 		`/static/plasma/conversation_turns.js`,
 		`/static/plasma/workflow.js`,
@@ -113,6 +115,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 		"static/plasma/conversation_agent_session.js":  {content: conversationAgentSession, assignment: "Plasma.conversation"},
 		"static/plasma/conversation_active_work.js":    {content: conversationActiveWork, assignment: "Plasma.conversation"},
 		"static/plasma/conversation_turn_state.js":     {content: conversationTurnState, assignment: "Plasma.conversation"},
+		"static/plasma/conversation_live_turn.js":      {content: conversationLiveTurn, assignment: "Plasma.conversation"},
 		"static/plasma/conversation_turn_nav.js":       {content: conversationTurnNav, assignment: "Plasma.conversation"},
 		"static/plasma/conversation_turns.js":          {content: conversationTurns, assignment: "Plasma.conversation"},
 		"static/plasma/workflow.js":                    {content: workflow, assignment: "Plasma.workflow"},
@@ -139,6 +142,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 		"static/plasma/conversation_agent_session.js":  conversationAgentSession,
 		"static/plasma/conversation_active_work.js":    conversationActiveWork,
 		"static/plasma/conversation_turn_state.js":     conversationTurnState,
+		"static/plasma/conversation_live_turn.js":      conversationLiveTurn,
 		"static/plasma/conversation_turn_nav.js":       conversationTurnNav,
 		"static/plasma/conversation_turns.js":          conversationTurns,
 		"static/plasma/workflow.js":                    workflow,
@@ -265,6 +269,12 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 			"function hasOpenPendingTurn(",
 			"function completedUserEventIDs(",
 		},
+		"static/plasma/conversation_live_turn.js": {
+			"function startLiveTurn(",
+			"function handleLiveTurnSnapshot(",
+			"function syncLiveTurnSubscription(",
+			"function liveTurnSnapshot(",
+		},
 		"static/plasma/conversation_turn_nav.js": {
 			"function updateTurnNavVisibility(",
 			"function onTurnNavClick(",
@@ -308,6 +318,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 		"static/plasma/conversation_agent_session.js":  conversationAgentSession,
 		"static/plasma/conversation_active_work.js":    conversationActiveWork,
 		"static/plasma/conversation_turn_state.js":     conversationTurnState,
+		"static/plasma/conversation_live_turn.js":      conversationLiveTurn,
 		"static/plasma/conversation_turn_nav.js":       conversationTurnNav,
 		"static/plasma/conversation_turns.js":          conversationTurns,
 		"static/plasma/workflow.js":                    workflow,
@@ -465,6 +476,7 @@ func TestPlasmaFoundationOwnerContracts(t *testing.T) {
 			{name: "conversation_agent_session.js", body: conversationAgentSession},
 			{name: "conversation_active_work.js", body: conversationActiveWork},
 			{name: "conversation_turn_state.js", body: conversationTurnState},
+			{name: "conversation_live_turn.js", body: conversationLiveTurn},
 			{name: "conversation_turn_nav.js", body: conversationTurnNav},
 			{name: "conversation_turns.js", body: conversationTurns},
 		} {
@@ -2213,6 +2225,7 @@ func mustReadPlasmaConversationScripts(t *testing.T) string {
 		"\n" + string(mustReadStatic(t, "static/plasma/conversation_agent_session.js")) +
 		"\n" + string(mustReadStatic(t, "static/plasma/conversation_active_work.js")) +
 		"\n" + string(mustReadStatic(t, "static/plasma/conversation_turn_state.js")) +
+		"\n" + string(mustReadStatic(t, "static/plasma/conversation_live_turn.js")) +
 		"\n" + string(mustReadStatic(t, "static/plasma/conversation_turn_nav.js")) +
 		"\n" + string(mustReadStatic(t, "static/plasma/conversation_turns.js"))
 }
@@ -4653,6 +4666,49 @@ if((log.innerHTML.match(/badge danger/g)||[]).length!==1)throw new Error("failur
 `
 	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("agent terminal turn fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticAppRendersAgentCompactionTurn(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	script := string(mustReadStatic(t, "static/plasma/conversation_turns.js"))
+	fixture := `
+const state={pendingTurn:null,turnPending:false,missionId:"mis_1",turnScrollMission:"mis_1"};
+const log={scrollHeight:0,scrollTop:0,clientHeight:0,innerHTML:""};
+const window={Plasma:{reports:{}},renderPlasmaMath(){}};
+const $=()=>log;
+const completedUserEventIDs=()=>new Set();
+const conversation={completedUserEventIDs,updateTurnNavVisibility(){}};
+const escapeHTML=(value)=>String(value);
+const escapeAttr=(value)=>String(value);
+const timeShort=()=>"12:00";
+const shortID=(value)=>String(value);
+const callbacks={renderMarkdown:(value)=>String(value),empty:(value)=>String(value)};
+` + jsFunctionSource(t, script, "contextWindowPercent") + `
+` + jsFunctionSource(t, script, "renderContextCompactionTurn") + `
+` + jsFunctionSource(t, script, "renderSessionBadge") + `
+` + jsFunctionSource(t, script, "renderSessionResetTurn") + `
+` + jsFunctionSource(t, script, "renderStandaloneSteeringTurn") + `
+` + jsFunctionSource(t, script, "renderConversationTurn") + `
+` + jsFunctionSource(t, script, "renderTurns") + `
+renderTurns([
+  {EventType:"turn.agent.compacted",CreatedAt:"now",Payload:{
+    kind:"agent_session_compacted",manual:false,context_used_tokens:222425,context_window_tokens:258400,
+    agent_usage:{context_window:{used_tokens:76769,window_tokens:258400}},summary:"provider-only detail"
+  }},
+  {EventType:"turn.agent.compacted",CreatedAt:"now",Payload:{kind:"agent_session_compacted",manual:true}}
+]);
+const html=log.innerHTML;
+if((html.match(/compaction-event/g)||[]).length!==2)throw new Error("compaction events are missing: "+html);
+if(!html.includes("자동 압축")||!html.includes("압축 완료"))throw new Error("compaction labels are missing: "+html);
+if(!html.includes("86.1%")||!html.includes("29.7%"))throw new Error("compaction range is missing: "+html);
+if(!html.includes("같은 세션에서 작업을 이어갑니다."))throw new Error("continuity message is missing: "+html);
+if(html.includes("provider-only detail")||html.includes("turn-copy"))throw new Error("internal detail or copy action leaked: "+html);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("agent compaction turn fixture: %v: %s", err, out)
 	}
 }
 

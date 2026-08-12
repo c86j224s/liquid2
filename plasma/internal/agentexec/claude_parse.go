@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
@@ -19,6 +20,7 @@ type claudeEvent struct {
 	ModelUsage   map[string]claudeModelUsage `json:"modelUsage"`
 	TotalCostUSD float64                     `json:"total_cost_usd"`
 	Errors       []string                    `json:"errors"`
+	Event        claudeStreamEvent           `json:"event"`
 }
 
 type claudeMessage struct {
@@ -29,6 +31,23 @@ type claudeMessage struct {
 type claudeContent struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+type claudeStreamEvent struct {
+	Type         string                   `json:"type"`
+	ContentBlock claudeStreamContentBlock `json:"content_block"`
+	Delta        claudeStreamContentDelta `json:"delta"`
+}
+
+type claudeStreamContentBlock struct {
+	Type string `json:"type"`
+	Name string `json:"name"`
+}
+
+type claudeStreamContentDelta struct {
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	Thinking string `json:"thinking"`
 }
 
 type claudeUsage struct {
@@ -101,9 +120,30 @@ func parseClaudeEvents(raw []byte) ([]claudeEvent, error) {
 	}
 	var event claudeEvent
 	if err := json.Unmarshal(raw, &event); err != nil {
-		return nil, err
+		return parseClaudeJSONLines(raw)
 	}
 	return []claudeEvent{event}, nil
+}
+
+func parseClaudeJSONLines(raw []byte) ([]claudeEvent, error) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	var events []claudeEvent
+	for {
+		var event claudeEvent
+		err := decoder.Decode(&event)
+		if err == nil {
+			events = append(events, event)
+			continue
+		}
+		if err == io.EOF {
+			break
+		}
+		return nil, err
+	}
+	if len(events) == 0 {
+		return nil, fmt.Errorf("agent emitted no JSON output")
+	}
+	return events, nil
 }
 
 func claudeProviderUsage(event claudeEvent) (agentusage.ProviderUsage, bool) {

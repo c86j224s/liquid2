@@ -19,6 +19,7 @@ func codexEnabledTools() []string {
 func agentMCPEnabledTools() []string {
 	return []string{
 		mcptools.ToolResearchOutline,
+		mcptools.ToolResearchChanges,
 		mcptools.ToolResearchList,
 		mcptools.ToolResearchGrep,
 		mcptools.ToolResearchRead,

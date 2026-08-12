@@ -60,9 +60,11 @@ func (runner Runner) RunStage(ctx context.Context, input Input, progress reporti
 				}
 			}
 			if finalOK && stageOK {
+				recordStageUsage(ctx, runner.Store, input, binding, stage, result, durationMS)
 				return StageRun{Binding: binding, Stage: stage, Final: final}, nil
 			}
 		} else if stageOK {
+			recordStageUsage(ctx, runner.Store, input, binding, stage, result, durationMS)
 			return StageRun{Binding: binding, Stage: stage}, nil
 		}
 		if attempt == 1 {

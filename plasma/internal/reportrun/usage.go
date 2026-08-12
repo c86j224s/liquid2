@@ -3,37 +3,62 @@ package reportrun
 import (
 	"encoding/json"
 	"math"
+	"sort"
+	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 )
 
 // AggregateUsage builds the retained post-purge token aggregate from member
 // events. It reads only top-level agent_usage and never copies prompts or raw
-// provider responses.
+// provider responses. Session-cumulative snapshots are converted to increments
+// in ledger order before they are added.
 func AggregateUsage(events []MemberEvent) UsageAggregate {
 	aggregate := UsageAggregate{AggregationVersion: UsageAggregationVersion}
 	seen := map[string]bool{}
-	for _, member := range events {
+	baselines := map[string]agentusage.AgentUsage{}
+
+	for _, member := range orderedUsageEvents(events) {
 		eventID := member.Event.EventID
 		if eventID == "" || seen[eventID] {
 			continue
 		}
 		seen[eventID] = true
-		var payload struct {
-			AgentUsage json.RawMessage `json:"agent_usage"`
-		}
-		if json.Unmarshal(member.Event.Payload, &payload) != nil || len(payload.AgentUsage) == 0 || string(payload.AgentUsage) == "null" {
+		raw, ok := agentUsagePayload(member.Event.Payload)
+		if !ok {
 			continue
 		}
 		aggregate.UsageRecordCount++
-		usage, ok := decodeAgentUsage(payload.AgentUsage)
-		if !ok || usage.ProviderUsage == nil || usage.UsageUnavailable {
-			aggregate.UsageUnavailableCount++
-			aggregate.UsagePartial = true
+
+		var usage agentusage.AgentUsage
+		if json.Unmarshal(raw, &usage) != nil || usage.ProviderUsage == nil || usage.UsageUnavailable {
+			aggregate = markUsageUnavailable(aggregate)
 			continue
 		}
-		next, ok := aggregateWithProviderUsage(aggregate, *usage.ProviderUsage)
+
+		scope := agentusage.ProviderUsageScope(usage)
+		var previous *agentusage.AgentUsage
+		sessionID := strings.TrimSpace(usage.Session.AgentSessionID)
+		if scope == agentusage.UsageScopeSessionCumulative && sessionID != "" {
+			if prior, found := baselines[sessionID]; found {
+				priorCopy := prior
+				previous = &priorCopy
+			}
+		}
+		increment, metadata, ok := agentusage.IncrementalProviderUsage(usage, previous)
 		if !ok {
-			aggregate.UsageUnavailableCount++
+			aggregate = markUsageUnavailable(aggregate)
+			continue
+		}
+		if scope == agentusage.UsageScopeSessionCumulative {
+			baselines[sessionID] = usage
+		}
+		if metadata.CounterReset {
 			aggregate.UsagePartial = true
+		}
+		next, ok := aggregateWithProviderUsage(aggregate, increment)
+		if !ok {
+			aggregate = markUsageUnavailable(aggregate)
 			continue
 		}
 		aggregate = next
@@ -42,40 +67,40 @@ func AggregateUsage(events []MemberEvent) UsageAggregate {
 	return aggregate
 }
 
-type agentUsagePayload struct {
-	UsageUnavailable bool                  `json:"usage_unavailable"`
-	ProviderUsage    *providerUsagePayload `json:"provider_usage"`
+func orderedUsageEvents(events []MemberEvent) []MemberEvent {
+	ordered := append([]MemberEvent(nil), events...)
+	sort.SliceStable(ordered, func(i int, j int) bool {
+		left := ordered[i].Event
+		right := ordered[j].Event
+		if left.Sequence != right.Sequence {
+			return left.Sequence < right.Sequence
+		}
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			return left.CreatedAt.Before(right.CreatedAt)
+		}
+		return left.EventID < right.EventID
+	})
+	return ordered
 }
 
-type providerUsagePayload struct {
-	InputTokens           int64 `json:"input_tokens"`
-	CachedInputTokens     int64 `json:"cached_input_tokens"`
-	UncachedInputTokens   int64 `json:"uncached_input_tokens"`
-	OutputTokens          int64 `json:"output_tokens"`
-	ReasoningOutputTokens int64 `json:"reasoning_output_tokens"`
-	TotalTokens           int64 `json:"total_tokens"`
-}
-
-func decodeAgentUsage(raw json.RawMessage) (agentUsagePayload, bool) {
+func agentUsagePayload(raw []byte) (json.RawMessage, bool) {
 	var payload struct {
-		UsageUnavailable bool            `json:"usage_unavailable"`
-		ProviderUsage    json.RawMessage `json:"provider_usage"`
+		AgentUsage json.RawMessage `json:"agent_usage"`
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return agentUsagePayload{}, false
+	if json.Unmarshal(raw, &payload) != nil || len(payload.AgentUsage) == 0 || string(payload.AgentUsage) == "null" {
+		return nil, false
 	}
-	if len(payload.ProviderUsage) == 0 || string(payload.ProviderUsage) == "null" {
-		return agentUsagePayload{UsageUnavailable: payload.UsageUnavailable}, true
-	}
-	var provider providerUsagePayload
-	if err := json.Unmarshal(payload.ProviderUsage, &provider); err != nil {
-		return agentUsagePayload{}, false
-	}
-	return agentUsagePayload{UsageUnavailable: payload.UsageUnavailable, ProviderUsage: &provider}, true
+	return payload.AgentUsage, true
 }
 
-func aggregateWithProviderUsage(aggregate UsageAggregate, provider providerUsagePayload) (UsageAggregate, bool) {
-	values := []int64{
+func markUsageUnavailable(aggregate UsageAggregate) UsageAggregate {
+	aggregate.UsageUnavailableCount++
+	aggregate.UsagePartial = true
+	return aggregate
+}
+
+func aggregateWithProviderUsage(aggregate UsageAggregate, provider agentusage.ProviderUsage) (UsageAggregate, bool) {
+	values := []int{
 		provider.InputTokens,
 		provider.CachedInputTokens,
 		provider.UncachedInputTokens,
@@ -89,24 +114,23 @@ func aggregateWithProviderUsage(aggregate UsageAggregate, provider providerUsage
 		}
 	}
 	next := aggregate
-	var ok bool
-	if next.InputTokens, ok = checkedAddInt64(next.InputTokens, provider.InputTokens); !ok {
-		return UsageAggregate{}, false
+	fields := []struct {
+		target *int64
+		value  int
+	}{
+		{&next.InputTokens, provider.InputTokens},
+		{&next.CachedInputTokens, provider.CachedInputTokens},
+		{&next.UncachedInputTokens, provider.UncachedInputTokens},
+		{&next.OutputTokens, provider.OutputTokens},
+		{&next.ReasoningOutputTokens, provider.ReasoningOutputTokens},
+		{&next.TotalTokens, provider.TotalTokens},
 	}
-	if next.CachedInputTokens, ok = checkedAddInt64(next.CachedInputTokens, provider.CachedInputTokens); !ok {
-		return UsageAggregate{}, false
-	}
-	if next.UncachedInputTokens, ok = checkedAddInt64(next.UncachedInputTokens, provider.UncachedInputTokens); !ok {
-		return UsageAggregate{}, false
-	}
-	if next.OutputTokens, ok = checkedAddInt64(next.OutputTokens, provider.OutputTokens); !ok {
-		return UsageAggregate{}, false
-	}
-	if next.ReasoningOutputTokens, ok = checkedAddInt64(next.ReasoningOutputTokens, provider.ReasoningOutputTokens); !ok {
-		return UsageAggregate{}, false
-	}
-	if next.TotalTokens, ok = checkedAddInt64(next.TotalTokens, provider.TotalTokens); !ok {
-		return UsageAggregate{}, false
+	for _, field := range fields {
+		value, ok := checkedAddInt64(*field.target, int64(field.value))
+		if !ok {
+			return UsageAggregate{}, false
+		}
+		*field.target = value
 	}
 	return next, true
 }

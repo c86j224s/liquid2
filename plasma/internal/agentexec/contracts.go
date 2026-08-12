@@ -15,11 +15,62 @@ type AgentExecutor interface {
 	Run(context.Context, AgentRequest) (AgentResult, error)
 }
 
+// StreamingAgentExecutor는 기존 Run 계약을 유지하면서 안전하게 정규화된 실행 관찰
+// 이벤트를 선택적으로 제공하는 executor 확장점이다.
+//
+// Observer에는 provider 원문 JSON, 추론 본문, 도구 인자/결과, 경로, URL, 세션 ID,
+// 임의 도구명이 전달되면 안 된다. 호출자는 이 인터페이스가 없으면 Run으로
+// 폴백해야 한다.
+type StreamingAgentExecutor interface {
+	RunWithObserver(context.Context, AgentRequest, AgentObserver) (AgentResult, error)
+}
+
+// AgentObserver는 provider 실행 중 관찰된 안전 이벤트를 받는다.
+type AgentObserver func(AgentObservation)
+
+// AgentObservation은 브라우저로 보낼 수 있는 provider 실행 관찰의 닫힌 형태다.
+type AgentObservation struct {
+	Type         AgentObservationType
+	Phase        AgentPhase
+	ToolCategory AgentToolCategory
+	Text         string
+}
+
+// AgentObservationType은 provider 관찰 이벤트의 노출 가능한 종류다.
+type AgentObservationType string
+
+const (
+	AgentObservationPhase  AgentObservationType = "phase"
+	AgentObservationTool   AgentObservationType = "tool"
+	AgentObservationAnswer AgentObservationType = "answer"
+)
+
+// AgentPhase는 활동 문구 선택에 사용할 수 있는 안전한 단계 집합이다.
+type AgentPhase string
+
+const (
+	AgentPhaseThinking AgentPhase = "thinking"
+)
+
+// AgentToolCategory는 provider tool 이름을 노출하지 않기 위한 닫힌 도구 범주다.
+type AgentToolCategory string
+
+const (
+	AgentToolCategoryWebSearch     AgentToolCategory = "web_search"
+	AgentToolCategoryWebRead       AgentToolCategory = "web_read"
+	AgentToolCategoryMissionRead   AgentToolCategory = "mission_read"
+	AgentToolCategorySourcePropose AgentToolCategory = "source_propose"
+	AgentToolCategoryOrganize      AgentToolCategory = "organize"
+	AgentToolCategoryValidate      AgentToolCategory = "validate"
+	AgentToolCategoryUnknown       AgentToolCategory = "unknown"
+)
+
 // AgentRequest는 한 번의 agent 실행에 필요한 prompt, model, MCP binding을 담는다.
 //
 // ReportPlan/PartEdit/FinalEditStage 같은 포인터 필드는 해당 실행이 특정 report
 // workflow stage에 묶였음을 뜻한다. 동시에 여러 stage를 켜는 조합은 caller가
-// 명시적으로 구성해야 하며 executor가 임의로 추론하지 않는다.
+// 명시적으로 구성해야 하며 executor가 임의로 추론하지 않는다. EphemeralSession은
+// 장부 세션으로 이어지지 않는 보조 호출에만 사용한다.
 type AgentRequest struct {
 	UserText           string
 	Prompt             string
@@ -34,6 +85,7 @@ type AgentRequest struct {
 	Compaction         bool
 	DisableTools       bool
 	IgnoreUserConfig   bool
+	EphemeralSession   bool
 	ExtraMCPTools      []string
 	ReplaceMCPTools    bool
 	ReportPatch        *AgentReportPatchContext

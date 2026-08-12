@@ -3,11 +3,43 @@ package research
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 )
+
+func TestDefinitionsExposeChangesCursorContract(t *testing.T) {
+	var changes *wire.ToolDefinition
+	for _, definition := range Definitions(false) {
+		if definition.Name == mcptools.ToolResearchChanges {
+			definition := definition
+			changes = &definition
+			break
+		}
+	}
+	if changes == nil {
+		t.Fatal("missing research changes definition")
+	}
+
+	var schema struct {
+		Required   []string                  `json:"required"`
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(changes.InputSchema, &schema); err != nil {
+		t.Fatalf("decode changes schema: %v", err)
+	}
+	if len(schema.Required) != 2 || schema.Required[0] != "mission_id" || schema.Required[1] != "after_sequence" {
+		t.Fatalf("changes required fields = %#v", schema.Required)
+	}
+	if got := schema.Properties["after_sequence"]["minimum"]; got != float64(0) {
+		t.Fatalf("after_sequence minimum = %#v, want 0", got)
+	}
+	if got := schema.Properties["limit"]["maximum"]; got != float64(100) {
+		t.Fatalf("limit maximum = %#v, want 100", got)
+	}
+}
 
 func TestDefinitionDigestsMatchPreExtractionContract(t *testing.T) {
 	tests := []struct {
@@ -18,12 +50,12 @@ func TestDefinitionDigestsMatchPreExtractionContract(t *testing.T) {
 		{
 			name: "default research read definitions",
 			defs: Definitions(false),
-			want: "047e9536c469c1f7793b0b0ef48fb6b22816e79172aa660cbfab01dcf05773eb",
+			want: "5297e18d125e93f5732dc95fefcb5227250c3063a60b677b0437124d9b9b5f11",
 		},
 		{
 			name: "legacy research read definitions",
 			defs: Definitions(true),
-			want: "a561235b7d0f3e2d5c0eab278dfefff9eb14014c3666e6f999ae4a6e9e36080f",
+			want: "cfbf1bfa6f69877f11c7f09479b5431f8efd359279b9c0a8d42c5c2b2cce77fe",
 		},
 		{
 			name: "legacy research mutation definitions",

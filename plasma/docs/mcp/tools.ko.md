@@ -15,11 +15,12 @@ URI: `plasma://docs/mcp/tools`
 
 ## 기본 조사 흐름
 
-1. `plasma.research.outline`으로 mission ledger 구조를 파악합니다.
-2. `plasma.research.list` 또는 `plasma.research.grep`으로 candidate를 좁힙니다.
-3. `plasma.research.read`로 필요한 object 또는 bounded source chunk를 읽습니다.
-4. Source, artifact, observation, ledger-event 관계가 중요하면 `plasma.research.references`를 사용합니다.
-5. 사용자 검토 가치가 있는 original material은 `plasma.sources.candidates.propose`로 기록합니다.
+1. `plasma.research.outline`으로 mission ledger 구조를 파악하고 `last_sequence`를 기억합니다.
+2. 기존 provider session을 재개한 뒤 mission 변경 확인이 필요하면 마지막으로 확인한 sequence로 `plasma.research.changes`를 호출합니다. 반환된 `current_sequence`를 기억하고, `resync_required`가 true이면 outline을 다시 읽습니다.
+3. `plasma.research.list` 또는 `plasma.research.grep`으로 candidate를 좁힙니다.
+4. `plasma.research.read`로 필요한 object 또는 bounded source chunk를 읽습니다.
+5. Source, artifact, observation, ledger-event 관계가 중요하면 `plasma.research.references`를 사용합니다.
+6. 사용자 검토 가치가 있는 original material은 `plasma.sources.candidates.propose`로 기록합니다.
 
 ## Source Tool
 

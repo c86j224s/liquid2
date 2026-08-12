@@ -34,7 +34,7 @@ timeout = ""
 
 [plasma-agents.codex]
 command = "codex"
-# Interactive Codex sessions use Plasma's GPT-5.5 / medium default.
+# Interactive Codex sessions use Plasma's GPT-5.6 Luna / high default.
 # Do not add a normal model override here; choose a model per mission in Plasma.
 # These remain specialized workflow-goal drafting fallback settings.
 # The Settings screen can override them for workflow goal drafts.

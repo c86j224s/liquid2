@@ -9,6 +9,7 @@ import (
 // Reader is the consumer-side port required by the current research read tools.
 type Reader interface {
 	OutlineMission(context.Context, string) (app.ResearchIDEOutline, error)
+	ListMissionChanges(context.Context, app.ResearchIDEChangesRequest) (app.ResearchIDEChanges, error)
 	ListMissionObjects(context.Context, string, string, int, string) (app.ResearchIDEPage, error)
 	ReadMissionObject(context.Context, app.ResearchIDEReadRequest) (app.ResearchIDEObjectRead, error)
 	GrepMissionObjects(context.Context, string, string, int, string) (app.ResearchIDEGrepResult, error)

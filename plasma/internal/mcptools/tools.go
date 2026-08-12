@@ -19,6 +19,7 @@ const (
 	ToolSourcesRemove                               = "plasma.sources.remove"
 	ToolSourcesRestore                              = "plasma.sources.restore"
 	ToolResearchOutline                             = "plasma.research.outline"
+	ToolResearchChanges                             = "plasma.research.changes"
 	ToolResearchList                                = "plasma.research.list"
 	ToolResearchRead                                = "plasma.research.read"
 	ToolResearchGrep                                = "plasma.research.grep"

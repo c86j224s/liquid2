@@ -579,6 +579,24 @@
                   </div>
                 </div>
               </details>
+              <details id="missionUsageDetails" class="source-add mission-usage-card" open>
+                <summary>
+                  토큰 사용량
+                  <span id="missionUsageStatusBadge" class="badge muted">미션 선택 필요</span>
+                </summary>
+                <div class="stack">
+                  <div class="mission-usage-head">
+                    <div>
+                      <span class="mission-usage-label">교정 합계</span>
+                      <strong id="missionUsageTotal" class="mission-usage-total">—</strong>
+                    </div>
+                    <button id="missionUsageRefresh" class="icon-button quiet" type="button" title="토큰 사용량 새로고침" aria-label="토큰 사용량 새로고침">↻</button>
+                  </div>
+                  <div id="missionUsageContent" class="mission-usage-content" aria-live="polite">
+                    <p class="source-helper">미션을 선택하면 사용량을 확인할 수 있습니다.</p>
+                  </div>
+                </div>
+              </details>
               <details id="modelDefaultsDetails" class="source-add model-defaults-card" open>
                 <summary>기본 모델 설정</summary>
                 <form id="modelDefaultsForm" class="stack">
@@ -718,6 +736,7 @@
     <script src="/static/plasma/conversation_agent_session.js"></script>
     <script src="/static/plasma/conversation_active_work.js"></script>
     <script src="/static/plasma/conversation_turn_state.js"></script>
+    <script src="/static/plasma/conversation_live_turn.js"></script>
     <script src="/static/plasma/conversation_turn_nav.js"></script>
     <script src="/static/plasma/conversation_turns.js"></script>
     <script src="/static/plasma/workflow.js"></script>
@@ -754,6 +773,7 @@
     <script src="/static/plasma/sources_confluence_review.js"></script>
     <script src="/static/plasma/sources_confluence_update.js"></script>
     <script src="/static/plasma/settings_model_defaults.js"></script>
+    <script src="/static/plasma/settings_mission_usage.js"></script>
     <script src="/static/plasma/settings_confluence_rendering.js"></script>
     <script src="/static/plasma/settings_confluence_actions.js"></script>
     <script src="/static/plasma/knowledge.js"></script>

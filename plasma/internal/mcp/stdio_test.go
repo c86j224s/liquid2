@@ -58,6 +58,8 @@ func TestStdioInitializeToolsPromptsAndDocsStaySmall(t *testing.T) {
 	})
 	promptJSON := mustMarshalForTest(t, prompt.Result)
 	if (!strings.Contains(promptJSON, "Grep") && !strings.Contains(promptJSON, "grep")) ||
+		!strings.Contains(promptJSON, "plasma.research.changes") ||
+		!strings.Contains(promptJSON, "current_sequence") ||
 		!strings.Contains(promptJSON, "source.observed") ||
 		!strings.Contains(promptJSON, "observation_event_id") ||
 		!strings.Contains(promptJSON, "copy source_uri into url and title into title") {

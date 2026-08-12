@@ -215,6 +215,21 @@ func TestClaudeExecutorCanRestrictRequestToMCPOnly(t *testing.T) {
 	}
 }
 
+func TestClaudeExecutorIgnoreUserConfigUsesSafeModeOnlyWhenRequested(t *testing.T) {
+	defaultArgs := (ClaudeExecutor{}).baseArgsForRequest(AgentRequest{Model: "haiku"})
+	if indexOfArg(defaultArgs, "--safe-mode") >= 0 || indexOfArg(defaultArgs, "--bare") >= 0 {
+		t.Fatalf("default args unexpectedly isolate user config: %#v", defaultArgs)
+	}
+
+	args := (ClaudeExecutor{}).baseArgsForRequest(AgentRequest{Model: "haiku", IgnoreUserConfig: true})
+	if indexOfArg(args, "--safe-mode") < 0 {
+		t.Fatalf("ignore-user-config args missing --safe-mode: %#v", args)
+	}
+	if indexOfArg(args, "--bare") >= 0 {
+		t.Fatalf("ignore-user-config must not use --bare: %#v", args)
+	}
+}
+
 func TestClaudeExecutorWritesSameBoundReportPlanMCPContext(t *testing.T) {
 	executor := ClaudeExecutor{MCPServer: ClaudeMCPServer{Name: "plasma", Command: "/tmp/plasma", Args: []string{"mcp", "-db", "/tmp/plasma.db", "-enabled-tool", "plasma.sources.read"}}}
 	path, cleanup, err := executor.writeMCPConfig(AgentRequest{MissionID: "mis_1", ToolSessionID: "ses_tool", AgentExecutor: "claude", ExtraMCPTools: []string{"plasma.report.plan.submit"}, ReportPlan: &AgentReportPlanContext{PendingEventID: "evt_pending", ReportMode: "long_form", IdempotencyKey: "key_1", PreviousProviderSessionID: "ses_previous", AgentModel: "claude-test", AgentReasoningEffort: "high"}})

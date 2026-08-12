@@ -113,3 +113,19 @@ func ParseControlDecision(text string) (string, ControlDecision, bool) {
 	}
 	return visible, decision, true
 }
+
+// VisibleTextBeforeControl returns the user-facing prefix without exposing a
+// complete or partial workflow control envelope.
+func VisibleTextBeforeControl(text string) string {
+	index := strings.Index(text, controlMarker)
+	if index >= 0 {
+		return strings.TrimSpace(text[:index])
+	}
+	for prefixLength := len(controlMarker) - 1; prefixLength > 0; prefixLength-- {
+		prefix := controlMarker[:prefixLength]
+		if strings.HasSuffix(text, prefix) {
+			return strings.TrimSpace(text[:len(text)-prefixLength])
+		}
+	}
+	return strings.TrimSpace(text)
+}

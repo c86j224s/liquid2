@@ -25,13 +25,17 @@ returned by `tools/list`.
 
 ## Default Research Flow
 
-1. Use `plasma.research.outline` to understand the mission ledger structure.
-2. Use `plasma.research.list` or `plasma.research.grep` to narrow candidates.
-3. Use `plasma.research.read` to inspect the needed object or bounded source
+1. Use `plasma.research.outline` to understand the mission ledger structure and
+   retain its `last_sequence`.
+2. In a resumed provider session, use `plasma.research.changes` with the last
+   confirmed sequence when mission changes need checking. Retain the returned
+   `current_sequence`; re-read the outline when `resync_required` is true.
+3. Use `plasma.research.list` or `plasma.research.grep` to narrow candidates.
+4. Use `plasma.research.read` to inspect the needed object or bounded source
    chunk.
-4. Use `plasma.research.references` when source, artifact, observation, or
+5. Use `plasma.research.references` when source, artifact, observation, or
    ledger-event relationships matter.
-5. If original material is worth user review, use
+6. If original material is worth user review, use
    `plasma.sources.candidates.propose`.
 
 ## Source Tools

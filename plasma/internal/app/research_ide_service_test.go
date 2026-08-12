@@ -222,7 +222,7 @@ func TestGrepMissionObjectsReturnsNonOverlappingLiteralMatchesWithPagination(t *
 func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 	ctx := context.Background()
 	store := &researchIDEVisibilityStore{
-		projection: MissionProjection{MissionID: "mis_1", Title: "Mission"},
+		projection: MissionProjection{MissionID: "mis_1", Title: "Mission", LastSequence: 1},
 		snapshots: []SourceSnapshot{{
 			SnapshotID:  "src_visible",
 			MissionID:   "mis_1",
@@ -276,6 +276,9 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 		outline.Counts[ResearchIDEObjectRawArtifact] != 1 ||
 		outline.Counts[ResearchIDEObjectLedgerEvent] != 1 {
 		t.Fatalf("unexpected non-legacy counts: %#v", outline.Counts)
+	}
+	if outline.LastSequence != 2 {
+		t.Fatalf("outline last sequence = %d, want full ledger high-water mark 2", outline.LastSequence)
 	}
 	if containsSummaryID(outline.RecentLedgerEvents, "evt_report") || !containsSummaryID(outline.RecentLedgerEvents, "evt_ordinary") {
 		t.Fatalf("unexpected recent ledger events: %#v", outline.RecentLedgerEvents)

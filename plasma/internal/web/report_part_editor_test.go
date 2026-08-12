@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
@@ -57,8 +58,11 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 	svc := app.NewService(store)
 	seedPartEditorFixture(t, ctx, svc)
 	server := NewServer(svc, Options{}).(*Server)
+	usage := agentusage.New("openai", "codex", "gpt-5.5", "medium", "prompt").WithProviderUsage(agentusage.ProviderUsage{
+		Scope: agentusage.UsageScopeSessionCumulative, InputTokens: 120, CachedInputTokens: 80, OutputTokens: 9,
+	}, "provider")
 	agent := &fakeAgentExecutor{
-		responses: []AgentResult{{Text: reporting.PartEditSubmittedSentinel, SessionID: "provider-editor", Resumed: true}},
+		responses: []AgentResult{{Text: reporting.PartEditSubmittedSentinel, SessionID: "provider-editor", Resumed: true, Usage: usage}},
 		onRun: func(runCtx context.Context, req AgentRequest) {
 			if req.PartEdit == nil {
 				t.Fatalf("expected Part edit binding on agent request: %#v", req)
@@ -110,8 +114,14 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if countLedgerEvents(events, reporting.PartEditStartedEventType) != 1 || countLedgerEvents(events, reporting.PartEditedEventType) != 1 {
+	if countLedgerEvents(events, reporting.PartEditStartedEventType) != 1 || countLedgerEvents(events, reporting.PartEditedEventType) != 1 ||
+		countLedgerEvents(events, reporting.ReportAgentUsageRecordedEventType) != 1 {
 		t.Fatalf("Part edit lifecycle events missing: %#v", events)
+	}
+	for _, event := range events {
+		if event.EventType == reporting.ReportAgentUsageRecordedEventType && event.CausationEventID != "evt_part_edit_done" {
+			t.Fatalf("Part edit usage did not correlate to canonical edit: %#v", event)
+		}
 	}
 }
 

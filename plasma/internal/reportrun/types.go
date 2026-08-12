@@ -21,14 +21,15 @@ const (
 	OwnershipCreated    = "created"
 	OwnershipReferenced = "referenced"
 
-	UsageAggregationVersion = "report_usage.v1"
+	UsageAggregationVersion = "report_usage.v2"
 )
 
 // UsageAggregate is the compact usage tombstone retained after report purge.
 //
-// The aggregate counts each member event at most once and only reads the
-// top-level agent_usage payload. Missing provider usage marks the aggregate as
-// partial without preserving prompts, provider responses, or report content.
+// The aggregate counts each member event at most once and converts cumulative
+// provider snapshots into call increments. Missing or discontinuous usage marks
+// the aggregate as partial without preserving prompts, provider responses, or
+// report content.
 type UsageAggregate struct {
 	UsageRecordCount      int64  `json:"usage_record_count"`
 	UsageAvailableCount   int64  `json:"usage_available_count"`

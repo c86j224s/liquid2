@@ -2,12 +2,34 @@ package agentmodels
 
 import "testing"
 
-func TestResolveUsesGPT55MediumDefault(t *testing.T) {
+func TestResolveUsesLunaHighDefault(t *testing.T) {
 	metadata := Default()
-	if metadata.Name != "gpt-5.5" || metadata.Label != "GPT-5.5" {
+	if metadata.Name != "gpt-5.6-luna" || metadata.Label != "GPT-5.6 Luna" {
 		t.Fatalf("unexpected default metadata: %#v", metadata)
 	}
 	model, effort, err := Resolve("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model != "gpt-5.6-luna" || effort != "high" {
+		t.Fatalf("got %q / %q", model, effort)
+	}
+}
+
+func TestCatalogPublishesModelDefaultReasoningEffort(t *testing.T) {
+	for _, model := range Catalog() {
+		want := "medium"
+		if model.Name == "gpt-5.6-luna" {
+			want = "high"
+		}
+		if model.DefaultReasoningEffort != want {
+			t.Fatalf("model %q default = %q", model.Name, model.DefaultReasoningEffort)
+		}
+	}
+}
+
+func TestResolveKeepsExplicitGPT55DefaultAtMedium(t *testing.T) {
+	model, effort, err := Resolve("gpt-5.5", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -16,11 +38,13 @@ func TestResolveUsesGPT55MediumDefault(t *testing.T) {
 	}
 }
 
-func TestCatalogPublishesModelDefaultReasoningEffort(t *testing.T) {
-	for _, model := range Catalog() {
-		if model.DefaultReasoningEffort != "medium" {
-			t.Fatalf("model %q default = %q", model.Name, model.DefaultReasoningEffort)
-		}
+func TestResolveKeepsUnknownModelFallbackAtMedium(t *testing.T) {
+	model, effort, err := Resolve("future-codex", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model != "future-codex" || effort != "medium" {
+		t.Fatalf("got %q / %q", model, effort)
 	}
 }
 

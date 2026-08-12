@@ -61,7 +61,9 @@ extracted text와 extraction metadata를 반환합니다.
 
 Bounded workflow run은 별도 제품 모드가 아니라 같은 C1 루프 안에 있습니다. 각 step은 controller-like
 `workflow_steering` user turn을 기록하고, 같은 provider session을 이어 쓰며, agent response를 result로
-저장합니다.
+저장합니다. 새로운 workflow run의 첫 step은 기존 대화 session을 이어 쓰더라도 미션 개요를 다시 읽어
+이번 실행 요청에 방향을 맞춥니다. 같은 run의 두 번째 이후 step에서만 방향 회복만을 위한 개요·목록
+반복 조회를 생략합니다.
 
 Workflow event는 진행 상태와 stop condition을 설명합니다. Workflow summary는 source가 아닙니다.
 

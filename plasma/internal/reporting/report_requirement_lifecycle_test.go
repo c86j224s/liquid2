@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -26,6 +27,9 @@ func TestRunReportRequirementMapLifecycleAcceptsOnlyDurableExactSubmission(t *te
 		t.Fatal(err)
 	}
 	service := &reportRequirementLifecycleFakeService{fakeRunnerService: &fakeRunnerService{}, selection: app.ReportRequirementMapSelection{Event: app.LedgerEvent{EventID: "evt_map"}, RequirementMapHash: hash, RequirementMap: encoded}}
+	usage := agentusage.New("openai", "codex", "model", "high", "prompt").WithProviderUsage(agentusage.ProviderUsage{
+		Scope: agentusage.UsageScopeSessionCumulative, InputTokens: 120, CachedInputTokens: 80, OutputTokens: 9,
+	}, "provider")
 	runner := Runner{Service: service, NewID: func(prefix string) string {
 		if prefix == "ses" {
 			return "ses_tool"
@@ -38,7 +42,7 @@ func TestRunReportRequirementMapLifecycleAcceptsOnlyDurableExactSubmission(t *te
 			if binding.ToolSessionID != "ses_tool" || binding.Producer.ID != "ses_tool" {
 				t.Fatalf("unexpected binding: %#v", binding)
 			}
-			return ReportRequirementMapAgentResult{Text: ReportRequirementsMappedSentinel, SessionID: "ses_plan"}, nil
+			return ReportRequirementMapAgentResult{Text: ReportRequirementsMappedSentinel, SessionID: "ses_plan", Resumed: true, DurationMS: 42, Usage: usage}, nil
 		},
 	})
 	if err != nil {
@@ -46,6 +50,15 @@ func TestRunReportRequirementMapLifecycleAcceptsOnlyDurableExactSubmission(t *te
 	}
 	if result.Event.EventID != "evt_map" || service.query.PlanEventID != "evt_plan" || service.query.IdempotencyKey != "rrk_once" {
 		t.Fatalf("unexpected lifecycle result: %#v %#v", result, service.query)
+	}
+	events := service.snapshot()
+	if len(events) != 2 || events[1].EventType != ReportAgentUsageRecordedEventType || events[1].CausationEventID != "evt_map" {
+		t.Fatalf("requirement usage was not recorded after canonical submission: %#v", events)
+	}
+	payload := eventPayload(events[1])
+	eventUsage, ok := payload["agent_usage"].(map[string]any)
+	if !ok || eventUsage["surface"] != "report_requirements" || eventUsage["duration_ms"] != float64(42) {
+		t.Fatalf("unexpected requirement usage payload: %#v", payload)
 	}
 }
 

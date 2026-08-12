@@ -209,6 +209,13 @@ acceptance, operation count는 제출할 수 없다. Reporting layer는 bound
 content를 `operation_count=0`으로 canonicalize한다. Evidence judgment는 canonicalization을
 막거나 자동 repair를 일으키지 않는다.
 
+Runner는 매 evidence-gate 시도마다 하나의 `draft_id`와 하나의 bound tool session을
+지정한다. Agent는 그 tool session을 `session_id`로 사용하고 offset 0에서 packet 읽기를
+시작한 뒤, 같은 draft에서 반환된 `next_offset`만 따라 `truncated=false`까지 읽고 한 번만
+submit한다. 다른 draft나 session, 잘못된 offset, 완료 전 submit은 계속 거부하지만,
+오류 결과는 활성 draft, bound session, 다음 offset, packet 완료 상태와 다음 행동을
+돌려주므로 새 draft를 만들지 않고 같은 검증을 이어갈 수 있다.
+
 저장된 v1/v2 corrective gate event는 기존 의미대로 decode와 replay를 유지한다.
 
 에이전트는 artifact ID, 파일명, 제목, 보고서 모드, 파트와 섹션 순서, 공급자
@@ -302,7 +309,9 @@ artifact는 보존되며, 두 번째 실패 뒤에는 canonical completion을 �
 canonical event producer는 서버가 binding한 실제 보고서 공급자 세션을 쓴다.
 canonical payload는 기존 보고서 metadata를 보존하고 final tool session을 별도로
 기록한다. 도구 호출 뒤에야 알 수 있는 공급자 usage를 canonical event에 만들어
-넣거나 대화 ledger event에 기록하지 않는다. redacted 운영 로그에는 반환 세션의
+넣거나 대화 ledger event에 기록하지 않는다. 대신 canonical 제출을 확인하고 공급자
+usage를 확보한 뒤에는 본문을 담지 않는 `report.agent_usage.recorded` event가 canonical
+event ID와 session lineage, 표준 `agent_usage`만 기록한다. redacted 운영 로그에는 반환 세션의
 존재 여부와 bound 세션 일치 여부, token 집계, duration만 남으며, 반환 세션 ID나
 공급자 usage 상세를 canonical 상태에 기록하지 않는다.
 

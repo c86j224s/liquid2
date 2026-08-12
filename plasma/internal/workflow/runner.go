@@ -16,7 +16,7 @@ import (
 // runStep은 workflow 한 단계를 원장에 시작으로 기록하고 에이전트 호출, control
 // decision 검증, 단계 완료 이벤트 기록까지 처리한다. 단계 실패는 caller가 run
 // terminal 실패로 승격한다.
-func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRunView) (workflowstate.WorkflowRunView, error) {
+func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRunView) (_ workflowstate.WorkflowRunView, runErr error) {
 	stepID := runner.newID("wfs")
 	toolSessionID := runner.newID("ses")
 	instruction := nextInstruction(view)
@@ -56,6 +56,14 @@ func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRun
 	userEvent, err := runner.Service.AppendEvent(ctx, userEventReq)
 	if err != nil {
 		return workflowstate.WorkflowRunView{}, err
+	}
+	if runner.AgentTurnStarted != nil {
+		runner.AgentTurnStarted(view.MissionID, userEvent.EventID)
+		defer func() {
+			if runner.AgentTurnFinished != nil {
+				runner.AgentTurnFinished(view.MissionID, userEvent.EventID, runErr)
+			}
+		}()
 	}
 	if _, err := runner.Service.AppendEvent(ctx, conversation.BuildTurnAgentPendingAppendRequest(conversation.TurnAgentPendingEventRequest{
 		EventID:              runner.newID("evt"),

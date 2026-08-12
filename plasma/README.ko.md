@@ -134,11 +134,11 @@ go run ./cmd/plasma serve \
   -agent codex
 ```
 
-Plasma는 새 Codex 세션을 기본적으로 `gpt-5.6-terra`와 `medium` 추론 강도로
+Plasma는 새 Codex 세션을 기본적으로 `gpt-5.6-luna`와 `high` 추론 강도로
 시작합니다. 미션 제어에서 GPT-5.6 Sol, Terra, Luna와 해당 모델이 지원하는 추론
 강도를 선택한 뒤 새 에이전트 세션을 시작할 수 있습니다. 이때 미션 데이터와 저장된
 소스는 유지되고 Codex 세션 연속성만 초기화됩니다. 별도 모델 선택기가 없는 보고서
-생성은 이 미션 선택값을 이어받으며, 선택값이 없으면 같은 Terra/medium 기본값을
+생성은 이 미션 선택값을 이어받으며, 선택값이 없으면 같은 Luna/high 기본값을
 사용합니다.
 
 Browser에서 Codex와 Claude를 모두 사용할 수 있게 실행합니다.

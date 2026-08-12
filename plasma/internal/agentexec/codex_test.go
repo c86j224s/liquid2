@@ -94,6 +94,48 @@ func TestCodexExecutorIgnoreUserConfigIsOptInForExec(t *testing.T) {
 	}
 }
 
+func TestCodexExecutorEphemeralSessionIsOptInForExec(t *testing.T) {
+	args := runCodexArgsRecorder(t, AgentRequest{
+		Prompt:           "test prompt",
+		AgentExecutor:    "codex",
+		EphemeralSession: true,
+	})
+	if !containsEnv(args, "--ephemeral") {
+		t.Fatalf("ephemeral args missing --ephemeral: %#v", args)
+	}
+
+	defaultArgs := runCodexArgsRecorder(t, AgentRequest{
+		Prompt:        "test prompt",
+		AgentExecutor: "codex",
+	})
+	if containsEnv(defaultArgs, "--ephemeral") {
+		t.Fatalf("default args unexpectedly used ephemeral session: %#v", defaultArgs)
+	}
+}
+
+func TestCodexExecutorBindsModelAndEffortToResumeSubcommand(t *testing.T) {
+	args := runCodexArgsRecorder(t, AgentRequest{
+		Prompt:            "test prompt",
+		AgentExecutor:     "codex",
+		Model:             "gpt-5.6-luna",
+		ReasoningEffort:   "high",
+		PreviousSessionID: "existing-session",
+		IgnoreUserConfig:  true,
+	})
+	wantPrefix := []string{
+		"exec", "resume", "--ignore-user-config", "--model", "gpt-5.6-luna",
+		"-c", `model_reasoning_effort="high"`, "--json",
+	}
+	if len(args) < len(wantPrefix) {
+		t.Fatalf("resume args too short: %#v", args)
+	}
+	for i, want := range wantPrefix {
+		if args[i] != want {
+			t.Fatalf("resume args[%d] = %q, want %q; all args = %#v", i, args[i], want, args)
+		}
+	}
+}
+
 func runCodexArgsRecorder(t *testing.T, req AgentRequest) []string {
 	t.Helper()
 	dir := t.TempDir()

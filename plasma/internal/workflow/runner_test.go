@@ -186,6 +186,52 @@ func TestRunnerResumesLatestProviderSession(t *testing.T) {
 	}
 }
 
+func TestRunnerReorientsOnlyFirstStepOfNewRunWhenResumingProviderSession(t *testing.T) {
+	ctx := context.Background()
+	svc := newWorkflowTestService(t)
+	mission := createWorkflowMission(t, svc)
+	appendRawEvent(t, svc, mission.MissionID, "evt_user_before_run", "turn.user", map[string]any{
+		"kind": "user_turn",
+		"text": "prior conversation",
+	})
+	appendRawEvent(t, svc, mission.MissionID, "evt_agent_before_run", "turn.agent.response", map[string]any{
+		"kind":             "agent_response",
+		"user_event_id":    "evt_user_before_run",
+		"agent_executor":   "codex",
+		"agent_session_id": "agent-session-1",
+	})
+	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{
+		WorkflowRunID: "wfr_reorient",
+		Instruction:   "Investigate the current user request.",
+		MaxSteps:      2,
+	})
+
+	agent := &fakeAgent{responses: []AgentResult{
+		{Text: "first step\n" + controlMarker + ` {"decision":"continue","reason":"more","next_instruction":"continue current investigation"}`, SessionID: "agent-session-1"},
+		{Text: "second step\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"},
+	}}
+	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_reorient")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if view.Status != app.WorkflowStatusCompleted || len(agent.requests) != 2 {
+		t.Fatalf("expected completed two-step run, got view=%#v requests=%d", view, len(agent.requests))
+	}
+	for i, req := range agent.requests {
+		if req.PreviousSessionID != "agent-session-1" {
+			t.Fatalf("request %d did not preserve provider session: %#v", i+1, req)
+		}
+	}
+	if !strings.Contains(agent.requests[0].Prompt, "first step of a new workflow run") ||
+		!strings.Contains(agent.requests[0].Prompt, "Start with plasma.research.outline") {
+		t.Fatalf("first step did not reorient to the new run:\n%s", agent.requests[0].Prompt)
+	}
+	if strings.Contains(agent.requests[1].Prompt, "Start with plasma.research.outline") ||
+		!strings.Contains(agent.requests[1].Prompt, "for this workflow run") {
+		t.Fatalf("later step did not preserve same-run continuation policy:\n%s", agent.requests[1].Prompt)
+	}
+}
+
 func TestRunnerStopsBeforeNextStepAfterStopRequest(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
@@ -382,13 +428,36 @@ func TestRunnerStepTimeoutDurablyClosesPendingTurnAndWorkflow(t *testing.T) {
 	mission := createWorkflowMission(t, svc)
 	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_step_timeout", MaxSteps: 1})
 	agent := &blockingAgent{}
-	runner := Runner{Service: svc, Agent: agent, StepTimeout: 10 * time.Millisecond}
+	var startedUserEventID string
+	var finishedUserEventID string
+	var finishedErr error
+	runner := Runner{
+		Service:     svc,
+		Agent:       agent,
+		StepTimeout: 10 * time.Millisecond,
+		AgentTurnStarted: func(gotMissionID, userEventID string) {
+			if gotMissionID != mission.MissionID {
+				t.Errorf("started mission = %q, want %q", gotMissionID, mission.MissionID)
+			}
+			startedUserEventID = userEventID
+		},
+		AgentTurnFinished: func(gotMissionID, userEventID string, err error) {
+			if gotMissionID != mission.MissionID {
+				t.Errorf("finished mission = %q, want %q", gotMissionID, mission.MissionID)
+			}
+			finishedUserEventID = userEventID
+			finishedErr = err
+		},
+	}
 	view, err := runner.Run(context.Background(), mission.MissionID, "wfr_step_timeout")
 	if err != nil {
 		t.Fatalf("Run should durably record timeout failure, got %v", err)
 	}
 	if !agent.parentHadDeadline || view.Status != app.WorkflowStatusFailed {
 		t.Fatalf("expected timed agent call and failed projection, got deadline=%v view=%#v", agent.parentHadDeadline, view)
+	}
+	if startedUserEventID == "" || finishedUserEventID != startedUserEventID || !errors.Is(finishedErr, context.DeadlineExceeded) {
+		t.Fatalf("expected one timed-out step lifecycle, got started=%q finished=%q err=%v", startedUserEventID, finishedUserEventID, finishedErr)
 	}
 	events, err := svc.ListEvents(context.Background(), mission.MissionID)
 	if err != nil {
@@ -686,12 +755,28 @@ func TestRunnerAutoCompactsAndRetriesWhenContextWindowIsFull(t *testing.T) {
 		},
 		errs: []error{errors.New("agent command failed"), nil, nil},
 	}
-	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_compact")
+	var started []string
+	var finished []string
+	var finishedErr error
+	finishedAfterCalls := 0
+	runner := testRunner(svc, agent)
+	runner.AgentTurnStarted = func(gotMissionID, userEventID string) {
+		started = append(started, gotMissionID+"/"+userEventID)
+	}
+	runner.AgentTurnFinished = func(gotMissionID, userEventID string, err error) {
+		finished = append(finished, gotMissionID+"/"+userEventID)
+		finishedErr = err
+		finishedAfterCalls = len(agent.requests)
+	}
+	view, err := runner.Run(ctx, mission.MissionID, "wfr_compact")
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if view.Status != app.WorkflowStatusCompleted || len(agent.requests) != 3 {
 		t.Fatalf("expected compact retry completed workflow, got view=%#v requests=%d", view, len(agent.requests))
+	}
+	if len(started) != 1 || len(finished) != 1 || started[0] != finished[0] || finishedErr != nil || finishedAfterCalls != 3 {
+		t.Fatalf("expected one lifecycle around all retry calls, got started=%#v finished=%#v err=%v calls=%d", started, finished, finishedErr, finishedAfterCalls)
 	}
 	if !agent.requests[1].Compaction || agent.requests[1].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected second request to compact same session, got %#v", agent.requests[1])
@@ -724,6 +809,24 @@ func TestRunnerAutoCompactsAndRetriesWhenContextWindowIsFull(t *testing.T) {
 	}
 	if responsePayload["retry_after_compacted"] != true || responsePayload["compaction_attempted"] != true {
 		t.Fatalf("expected retry metadata after compaction, got %#v", responsePayload)
+	}
+}
+
+func TestVisibleTextBeforeControlHidesPartialEnvelope(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "plain", text: "visible result", want: "visible result"},
+		{name: "partial marker", text: "visible result\nPLASMA_WORKFLOW_CON", want: "visible result"},
+		{name: "complete envelope", text: "visible result\n" + controlMarker + ` {"decision":"stop"}`, want: "visible result"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := VisibleTextBeforeControl(tc.text); got != tc.want {
+				t.Fatalf("VisibleTextBeforeControl(%q) = %q, want %q", tc.text, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -847,6 +950,52 @@ func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected layered prompt to contain %q:\n%s", expected, prompt)
+		}
+	}
+}
+
+func TestStepPromptRequiresOutlineOrientationForEveryWorkflowRunFirstStep(t *testing.T) {
+	firstStep := app.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
+	fresh := StepPrompt(firstStep, "첫 단계", "ses_tool", false)
+	resumed := StepPrompt(firstStep, "새 실행의 첫 단계", "ses_tool", true)
+
+	if !strings.Contains(fresh, "Start with plasma.research.outline") {
+		t.Fatalf("fresh workflow prompt must establish mission orientation:\n%s", fresh)
+	}
+	if !strings.Contains(fresh, "retain its last_sequence") {
+		t.Fatalf("fresh workflow prompt must retain its change cursor:\n%s", fresh)
+	}
+	for _, expected := range []string{
+		"Continue the existing Plasma research agent session",
+		"first step of a new workflow run",
+		"Reorient to the current mission and this run's user request",
+		"Start with plasma.research.outline",
+		"retain its last_sequence",
+	} {
+		if !strings.Contains(resumed, expected) {
+			t.Fatalf("resumed first-step prompt is missing %q:\n%s", expected, resumed)
+		}
+	}
+}
+
+func TestStepPromptSkipsRepeatedOutlineOrientationAfterWorkflowRunFirstStep(t *testing.T) {
+	view := app.WorkflowRunView{MissionID: "mis_1", Instruction: "조사", CompletedStepCount: 1}
+	resumed := StepPrompt(view, "같은 실행의 다음 단계", "ses_tool", true)
+
+	if strings.Contains(resumed, "Start with plasma.research.outline") {
+		t.Fatalf("resumed later-step prompt must not require repeated orientation:\n%s", resumed)
+	}
+	for _, expected := range []string{
+		"Continue from the existing session context",
+		"for this workflow run",
+		"Do not re-read plasma.research.outline or plasma.research.list only to regain orientation",
+		"plasma.research.changes",
+		"last confirmed sequence",
+		"retain current_sequence",
+		"resync_required is true",
+	} {
+		if !strings.Contains(resumed, expected) {
+			t.Fatalf("resumed workflow prompt is missing %q:\n%s", expected, resumed)
 		}
 	}
 }

@@ -42,6 +42,7 @@
   $("confluenceAccessDisable").addEventListener("click", window.Plasma.sources.disableConfluenceAccess);
   $("modelDefaultsForm").addEventListener("submit", window.Plasma.settings.saveModelDefaults);
   $("modelDefaultsRefresh").addEventListener("click", () => window.Plasma.settings.loadModelDefaults());
+  $("missionUsageRefresh").addEventListener("click", () => window.Plasma.settings.loadMissionUsage());
   $("workflowGoalDefaultModel").addEventListener("change", window.Plasma.settings.renderModelDefaultEfforts);
   $("sourceForm").addEventListener("submit", window.Plasma.sources.addTextSource);
   $("sourceUploadForm").addEventListener("submit", window.Plasma.sources.addUploadSource);
@@ -71,6 +72,9 @@
   });
   $("modelDefaultsDetails").addEventListener("toggle", (event) => {
     if (event.target.open) window.Plasma.settings.loadModelDefaults();
+  });
+  $("missionUsageDetails").addEventListener("toggle", (event) => {
+    if (event.target.open) window.Plasma.settings.loadMissionUsage();
   });
   $("confluenceRefreshConnections").addEventListener("click", () => window.Plasma.sources.loadConfluenceConnections());
   $("confluenceConnectionSelect").addEventListener("change", () => {

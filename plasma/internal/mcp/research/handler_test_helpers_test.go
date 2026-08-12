@@ -13,6 +13,8 @@ func callReadTool(handler *Handler, call wire.ToolCall) wire.ToolResult {
 	switch {
 	case strings.HasSuffix(call.Name, ".outline"):
 		return handler.CallOutline(context.Background(), call)
+	case strings.HasSuffix(call.Name, ".changes"):
+		return handler.CallChanges(context.Background(), call)
 	case strings.HasSuffix(call.Name, ".list"):
 		return handler.CallList(context.Background(), call)
 	case strings.HasSuffix(call.Name, ".read"):
@@ -102,6 +104,10 @@ type readerOnlyService struct{}
 
 func (readerOnlyService) OutlineMission(context.Context, string) (app.ResearchIDEOutline, error) {
 	return app.ResearchIDEOutline{}, nil
+}
+
+func (readerOnlyService) ListMissionChanges(context.Context, app.ResearchIDEChangesRequest) (app.ResearchIDEChanges, error) {
+	return app.ResearchIDEChanges{}, nil
 }
 
 func (readerOnlyService) ListMissionObjects(context.Context, string, string, int, string) (app.ResearchIDEPage, error) {

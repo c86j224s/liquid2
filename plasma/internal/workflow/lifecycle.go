@@ -66,6 +66,13 @@ func (runner Runner) Run(ctx context.Context, missionID string, workflowRunID st
 		if view.MaxDurationMS > 0 && runner.now().Sub(startedAt).Milliseconds() >= view.MaxDurationMS {
 			return runner.limitReached(ctx, missionID, workflowRunID, view, "max_duration reached")
 		}
+		compacted, err := runner.compactBeforeNextStep(ctx, view)
+		if err != nil {
+			return runner.terminal(ctx, missionID, workflowRunID, workflowstate.WorkflowRunFailedEvent, "proactive context compaction failed", err.Error())
+		}
+		if compacted {
+			continue
+		}
 		if _, err := runner.runStep(ctx, view); err != nil {
 			return runner.terminal(ctx, missionID, workflowRunID, workflowstate.WorkflowRunFailedEvent, "workflow step failed", err.Error())
 		}

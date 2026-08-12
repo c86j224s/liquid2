@@ -127,6 +127,7 @@
 
   Plasma.ui.configureTabs({
     loadConfluenceConnections: Plasma.sources.loadConfluenceConnections,
+    loadMissionUsage: Plasma.settings.loadMissionUsage,
     loadModelDefaults: Plasma.settings.loadModelDefaults
   });
   Plasma.mission.configure({
@@ -135,9 +136,13 @@
       return Plasma.reports.redpenController?.beforeLeave() ?? true;
     },
     afterSelectionApplied: async (owner) => {
+      const usageLoad = state.activeTab === "settings"
+        ? Plasma.settings.loadMissionUsage(owner)
+        : Promise.resolve();
       await Plasma.sources.loadConfluenceConnections("", owner);
       if (!Plasma.mission.ownsDetailRequest(owner)) return;
       await Plasma.sources.loadConfluenceAccess(owner);
+      await usageLoad;
     }
   });
   Plasma.reports.configure({

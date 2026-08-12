@@ -245,12 +245,23 @@ func TestResearchIDEOutlineKeepsSmallMissionOverview(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
+	latest, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+		EventID:   "evt_after_projection",
+		MissionID: "mis_1",
+		EventType: "report.qa.completed",
+		Producer:  app.Producer{Type: "agent_session", ID: "ses_report"},
+		Payload:   []byte(`{"status":"completed"}`),
+	})
+	if err != nil {
+		t.Fatalf("AppendLedgerEvent after projection returned error: %v", err)
+	}
 
 	outline, err := svc.OutlineMission(ctx, "mis_1")
 	if err != nil {
 		t.Fatalf("OutlineMission returned error: %v", err)
 	}
 	if outline.Title != "Research Mission" ||
+		outline.LastSequence != latest.Sequence ||
 		outline.Counts[app.ResearchIDEObjectSourceSnapshot] != 1 ||
 		outline.Counts[app.ResearchIDEObjectRawArtifact] != 1 ||
 		outline.Counts["evidence_record.proposed"] != 0 ||

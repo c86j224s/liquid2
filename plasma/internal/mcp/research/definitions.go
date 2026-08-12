@@ -25,6 +25,7 @@ func Definitions(legacy bool) []wire.ToolDefinition {
 	}
 	return []wire.ToolDefinition{
 		{Name: mcptools.ToolResearchOutline, Description: outlineDescription, InputSchema: schemaOutline},
+		{Name: mcptools.ToolResearchChanges, Description: "List bounded meaningful mission changes after a previously observed ledger sequence. Internal execution telemetry and report workflow events are omitted; use the returned current_sequence as the next cursor, and re-read the outline when resync_required is true.", InputSchema: schemaChanges},
 		{Name: mcptools.ToolResearchList, Description: listDescription, InputSchema: listSchema},
 		{Name: mcptools.ToolResearchRead, Description: "Read one mission ledger object or source artifact with bounded bytes and next_offset for long payloads.", InputSchema: readSchema},
 		{Name: mcptools.ToolResearchGrep, Description: grepDescription, InputSchema: schemaGrep},

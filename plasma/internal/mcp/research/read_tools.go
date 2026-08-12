@@ -31,6 +31,24 @@ func (handler *Handler) CallOutline(ctx context.Context, call wire.ToolCall) wir
 	return wire.ToolResult{ToolName: call.Name, MissionID: missionID, Content: outline}
 }
 
+func (handler *Handler) CallChanges(ctx context.Context, call wire.ToolCall) wire.ToolResult {
+	var input researchChangesInput
+	if err := decodeArgs(call.Arguments, &input); err != nil {
+		return errorResult(call.Name, input.MissionID, "validation", err.Error(), false, nil)
+	}
+	missionID := strings.TrimSpace(input.MissionID)
+	if err := handler.validateRead(missionID, false, false); err != nil {
+		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
+	}
+	changes, err := handler.reader.ListMissionChanges(ctx, app.ResearchIDEChangesRequest{
+		MissionID: missionID, AfterSequence: input.AfterSequence, Limit: input.Limit,
+	})
+	if err != nil {
+		return errorFromErr(call.Name, missionID, err, nil)
+	}
+	return wire.ToolResult{ToolName: call.Name, MissionID: missionID, Content: changes}
+}
+
 func (handler *Handler) CallList(ctx context.Context, call wire.ToolCall) wire.ToolResult {
 	var input researchListInput
 	if err := decodeArgs(call.Arguments, &input); err != nil {

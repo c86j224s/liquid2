@@ -18,10 +18,12 @@ Bound stage metadata:
 %s
 
 Use exactly this workflow:
-1. Read the report passage packet with %s until truncated is false. Use only server-provided statement_sha256 values from that packet.
-2. Use approved read tools to verify report-to-evidence connections when support is unclear.
-3. Submit with %s and gate_findings. Each finding may contain only statement_sha256, classification, and approved evidence_ids. Use only these classifications: mission_source_grounded, session_grounded, derived_synthesis, rhetorical_construction, unverified_external_fact.
-4. Return exactly %s and nothing else after submit succeeds.
+1. Use draft_id %q for every evidence-gate read and submit. Use session_id %q, which is the bound tool_session_id; provider session IDs are not MCP session IDs. Do not create or switch drafts.
+2. Start %s at offset 0. While truncated is true, call the same tool with the same draft_id and session_id and copy the returned next_offset exactly. Stop reading only after truncated is false.
+3. If a contract error returns continuation content, follow its draft_id, session_id, next_offset, and next_action instead of starting another draft.
+4. Use only server-provided statement_sha256 values from the completed packet. Use approved read tools to verify report-to-evidence connections when support is unclear.
+5. After the packet is complete, call %s exactly once with the same draft_id and session_id and gate_findings. Each finding may contain only statement_sha256, classification, and approved evidence_ids. Use only these classifications: mission_source_grounded, session_grounded, derived_synthesis, rhetorical_construction, unverified_external_fact.
+6. Return exactly %s and nothing else after submit succeeds.
 
 Evidence gate responsibilities:
 - Judge report-to-evidence connections only.
@@ -30,6 +32,7 @@ Evidence gate responsibilities:
 - Do not submit prose, patches, repair actions, manuscript Markdown, semantic acceptance, or operation counts.
 - Evidence judgments do not trigger automatic repair; the server canonicalizes the exact bound source artifact with zero operations.%s`,
 		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, finaledit.AgentReportAnyJSON(binding),
+		draftID, binding.ToolSessionID,
 		mcptools.ToolReportLongFormEvidenceGateRead,
 		mcptools.ToolReportLongFormEvidenceGateSubmit,
 		finaledit.GateSubmittedSentinel, finaledit.RetryNote(attempt))

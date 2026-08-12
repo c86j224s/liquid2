@@ -14,6 +14,12 @@ type researchOutlineInput struct {
 	Legacy    bool   `json:"legacy"`
 }
 
+type researchChangesInput struct {
+	MissionID     string `json:"mission_id"`
+	AfterSequence int64  `json:"after_sequence"`
+	Limit         int    `json:"limit"`
+}
+
 type researchListInput struct {
 	MissionID  string `json:"mission_id"`
 	ObjectKind string `json:"object_kind"`

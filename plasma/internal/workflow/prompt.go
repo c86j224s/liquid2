@@ -14,19 +14,25 @@ const controlMarker = "PLASMA_WORKFLOW_CONTROL:"
 // 제출 계약을 프롬프트에 포함한다.
 func StepPrompt(view workflowstate.WorkflowRunView, instruction string, toolSessionID string, resumed bool) string {
 	intro := "You are the Plasma research agent running one bounded workflow step."
+	orientation := "Use Plasma read tools when useful. Start with plasma.research.outline and retain its last_sequence for later change checks. Then use plasma.research.list, plasma.research.grep, plasma.research.read, plasma.sources.read, plasma.sources.tree, plasma.sources.grep, and plasma.research.references as needed. If more original materials are useful, use plasma.sources.search."
 	if resumed {
 		intro = "Continue the existing Plasma research agent session for one bounded workflow step."
+		if view.CompletedStepCount == 0 {
+			orientation = "This is the first step of a new workflow run in the existing conversation. Reorient to the current mission and this run's user request before continuing from prior session context. Start with plasma.research.outline and retain its last_sequence for later change checks. Then use plasma.research.list, plasma.research.grep, plasma.research.read, plasma.sources.read, plasma.sources.tree, plasma.sources.grep, and plasma.research.references as needed. If more original materials are useful, use plasma.sources.search."
+		} else {
+			orientation = "Use Plasma read tools when useful. Continue from the existing session context for this workflow run. Do not re-read plasma.research.outline or plasma.research.list only to regain orientation. When you have a concrete reason to check mission changes, call plasma.research.changes with the last confirmed sequence from an earlier outline or changes response, then retain current_sequence. If no confirmed sequence is available or resync_required is true, read plasma.research.outline instead. Use plasma.research.grep, plasma.research.read, plasma.sources.read, plasma.sources.tree, plasma.sources.grep, plasma.research.references, and plasma.sources.search as needed."
+		}
 	}
-	return layeredStepPrompt(intro, view, instruction, toolSessionID)
+	return layeredStepPrompt(intro, orientation, view, instruction, toolSessionID)
 }
 
-func layeredStepPrompt(intro string, view workflowstate.WorkflowRunView, instruction string, toolSessionID string) string {
+func layeredStepPrompt(intro string, orientation string, view workflowstate.WorkflowRunView, instruction string, toolSessionID string) string {
 	raw := strings.TrimSpace(firstNonEmptyWorkflowPrompt(view.UserInstructionRaw, view.Instruction, instruction))
 	goal := strings.TrimSpace(firstNonEmptyWorkflowPrompt(view.RunGoal, view.Instruction, instruction))
 	return fmt.Sprintf(`%s
 
 Use Korean unless the user asked otherwise. Make one concrete progress step for the mission.
-Use Plasma read tools when useful. Start with plasma.research.outline, then use plasma.research.list, plasma.research.grep, plasma.research.read, plasma.sources.read, plasma.sources.tree, plasma.sources.grep, and plasma.research.references as needed. If more original materials are useful, use plasma.sources.search.
+%s
 
 Mission ID: %s
 Tool session ID: %s
@@ -56,7 +62,7 @@ Rules:
 %s {"decision":"continue|stop","reason":"short reason","next_instruction":"optional next step"}
 
 Use decision "continue" when the current step is complete but the user's original autonomous-run request or derived run goal still has useful remaining work. Include a concrete next_instruction.
-Use decision "stop" only when the user's original autonomous-run request and derived run goal are satisfied, or no useful next workflow step remains. Do not use stop merely because the current step instruction is complete.`, intro, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
+Use decision "stop" only when the user's original autonomous-run request and derived run goal are satisfied, or no useful next workflow step remains. Do not use stop merely because the current step instruction is complete.`, intro, orientation, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
 }
 
 func firstNonEmptyWorkflowPrompt(values ...string) string {

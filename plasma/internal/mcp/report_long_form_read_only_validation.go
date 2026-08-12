@@ -152,7 +152,7 @@ func (server *Server) callReportLongFormEvidenceGateRead(ctx context.Context, ca
 	}
 	binding, err := server.requireFinalEditStageBinding(commonMutatingInput{MissionID: missionID, SessionID: sessionID}, reporting.FinalEditStageEvidenceGate)
 	if err != nil {
-		return errorResult(call.Name, missionID, "binding", err.Error(), false, nil)
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, missionID, "binding", err.Error(), false, nil), draftID, server.finalEditStageBinding)
 	}
 	if _, _, err := reporting.StartFinalEditStage(ctx, server.service, newMCPID("evt"), binding); err != nil {
 		return errorFromErr(call.Name, missionID, err, []string{draftID})
@@ -163,7 +163,7 @@ func (server *Server) callReportLongFormEvidenceGateRead(ctx context.Context, ca
 	}
 	content, offset, nextOffset, truncated, err := server.readReadOnlyValidationPacket(missionID, sessionID, draftID, binding, sourceSHA, packetBytes, input.Offset, input.MaxBytes)
 	if err != nil {
-		return errorResult(call.Name, missionID, "validation", err.Error(), false, []string{draftID})
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, missionID, "validation", err.Error(), false, []string{draftID}), draftID, binding)
 	}
 	return ToolResult{ToolName: call.Name, MissionID: missionID, Content: map[string]any{
 		"draft_id": draftID, "stage": binding.Stage, "content": content, "offset": offset, "next_offset": nextOffset,
@@ -179,38 +179,38 @@ func (server *Server) callReportLongFormEvidenceGateSubmit(ctx context.Context, 
 	if err := decodeReportPlanJSON(call.Arguments, &input); err != nil {
 		return errorResult(call.Name, input.MissionID, "validation", "evidence gate submit arguments are invalid", false, nil)
 	}
+	draftID := strings.TrimSpace(input.DraftID)
 	common, _, err := normalizeMutatingInput(input.CommonMutatingInput)
 	if err != nil {
-		return errorResult(call.Name, common.MissionID, "validation", err.Error(), false, nil)
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "validation", err.Error(), false, nil), draftID, server.finalEditStageBinding)
 	}
 	binding, err := server.requireFinalEditStageBinding(common, reporting.FinalEditStageEvidenceGate)
 	if err != nil {
-		return errorResult(call.Name, common.MissionID, "binding", err.Error(), false, nil)
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "binding", err.Error(), false, nil), draftID, server.finalEditStageBinding)
 	}
 	if input.PendingEventID != binding.PendingEventID || input.PlanEventID != binding.PlanEventID {
-		return errorResult(call.Name, common.MissionID, "binding", "evidence gate submit does not match the runner binding", false, nil)
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "binding", "evidence gate submit does not match the runner binding", false, nil), draftID, binding)
 	}
-	draftID := strings.TrimSpace(input.DraftID)
 	if err := validateID("rfe_", draftID); err != nil {
-		return errorResult(call.Name, common.MissionID, "validation", err.Error(), false, []string{draftID})
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "validation", err.Error(), false, []string{draftID}), draftID, binding)
 	}
 	findings, err := readOnlyEvidenceGateFindingsFromInput(input.GateFindings)
 	if err != nil {
-		return errorResult(call.Name, common.MissionID, "validation", "evidence gate findings are invalid", false, []string{draftID})
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "validation", "evidence gate findings are invalid", false, []string{draftID}), draftID, binding)
 	}
 	packetBytes, _, sourceSHA, err := server.evidenceGatePacket(ctx, binding)
 	if err != nil {
 		return errorFromErr(call.Name, common.MissionID, err, []string{draftID})
 	}
 	if err := server.requireReadOnlyValidationComplete(common.MissionID, common.SessionID, draftID, binding, sourceSHA, packetBytes); err != nil {
-		return errorResult(call.Name, common.MissionID, "validation", err.Error(), false, []string{draftID})
+		return server.withReadOnlyValidationContinuation(errorResult(call.Name, common.MissionID, "validation", err.Error(), false, []string{draftID}), draftID, binding)
 	}
 	result, err := reporting.SubmitFinalEditEvidenceGate(ctx, server.service, reporting.FinalEditEvidenceGateSubmitRequest{
 		StageBinding: binding, FinalBinding: server.longFormFinalizeBinding,
 		StageEventID: newMCPID("evt"), CanonicalEventID: newMCPID("evt"), Findings: findings,
 	})
 	if err != nil {
-		return errorFromErr(call.Name, common.MissionID, err, []string{draftID})
+		return server.withReadOnlyValidationContinuation(errorFromErr(call.Name, common.MissionID, err, []string{draftID}), draftID, binding)
 	}
 	return ToolResult{ToolName: call.Name, MissionID: common.MissionID, CreatedEventIDs: []string{result.Event.EventID}, Content: map[string]any{
 		"draft_id": draftID, "stage": binding.Stage, "submitted": true, "artifact_id": result.Artifact.ArtifactID, "event_id": result.Event.EventID,
@@ -342,6 +342,13 @@ func (server *Server) readReadOnlyValidationPacket(missionID, sessionID, draftID
 	server.mu.Lock()
 	current := server.readOnlyValidationDrafts[draftID]
 	if current == nil {
+		if binding.Stage == reporting.FinalEditStageEvidenceGate {
+			if active := server.activeReadOnlyValidationDraftLocked(missionID, sessionID, binding); active != nil {
+				activeDraftID, activeNextOffset := active.DraftID, active.NextOffset
+				server.mu.Unlock()
+				return "", 0, 0, false, fmt.Errorf("%w: evidence gate must continue draft_id %s at offset %d", app.ErrConflict, activeDraftID, activeNextOffset)
+			}
+		}
 		if offset != 0 {
 			server.mu.Unlock()
 			return "", 0, 0, false, fmt.Errorf("%w: read-only validation reads must start at offset 0", app.ErrInvalidInput)
@@ -364,7 +371,7 @@ func (server *Server) readReadOnlyValidationPacket(missionID, sessionID, draftID
 	expectedOffset := current.NextOffset
 	server.mu.Unlock()
 	if offset != expectedOffset {
-		return "", 0, 0, false, fmt.Errorf("%w: read-only validation reads must use contiguous next_offset values", app.ErrInvalidInput)
+		return "", 0, 0, false, fmt.Errorf("%w: read-only validation reads must use contiguous next_offset values; continue draft_id %s at offset %d", app.ErrInvalidInput, draftID, expectedOffset)
 	}
 	content, actualOffset, nextOffset, truncated, err := boundedReportPatchContent(string(packet), offset, maxBytes)
 	if err != nil {
@@ -392,9 +399,47 @@ func (server *Server) requireReadOnlyValidationComplete(missionID, sessionID, dr
 		return err
 	}
 	if !current.Complete {
-		return fmt.Errorf("%w: read-only validation packet must be read to completion before submit", app.ErrConflict)
+		return fmt.Errorf("%w: read-only validation packet must be read to completion before submit; continue draft_id %s at offset %d", app.ErrConflict, current.DraftID, current.NextOffset)
 	}
 	return nil
+}
+
+// withReadOnlyValidationContinuation keeps contract failures recoverable without
+// weakening the complete, contiguous packet-read requirement.
+func (server *Server) withReadOnlyValidationContinuation(result ToolResult, requestedDraftID string, binding reporting.FinalEditStageBinding) ToolResult {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	current := server.activeReadOnlyValidationDraftLocked(binding.MissionID, binding.ToolSessionID, binding)
+	if current == nil {
+		if validateID("rfe_", requestedDraftID) != nil || strings.TrimSpace(binding.ToolSessionID) == "" {
+			return result
+		}
+		result.Content = readOnlyValidationContinuation(requestedDraftID, binding.ToolSessionID, 0, false)
+		return result
+	}
+	result.Content = readOnlyValidationContinuation(current.DraftID, current.SessionID, current.NextOffset, current.Complete)
+	return result
+}
+
+func (server *Server) activeReadOnlyValidationDraftLocked(missionID, sessionID string, binding reporting.FinalEditStageBinding) *readOnlyValidationDraft {
+	for _, draft := range server.readOnlyValidationDrafts {
+		if draft.MissionID == missionID && draft.SessionID == sessionID && draft.Stage == binding.Stage &&
+			draft.PendingID == binding.PendingEventID && draft.PlanEventID == binding.PlanEventID && draft.SourceArtifactID == binding.SourceArtifactID {
+			return draft
+		}
+	}
+	return nil
+}
+
+func readOnlyValidationContinuation(draftID, sessionID string, nextOffset int, complete bool) map[string]any {
+	nextAction := "read"
+	if complete {
+		nextAction = "submit_once"
+	}
+	return map[string]any{
+		"draft_id": draftID, "session_id": sessionID, "next_offset": nextOffset,
+		"packet_complete": complete, "next_action": nextAction,
+	}
 }
 
 func (draft *readOnlyValidationDraft) validate(missionID, sessionID string, binding reporting.FinalEditStageBinding, sourceSHA, packetSHA string) error {

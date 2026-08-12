@@ -67,6 +67,8 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.withIdempotency(ctx, call, server.callSourcesRestore)
 	case ToolResearchOutline:
 		return server.research.CallOutline(ctx, call)
+	case ToolResearchChanges:
+		return server.research.CallChanges(ctx, call)
 	case ToolResearchList:
 		return server.research.CallList(ctx, call)
 	case ToolResearchRead:

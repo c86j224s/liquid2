@@ -60,6 +60,10 @@ type Runner struct {
 	NewID                 func(string) string
 	SourceCandidateStager func(context.Context, ledger.Event)
 	StepTimeout           time.Duration
+	// AgentTurnStarted and AgentTurnFinished expose one whole workflow step to
+	// process-local observers. They must not persist state or alter retry policy.
+	AgentTurnStarted  func(missionID, userEventID string)
+	AgentTurnFinished func(missionID, userEventID string, err error)
 }
 
 // ControlDecision is the bounded continuation marker returned by the agent.

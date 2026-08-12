@@ -116,23 +116,27 @@ func TestBuildTurnAgentResponseAppendRequestPreservesCanceledPayloadShape(t *tes
 
 func TestBuildTurnAgentCompactedAppendRequestPreservesPayloadContract(t *testing.T) {
 	req := BuildTurnAgentCompactedAppendRequest(TurnAgentCompactedEventRequest{
-		EventID:                "evt_compacted",
-		MissionID:              "mis_1",
-		AgentExecutor:          "codex",
-		AgentModel:             "",
-		AgentReasoningEffort:   "",
-		MCPMode:                "auto",
-		AgentSessionID:         "ses_next",
-		PreviousAgentSessionID: "ses_prev",
-		WorkflowRunID:          "wfr_1",
-		WorkflowStepID:         "wfs_1",
-		ToolSessionID:          "ses_tool",
-		Summary:                "summary",
-		DurationMS:             45,
-		UserEventID:            "evt_user",
-		Manual:                 false,
-		Reason:                 "context_window_exhausted",
-		Producer:               app.Producer{Type: "agent", ID: "codex"},
+		EventID:                 "evt_compacted",
+		MissionID:               "mis_1",
+		AgentExecutor:           "codex",
+		AgentModel:              "",
+		AgentReasoningEffort:    "",
+		MCPMode:                 "auto",
+		AgentSessionID:          "ses_next",
+		PreviousAgentSessionID:  "ses_prev",
+		WorkflowRunID:           "wfr_1",
+		WorkflowStepID:          "wfs_1",
+		ToolSessionID:           "ses_tool",
+		Summary:                 "summary",
+		DurationMS:              45,
+		UserEventID:             "evt_user",
+		Manual:                  false,
+		Reason:                  "context_window_exhausted",
+		ContextTriggerEventID:   "evt_trigger",
+		ContextUsedTokens:       143000,
+		ContextWindowTokens:     258400,
+		ContextThresholdPercent: 55,
+		Producer:                app.Producer{Type: "agent", ID: "codex"},
 	})
 	payload := appPayload(t, req)
 	if payload["kind"] != "agent_session_compacted" ||
@@ -141,7 +145,11 @@ func TestBuildTurnAgentCompactedAppendRequestPreservesPayloadContract(t *testing
 		payload["workflow_run_id"] != "wfr_1" ||
 		payload["workflow_step_id"] != "wfs_1" ||
 		payload["manual"] != false ||
-		payload["reason"] != "context_window_exhausted" {
+		payload["reason"] != "context_window_exhausted" ||
+		payload["context_trigger_event_id"] != "evt_trigger" ||
+		payload["context_used_tokens"] != float64(143000) ||
+		payload["context_window_tokens"] != float64(258400) ||
+		payload["context_threshold_percent"] != float64(55) {
 		t.Fatalf("unexpected compacted payload: %#v", payload)
 	}
 }

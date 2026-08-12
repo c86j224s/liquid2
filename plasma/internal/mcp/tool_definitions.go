@@ -26,6 +26,7 @@ const (
 	ToolSourcesRemove                               = mcptools.ToolSourcesRemove
 	ToolSourcesRestore                              = mcptools.ToolSourcesRestore
 	ToolResearchOutline                             = mcptools.ToolResearchOutline
+	ToolResearchChanges                             = mcptools.ToolResearchChanges
 	ToolResearchList                                = mcptools.ToolResearchList
 	ToolResearchRead                                = mcptools.ToolResearchRead
 	ToolResearchGrep                                = mcptools.ToolResearchGrep
@@ -238,8 +239,8 @@ func (server *Server) ListTools() []ToolDefinition {
 		}
 	case reporting.FinalEditStageEvidenceGate:
 		for _, tool := range []ToolDefinition{
-			{Name: ToolReportLongFormEvidenceGateRead, Description: "Long-form evidence gate only: read the final report draft for report-to-evidence connection judgment; this tool cannot mutate manuscript text.", InputSchema: schemaReportLongFormStageEditRead},
-			{Name: ToolReportLongFormEvidenceGateSubmit, Description: "Long-form evidence gate only: submit connection judgments and canonicalize the exact bound source artifact with zero operations.", InputSchema: schemaReportLongFormEvidenceGateSubmit},
+			{Name: ToolReportLongFormEvidenceGateRead, Description: "Long-form evidence gate only: read the report-to-evidence packet without mutating manuscript text. Use one runner-provided draft_id, the bound tool_session_id as session_id, offset 0 first, and then only each returned next_offset until truncated is false. Contract errors return continuation content for the same draft.", InputSchema: schemaReportLongFormStageEditRead},
+			{Name: ToolReportLongFormEvidenceGateSubmit, Description: "Long-form evidence gate only: after the packet read reaches truncated false, submit connection judgments exactly once with the same draft_id and bound session_id; canonicalizes the exact bound source artifact with zero operations.", InputSchema: schemaReportLongFormEvidenceGateSubmit},
 		} {
 			if server.finalEditStageToolEnabled(tool.Name) {
 				tools = append(tools, tool)

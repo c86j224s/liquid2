@@ -90,6 +90,12 @@ func (server *Server) handleMissionRoute(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		server.handleMissionActivity(w, r, missionID)
+	case "usage":
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		server.handleMissionUsage(w, r, missionID)
 	case "events":
 		server.handleMissionEvents(w, r, missionID)
 	case "recall":
@@ -569,6 +575,7 @@ func (server *Server) buildRecall(ctx context.Context, missionID string) (recall
 		SavedClaims:     approvedClaimsByProposal(records),
 		AllowedTools: []string{
 			"plasma.research.outline",
+			"plasma.research.changes",
 			"plasma.research.list",
 			"plasma.research.grep",
 			"plasma.research.read",

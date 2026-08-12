@@ -44,6 +44,7 @@ type ResearchIDEPage struct {
 // ResearchIDEOutline은 agent가 미션 전체 구조를 가볍게 파악하기 위한 summary view다.
 type ResearchIDEOutline struct {
 	MissionID               string                     `json:"mission_id"`
+	LastSequence            int64                      `json:"last_sequence"`
 	Title                   string                     `json:"title"`
 	Objective               string                     `json:"objective,omitempty"`
 	Scope                   MissionScope               `json:"scope"`
@@ -51,6 +52,29 @@ type ResearchIDEOutline struct {
 	ActiveReportVersionID   string                     `json:"active_report_version_id,omitempty"`
 	RecentLedgerEvents      []ResearchIDEObjectSummary `json:"recent_ledger_events,omitempty"`
 	NextSuggestedObjectRefs []ResearchIDEObjectRef     `json:"next_suggested_object_refs,omitempty"`
+}
+
+// ResearchIDEChangesRequest identifies the durable mission ledger high-water
+// mark an agent has already observed. Only later meaningful changes are
+// returned.
+type ResearchIDEChangesRequest struct {
+	MissionID     string
+	AfterSequence int64
+	Limit         int
+}
+
+// ResearchIDEChanges is a bounded change feed over mission content and source
+// state. Internal execution telemetry is omitted, while CurrentSequence still
+// advances across it so callers do not inspect the same ledger range twice.
+type ResearchIDEChanges struct {
+	MissionID         string                     `json:"mission_id"`
+	AfterSequence     int64                      `json:"after_sequence"`
+	CurrentSequence   int64                      `json:"current_sequence"`
+	Items             []ResearchIDEObjectSummary `json:"items"`
+	NextAfterSequence int64                      `json:"next_after_sequence"`
+	Limit             int                        `json:"limit"`
+	Truncated         bool                       `json:"truncated"`
+	ResyncRequired    bool                       `json:"resync_required"`
 }
 
 // ResearchIDEReadRequest는 research object 본문 또는 children을 bounded하게 읽기 위한

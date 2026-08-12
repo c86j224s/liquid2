@@ -21,6 +21,11 @@ func TestReadErrorsPreservePreExtractionStrings(t *testing.T) {
 			wantError: "json: cannot unmarshal number into Go struct field researchOutlineInput.mission_id of type string",
 		},
 		{
+			name:      "changes input type name",
+			call:      wire.ToolCall{Name: "plasma.research.changes", Arguments: json.RawMessage(`{"mission_id":"mis_1","after_sequence":"old"}`)},
+			wantError: "json: cannot unmarshal string into Go struct field researchChangesInput.after_sequence of type int64",
+		},
+		{
 			name:      "list input type name",
 			call:      wire.ToolCall{Name: "plasma.research.list", Arguments: json.RawMessage(`{"mission_id":"mis_1","object_kind":1}`)},
 			wantError: "json: cannot unmarshal number into Go struct field researchListInput.object_kind of type string",

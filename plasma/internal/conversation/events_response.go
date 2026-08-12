@@ -38,25 +38,29 @@ type TurnAgentResponseEventRequest struct {
 
 // TurnAgentCompactedEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
 type TurnAgentCompactedEventRequest struct {
-	EventID                string
-	MissionID              string
-	AgentExecutor          string
-	AgentModel             string
-	AgentReasoningEffort   string
-	MCPMode                string
-	AgentSessionID         string
-	PreviousAgentSessionID string
-	WorkflowRunID          string
-	WorkflowStepID         string
-	ToolSessionID          string
-	Summary                string
-	DurationMS             int64
-	UserEventID            string
-	Manual                 bool
-	Reason                 string
-	Usage                  agentusage.AgentUsage
-	Resumed                bool
-	Producer               app.Producer
+	EventID                 string
+	MissionID               string
+	AgentExecutor           string
+	AgentModel              string
+	AgentReasoningEffort    string
+	MCPMode                 string
+	AgentSessionID          string
+	PreviousAgentSessionID  string
+	WorkflowRunID           string
+	WorkflowStepID          string
+	ToolSessionID           string
+	Summary                 string
+	DurationMS              int64
+	UserEventID             string
+	Manual                  bool
+	Reason                  string
+	ContextTriggerEventID   string
+	ContextUsedTokens       int
+	ContextWindowTokens     int
+	ContextThresholdPercent int
+	Usage                   agentusage.AgentUsage
+	Resumed                 bool
+	Producer                app.Producer
 }
 
 // BuildTurnAgentResponseAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
@@ -111,6 +115,16 @@ func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) ap
 	putNonEmpty(payload, "workflow_run_id", req.WorkflowRunID)
 	putNonEmpty(payload, "workflow_step_id", req.WorkflowStepID)
 	putNonEmpty(payload, "reason", req.Reason)
+	putNonEmpty(payload, "context_trigger_event_id", req.ContextTriggerEventID)
+	if req.ContextUsedTokens > 0 {
+		payload["context_used_tokens"] = req.ContextUsedTokens
+	}
+	if req.ContextWindowTokens > 0 {
+		payload["context_window_tokens"] = req.ContextWindowTokens
+	}
+	if req.ContextThresholdPercent > 0 {
+		payload["context_threshold_percent"] = req.ContextThresholdPercent
+	}
 	addUsagePayload(payload, req.Usage, "compaction", req.DurationMS, req.PreviousAgentSessionID, req.AgentSessionID, req.Resumed, true)
 	return app.AppendEventRequest{
 		EventID:   req.EventID,

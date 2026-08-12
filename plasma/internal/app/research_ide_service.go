@@ -25,6 +25,7 @@ const (
 // ResearchIDEReader는 Research IDE 화면이 필요한 읽기 기능만 노출하는 조회 포트다.
 type ResearchIDEReader interface {
 	OutlineMission(context.Context, string) (ResearchIDEOutline, error)
+	ListMissionChanges(context.Context, ResearchIDEChangesRequest) (ResearchIDEChanges, error)
 	ListMissionObjects(context.Context, string, string, int, string) (ResearchIDEPage, error)
 	ReadMissionObject(context.Context, ResearchIDEReadRequest) (ResearchIDEObjectRead, error)
 	GrepMissionObjects(context.Context, string, string, int, string) (ResearchIDEGrepResult, error)
@@ -63,13 +64,14 @@ func (s *Service) outlineMission(ctx context.Context, missionID string, legacy b
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
-	events, err := s.listVisibleLedgerEvents(ctx, missionID, legacy)
+	ledgerEvents, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
-	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
-	if err != nil {
-		return ResearchIDEOutline{}, err
+	events := researchIDEVisibleLedgerEvents(ledgerEvents, legacy)
+	var reportArtifacts map[string]struct{}
+	if !legacy {
+		reportArtifacts = researchIDEReportArtifactIDs(ledgerEvents)
 	}
 	counts := map[string]int{
 		ResearchIDEObjectSourceSnapshot: len(snapshots),
@@ -137,6 +139,7 @@ func (s *Service) outlineMission(ctx context.Context, missionID string, legacy b
 	}
 	return ResearchIDEOutline{
 		MissionID:               missionID,
+		LastSequence:            researchIDELastSequence(ledgerEvents),
 		Title:                   projection.Title,
 		Objective:               projection.Objective,
 		Scope:                   projection.Scope,

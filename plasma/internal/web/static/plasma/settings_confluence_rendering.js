@@ -10,6 +10,7 @@
   const empty = Plasma.ui.empty;
   const renderTabs = (...args) => settings.dependency("renderTabs")(...args);
   const loadModelDefaults = (...args) => settings.loadModelDefaults(...args);
+  const loadMissionUsage = (...args) => settings.loadMissionUsage(...args);
   const loadConfluenceConnections = (...args) => sources.loadConfluenceConnections(...args);
   const confluenceConnectionSites = (...args) => sources.confluenceConnectionSites(...args);
   const confluenceSiteName = (...args) => sources.confluenceSiteName(...args);
@@ -23,6 +24,7 @@
   function openSettingsTab() {
     state.activeTab = "settings";
     renderTabs();
+    loadMissionUsage();
     loadModelDefaults();
     loadConfluenceConnections();
   }

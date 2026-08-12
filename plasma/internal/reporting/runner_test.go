@@ -1905,15 +1905,34 @@ func (svc *fakeRunnerService) AppendEvent(_ context.Context, req ledger.AppendRe
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 	event := ledger.Event{
-		EventID:   req.EventID,
-		MissionID: req.MissionID,
-		EventType: req.EventType,
-		Producer:  req.Producer,
-		Payload:   append(json.RawMessage(nil), req.Payload...),
-		CreatedAt: time.Now().UTC(),
+		EventID: req.EventID, MissionID: req.MissionID, EventType: req.EventType, Producer: req.Producer,
+		CausationEventID: req.CausationEventID, CorrelationID: req.CorrelationID,
+		Payload: append(json.RawMessage(nil), req.Payload...), CreatedAt: time.Now().UTC(),
 	}
 	svc.events = append(svc.events, event)
 	return event, nil
+}
+
+func (svc *fakeRunnerService) AppendEventConditionally(_ context.Context, missionID string, decide func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error) {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	events := make([]app.LedgerEvent, 0, len(svc.events))
+	for _, event := range svc.events {
+		if event.MissionID == missionID {
+			events = append(events, event)
+		}
+	}
+	request, existing, appendEvent, err := decide(events)
+	if err != nil || !appendEvent {
+		return existing, false, err
+	}
+	event := app.LedgerEvent{
+		EventID: request.EventID, MissionID: request.MissionID, EventType: request.EventType, Producer: request.Producer,
+		CausationEventID: request.CausationEventID, CorrelationID: request.CorrelationID,
+		Payload: append(json.RawMessage(nil), request.Payload...), CreatedAt: time.Now().UTC(),
+	}
+	svc.events = append(svc.events, event)
+	return event, true, nil
 }
 
 func (svc *fakeRunnerService) AppendEvents(_ context.Context, _ string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {

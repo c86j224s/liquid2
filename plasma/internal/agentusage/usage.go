@@ -8,7 +8,15 @@ import (
 )
 
 // SchemaVersion은 agent usage payload의 장부 저장 형식 버전이다.
-const SchemaVersion = 1
+const SchemaVersion = 2
+
+const (
+	// UsageScopeCall은 provider usage가 이번 agent 호출에서 발생한 양임을 뜻한다.
+	UsageScopeCall = "call"
+	// UsageScopeSessionCumulative은 provider usage가 같은 provider session의 누적
+	// snapshot임을 뜻한다. 호출별 사용량은 이전 snapshot과의 차이로 계산해야 한다.
+	UsageScopeSessionCumulative = "session_cumulative"
+)
 
 // PromptMetrics는 prompt 본문을 저장하지 않고 크기와 hash만 남기는 계측값이다.
 //
@@ -35,15 +43,27 @@ type SessionMetrics struct {
 // ProviderUsage는 provider가 노출한 token 사용량을 Plasma 공통 필드로 축소한
 // 값이다.
 //
+// Scope는 값이 한 호출의 양인지 provider session 누적 snapshot인지 구분한다.
 // provider마다 일부 필드는 비어 있을 수 있으며 Normalize가 누락 가능한 합계만
 // 보강한다. 이 값은 과금의 최종 원장이 아니라 report/workflow 관측치다.
 type ProviderUsage struct {
-	InputTokens           int `json:"input_tokens,omitempty"`
-	CachedInputTokens     int `json:"cached_input_tokens,omitempty"`
-	UncachedInputTokens   int `json:"uncached_input_tokens,omitempty"`
-	OutputTokens          int `json:"output_tokens,omitempty"`
-	ReasoningOutputTokens int `json:"reasoning_output_tokens,omitempty"`
-	TotalTokens           int `json:"total_tokens,omitempty"`
+	Scope                 string `json:"scope,omitempty"`
+	InputTokens           int    `json:"input_tokens,omitempty"`
+	CachedInputTokens     int    `json:"cached_input_tokens,omitempty"`
+	UncachedInputTokens   int    `json:"uncached_input_tokens,omitempty"`
+	OutputTokens          int    `json:"output_tokens,omitempty"`
+	ReasoningOutputTokens int    `json:"reasoning_output_tokens,omitempty"`
+	TotalTokens           int    `json:"total_tokens,omitempty"`
+}
+
+// ContextWindowMetrics는 provider가 보고한 현재 컨텍스트 점유량이다.
+//
+// UsedTokens와 WindowTokens가 모두 양수일 때만 유효하다. Plasma는 비율을
+// 저장하지 않고 원시 숫자를 보관해 임계값 정책과 계측 해석을 분리한다.
+type ContextWindowMetrics struct {
+	UsedTokens   int    `json:"used_tokens"`
+	WindowTokens int    `json:"window_tokens"`
+	Source       string `json:"source,omitempty"`
 }
 
 // AgentUsage는 한 번의 agent 호출에서 Plasma가 장부에 남기는 usage envelope이다.
@@ -51,19 +71,31 @@ type ProviderUsage struct {
 // Prompt는 원문 대신 metrics만 보관하고, provider usage가 없을 때는
 // UsageUnavailableReason으로 원인을 남긴다.
 type AgentUsage struct {
-	SchemaVersion          int            `json:"schema_version"`
-	Surface                string         `json:"surface,omitempty"`
-	Provider               string         `json:"provider,omitempty"`
-	Executor               string         `json:"executor,omitempty"`
-	Model                  string         `json:"model,omitempty"`
-	ReasoningEffort        string         `json:"reasoning_effort,omitempty"`
-	Prompt                 PromptMetrics  `json:"prompt"`
-	Session                SessionMetrics `json:"session"`
-	ProviderUsage          *ProviderUsage `json:"provider_usage,omitempty"`
-	DurationMS             int64          `json:"duration_ms,omitempty"`
-	UsageSource            string         `json:"usage_source,omitempty"`
-	UsageUnavailable       bool           `json:"usage_unavailable"`
-	UsageUnavailableReason string         `json:"usage_unavailable_reason,omitempty"`
+	SchemaVersion          int                   `json:"schema_version"`
+	Surface                string                `json:"surface,omitempty"`
+	Provider               string                `json:"provider,omitempty"`
+	Executor               string                `json:"executor,omitempty"`
+	Model                  string                `json:"model,omitempty"`
+	ReasoningEffort        string                `json:"reasoning_effort,omitempty"`
+	Prompt                 PromptMetrics         `json:"prompt"`
+	Session                SessionMetrics        `json:"session"`
+	ProviderUsage          *ProviderUsage        `json:"provider_usage,omitempty"`
+	ContextWindow          *ContextWindowMetrics `json:"context_window,omitempty"`
+	DurationMS             int64                 `json:"duration_ms,omitempty"`
+	UsageSource            string                `json:"usage_source,omitempty"`
+	UsageUnavailable       bool                  `json:"usage_unavailable"`
+	UsageUnavailableReason string                `json:"usage_unavailable_reason,omitempty"`
+}
+
+// WithContextWindow는 provider가 보고한 유효한 현재 컨텍스트 점유량을 붙인다.
+// 유효하지 않은 값은 추정하거나 보정하지 않고 무시한다.
+func (usage AgentUsage) WithContextWindow(metrics ContextWindowMetrics) AgentUsage {
+	if !metrics.Valid() {
+		return usage
+	}
+	metrics.Source = strings.TrimSpace(metrics.Source)
+	usage.ContextWindow = &metrics
+	return usage
 }
 
 // New는 provider 실행 전후에 공통으로 채울 수 있는 usage envelope을 만든다.
@@ -166,6 +198,10 @@ func (usage *ProviderUsage) Normalize() {
 	if usage == nil {
 		return
 	}
+	usage.Scope = strings.TrimSpace(usage.Scope)
+	if usage.Scope == "" {
+		usage.Scope = UsageScopeCall
+	}
 	if usage.InputTokens > 0 && usage.CachedInputTokens > 0 && usage.UncachedInputTokens == 0 {
 		uncached := usage.InputTokens - usage.CachedInputTokens
 		if uncached > 0 {
@@ -178,6 +214,19 @@ func (usage *ProviderUsage) Normalize() {
 			usage.TotalTokens = total
 		}
 	}
+}
+
+// Valid는 점유율을 계산할 수 있는 완전한 provider 관측치인지 판정한다.
+func (metrics ContextWindowMetrics) Valid() bool {
+	return metrics.UsedTokens > 0 && metrics.WindowTokens > 0
+}
+
+// AtOrAbovePercent는 부동소수점 반올림 없이 정수 백분율 임계값을 비교한다.
+func (metrics ContextWindowMetrics) AtOrAbovePercent(percent int) bool {
+	if !metrics.Valid() || percent <= 0 || percent > 100 {
+		return false
+	}
+	return int64(metrics.UsedTokens)*100 >= int64(metrics.WindowTokens)*int64(percent)
 }
 
 func estimateTokens(prompt string) int {

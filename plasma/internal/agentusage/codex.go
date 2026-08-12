@@ -11,8 +11,8 @@ import (
 
 var codexStatusSessionPattern = regexp.MustCompile(`(?m)^session id:\s+([^\s]+)`)
 
-// ParseCodexProviderUsage는 Codex JSONL 로그에서 가장 최근 turn.completed usage를
-// 추출한다.
+// ParseCodexProviderUsage는 Codex JSONL 로그에서 가장 최근 turn.completed usage
+// 누적 snapshot을 추출한다.
 //
 // 로그에 사람이 읽는 status line이나 다른 JSON event가 섞여 있어도 무시한다. 원시
 // 로그는 장부에 저장하지 않고 ProviderUsage만 반환한다.
@@ -45,9 +45,54 @@ func ParseCodexProviderUsage(log string) (ProviderUsage, bool) {
 			}
 			continue
 		}
+		event.Usage.Scope = UsageScopeSessionCumulative
 		event.Usage.Normalize()
 		latest = event.Usage
 		found = true
+		if errors.Is(err, io.EOF) {
+			break
+		}
+	}
+	return latest, found
+}
+
+// ParseCodexContextWindowMetrics는 Codex session JSONL에서 가장 최근의 현재
+// 컨텍스트 점유량을 추출한다. 세션 본문과 도구 결과는 해석하거나 반환하지 않는다.
+func ParseCodexContextWindowMetrics(log string) (ContextWindowMetrics, bool) {
+	var latest ContextWindowMetrics
+	found := false
+	reader := bufio.NewReader(strings.NewReader(log))
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			break
+		}
+		line = strings.TrimSpace(line)
+		if line != "" && strings.HasPrefix(line, "{") {
+			var event struct {
+				Type    string `json:"type"`
+				Payload struct {
+					Type string `json:"type"`
+					Info struct {
+						LastTokenUsage struct {
+							TotalTokens int `json:"total_tokens"`
+						} `json:"last_token_usage"`
+						ModelContextWindow int `json:"model_context_window"`
+					} `json:"info"`
+				} `json:"payload"`
+			}
+			if json.Unmarshal([]byte(line), &event) == nil && event.Type == "event_msg" && event.Payload.Type == "token_count" {
+				metrics := ContextWindowMetrics{
+					UsedTokens:   event.Payload.Info.LastTokenUsage.TotalTokens,
+					WindowTokens: event.Payload.Info.ModelContextWindow,
+					Source:       "codex_session_token_count",
+				}
+				if metrics.Valid() {
+					latest = metrics
+					found = true
+				}
+			}
+		}
 		if errors.Is(err, io.EOF) {
 			break
 		}

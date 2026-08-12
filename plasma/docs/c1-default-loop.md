@@ -47,7 +47,10 @@ when read.
 Bounded workflow runs stay inside this loop. A workflow step records a
 controller-like `workflow_steering` user turn, resumes the same provider session,
 stores the agent response as a result, and records a small workflow step summary
-in the mission ledger. Workflow events describe progress and stop conditions;
+in the mission ledger. The first step of every new workflow run re-reads the mission
+outline to align the existing conversation session with the current run request.
+Only later steps in that same run suppress orientation-only outline and list reads.
+Workflow events describe progress and stop conditions;
 they do not create a separate mission mode or make workflow summaries into
 sources. Normal turns and workflow steps may record explicit source candidates
 when the agent identifies new original material worth user review and gives a

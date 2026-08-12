@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -233,6 +234,9 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
 		t.Fatalf("fanout requirement map was not durably recorded once: %#v", detail["events"])
 	}
+	if countEvents(detail, reporting.ReportAgentUsageRecordedEventType) != 5 {
+		t.Fatalf("requirements, Part edit, and three final edit calls must record delayed usage once each: %#v", detail["events"])
+	}
 	requirementPayload := lastEventPayload(t, detail, reporting.ReportRequirementsMappedEventType)
 	requirementMap := nestedMap(t, requirementPayload, "requirement_map")
 	requirements, _ := requirementMap["requirements"].([]any)
@@ -440,25 +444,31 @@ func (agent *fanoutRequirementAgent) Run(_ context.Context, req AgentRequest) (A
 	if sessionID == "" {
 		sessionID = "report-session"
 	}
+	usage := agentusage.New("openai", "codex", "model", "high", req.Prompt).WithProviderUsage(agentusage.ProviderUsage{
+		Scope: agentusage.UsageScopeCall, InputTokens: 10, CachedInputTokens: 4, OutputTokens: 2,
+	}, "provider")
+	result := func(text string) AgentResult {
+		return AgentResult{Text: text, SessionID: sessionID, Usage: usage}
+	}
 	switch {
 	case req.ReportPlan != nil:
-		return AgentResult{Text: agentReportAnyJSON(agent.plan), SessionID: "report-session"}, nil
+		return result(agentReportAnyJSON(agent.plan)), nil
 	case req.ReportRequirements != nil:
-		return AgentResult{Text: "requirements mapped", SessionID: sessionID}, nil
+		return result("requirements mapped"), nil
 	case req.PartAssembly != nil:
-		return AgentResult{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: sessionID}, nil
+		return result(`{"intro":"Intro","transitions":[],"closing":"Close"}`), nil
 	case req.FinalEditStage != nil && (req.FinalEditStage.Stage == reporting.FinalEditStageGate || req.FinalEditStage.Stage == reporting.FinalEditStageEvidenceGate):
-		return AgentResult{Text: finalEditGateSubmittedText, SessionID: sessionID}, nil
+		return result(finalEditGateSubmittedText), nil
 	case req.FinalEditStage != nil:
-		return AgentResult{Text: finalEditStageSubmittedText, SessionID: sessionID}, nil
+		return result(finalEditStageSubmittedText), nil
 	case req.LongFormFinalize != nil:
-		return AgentResult{Text: agent.finalMarkdown, SessionID: sessionID}, nil
+		return result(agent.finalMarkdown), nil
 	case strings.Contains(req.UserText, "draft section 1.1"):
-		return AgentResult{Text: "Overview section.", SessionID: sessionID}, nil
+		return result("Overview section."), nil
 	case strings.Contains(req.UserText, "draft section 1.2"):
-		return AgentResult{Text: "Constraints section.", SessionID: sessionID}, nil
+		return result("Constraints section."), nil
 	default:
-		return AgentResult{Text: "agent response", SessionID: sessionID}, nil
+		return result("agent response"), nil
 	}
 }
 

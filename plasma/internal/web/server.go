@@ -31,6 +31,7 @@ type Server struct {
 	agents                      map[string]AgentExecutor
 	turns                       missionTurnLocks
 	runningTurns                runningAgentTurns
+	liveTurns                   liveTurnStore
 	sources                     missionTurnLocks
 	reports                     missionTurnLocks
 	runningReports              reportexecution.InFlight

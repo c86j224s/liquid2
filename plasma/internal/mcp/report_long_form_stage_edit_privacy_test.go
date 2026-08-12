@@ -112,6 +112,18 @@ func TestReadOnlyValidationStagesExposeOnlyReadAndSubmitContracts(t *testing.T) 
 					t.Fatalf("forbidden mutating/legacy tool exposed: %s", forbidden)
 				}
 			}
+			if tc.binding.Stage == reporting.FinalEditStageEvidenceGate {
+				for _, expected := range []string{"runner-provided draft_id", "tool_session_id as session_id", "returned next_offset", "continuation content"} {
+					if !strings.Contains(tools[ToolReportLongFormEvidenceGateRead].Description, expected) {
+						t.Fatalf("evidence read description missing %q: %s", expected, tools[ToolReportLongFormEvidenceGateRead].Description)
+					}
+				}
+				for _, expected := range []string{"exactly once", "same draft_id", "bound session_id"} {
+					if !strings.Contains(tools[ToolReportLongFormEvidenceGateSubmit].Description, expected) {
+						t.Fatalf("evidence submit description missing %q: %s", expected, tools[ToolReportLongFormEvidenceGateSubmit].Description)
+					}
+				}
+			}
 		})
 	}
 
@@ -215,6 +227,8 @@ func TestReadOnlyValidationStagesRequireCompleteContiguousReadBeforeSubmit(t *te
 	evidenceSubmit["gate_findings"] = []map[string]any{}
 	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateSubmit, Arguments: mustArgs(t, evidenceSubmit)}); result.Error == nil {
 		t.Fatalf("evidence gate submit succeeded before read: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, 0, "read")
 	}
 	evidenceRead := map[string]any{"mission_id": evidenceGate.MissionID, "session_id": evidenceGate.ToolSessionID, "draft_id": "rfe_read_only_evidence", "offset": 0, "max_bytes": 32}
 	firstEvidence := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateRead, Arguments: mustArgs(t, evidenceRead)})
@@ -225,8 +239,32 @@ func TestReadOnlyValidationStagesRequireCompleteContiguousReadBeforeSubmit(t *te
 	if firstEvidencePage["truncated"] != true {
 		t.Fatalf("evidence read was not forced to paginate: %#v", firstEvidencePage)
 	}
+	nextEvidenceOffset := firstEvidencePage["next_offset"].(int)
 	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateSubmit, Arguments: mustArgs(t, evidenceSubmit)}); result.Error == nil {
 		t.Fatalf("evidence gate submit succeeded after partial read: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, nextEvidenceOffset, "read")
+	}
+	wrongDraftRead := map[string]any{"mission_id": evidenceGate.MissionID, "session_id": evidenceGate.ToolSessionID, "draft_id": "rfe_other_evidence", "offset": 0, "max_bytes": 32}
+	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateRead, Arguments: mustArgs(t, wrongDraftRead)}); result.Error == nil {
+		t.Fatalf("evidence gate accepted a second draft: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, nextEvidenceOffset, "read")
+	}
+	if len(evidenceServer.readOnlyValidationDrafts) != 1 {
+		t.Fatalf("evidence gate created multiple read-only drafts: %#v", evidenceServer.readOnlyValidationDrafts)
+	}
+	wrongSessionRead := map[string]any{"mission_id": evidenceGate.MissionID, "session_id": "ses_other_evidence", "draft_id": "rfe_read_only_evidence", "offset": nextEvidenceOffset, "max_bytes": 32}
+	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateRead, Arguments: mustArgs(t, wrongSessionRead)}); result.Error == nil {
+		t.Fatalf("evidence gate accepted a different MCP session: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, nextEvidenceOffset, "read")
+	}
+	wrongOffsetRead := map[string]any{"mission_id": evidenceGate.MissionID, "session_id": evidenceGate.ToolSessionID, "draft_id": "rfe_read_only_evidence", "offset": 0, "max_bytes": 32}
+	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateRead, Arguments: mustArgs(t, wrongOffsetRead)}); result.Error == nil {
+		t.Fatalf("evidence gate accepted a non-contiguous offset: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, nextEvidenceOffset, "read")
 	}
 	evidencePacket := firstEvidencePage["content"].(string) + readOnlyValidationPacketRest(t, ctx, evidenceServer, ToolReportLongFormEvidenceGateRead, evidenceRead, firstEvidencePage)
 	var packet struct {
@@ -237,10 +275,38 @@ func TestReadOnlyValidationStagesRequireCompleteContiguousReadBeforeSubmit(t *te
 	if err := json.Unmarshal([]byte(evidencePacket), &packet); err != nil || len(packet.Passages) == 0 {
 		t.Fatalf("evidence packet decode len=%d err=%v packet=%s", len(packet.Passages), err, evidencePacket)
 	}
+	wrongDraftSubmit := map[string]any{}
+	for key, value := range evidenceSubmit {
+		wrongDraftSubmit[key] = value
+	}
+	wrongDraftSubmit["draft_id"] = "rfe_other_evidence"
+	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateSubmit, Arguments: mustArgs(t, wrongDraftSubmit)}); result.Error == nil {
+		t.Fatalf("evidence gate accepted submit from a different draft: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, 0, "submit_once")
+	}
+	wrongHashSubmit := map[string]any{}
+	for key, value := range evidenceSubmit {
+		wrongHashSubmit[key] = value
+	}
+	wrongHashSubmit["gate_findings"] = []map[string]any{{"statement_sha256": strings.Repeat("f", 64), "classification": reporting.FinalEditGateClassDerivedSynthesis}}
+	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateSubmit, Arguments: mustArgs(t, wrongHashSubmit)}); result.Error == nil {
+		t.Fatalf("evidence gate accepted an unknown statement hash: %#v", result)
+	} else {
+		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, 0, "submit_once")
+	}
 	evidenceSubmit["gate_findings"] = []map[string]any{{"statement_sha256": packet.Passages[0].StatementSHA256, "classification": reporting.FinalEditGateClassDerivedSynthesis}}
 	evidenceResult := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateSubmit, Arguments: mustArgs(t, evidenceSubmit)})
 	if evidenceResult.Error != nil {
 		t.Fatalf("evidence gate submit after full read failed: %#v", evidenceResult.Error)
+	}
+}
+
+func assertReadOnlyValidationContinuation(t *testing.T, result ToolResult, draftID, sessionID string, nextOffset int, nextAction string) {
+	t.Helper()
+	content, ok := result.Content.(map[string]any)
+	if !ok || content["draft_id"] != draftID || content["session_id"] != sessionID || content["next_offset"] != nextOffset || content["next_action"] != nextAction {
+		t.Fatalf("read-only validation continuation mismatch: %#v", result)
 	}
 }
 

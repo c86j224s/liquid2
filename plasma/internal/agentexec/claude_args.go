@@ -11,7 +11,14 @@ func (executor ClaudeExecutor) baseArgs(requestModel string, disableTools bool) 
 }
 
 func (executor ClaudeExecutor) baseArgsForRequest(req AgentRequest) []string {
-	return executor.baseArgsWithToolMode(req.Model, req.DisableTools, req.ReplaceMCPTools)
+	args := executor.baseArgsWithToolMode(req.Model, req.DisableTools, req.ReplaceMCPTools)
+	if req.IgnoreUserConfig {
+		args = append(args, "--safe-mode")
+	}
+	if req.EphemeralSession {
+		args = append(args, "--no-session-persistence")
+	}
+	return args
 }
 
 func (executor ClaudeExecutor) baseArgsWithToolMode(requestModel string, disableTools bool, mcpOnly bool) []string {

@@ -1286,6 +1286,9 @@ func TestBuildCLIAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	if !hasCLIArgPair(codex.MCPServer.Args, "-enabled-tool", mcp.ToolResearchOutline) {
 		t.Fatalf("expected enabled tool in MCP args, got %#v", codex.MCPServer.Args)
 	}
+	if !hasCLIArgPair(codex.MCPServer.Args, "-enabled-tool", mcp.ToolResearchChanges) {
+		t.Fatalf("expected research changes tool in MCP args, got %#v", codex.MCPServer.Args)
+	}
 	if !hasCLIArgPair(codex.MCPServer.Args, "-enabled-tool", mcp.ToolMermaidValidate) {
 		t.Fatalf("expected Mermaid validation tool in MCP args, got %#v", codex.MCPServer.Args)
 	}
@@ -1316,6 +1319,9 @@ func TestBuildCLIClaudeAgentExecutorPassesLocalRootsToMCP(t *testing.T) {
 	}
 	if !hasCLIArgPair(claude.MCPServer.Args, "-enabled-tool", mcp.ToolResearchOutline) {
 		t.Fatalf("expected enabled tool in MCP args, got %#v", claude.MCPServer.Args)
+	}
+	if !hasCLIArgPair(claude.MCPServer.Args, "-enabled-tool", mcp.ToolResearchChanges) {
+		t.Fatalf("expected research changes tool in MCP args, got %#v", claude.MCPServer.Args)
 	}
 	if !hasCLIArgPair(claude.MCPServer.Args, "-enabled-tool", mcp.ToolMermaidValidate) {
 		t.Fatalf("expected Mermaid validation tool in MCP args, got %#v", claude.MCPServer.Args)
@@ -2120,6 +2126,7 @@ func TestCodexEnabledToolsExposeResearchSurface(t *testing.T) {
 	tools := codexEnabledTools()
 	for _, expected := range []string{
 		mcp.ToolResearchOutline,
+		mcp.ToolResearchChanges,
 		mcp.ToolResearchList,
 		mcp.ToolResearchGrep,
 		mcp.ToolResearchRead,

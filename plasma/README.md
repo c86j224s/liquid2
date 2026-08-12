@@ -171,12 +171,12 @@ go run ./cmd/plasma serve \
   -agent codex
 ```
 
-Plasma starts new Codex sessions with `gpt-5.6-terra` and `medium` reasoning by
+Plasma starts new Codex sessions with `gpt-5.6-luna` and `high` reasoning by
 default. The mission controls let users select GPT-5.6 Sol, Terra, or Luna and
 the supported reasoning effort before starting a new agent session; mission
 data and saved sources remain in place while Codex session continuity resets.
 Reports without a separate model selection inherit that mission setting or the
-same Terra/medium default.
+same Luna/high default.
 
 Run it with both Codex and Claude available in the browser:
 
@@ -247,7 +247,10 @@ go run ./cmd/plasma mcp \
 
 A typical MCP-driven flow is:
 
-- Start with `plasma.research.outline`.
+- Start with `plasma.research.outline` and retain its `last_sequence`.
+- In a resumed provider session, use `plasma.research.changes` when mission
+  changes need checking. Re-read the outline if the change cursor requires a
+  resync.
 - Use `plasma.research.list` or `plasma.research.grep` to find candidates.
 - Use `plasma.research.read` to inspect bounded chunks.
 - Use `plasma.research.references` to check relationships before reporting.

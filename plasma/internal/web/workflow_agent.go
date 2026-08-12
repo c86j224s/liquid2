@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -10,7 +11,7 @@ import (
 
 // Run은 웹 및 에이전트 어댑터의 실행 진입점이다. 호출자는 취소, 실패, 외부 부작용 범위를 해당 패키지 계약에 맞게 보존해야 한다.
 func (adapter workflowAgentAdapter) Run(ctx context.Context, req workflowruntime.AgentRequest) (workflowruntime.AgentResult, error) {
-	result, err := adapter.executor.Run(ctx, AgentRequest{
+	agentRequest := AgentRequest{
 		UserText:          req.UserText,
 		Prompt:            req.Prompt,
 		Model:             req.Model,
@@ -22,7 +23,22 @@ func (adapter workflowAgentAdapter) Run(ctx context.Context, req workflowruntime
 		AgentExecutor:     req.AgentExecutor,
 		MCPMode:           req.MCPMode,
 		Compaction:        req.Compaction,
-	})
+	}
+	var result AgentResult
+	var err error
+	if adapter.server != nil {
+		result, err = adapter.server.runAgentWithObserver(ctx, adapter.executor, agentRequest, func(event AgentObservation) {
+			if event.Type == AgentObservationAnswer {
+				event.Text = workflowruntime.VisibleTextBeforeControl(event.Text)
+				if event.Text == "" {
+					return
+				}
+			}
+			adapter.server.liveTurns.applyObservation(req.MissionID, req.UserEventID, event)
+		})
+	} else {
+		result, err = adapter.executor.Run(ctx, agentRequest)
+	}
 	return workflowruntime.AgentResult{
 		Text:      result.Text,
 		SessionID: result.SessionID,
@@ -49,12 +65,26 @@ func (server *Server) workflowRunner(ctx context.Context, missionID string, exec
 	}
 	return workflowruntime.Runner{
 		Service:               server.service,
-		Agent:                 workflowAgentAdapter{executor: executor},
+		Agent:                 workflowAgentAdapter{server: server, executor: executor},
 		AgentModel:            model,
 		ReasoningEffort:       effort,
 		NewID:                 newID,
 		SourceCandidateStager: server.stageSourceCandidateProposalEvent,
+		AgentTurnStarted:      server.liveTurns.start,
+		AgentTurnFinished: func(missionID, userEventID string, err error) {
+			server.liveTurns.finish(missionID, userEventID, workflowLiveTerminalState(err))
+		},
 	}, nil
+}
+
+func workflowLiveTerminalState(err error) string {
+	if err == nil {
+		return "completed"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	return "error"
 }
 
 func activeWorkflowRun(runs []app.WorkflowRunView) *app.WorkflowRunView {

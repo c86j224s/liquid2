@@ -20,6 +20,10 @@ import (
 )
 
 func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
+	if len(rest) == 2 && rest[1] == "live" {
+		server.handleMissionTurnLive(w, r, missionID, rest[0])
+		return
+	}
 	if len(rest) == 1 && rest[0] == "cancel" {
 		server.handleCancelMissionTurn(w, r, missionID)
 		return
@@ -142,6 +146,9 @@ func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request,
 	}
 	userEvent := appendedEvents[0]
 	pendingEvent := appendedEvents[len(appendedEvents)-1]
+	if !isManualCompactCommand(req.Text) {
+		server.liveTurns.start(missionID, userEvent.EventID)
+	}
 	agentCtx, cancel := context.WithCancel(context.Background())
 	runID := server.runningTurns.start(missionID, executorName, cancel)
 	go func() {
@@ -205,9 +212,11 @@ func (server *Server) handleCancelMissionTurn(w http.ResponseWriter, r *http.Req
 			writeAppError(w, err)
 			return
 		}
+		server.liveTurns.finish(missionID, pending.UserEventID, "canceled")
 		writeJSON(w, http.StatusOK, map[string]any{"canceled": true, "stale": true, "event": event})
 		return
 	}
+	server.liveTurns.finish(missionID, pending.UserEventID, "canceled")
 	writeJSON(w, http.StatusAccepted, map[string]any{"canceled": true, "stale": false})
 }
 
@@ -303,12 +312,37 @@ func (server *Server) completeAgentTurn(
 	toolSessionID string,
 	controller controllerStrategyDecision,
 ) {
-	if _, err := server.runAgentTurn(ctx, missionID, userText, userEventID, recall, executorName, mcpMode, toolSessionID, controller); err != nil {
+	event, err := server.runAgentTurn(ctx, missionID, userText, userEventID, recall, executorName, mcpMode, toolSessionID, controller)
+	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 			_, _ = server.appendAgentCanceled(context.Background(), missionID, userEventID, executorName, "에이전트 응답을 취소했습니다.")
+			server.liveTurns.finish(missionID, userEventID, "canceled")
 			return
 		}
 		_, _ = server.appendAgentError(context.Background(), missionID, userEventID, executorName, err, AgentResult{}, 0, nil)
+		server.liveTurns.finish(missionID, userEventID, "error")
+		return
+	}
+	server.liveTurns.finish(missionID, userEventID, liveTerminalStateForEvent(event))
+}
+
+func liveTerminalStateForEvent(event app.LedgerEvent) string {
+	if event.EventType != "turn.agent.response" {
+		return "completed"
+	}
+	var payload struct {
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return "completed"
+	}
+	switch payload.Kind {
+	case "agent_error":
+		return "error"
+	case "agent_canceled":
+		return "canceled"
+	default:
+		return "completed"
 	}
 }
 
@@ -352,7 +386,7 @@ func (server *Server) runAgentTurn(
 	}
 	prompt := agentPrompt(userText, recall, mcpMode, previousSessionID != "", toolSessionID, controller)
 	started := time.Now()
-	result, err := executor.Run(ctx, AgentRequest{
+	agentReq := AgentRequest{
 		UserText:          userText,
 		Prompt:            prompt,
 		Model:             agentModel,
@@ -363,7 +397,8 @@ func (server *Server) runAgentTurn(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
-	})
+	}
+	result, err := server.runObservedAgent(ctx, missionID, userEventID, executor, agentReq)
 	durationMS := time.Since(started).Milliseconds()
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
@@ -502,7 +537,7 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 	}
 
 	retryStarted := time.Now()
-	result, err := executor.Run(ctx, AgentRequest{
+	agentReq := AgentRequest{
 		UserText:          userText,
 		Prompt:            prompt,
 		Model:             agentModel,
@@ -513,7 +548,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
-	})
+	}
+	result, err := server.runObservedAgent(ctx, missionID, userEventID, executor, agentReq)
 	retryDurationMS := time.Since(retryStarted).Milliseconds()
 	durationMS := initialDurationMS + compactDurationMS + retryDurationMS
 	if err != nil {
@@ -562,6 +598,20 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		"agent_model":               agentModel,
 		"agent_reasoning_effort":    agentReasoningEffort,
 	})
+}
+
+func (server *Server) runObservedAgent(ctx context.Context, missionID, userEventID string, executor AgentExecutor, req AgentRequest) (AgentResult, error) {
+	return server.runAgentWithObserver(ctx, executor, req, func(event AgentObservation) {
+		server.liveTurns.applyObservation(missionID, userEventID, event)
+	})
+}
+
+func (server *Server) runAgentWithObserver(ctx context.Context, executor AgentExecutor, req AgentRequest, observer AgentObserver) (AgentResult, error) {
+	streaming, ok := executor.(StreamingAgentExecutor)
+	if !ok || observer == nil || req.Compaction || req.ReportPatch != nil || req.ReportPlan != nil || req.ReportRequirements != nil || req.PartAssembly != nil || req.PartEdit != nil || req.LongFormFinalize != nil || req.FinalEditStage != nil {
+		return executor.Run(ctx, req)
+	}
+	return streaming.RunWithObserver(ctx, req, observer)
 }
 
 func (server *Server) ensureAgentProposals(

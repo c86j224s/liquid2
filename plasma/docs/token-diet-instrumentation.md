@@ -3,6 +3,63 @@
 Status: design record for `plasma/token-diet-experiment`.
 Date: 2026-07-01.
 
+## August 11 Calibration Correction
+
+Codex `turn.completed.usage` is a provider-session cumulative snapshot in the
+current Codex implementation, not an isolated count for the last Plasma call.
+Adding every snapshot therefore counts earlier turns repeatedly. Historical
+totals in this document that were produced by summing raw `turn.completed`
+rows are retained as experiment history but are not calibrated call totals,
+cost totals, or a valid basis for comparing product surfaces.
+
+Calibrated measurement uses these rules:
+
+- every provider usage value declares `scope` as `call` or
+  `session_cumulative`;
+- schema v1 records are inferred as cumulative only when their usage source is
+  `codex_jsonl_turn_completed`;
+- the first observed cumulative snapshot for a session is included as the
+  baseline, and later records contribute only their field-by-field increase;
+- a decreasing counter starts a new baseline and marks the aggregate partial,
+  because continuity across the reset cannot be proven;
+- input, cached input, uncached input, output, and reasoning output remain
+  separate; `total_tokens` is an observed quantity, not a currency cost;
+- comparisons report record availability, reset/partial status, and aggregation
+  version alongside token counts;
+- currency estimates require the applicable model price and service tier to be
+  recorded separately; token totals alone are not billing evidence;
+- optimization experiments compare like-for-like models and workflows and
+  include direct reading-quality review, not token counts alone.
+
+`report_usage.v2` applies these rules to aggregates created after this
+correction. Existing ledger events and `report_usage.v1` tombstones are not
+rewritten.
+
+## August 12 Fork And Delayed-Usage Correction
+
+A forked Codex session starts with the source session's cumulative counters.
+Treating the first child snapshot as a fresh-session baseline therefore counts
+the parent's history again. Mission aggregation now applies these additional
+rules:
+
+- the first cumulative snapshot in a fork subtracts the latest complete
+  snapshot recorded for `fork_source_agent_session_id`;
+- a fork snapshot is not counted when its source baseline is missing or the
+  source session has a known successful call whose usage record is missing;
+- the skipped child snapshot becomes that child's baseline, so later calls in
+  the child can still contribute exact deltas;
+- unresolved successful-call records and untrusted fork snapshots mark the
+  mission aggregate partial instead of being guessed;
+- `mission_usage.v3` identifies aggregates using these fork-aware rules.
+
+Requirement mapping, Part editing, and final editing submit their canonical
+result through MCP before the provider process returns usage. Those successful
+calls now append a content-free `report.agent_usage.recorded` event after the
+canonical result. It contains the canonical event ID, pending report ID, fork
+source session ID when applicable, and normalized `agent_usage`. It does not
+contain report text, prompts, source bodies, or provider raw responses. Existing
+canonical report events and historical ledger rows are not rewritten.
+
 ## Decision
 
 This branch is re-scoped to instrumentation before token-diet experiments.
@@ -42,8 +99,8 @@ The missing piece is usage telemetry:
   to connect tool-result volume with later token growth.
 
 The workflow-step experiment captured Codex JSONL externally. Across the
-available `turn.completed` events from that experiment, the observed aggregate
-was:
+available `turn.completed` events from that experiment, the raw cumulative
+snapshot sum was:
 
 - 966 usage rows
 - 511,647,549 total input tokens
@@ -54,8 +111,10 @@ was:
 - p90 input tokens about 1,159,225 per reported turn
 - maximum input tokens 2,647,292 in a final-result turn
 
-These numbers are experiment artifacts, not product telemetry. They are useful
-as a warning sign and as a target for the first instrumentation baseline.
+These numbers are experiment artifacts, not product telemetry. Because the rows
+were cumulative snapshots, they show that the session became large but do not
+measure how many tokens each call added. They must not be reused as a calibrated
+baseline without applying the session-ordered delta rules above.
 
 ## Measurement Questions
 
@@ -88,9 +147,12 @@ When the provider exposes usage data, record the normalized fields:
 - output tokens
 - reasoning output tokens
 - total tokens if provided
+- usage scope: `call` or `session_cumulative`
 - provider name and executor name
 - model and reasoning effort when known
 - usage source, for example `codex_jsonl_turn_completed`
+- current context tokens, model context-window tokens, and their telemetry source
+  when the provider exposes a trustworthy current-occupancy signal
 
 If a provider does not expose usage, record `usage_unavailable` with a reason.
 
@@ -138,6 +200,11 @@ Every usage record must identify the surface:
 - `report_part`: long-form part assembly call
 - `report_frame`: long-form front matter and closing call
 - `report_one_take`: one-pass Markdown report call
+- `report_requirements`: long-form requirement mapping call
+- `report_part_edit`: Part editor or Part author call
+- `report_final_write`, `report_reader_edit`, `report_style_edit`,
+  `report_style_semantic_validation`, `report_corrective_gate`, and
+  `report_evidence_gate`: final editing calls
 - `report_design`: designed HTML artifact call
 - `compaction`: manual or automatic provider-session compaction
 
@@ -153,8 +220,9 @@ Follow-up candidate surface:
 ## Event Model
 
 Use a shared telemetry envelope called `agent_usage` inside the existing
-terminal events. A separate event type should be reserved for delayed or
-corrective telemetry only.
+terminal events. Use the content-free `report.agent_usage.recorded` event only
+when provider usage becomes available after an MCP tool has already committed
+the canonical result.
 
 Preferred placement:
 
@@ -164,6 +232,9 @@ Preferred placement:
   `report.section.evidence_gap`, `report.part.created`, and
   `report.artifact.created` get `agent_usage` for the agent call that produced
   that event. `report.section.evidence_gap` remains non-artifact stage data.
+- `report.requirements.mapped`, `report.part.edited`, and final-edit submitted
+  events keep their canonical payload unchanged. Their delayed provider usage
+  is correlated by `report.agent_usage.recorded`.
 - `report.design.failed` and `report.draft.failed` get partial `agent_usage`
   when a provider call already returned usage before the failure was recorded.
 - Agent error responses get partial `agent_usage` when the provider emitted
@@ -175,7 +246,7 @@ Recommended shape:
 ```json
 {
   "agent_usage": {
-    "schema_version": 1,
+    "schema_version": 2,
     "surface": "workflow_step",
     "provider": "codex",
     "executor": "codex",
@@ -194,11 +265,17 @@ Recommended shape:
       "compaction_attempted": false
     },
     "provider_usage": {
+      "scope": "session_cumulative",
       "input_tokens": 2647292,
       "cached_input_tokens": 2351360,
       "uncached_input_tokens": 295932,
       "output_tokens": 27195,
       "reasoning_output_tokens": 8230
+    },
+    "context_window": {
+      "used_tokens": 143000,
+      "window_tokens": 258400,
+      "source": "codex_session_token_count"
     },
     "duration_ms": 123456,
     "usage_source": "codex_jsonl_turn_completed",
@@ -221,11 +298,15 @@ Implementation direction:
 1. Add usage fields to the shared agent request/result model.
 2. Run Codex with `--json` while keeping `--output-last-message` for the final
    answer body.
-3. Parse `turn.completed.usage` events from stdout JSONL.
+3. Parse `turn.completed.usage` events from stdout JSONL and record them as
+   session-cumulative snapshots.
 4. Continue extracting the session id from JSONL or from the existing log path.
 5. Preserve bounded log excerpts for errors, but do not store complete JSONL
    logs in normal product events.
 6. Include prompt metrics computed locally before execution.
+7. Read only a bounded tail of the provider-owned Codex session JSONL to obtain
+   the latest numeric `token_count` observation. Store the normalized numbers,
+   never the session body, prompts, or tool results.
 
 For providers that do not expose usage yet, the executor should still return
 prompt metrics, session metadata, and `usage_unavailable`.
@@ -262,6 +343,11 @@ Known follow-up:
   plus a bounded ring/head-tail log excerpt.
 
 ## July 1 Baseline Interpretation
+
+Calibration status: the qualitative distinction between small explicit Plasma
+prompts and large resumed provider sessions remains useful. Any numeric claim in
+this section requires re-analysis with session-ordered deltas before it is used
+as a call total, cost estimate, or optimization result.
 
 The first active-browser measurement after instrumentation showed an important
 distinction:
@@ -302,6 +388,11 @@ tool result sizes and provider token growth, but it cannot prove the percentage
 saved versus a source-body-in-prompt baseline without an A/B run.
 
 ## July 2 Phase 1 Closeout
+
+Calibration status: the observed session split and isolation topology remain
+valid structural evidence. Token-growth figures below are historical claims and
+must be rechecked against `report_usage.v2` semantics before they support a
+quantitative conclusion.
 
 Token-diet phase 1 is closed as an instrumentation and isolation phase.
 
@@ -384,9 +475,15 @@ Primary candidate areas:
 
 5. Compaction strategy.
 
-   Measure manual and automatic compaction as a separate intervention. Compaction
-   may reduce context pressure, but it can also discard useful nuance. It must be
-   tested for answer quality, not only token count.
+   Autonomous Codex workflows compact the resumed research session before opening
+   the next durable step when the latest trustworthy context observation reaches
+   55% of the model context window. Plasma invokes the explicit Codex App Server
+   `thread/compact/start` operation and requires both its `contextCompaction` item
+   and enclosing turn to complete before advancing. The triggering response event
+   and observed token counts are recorded so restarts cannot repeat the same
+   compaction. When telemetry is unavailable, Plasma does not estimate occupancy
+   and retains the existing error-triggered compaction path. Compaction must still
+   be evaluated for answer quality, not only token count.
 
 6. Budget and stop-condition visibility.
 
@@ -420,6 +517,7 @@ Each run should leave ledger-visible records with:
 - session resume status
 - MCP call count and result-size summary
 - duration and failure state
+- usage scope, aggregation version, and partial/reset status
 
 The first baseline should be summarized in a follow-up experiment note under
 `plasma/docs/experiments/`, not inferred from console logs alone.
@@ -430,7 +528,7 @@ This branch should not yet:
 
 - switch the product to short-session memory
 - stop resuming provider sessions
-- compact automatically beyond existing behavior
+- estimate context occupancy for providers that do not expose trustworthy data
 - rewrite prompts for token reduction
 - change report composition strategy
 - alter source, evidence, saved knowledge, or report semantics
