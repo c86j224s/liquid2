@@ -61,8 +61,12 @@ cd liquid2
 make check
 ```
 
-Liquid2 release automation remains root-owned for now through
-`.github/workflows/release.yml` and `.releaserc.json`.
+Liquid2 public releases are prepared manually from a selected internal source
+commit. The process runs a public snapshot dry-run, stages and reviews the public
+snapshot, pushes the public snapshot commit, creates an annotated `vX.Y.Z` tag,
+and publishes a source-only GitHub pre-release with release notes. GitHub Release
+is the tag-and-notes surface; binary application assets are not part of the
+release contract.
 
 ## Development Servers
 

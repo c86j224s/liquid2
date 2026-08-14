@@ -171,12 +171,12 @@ go run ./cmd/plasma serve \
   -agent codex
 ```
 
-Plasma starts new Codex sessions with `gpt-5.6-luna` and `high` reasoning by
+Plasma starts new Codex sessions with `gpt-5.6-luna` and `xhigh` reasoning by
 default. The mission controls let users select GPT-5.6 Sol, Terra, or Luna and
 the supported reasoning effort before starting a new agent session; mission
 data and saved sources remain in place while Codex session continuity resets.
 Reports without a separate model selection inherit that mission setting or the
-same Luna/high default.
+same Luna/xhigh default.
 
 Run it with both Codex and Claude available in the browser:
 
@@ -189,20 +189,14 @@ go run ./cmd/plasma serve \
   -claude-model haiku
 ```
 
-The browser scripts expose the same configuration through environment
-variables:
+The browser scripts only select the Plasma runtime mode; they do not parse or
+inject application runtime settings. For browser-script development, put those
+settings in `plasma/config.toml` or `~/.config/plasma-dev/config.toml`. For the
+release script, use `~/.config/plasma/config.toml`. See
+`plasma/config.toml.example` for the supported settings and precedence.
 
-```sh
-# From the workspace root:
-PLASMA_DEV_BROWSER_AGENT=codex,claude \
-PLASMA_DEV_BROWSER_CLAUDE_MODEL=haiku \
-  ./dev-browser.sh plasma restart
-```
-
-Use `PLASMA_DEV_BROWSER_CLAUDE` or `PLASMA_RELEASE_BROWSER_CLAUDE` to point at a
-specific Claude CLI binary. Use `PLASMA_DEV_BROWSER_CLAUDE_MAX_BUDGET_USD` or
-`PLASMA_RELEASE_BROWSER_CLAUDE_MAX_BUDGET_USD` only when you intentionally want
-Claude CLI to enforce a per-turn budget.
+For one-off manual use, pass the existing `serve` flags directly as shown above,
+for example `-agent codex,claude -claude-model haiku`.
 
 Agent MCP servers are started with a shared Plasma research-tool allowlist.
 Codex can read accepted live local path sources through `plasma.sources.read`

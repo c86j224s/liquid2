@@ -537,7 +537,7 @@ const fs=require("fs"), vm=require("vm");
     if(selector==="[data-report-retry]") return [resume,restart];
     return [];
   }};
-  const context={window:{},state:{detail:{events:[{EventID:"evt_failed",Payload:{title:"<안전한 제목>",started_at:"2026-07-13T01:02:03Z"}}]}},document:{getElementById(id){return id==="reportPipeline"?host:null}},crypto:{randomUUID(){return "retry"}},setInterval(){return 99;},clearInterval(){},
+  const context={window:{},state:{detail:{events:[{EventID:"evt_failed",EventType:"report.draft.pending",Payload:{title:"<안전한 제목>",started_at:"2026-07-13T01:02:03Z"}}]}},document:{getElementById(id){return id==="reportPipeline"?host:null}},crypto:{randomUUID(){return "retry"}},setInterval(){return 99;},clearInterval(){},
     captureMissionSelection(){return {missionId:"mis_a"}},
     missionFetch(_owner,_path,options){requests.push(JSON.parse(options.body));return Promise.resolve({ok:true});},
     ownsMissionSelection(){return current;},reloadMission(){reloads++;},isStaleMissionOperation(){return false}};
@@ -563,6 +563,18 @@ const fs=require("fs"), vm=require("vm");
   await restart.listener();
   if(requests.length!==2||requests[0].strategy!=="resume_failed"||requests[1].strategy!=="restart")process.exit(4);
   if(reloads!==1)process.exit(5);
+  context.state.detail.events=[{EventID:"evt_planned",EventType:"report.draft.pending",Payload:{title:"일반 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"planned"}}];
+  context.window.Plasma.reports.pipeline.render({attempt_id:"evt_planned",attempt_number:1,state:"running",nodes:[{id:"start",kind:"start",state:"completed"},{id:"final",kind:"final",state:"running"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const plannedRunningHtml=host.innerHTML;
+  if(!plannedRunningHtml.includes("pipeline-start")||!plannedRunningHtml.includes("pipeline-final")||!plannedRunningHtml.includes("pipeline-artifact")||!plannedRunningHtml.includes("pipeline-current-step\">최종 편집·확정<")||!plannedRunningHtml.includes("pipeline-current-status\">진행 중<"))process.exit(27);
+  if(!(plannedRunningHtml.indexOf("pipeline-start") < plannedRunningHtml.indexOf("pipeline-final") && plannedRunningHtml.indexOf("pipeline-final") < plannedRunningHtml.indexOf("pipeline-artifact"))||(plannedRunningHtml.match(/data-pipeline-node-width=/g)||[]).length!==3||plannedRunningHtml.includes("pipeline-phase"))process.exit(28);
+  context.window.Plasma.reports.pipeline.render({attempt_id:"evt_planned",attempt_number:1,state:"completed",nodes:[{id:"start",kind:"start",state:"completed"},{id:"final",kind:"final",state:"completed"},{id:"artifact",kind:"artifact",state:"completed"}]});
+  const plannedCompletedHtml=host.innerHTML;
+  if(!plannedCompletedHtml.includes("pipeline-final")||!plannedCompletedHtml.includes("pipeline-artifact")||!plannedCompletedHtml.includes("pipeline-current-step\">산출물 생성<")||!plannedCompletedHtml.includes("pipeline-current-status\">완료<")||plannedCompletedHtml.includes("pipeline-current-step\">계획 수립<"))process.exit(29);
+  context.state.detail.events=[{EventID:"evt_humanize",EventType:"report.humanize.pending",Payload:{title:"다듬기",started_at:"2026-07-13T01:02:03Z"}}];
+  context.window.Plasma.reports.pipeline.render({attempt_id:"evt_humanize",attempt_number:1,state:"running",nodes:[{id:"start",kind:"start",state:"completed"},{id:"final",kind:"final",state:"running"},{id:"artifact",kind:"artifact",state:"pending"}]});
+  const compactOperationHtml=host.innerHTML;
+  if(!compactOperationHtml.includes("pipeline-start")||compactOperationHtml.includes("pipeline-final")||compactOperationHtml.includes("pipeline-artifact"))process.exit(30);
   context.state.detail.events=[{EventID:"evt_part_edit",Payload:{title:"파트 편집 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}},{EventID:"evt_staged",Payload:{title:"단계별 편집 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}},{EventID:"evt_legacy",Payload:{title:"레거시 보고서",started_at:"2026-07-13T01:02:03Z",report_mode:"long_form"}}];
   context.window.Plasma.reports.pipeline.render({attempt_id:"evt_part_edit",attempt_number:1,state:"running",nodes:[{id:"plan",kind:"plan",state:"completed"},{id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"completed"},{id:"part-1",kind:"part",part_index:1,state:"completed"},{id:"part-edit-1",kind:"part_edit",part_index:1,state:"running",started_at:"2026-07-13T01:02:20Z"},{id:"final",kind:"final",state:"pending"},{id:"artifact",kind:"artifact",state:"pending"}]});
   const partEditHtml=host.innerHTML;

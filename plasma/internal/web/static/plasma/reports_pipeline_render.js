@@ -27,13 +27,14 @@
   function reportAttemptDetails(progress) {
     const event = currentReportAttemptEvent(progress.attempt_id);
     const payload = event && typeof (event.Payload || event.payload) === "object" ? (event.Payload || event.payload) : {};
+    const eventType = event ? (event.EventType || event.event_type || "") : "";
     const title = typeof payload.title === "string" && payload.title.trim() ? payload.title.trim() : "제목 없는 리포트";
     const startedAt = typeof payload.started_at === "string" && payload.started_at.trim() ? payload.started_at.trim() : "생성 시작 시각 알 수 없음";
     const attempt = Number.isInteger(progress.attempt_number) && progress.attempt_number > 0 ? `시도 ${progress.attempt_number}` : "시도 번호 알 수 없음";
     const fanout = payload.report_mode === "long_form" && payload.execution_strategy === "section_fanout";
     const strategy = fanout ? "장문 · 빠른 병렬" :
       payload.report_mode === "long_form" ? "장문 · 순차" : "일반";
-    return { title, startedAt, attempt, strategy, fanout };
+    return { title, startedAt, attempt, strategy, fanout, draft: eventType === "report.draft.pending" };
   }
 
   function fallbackRequestSummary(attempt) {
@@ -134,9 +135,10 @@
     if (!progress || progress.state === "unknown") { stopLiveTiming(); host.innerHTML = ""; return; }
     const nodes = Array.isArray(progress.nodes) ? progress.nodes : [];
     const detailed = core.hasPlannedContent(nodes);
+    const attempt = reportAttemptDetails(progress);
     const plan = core.planNode(nodes, progress);
     const phases = detailed ? core.reportPhases(nodes) : [];
-    const closing = detailed ? core.finalEditClosingNodes(nodes) : [];
+    const closing = detailed || attempt.draft ? core.finalEditClosingNodes(nodes) : [];
     const graphNodes = [plan, ...phases.flatMap((phase) => phase.nodes), ...closing];
     const stage = core.currentStage(graphNodes);
     const details = typeof host.querySelector === "function" ? host.querySelector(".pipeline-details") : null;
@@ -150,7 +152,6 @@
     const accessibleGraph = [plan].map(core.renderAccessibleNode).join("") + phases.map(core.renderAccessiblePhase).join("") + closing.map(core.renderAccessibleNode).join("");
     const retry = progress.retry || {};
     const reason = retry.reason ? `<p id="pipelineRetryReason" class="pipeline-reason">${core.escapeHTML(retry.reason)}</p>` : "";
-    const attempt = reportAttemptDetails(progress);
     const request = requestSummary || fallbackRequestSummary(attempt);
     host.innerHTML = `<section class="report-pipeline" aria-labelledby="reportPipelineTitle">
       <header class="pipeline-header"><div><h3 id="reportPipelineTitle">최신 리포트 생성 파이프라인</h3><p class="pipeline-report-title">${core.escapeHTML(attempt.title)}</p></div><p class="pipeline-current" aria-live="polite"><strong>${core.escapeHTML(attempt.attempt)}</strong><span class="pipeline-current-step">${core.escapeHTML(stage.name)}</span><span class="pipeline-current-status">${core.escapeHTML(stage.state)}</span></p></header>

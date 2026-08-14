@@ -21,7 +21,7 @@ var reportMathFonts = []string{
 	"KaTeX_Size4-Regular.woff2", "KaTeX_Typewriter-Regular.woff2",
 }
 
-const selfContainedReportRendererVersion = "html5-frontend-bracket-math-mermaid-legend-20260721"
+const selfContainedReportRendererVersion = "html8-heading-palette-20260814"
 
 var reportMathCSSURL = regexp.MustCompile(`url\(fonts/([^)]+)\)`)
 

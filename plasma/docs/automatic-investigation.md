@@ -191,10 +191,17 @@ credential-bearing URL은 후보 파싱과 MCP 제안 양쪽에서 거부한다.
    확인한다.
 7. 사용자가 읽을 수 있는 result를 남긴다.
 8. runner가 읽을 수 있는 작은 control decision을 남긴다. decision은 `continue`,
-   `stop`, 다음 지시, 사유를 포함한다.
-9. runner가 control decision, stop 요청, 최대 step 수, 선택적인 전체 실행 시간, provider
-   오류를 확인해 계속할지 terminal 이벤트를 남길지 결정한다.
-10. 최대 step 수나 설정된 전체 실행 시간에 도달했지만 마지막 decision이 `continue`이면
+   `stop`, 다음 지시, 사유를 포함한다. `continue`의 다음 지시는 현재 미션 상태와 허용된
+   도구로 바로 시작할 수 있는 구체 작업이어야 한다.
+9. 현재 자료로 할 수 있는 유용한 조사뿐 아니라 비교, 종합, 정리, 짧은 요약이 남아
+   있으면 그 작업을 먼저 수행한다. 반대로 사용자 승인·응답, source 추가, credential,
+   새로운 외부 이벤트처럼 workflow 밖 입력만 기다리는 경우에는 현재 결과와 재개 조건을
+   설명하고 `stop`을 선택한다. 같은 무변경 조건을 다시 확인하기 위한 polling은
+   `continue` 사유가 아니다.
+10. runner가 control decision, stop 요청, 최대 step 수, 선택적인 전체 실행 시간, provider
+    오류를 확인해 계속할지 terminal 이벤트를 남길지 결정한다. agent가 `stop`을 선택하면
+    run은 `workflow.run.completed`로 정상 종료한다.
+11. 최대 step 수나 설정된 전체 실행 시간에 도달했지만 마지막 decision이 `continue`이면
     runner는 완료가 아니라 `paused` 상태로 종료하고 다음 지시를 남긴다.
 
 각 step이 시작되기 전에 runner는 active source projection을 다시 확인한다. workflow

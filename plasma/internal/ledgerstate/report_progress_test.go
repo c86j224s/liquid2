@@ -568,6 +568,32 @@ func assertNodeTiming(t *testing.T, node ReportProgressNode, startedAt time.Time
 	}
 }
 
+func TestProjectReportProgressProjectsPlannedReportLifecycle(t *testing.T) {
+	running := ProjectReportProgress([]Event{
+		reportEvent("evt_planned", "report.draft.pending", map[string]any{"report_mode": "planned"}),
+		reportEvent("evt_plan", "report.plan.created", map[string]any{"pending_event_id": "evt_planned"}),
+	})
+	runningNodes := assertReportNodeOrder(t, running.Nodes, []string{"start", "final", "artifact"})
+	if running.State != "running" || runningNodes["start"].State != "completed" || runningNodes["final"].State != "running" || runningNodes["artifact"].State != "pending" {
+		t.Fatalf("planned report should expose compact running lifecycle: %#v", running)
+	}
+
+	completed := ProjectReportProgress([]Event{
+		reportEvent("evt_planned", "report.draft.pending", map[string]any{"report_mode": "planned"}),
+		reportEvent("evt_plan", "report.plan.created", map[string]any{"pending_event_id": "evt_planned"}),
+		reportEvent("evt_artifact", "report.artifact.created", map[string]any{"pending_event_id": "evt_planned"}),
+	})
+	completedNodes := assertReportNodeOrder(t, completed.Nodes, []string{"start", "final", "artifact"})
+	if completed.State != "completed" {
+		t.Fatalf("planned report state=%q, want completed: %#v", completed.State, completed)
+	}
+	for _, id := range []string{"start", "final", "artifact"} {
+		if completedNodes[id].State != "completed" {
+			t.Fatalf("planned report %s state=%q, want completed: %#v", id, completedNodes[id].State, completed.Nodes)
+		}
+	}
+}
+
 func TestProjectReportProgressProjectsNonDraftReportOperations(t *testing.T) {
 	progress := ProjectReportProgress([]Event{
 		reportEvent("evt_h5", "report.humanize.pending", map[string]any{"report_mode": "planned"}),

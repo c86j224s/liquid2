@@ -2136,6 +2136,7 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.exported", map[string]any{
 		"kind": reportexecution.ExportKindSelfContainedHTML, "source_artifact_id": reportArtifact.ArtifactID,
 		"artifact_id": legacyArtifact.ArtifactID, "target": reportexecution.ExportTargetSelfContainedHTML,
+		"renderer_version": "html7-heading-palette-20260814",
 	}, app.Producer{Type: "plasma", ID: "html-export"}); err != nil {
 		t.Fatal(err)
 	}
@@ -2189,7 +2190,7 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 	export := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+reportArtifact.ArtifactID+"/html_export", map[string]any{})
 	exportArtifactID := nestedString(t, export, "artifact", "artifact_id")
 	if exportArtifactID == legacyArtifact.ArtifactID {
-		t.Fatal("versionless legacy HTML export was reused")
+		t.Fatal("stale-theme HTML export was reused")
 	}
 	content, _ := export["content"].(string)
 	for _, expected := range []string{
@@ -2201,6 +2202,7 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		"Uploaded still",
 		"이 HTML은 보고서 내용을 다시 생성하지 않고 저장된 Markdown artifact를 렌더링했습니다.",
 		`<pre class="report-markdown-raw">`,
+		`<button id="themeToggle" type="button" hidden aria-pressed="false" aria-label="다크 모드 켜기">다크 모드</button>`,
 		`id="report-markdown" type="application/json"`,
 		"data:font/woff2;base64,",
 		`version:"0.17.0"`,
@@ -2400,8 +2402,8 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		t.Fatalf("designed HTML pending event must preserve raw defaults, got %#v", pendingPayload)
 	}
 	detail := waitForEventType(t, server.URL, missionID, "report.artifact.exported")
-	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-luna" || agent.requests[0].ReasoningEffort != "high" {
-		t.Fatalf("designed HTML execution must resolve GPT-5.6 Luna/high, got %#v", agent.requests)
+	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-luna" || agent.requests[0].ReasoningEffort != "xhigh" {
+		t.Fatalf("designed HTML execution must resolve GPT-5.6 Luna/xhigh, got %#v", agent.requests)
 	}
 	for _, expected := range []string{
 		"Put the strongest visual unit first",
@@ -8573,11 +8575,11 @@ func TestAgentSessionResetDefaultKeepsRawSelectionAndUsesCurrentDefaultForNewTur
 
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "start"})
 	detail := waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-luna" || agent.requests[0].ReasoningEffort != "high" {
-		t.Fatalf("expected new turn to resolve GPT-5.6 Luna/high, got %#v", agent.requests)
+	if len(agent.requests) != 1 || agent.requests[0].Model != "gpt-5.6-luna" || agent.requests[0].ReasoningEffort != "xhigh" {
+		t.Fatalf("expected new turn to resolve GPT-5.6 Luna/xhigh, got %#v", agent.requests)
 	}
 	payload := lastEventPayload(t, detail, "turn.agent.response")
-	if payload["agent_model"] != "gpt-5.6-luna" || payload["agent_reasoning_effort"] != "high" {
+	if payload["agent_model"] != "gpt-5.6-luna" || payload["agent_reasoning_effort"] != "xhigh" {
 		t.Fatalf("expected response metadata to record effective default, got %#v", payload)
 	}
 }
@@ -8689,8 +8691,8 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 		wantModel  string
 		wantEffort string
 	}{
-		{name: "legacy resume", legacy: true, wantModel: "gpt-5.6-luna", wantEffort: "high"},
-		{name: "new mission", wantModel: "gpt-5.6-luna", wantEffort: "high"},
+		{name: "legacy resume", legacy: true, wantModel: "gpt-5.6-luna", wantEffort: "xhigh"},
+		{name: "new mission", wantModel: "gpt-5.6-luna", wantEffort: "xhigh"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -8717,7 +8719,7 @@ func TestReportDraftSettingsRespectLegacyResumeAndNewMissionDefault(t *testing.T
 			if !ok {
 				t.Fatalf("expected report pending payload, got %#v", start)
 			}
-			if pendingPayload["agent_model"] != "gpt-5.6-luna" || pendingPayload["agent_reasoning_effort"] != "high" || pendingPayload["agent_selection_source"] == "" {
+			if pendingPayload["agent_model"] != "gpt-5.6-luna" || pendingPayload["agent_reasoning_effort"] != "xhigh" || pendingPayload["agent_selection_source"] == "" {
 				t.Fatalf("fresh report pending state must freeze effective defaults, got %#v", pendingPayload)
 			}
 			waitForEventType(t, server.URL, missionID, "report.artifact.created")
@@ -8817,7 +8819,7 @@ func TestMissionDetailIncludesAgentDefaultModelMetadata(t *testing.T) {
 	if codex["default_model"] != "gpt-5.6-luna" || codex["default_model_label"] != "GPT-5.6 Luna" || codex["default_model_version"] != "gpt-5.6-luna" {
 		t.Fatalf("unexpected codex model metadata: %#v", codex)
 	}
-	if codex["reasoning_effort_supported"] != true || codex["default_reasoning_effort"] != "high" {
+	if codex["reasoning_effort_supported"] != true || codex["default_reasoning_effort"] != "xhigh" {
 		t.Fatalf("unexpected codex reasoning metadata: %#v", codex)
 	}
 	models, ok := codex["models"].([]any)

@@ -859,8 +859,9 @@ func (server *Server) renderSelfContainedReportHTML(ctx context.Context, mission
 	out.WriteString(selfContainedReportCSS())
 	out.WriteString(mathHead)
 	out.WriteString(mermaidHead)
+	out.WriteString(selfContainedBasicMermaidCSS())
 	out.WriteString("</head>\n<body>\n")
-	out.WriteString("<header class=\"hero\"><div><p class=\"eyebrow\">Plasma Report</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"sub\">Markdown report artifact에서 파생한 self-contained interactive HTML입니다. 이미지는 가능한 경우 원본 source artifact를 data URI로 포함했습니다.</p></div><button id=\"themeToggle\" type=\"button\">테마 전환</button></header>\n")
+	out.WriteString("<header class=\"hero\"><div><p class=\"eyebrow\">Plasma Report</p><h1>" + htmlpkg.EscapeString(title) + "</h1><p class=\"sub\">Markdown report artifact에서 파생한 self-contained interactive HTML입니다. 이미지는 가능한 경우 원본 source artifact를 data URI로 포함했습니다.</p></div><button id=\"themeToggle\" type=\"button\" hidden aria-pressed=\"false\" aria-label=\"다크 모드 켜기\">다크 모드</button></header>\n")
 	out.WriteString("<main class=\"layout\">\n")
 	out.WriteString("<aside class=\"rail\"><div class=\"metric\"><span>본문 단어</span><strong>" + strconv.Itoa(wordCount) + "</strong></div><div class=\"metric\"><span>포함 이미지</span><strong>" + strconv.Itoa(len(images)) + "</strong></div><div class=\"metric\"><span>원본 artifact</span><code>" + htmlpkg.EscapeString(sourceArtifact.ArtifactID) + "</code></div><nav><a href=\"#report-body\">본문</a><a href=\"#media-gallery\">미디어</a><a href=\"#export-notes\">생성 노트</a></nav></aside>\n")
 	out.WriteString("<article id=\"report-body\" class=\"report-body\">\n")
@@ -886,7 +887,7 @@ func (server *Server) renderSelfContainedReportHTML(ctx context.Context, mission
 	}
 	out.WriteString("</ul></section>\n")
 	out.WriteString("</main>\n")
-	out.WriteString("<script>const b=document.body,t=document.getElementById('themeToggle');t?.addEventListener('click',()=>b.classList.toggle('light'));</script>\n")
+	out.WriteString(selfContainedReportThemeScript())
 	out.WriteString(mathScripts)
 	out.WriteString("</body>\n</html>\n")
 	return out.Bytes(), nil
@@ -920,32 +921,6 @@ func reportArtifactTitle(artifact app.RawArtifact) string {
 func markdownReportHTMLFilename(artifact app.RawArtifact) string {
 	title := reportArtifactTitle(artifact)
 	return safeFilename(title, ".html")
-}
-
-func selfContainedReportCSS() string {
-	return `<style>
-:root{color-scheme:dark;--bg:#101214;--panel:#191d20;--text:#f2efe8;--muted:#a9b0aa;--line:#333a3f;--accent:#e3b04b;--accent2:#7cc6b2}
-body{margin:0;background:var(--bg);color:var(--text);font:15px/1.68 Georgia,"Noto Serif KR",serif;letter-spacing:0}
-body.light{--bg:#f6f3ec;--panel:#fffdf8;--text:#202326;--muted:#5d665f;--line:#ddd5c6;--accent:#9a5b16;--accent2:#276f61}
-.hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-end;padding:42px clamp(20px,5vw,72px) 28px;border-bottom:1px solid var(--line);background:linear-gradient(120deg,rgba(227,176,75,.16),transparent 45%),var(--panel)}
-.eyebrow{margin:0 0 8px;color:var(--accent);font:700 12px/1.2 ui-monospace,monospace;text-transform:uppercase}
-h1{margin:0;font-size:clamp(28px,5vw,58px);line-height:1.08;max-width:980px}
-.sub{max-width:780px;color:var(--muted);margin:14px 0 0}
-button{border:1px solid var(--line);background:transparent;color:var(--text);border-radius:6px;padding:9px 12px;cursor:pointer}
-.layout{display:grid;grid-template-columns:minmax(180px,260px) minmax(0,1fr);gap:28px;max-width:1320px;margin:0 auto;padding:30px clamp(16px,4vw,56px) 80px}
-.rail{position:sticky;top:0;align-self:start;display:grid;gap:12px}
-.metric,.media-panel,.notes,.report-body{background:var(--panel);border:1px solid var(--line);border-radius:8px}
-.metric{padding:14px}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{font-size:30px;color:var(--accent)}.metric code{word-break:break-all}
-nav{display:grid;gap:8px;margin-top:8px}nav a{color:var(--accent2);text-decoration:none}
-.report-body{padding:clamp(22px,4vw,54px);min-width:0}.report-body h1:first-child{font-size:clamp(30px,5vw,54px)}
-.report-body h2{margin-top:38px;border-top:1px solid var(--line);padding-top:22px}.report-body h2.marked,.report-body h3.marked{color:var(--accent)}
-.report-body p,.report-body li{font-size:17px}.report-body a{color:var(--accent2)}.report-body img{max-width:100%;height:auto;border-radius:8px}.report-body table{width:100%;border-collapse:collapse;margin:18px 0;background:rgba(255,255,255,.025);border-radius:8px;overflow:hidden}.report-body th,.report-body td{border:1px solid var(--line);padding:10px 12px;text-align:left;vertical-align:top}.report-body th{color:var(--accent);font-size:13px}
-pre,code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}pre{overflow:auto;padding:14px;background:rgba(0,0,0,.22);border-radius:8px}
-.media-panel,.notes{grid-column:2;padding:24px}.section-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.muted,.notes{color:var(--muted)}
-.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.gallery figure{margin:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:rgba(255,255,255,.03)}.gallery img{display:block;width:100%;height:auto}.gallery figcaption{display:grid;gap:4px;padding:10px}.gallery figcaption span{font-size:12px;color:var(--muted);word-break:break-word}
-@media(max-width:820px){.hero{display:block}.layout{display:block}.rail{position:static;margin-bottom:18px}.media-panel,.notes{margin-top:18px}.report-body{padding:20px}.report-body p,.report-body li{font-size:15px}}
-</style>
-`
 }
 
 func (server *Server) isReportArtifact(ctx context.Context, missionID string, artifactID string) (bool, error) {

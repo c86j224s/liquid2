@@ -26,8 +26,17 @@ issue/milestone
 -> vX.Y.Z tag + GitHub Release
 ```
 
-`main`은 최신 통합 상태이자 다음 릴리즈 후보 기준선이다. 사용자가 설치하는
-안정판은 `main` 브랜치가 아니라 `vX.Y.Z` tag와 GitHub Release asset이다.
+`main`은 최신 통합 상태이자 다음 릴리즈 후보 기준선이다. 공개 릴리즈는 선택한
+내부 source commit으로부터 만든 public snapshot commit이다. `vX.Y.Z` annotated tag와
+source-only GitHub pre-release가 그 snapshot을 가리키며, GitHub Release는 tag와 release
+notes를 보여 주는 표면이다. 바이너리 애플리케이션 asset은 릴리즈 계약에 포함되지 않는다.
+
+공개 릴리즈 전에 public snapshot dry-run을 실행하고, snapshot을 stage하여 review한 뒤,
+public snapshot commit을 push한다. 그 다음 annotated `vX.Y.Z` tag를 만들고 release notes와
+함께 source-only GitHub pre-release를 만든다.
+
+공개 snapshot의 source tree가 필요한 사용자는 해당 tag의 repository source를 기준으로
+설치 설계를 따른다. GitHub Release는 설치 asset 배포 표면이 아니다.
 
 실사용자가 생기고 병렬 PR이 상시적으로 `main`에 들어와 릴리즈 지점을 잡기
 어려워지면 그때 `release/x.y` 브랜치를 도입한다.
@@ -49,8 +58,8 @@ dev branch -> PR -> main -> release/x.y -> vX.Y.Z tag
   에서 처리한다.
 - `release/x.y`: 기본 운영에는 없다. 병렬 반영으로 안정화 지점 고정이 필요할
   때만 만든다.
-- `vX.Y.Z`: 사용자가 승인한 배포 snapshot이다. 사용자는 이 tag에 연결된
-  GitHub Release asset을 설치한다.
+- `vX.Y.Z`: 사용자가 승인한 public snapshot commit을 가리키는 annotated release tag다.
+  이 tag에는 source-only GitHub pre-release와 release notes가 연결된다.
 
 dev 브랜치는 작업 완료 후 PR 머지와 함께 삭제한다. `main`, `release/x.y`, tag에는
 에이전트가 직접 push하지 않는다.
@@ -448,12 +457,19 @@ deprecated 설명을 붙인다.
 기본 release 흐름:
 
 1. milestone에 포함된 issue가 `release:ready`인지 확인한다.
-2. `main` 최신 상태를 로컬 release/dev 서버로 실행해 본다.
-3. 문제가 있으면 새 fix PR 또는 revert PR을 `main`에 넣는다.
-4. release 가능하다고 판단한 commit에 `vX.Y.Z` tag를 만든다.
-5. GitHub Release를 만들고 앱 또는 바이너리 asset을 첨부한다.
-6. 사용자는 GitHub Release asset을 받아 설치한다.
-7. release 후 사용자가 issue를 닫는다.
+2. 공개할 내부 source commit을 선택한다.
+3. 선택한 commit에서 public snapshot dry-run을 실행한다.
+4. public snapshot을 stage하고 review한다. 문제가 있으면 release를 멈추고
+   source 또는 snapshot 입력을 수정한다.
+5. 검토한 public snapshot commit을 public repository에 push한다.
+6. public snapshot commit을 가리키는 annotated `vX.Y.Z` tag를 만든다.
+7. tag와 release notes를 사용해 source-only GitHub pre-release를 만든다. 바이너리
+   애플리케이션 asset은 첨부하지 않는다.
+8. GitHub Release는 tag와 notes를 확인하는 표면으로 유지한다.
+9. release 후 사용자가 issue를 닫는다.
+
+GitHub Release는 설치 asset의 계약이 아니다. 설치 방법은 repository source와 기존
+installation design을 따른다.
 
 이미 release된 버전에 긴급 패치가 필요하고 `main`이 다음 버전 작업으로 많이 앞서간
 상태라면, 해당 tag에서 `release/x.y` 브랜치를 만들고 패치한 뒤 `vX.Y.Z+1` tag를

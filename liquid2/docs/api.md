@@ -443,15 +443,17 @@ Errors:
 Provider execution failures are recorded on the translation job. Poll
 `GET /jobs/{id}` for final `completed` or `failed` status.
 
-### `GET /documents/{id}/blobs/{blobId}`
+### Planned: `GET /documents/{id}/blobs/{blobId}`
 
-Downloads an uploaded or preserved blob.
+This endpoint is planned but unimplemented. It is not part of the current API
+route inventory and is not available to clients.
 
-Response body is the raw file bytes. The server must set a safe `Content-Type` and `Content-Disposition`.
+The intended behavior is to download an uploaded or preserved blob as raw file
+bytes. The server must set a safe `Content-Type` and `Content-Disposition`.
 
-Rules:
+Planned rules:
 
-- blob must belong to the document path parameter
+- the blob must belong to the document path parameter
 - local filesystem paths are never exposed
 - content sniffing must not override the stored allowlisted MIME type
 

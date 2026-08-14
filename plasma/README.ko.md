@@ -134,11 +134,11 @@ go run ./cmd/plasma serve \
   -agent codex
 ```
 
-Plasma는 새 Codex 세션을 기본적으로 `gpt-5.6-luna`와 `high` 추론 강도로
+Plasma는 새 Codex 세션을 기본적으로 `gpt-5.6-luna`와 `xhigh` 추론 강도로
 시작합니다. 미션 제어에서 GPT-5.6 Sol, Terra, Luna와 해당 모델이 지원하는 추론
 강도를 선택한 뒤 새 에이전트 세션을 시작할 수 있습니다. 이때 미션 데이터와 저장된
 소스는 유지되고 Codex 세션 연속성만 초기화됩니다. 별도 모델 선택기가 없는 보고서
-생성은 이 미션 선택값을 이어받으며, 선택값이 없으면 같은 Luna/high 기본값을
+생성은 이 미션 선택값을 이어받으며, 선택값이 없으면 같은 Luna/xhigh 기본값을
 사용합니다.
 
 Browser에서 Codex와 Claude를 모두 사용할 수 있게 실행합니다.
@@ -152,18 +152,14 @@ go run ./cmd/plasma serve \
   -claude-model haiku
 ```
 
-Browser script는 같은 설정을 environment variable로 노출합니다.
+Browser script는 Plasma runtime mode만 선택하며, application runtime setting을 parse하거나 주입하지
+않습니다. Browser script로 development를 실행할 때는 `plasma/config.toml` 또는
+`~/.config/plasma-dev/config.toml`에 setting을 둡니다. Release script에서는
+`~/.config/plasma/config.toml`을 사용합니다. 지원 setting과 precedence는
+`plasma/config.toml.example`을 참고하세요.
 
-```sh
-PLASMA_DEV_BROWSER_AGENT=codex,claude \
-PLASMA_DEV_BROWSER_CLAUDE_MODEL=haiku \
-  ./dev-browser.sh plasma restart
-```
-
-특정 Claude CLI binary를 직접 지정해야 할 때는 `PLASMA_DEV_BROWSER_CLAUDE` 또는
-`PLASMA_RELEASE_BROWSER_CLAUDE`를 사용합니다. Claude CLI에 per-turn 예산 제한을 일부러 걸고 싶을 때만
-`PLASMA_DEV_BROWSER_CLAUDE_MAX_BUDGET_USD` 또는 `PLASMA_RELEASE_BROWSER_CLAUDE_MAX_BUDGET_USD`를
-사용합니다.
+일회성 수동 실행에서는 위에 나온 기존 `serve` flag를 직접 전달합니다. 예를 들어
+`-agent codex,claude -claude-model haiku`를 사용할 수 있습니다.
 
 ## Agent와 Local Source
 

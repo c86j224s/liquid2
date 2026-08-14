@@ -2,7 +2,7 @@ package agentmodels
 
 import "testing"
 
-func TestResolveUsesLunaHighDefault(t *testing.T) {
+func TestResolveUsesLunaXHighDefault(t *testing.T) {
 	metadata := Default()
 	if metadata.Name != "gpt-5.6-luna" || metadata.Label != "GPT-5.6 Luna" {
 		t.Fatalf("unexpected default metadata: %#v", metadata)
@@ -11,7 +11,7 @@ func TestResolveUsesLunaHighDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if model != "gpt-5.6-luna" || effort != "high" {
+	if model != "gpt-5.6-luna" || effort != "xhigh" {
 		t.Fatalf("got %q / %q", model, effort)
 	}
 }
@@ -20,7 +20,7 @@ func TestCatalogPublishesModelDefaultReasoningEffort(t *testing.T) {
 	for _, model := range Catalog() {
 		want := "medium"
 		if model.Name == "gpt-5.6-luna" {
-			want = "high"
+			want = "xhigh"
 		}
 		if model.DefaultReasoningEffort != want {
 			t.Fatalf("model %q default = %q", model.Name, model.DefaultReasoningEffort)

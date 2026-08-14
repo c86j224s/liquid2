@@ -9,7 +9,7 @@ import (
 
 const (
 	DefaultModel           = "gpt-5.6-luna"
-	DefaultReasoningEffort = "high"
+	DefaultReasoningEffort = "xhigh"
 	genericDefaultEffort   = "medium"
 )
 
@@ -28,7 +28,7 @@ type Model struct {
 var catalog = []Model{
 	{Name: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
-	{Name: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultReasoningEffort: "high"},
+	{Name: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultReasoningEffort: DefaultReasoningEffort},
 	{Name: "gpt-5.5", Label: "GPT-5.5", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.4", Label: "GPT-5.4", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.4-mini", Label: "GPT-5.4 mini", ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}, DefaultReasoningEffort: "medium"},

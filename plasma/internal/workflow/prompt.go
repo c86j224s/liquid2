@@ -61,8 +61,11 @@ Rules:
 - End with exactly one control marker line:
 %s {"decision":"continue|stop","reason":"short reason","next_instruction":"optional next step"}
 
-Use decision "continue" when the current step is complete but the user's original autonomous-run request or derived run goal still has useful remaining work. Include a concrete next_instruction.
-Use decision "stop" only when the user's original autonomous-run request and derived run goal are satisfied, or no useful next workflow step remains. Do not use stop merely because the current step instruction is complete.`, intro, orientation, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
+Use decision "continue" when the current step is complete but the user's original autonomous-run request or derived run goal still has useful remaining work that you can start now with the current mission state and available tools. Include a concrete, immediately executable next_instruction.
+Before stopping, use current material for any useful synthesis, comparison, organization, or concise user-visible summary that still advances the run goal.
+Use decision "stop" when the user's original autonomous-run request and derived run goal are satisfied, or no useful investigation or organization step remains executable now. Do not use stop merely because the current step instruction is complete.
+Waiting for user approval or a reply, a source attachment, credentials, or a future external event is not executable workflow work. A pending source candidate, its staging, or its user review does not by itself keep the workflow open. Explain the current result and the condition for resuming, then use "stop" instead of polling.
+Do not use "continue" to re-check the same unchanged condition or to wait for a future event.`, intro, orientation, strings.TrimSpace(view.MissionID), strings.TrimSpace(toolSessionID), raw, goal, strings.TrimSpace(instruction), controlMarker)
 }
 
 func firstNonEmptyWorkflowPrompt(values ...string) string {

@@ -1437,8 +1437,8 @@ printf 'done' > "$out"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(captured), "--model\ngpt-5.6-luna\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"high\"") {
-		t.Fatalf("expected GPT-5.6 Luna/high defaults, got %q", captured)
+	if !strings.Contains(string(captured), "--model\ngpt-5.6-luna\n") || !strings.Contains(string(captured), "model_reasoning_effort=\"xhigh\"") {
+		t.Fatalf("expected GPT-5.6 Luna/xhigh defaults, got %q", captured)
 	}
 	if err := os.WriteFile(argsPath, nil, 0o600); err != nil {
 		t.Fatal(err)

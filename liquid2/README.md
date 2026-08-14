@@ -42,7 +42,7 @@ needs Liquid2:
 ./dev-browser.sh stop
 ```
 
-Run only Liquid2:
+The canonical Liquid2 development flow uses the browser script:
 
 ```sh
 ./dev-browser.sh liquid2 start
@@ -51,12 +51,11 @@ Run only Liquid2:
 ./dev-browser.sh liquid2 stop
 ```
 
-Liquid2 development defaults to Flutter web port `6001`, API port `6011`, and a
-local SQLite database under
-`~/research-artifacts/liquid2/liquid2/runtime/dev-6011/`. Open
-`http://127.0.0.1:6001/` for the Flutter web client.
-Runtime settings can be moved from environment variables into TOML files; see
-the workspace [configuration guide](../docs/configuration.md).
+It uses Flutter web port `6001`, API port `6011`, and a local SQLite database
+under `~/research-artifacts/liquid2/liquid2/runtime/dev-6011/`. Open
+`http://127.0.0.1:6001/` for the Flutter web client. Runtime settings can be
+moved from environment variables into TOML files; see the workspace
+[configuration guide](../docs/configuration.md).
 
 Run the local release surface:
 
@@ -93,12 +92,15 @@ make openapi-client
 make persistence-smoke
 ```
 
-Start the API manually:
+For a standalone API flow, use port `8080` explicitly:
 
 ```sh
 cd liquid2
-LIQUID2_DB_PATH=./liquid2.db LIQUID2_JOBS_ENABLED=1 go run ./cmd/api
+LIQUID2_ADDR=127.0.0.1:8080 LIQUID2_DB_PATH=./liquid2.db LIQUID2_JOBS_ENABLED=1 go run ./cmd/api
 ```
+
+This standalone flow is separate from the canonical `./dev-browser.sh liquid2`
+development flow, which uses API port `6011` and Flutter web port `6001`.
 
 Run the Flutter client against a local API:
 
@@ -126,8 +128,8 @@ flutter run -d macos --dart-define=LIQUID2_API_BASE_URL=http://localhost:8080
 
 ## Release Notes
 
-GitHub release automation uses Conventional Commit titles. Squash merge titles
-should follow this shape:
+Public releases use Conventional Commit titles. Squash merge titles should
+follow this shape:
 
 ```text
 feat: add document folder move action
@@ -135,5 +137,8 @@ fix: handle duplicate translation jobs
 ci: update macOS release workflow
 ```
 
-The release workflow builds the macOS Flutter app and the Go API server from
-the `liquid2/` product directory and attaches them to the GitHub Release.
+A public release is a source-only snapshot selected from an internal source
+commit. After the public snapshot is reviewed and pushed, an annotated `vX.Y.Z`
+tag is created and a GitHub pre-release publishes the release notes. The GitHub
+Release is the tag-and-notes surface; binary application assets are not attached
+or part of the installation contract.
