@@ -8,10 +8,14 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func (runner Runner) StartDraft(ctx context.Context, missionID string, req DraftRequest, producer ledger.Producer) (ledger.Event, error) {
+	if _, err := NormalizePipelineFamily(req.PipelineFamily); err != nil {
+		return ledger.Event{}, err
+	}
 	req = normalizeDraftRequest(req)
 	sources, err := runner.Service.ListSourceSnapshotsWithState(ctx, source.ListRequest{MissionID: missionID})
 	if err != nil {
@@ -31,6 +35,7 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 		"rigor_label":                     req.RigorLabel,
 		"report_mode":                     req.ReportMode,
 		"report_mode_label":               ModeLabel(req.ReportMode),
+		"pipeline_family":                 req.PipelineFamily,
 		"report_session_policy":           req.ReportSessionPolicy,
 		"report_session_policy_selection": req.ReportSessionPolicySelection,
 		"post_report_humanize":            req.PostReportHumanize,
@@ -46,6 +51,9 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 	}
 	if req.DirectionHint != "" {
 		payload["direction_hint"] = req.DirectionHint
+	}
+	if req.PipelineGraph != "" {
+		payload["pipeline_graph"] = req.PipelineGraph
 	}
 	if req.ExecutionStrategy != "" {
 		payload["execution_strategy"] = req.ExecutionStrategy
@@ -64,6 +72,29 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 	return pending, runner.RunDraft(context.Background(), missionID, req, pending.EventID)
 }
 
+func (runner Runner) generateDraft(ctx context.Context, missionID string, req DraftRequest, pendingEventID string) error {
+	family, err := NormalizePipelineFamily(req.PipelineFamily)
+	if err != nil {
+		return err
+	}
+	switch family {
+	case reportpipeline.ExperimentalIL:
+		if runner.GenerateExperimental == nil {
+			return fmt.Errorf("%w: report IL experimental generator is unavailable", producterror.ErrInvalidInput)
+		}
+		return runner.GenerateExperimental(ctx, missionID, req, pendingEventID)
+	case reportpipeline.Unverified:
+		if runner.GenerateUnverified == nil {
+			return fmt.Errorf("%w: unverified report generator is unavailable", producterror.ErrInvalidInput)
+		}
+		return runner.GenerateUnverified(ctx, missionID, req, pendingEventID)
+	}
+	if runner.GenerateDraft == nil {
+		return fmt.Errorf("%w: report runner requires draft generator", producterror.ErrInvalidInput)
+	}
+	return runner.GenerateDraft(ctx, missionID, req, pendingEventID)
+}
+
 // ResumeDraft는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func (runner Runner) ResumeDraft(ctx context.Context, missionID string, pending ledger.Event) error {
 	req, err := DraftRequestFromPendingEvent(pending)
@@ -76,10 +107,11 @@ func (runner Runner) ResumeDraft(ctx context.Context, missionID string, pending 
 
 // RunDraft는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
 func (runner Runner) RunDraft(ctx context.Context, missionID string, req DraftRequest, pendingEventID string) error {
+	req = NormalizeDraftRequest(req)
 	if runner.InFlight == nil {
 		return fmt.Errorf("%w: report runner requires in-flight registry", producterror.ErrInvalidInput)
 	}
-	if runner.GenerateDraft == nil {
+	if runner.GenerateDraft == nil && runner.GenerateExperimental == nil && runner.GenerateUnverified == nil {
 		return fmt.Errorf("%w: report runner requires draft generator", producterror.ErrInvalidInput)
 	}
 	workerCtx, cancel := context.WithCancel(ctx)
@@ -100,7 +132,7 @@ func (runner Runner) RunDraft(ctx context.Context, missionID string, req DraftRe
 		if runner.hasTerminalEvent(context.Background(), missionID, pendingEventID) {
 			return
 		}
-		if err := runner.GenerateDraft(workerCtx, missionID, req, pendingEventID); err != nil {
+		if err := runner.generateDraft(workerCtx, missionID, req, pendingEventID); err != nil {
 			failCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if _, appendErr := runner.AppendDraftFailed(failCtx, missionID, pendingEventID, req.AgentExecutor, req.ReportMode, err); appendErr != nil {

@@ -116,12 +116,17 @@ type reportDraftRequest struct {
 	AgentSelectionSource         string `json:"agent_selection_source"`
 	MCPMode                      string `json:"mcp_mode"`
 	RigorLevel                   string `json:"rigor_level"`
+	RigorLabel                   string `json:"rigor_label"`
 	ReportMode                   string `json:"report_mode"`
+	PipelineFamily               string `json:"pipeline_family"`
 	ReportSessionPolicy          string `json:"report_session_policy"`
 	ReportSessionPolicySelection string `json:"report_session_policy_selection"`
 	PostReportHumanize           string `json:"post_report_humanize"`
 	GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
 	GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
+	RetryStrategy                string `json:"retry_strategy"`
+	RetryOfPendingEventID        string `json:"retry_of_pending_event_id"`
+	ResumeStage                  string `json:"resume_stage"`
 }
 
 type reportPatchRequest struct {

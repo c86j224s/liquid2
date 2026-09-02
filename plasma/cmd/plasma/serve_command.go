@@ -14,12 +14,52 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
+	"github.com/c86j224s/liquid2/plasma/internal/startuprecovery"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	"github.com/c86j224s/liquid2/plasma/internal/web"
 )
 
 func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return runServeWithListen(ctx, args, stdout, stderr, func(server *http.Server) error {
+		return server.ListenAndServe()
+	})
+}
+
+func serveStartupRecoverySteps(svc *app.Service) []startuprecovery.Step {
+	return []startuprecovery.Step{{
+		Name: "source_candidate_staging",
+		Run: func(ctx context.Context) (int, error) {
+			return sourcecandidates.FailInterruptedStaging(ctx, svc, cliNewID)
+		},
+	}, {
+		Name: "report_completion",
+		Run: func(ctx context.Context) (int, error) {
+			return reporting.RecoverAll(ctx, svc)
+		},
+	}}
+}
+
+func writeStartupRecoveryResults(stderr io.Writer, results []startuprecovery.Result) {
+	for _, result := range results {
+		if result.Name == "source_candidate_staging" {
+			if result.Err != nil {
+				fmt.Fprintf(stderr, "source candidate recovery: %v\n", result.Err)
+			} else if result.Changed > 0 {
+				fmt.Fprintf(stderr, "source candidate recovery: marked %d interrupted fetches as failed\n", result.Changed)
+			}
+			continue
+		}
+		if result.Err != nil {
+			fmt.Fprintf(stderr, "startup recovery %s: %v\n", result.Name, result.Err)
+		} else if result.Changed > 0 {
+			fmt.Fprintf(stderr, "startup recovery %s: changed %d\n", result.Name, result.Changed)
+		}
+	}
+}
+
+func runServeWithListen(ctx context.Context, args []string, stdout, stderr io.Writer, listen func(*http.Server) error) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dbPath := fs.String("db", "", "Plasma SQLite database path")
@@ -96,11 +136,9 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "local source roots: %v\n", err)
 		return 2
 	}
-	if closed, recoveryErr := sourcecandidates.FailInterruptedStaging(ctx, svc, cliNewID); recoveryErr != nil {
-		fmt.Fprintf(stderr, "source candidate recovery: %v\n", recoveryErr)
-	} else if closed > 0 {
-		fmt.Fprintf(stderr, "source candidate recovery: marked %d interrupted fetches as failed\n", closed)
-	}
+	results, _ := startuprecovery.Run(ctx, serveStartupRecoverySteps(svc))
+	writeStartupRecoveryResults(stderr, results)
+
 	effectiveLocalRoots := cfg.LocalSourceRoots
 
 	var connector app.Liquid2SourceConnector
@@ -146,7 +184,7 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		Handler: handler,
 	}
 	fmt.Fprintf(stdout, "plasma serving http://%s db=%s\n", server.Addr, cfg.DisplayDBPath())
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := listen(server); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintf(stderr, "serve: %v\n", err)
 		return 1
 	}

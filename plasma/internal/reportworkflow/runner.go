@@ -117,7 +117,11 @@ func (runner Runner) runOneTake(ctx context.Context, input DraftInput) (DraftOut
 	if err != nil {
 		return DraftOutput{}, err
 	}
-	return draftOutput(stored), nil
+	output := draftOutput(stored)
+	if err := runner.complete(context.WithoutCancel(ctx), output, nil); err != nil {
+		return DraftOutput{}, err
+	}
+	return output, nil
 }
 
 func (runner Runner) runPlanned(ctx context.Context, input DraftInput) (DraftOutput, error) {
@@ -150,7 +154,11 @@ func (runner Runner) runPlanned(ctx context.Context, input DraftInput) (DraftOut
 	if err != nil {
 		return DraftOutput{}, err
 	}
-	return draftOutput(stored), nil
+	output := draftOutput(stored)
+	if err := runner.complete(context.WithoutCancel(ctx), output, nil); err != nil {
+		return DraftOutput{}, err
+	}
+	return output, nil
 }
 
 func planInput(input DraftInput) plan.Input {

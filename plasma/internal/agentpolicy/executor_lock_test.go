@@ -41,6 +41,35 @@ func TestValidateAppendRejectsMixedExecutors(t *testing.T) {
 	}
 }
 
+func TestIndependentReportsDoNotLockClassicExecutor(t *testing.T) {
+	for _, family := range []string{"report_il_experimental", "report_unverified"} {
+		t.Run(family, func(t *testing.T) {
+			existing := []ledger.Event{lockingEvent(t, "turn.agent.response", "claude")}
+			pending := ledger.Event{EventID: "evt_independent_pending", EventType: "report.draft.pending", Payload: json.RawMessage(`{"agent_executor":"codex","pipeline_family":"` + family + `"}`)}
+			terminal := ledger.Event{EventID: "evt_independent_terminal", EventType: "report.artifact.created", Payload: json.RawMessage(`{"agent_executor":"codex","pipeline_family":"` + family + `","pending_event_id":"evt_independent_pending"}`)}
+			if locked := LockedExecutorFromEvents(append(existing, pending, terminal)); locked != "claude" {
+				t.Fatalf("legitimate independent context should retain only classic lock, got %q", locked)
+			}
+			if err := ValidateAppend(existing, []ledger.Event{pending, terminal}); err != nil {
+				t.Fatalf("legitimate independent append should ignore classic lock: %v", err)
+			}
+		})
+	}
+}
+
+func TestForgedExperimentalTerminalStillLocksClassicExecutor(t *testing.T) {
+	existing := []ledger.Event{lockingEvent(t, "turn.agent.response", "claude")}
+	classicPending := ledger.Event{EventID: "evt_classic_pending", EventType: "report.draft.pending", Payload: json.RawMessage(`{"agent_executor":"claude","report_mode":"long_form"}`)}
+	for _, terminal := range []ledger.Event{
+		{EventID: "evt_forged", EventType: "report.artifact.created", Payload: json.RawMessage(`{"agent_executor":"codex","pipeline_family":"report_il_experimental","pending_event_id":"evt_classic_pending"}`)},
+		{EventID: "evt_standalone", EventType: "report.artifact.created", Payload: json.RawMessage(`{"agent_executor":"codex","pipeline_family":"report_il_experimental","pending_event_id":"evt_missing"}`)},
+	} {
+		if err := ValidateAppend(append(existing, classicPending), []ledger.Event{terminal}); !errors.Is(err, producterror.ErrInvalidInput) {
+			t.Fatalf("forged IL terminal must conflict with classic lock, got %v", err)
+		}
+	}
+}
+
 func TestExplicitLockingExecutorIgnoresMalformedPayload(t *testing.T) {
 	event := ledger.Event{EventType: "turn.user", Payload: json.RawMessage(`{"agent_executor":`)}
 	if executor, ok := ExplicitLockingExecutor(event); ok || executor != "" {

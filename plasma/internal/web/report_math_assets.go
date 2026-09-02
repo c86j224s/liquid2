@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportmathassets"
+	"github.com/c86j224s/liquid2/plasma/internal/reportmermaidassets"
 )
 
-//go:embed static/vendor/katex/katex.min.js static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/vendor/purify.min.js static/vendor/mermaid.min.js static/plasma/namespace.js static/plasma/reports.js static/plasma/reports_math.js static/plasma/reports_mermaid_legend.js static/plasma/reports_mermaid.js static/report_math.css static/report_mermaid.css
+//go:embed static/vendor/katex/katex.min.css static/vendor/katex/fonts/*.woff2 static/vendor/markdown-it.min.js static/vendor/markdown-it-texmath.js static/plasma/namespace.js static/plasma/reports.js static/plasma/reports_math.js static/report_math.css
 var reportMathAssets embed.FS
 
 var reportMathFonts = []string{
@@ -59,12 +62,8 @@ func selfContainedMathHead() (string, error) {
 }
 
 func selfContainedMermaidHead() (string, error) {
-	css, err := reportMathAssets.ReadFile("static/report_mermaid.css")
-	if err != nil {
-		return "", err
-	}
 	compat := `:root{--line2:var(--line,#d1d5db);--surface:var(--panel,#fff);--danger:var(--warn,#b91c1c)}.plasma-mermaid-diagram{color:var(--ink,var(--text,#1f2937))}`
-	return "<style>" + safeRawElement(compat+"\n"+string(css), "style") + "</style>\n", nil
+	return "<style>" + safeRawElement(compat+"\n"+string(reportmermaidassets.Stylesheet()), "style") + "</style>\n", nil
 }
 
 func selfContainedMarkdownScripts() (string, error) {
@@ -84,14 +83,8 @@ func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	purify, err := reportMathAssets.ReadFile("static/vendor/purify.min.js")
-	if err != nil {
-		return "", err
-	}
-	runtime, err := reportMathAssets.ReadFile("static/vendor/katex/katex.min.js")
-	if err != nil {
-		return "", err
-	}
+	purify := reportmermaidassets.DOMPurifyRuntime()
+	runtime := reportmathassets.KaTeXRuntime()
 	namespace, err := reportMathAssets.ReadFile("static/plasma/namespace.js")
 	if err != nil {
 		return "", err
@@ -111,21 +104,9 @@ func selfContainedReportScriptsWithBootstrap(bootstrap string) (string, error) {
 		"<script>" + safeRawElement(string(namespace), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(reports), "script") + "</script>\n" +
 		"<script>" + safeRawElement(string(renderer), "script") + "</script>\n"
-	mermaidRuntime, err := reportMathAssets.ReadFile("static/vendor/mermaid.min.js")
-	if err != nil {
-		return "", err
-	}
-	mermaidLegend, err := reportMathAssets.ReadFile("static/plasma/reports_mermaid_legend.js")
-	if err != nil {
-		return "", err
-	}
-	mermaidRenderer, err := reportMathAssets.ReadFile("static/plasma/reports_mermaid.js")
-	if err != nil {
-		return "", err
-	}
-	scripts += "<script>" + safeRawElement(string(mermaidRuntime), "script") + "</script>\n" +
-		"<script>" + safeRawElement(string(mermaidLegend), "script") + "</script>\n" +
-		"<script>" + safeRawElement(string(mermaidRenderer), "script") + "</script>\n"
+	scripts += "<script>" + safeRawElement(string(reportmermaidassets.MermaidRuntime()), "script") + "</script>\n" +
+		"<script>" + safeRawElement(string(reportmermaidassets.LegendRenderer()), "script") + "</script>\n" +
+		"<script>" + safeRawElement(string(reportmermaidassets.Renderer()), "script") + "</script>\n"
 	scripts += "<script>" + safeRawElement(bootstrap, "script") + "</script>\n"
 	return scripts, nil
 }

@@ -38,6 +38,8 @@ connections before the server creates exactly one canonical
 `report.artifact.created` event from the bound artifact. Manual/post-canonical
 H5 remains a separate deprecated compatibility path.
 
+`report.artifact.created` is the immediate artifact-availability and pending-closure boundary; it is not the final bookkeeping boundary. After a successful draft artifact, the reporting service conditionally records every durable delayed-usage target as an exact `report.agent_usage.recorded` outcome (or explicit unavailable recovery outcome) and then appends one deterministic `report.run.completed` event. Consumers that need usage/accounting finality must wait for `report.run.completed`.
+
 For new browser long-form requests, the Web progress view presents that
 execution order as `최종 조립`, `최종 작성`, `독자 편집`, `말투 편집`,
 `말투 의미 검증`, and `근거 연결 검증`. Direct API or legacy/replay runs whose

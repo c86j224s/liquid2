@@ -111,7 +111,9 @@ func GetRawArtifactByMissionSHA(ctx context.Context, tx *sql.Tx, missionID, sha 
 	err := tx.QueryRowContext(ctx, `
 SELECT artifact_id
 FROM plasma_raw_artifacts
-WHERE mission_id = ? AND sha256 = ?`, missionID, sha).Scan(&artifactID)
+WHERE mission_id = ? AND sha256 = ?
+ORDER BY created_at, artifact_id
+LIMIT 1`, missionID, sha).Scan(&artifactID)
 	if err == sql.ErrNoRows {
 		return artifactmodel.Raw{}, false, nil
 	}

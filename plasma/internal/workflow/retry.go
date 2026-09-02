@@ -23,6 +23,8 @@ func (runner Runner) retryStepAfterAutoCompaction(agentCtx context.Context, ledg
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
+		CapabilityProfile: runner.CapabilityProfile,
+		ProfileRevision:   runner.ProfileRevision,
 		Compaction:        true,
 	})
 	err = agentExecutionError(agentCtx, err)
@@ -56,6 +58,8 @@ func (runner Runner) retryStepAfterAutoCompaction(agentCtx context.Context, ledg
 		AgentExecutor:          view.AgentExecutor,
 		AgentModel:             strings.TrimSpace(runner.AgentModel),
 		AgentReasoningEffort:   strings.TrimSpace(runner.ReasoningEffort),
+		CapabilityProfile:      runner.CapabilityProfile,
+		ProfileRevision:        runner.ProfileRevision,
 		MCPMode:                view.MCPMode,
 		AgentSessionID:         compactResult.SessionID,
 		PreviousAgentSessionID: previousSessionID,
@@ -87,6 +91,8 @@ func (runner Runner) retryStepAfterAutoCompaction(agentCtx context.Context, ledg
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
+		CapabilityProfile: runner.CapabilityProfile,
+		ProfileRevision:   runner.ProfileRevision,
 	})
 	err = agentExecutionError(agentCtx, err)
 	retryDurationMS := runner.now().Sub(retryStarted).Milliseconds()

@@ -224,9 +224,11 @@ type SnapshotConfluenceSourceRequest struct {
 
 // SnapshotConfluenceSourceWithEventRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
 type SnapshotConfluenceSourceWithEventRequest struct {
-	Snapshot SnapshotConfluenceSourceRequest
-	EventID  string
-	Producer Producer
+	Snapshot                       SnapshotConfluenceSourceRequest
+	EventID                        string
+	Producer                       Producer
+	SourceCandidateProposalEventID string
+	SourceCandidateURL             string
 }
 
 // ConfluenceSnapshotResult는 Confluence page snapshot과 원문 artifact를 함께 반환한다.

@@ -33,11 +33,16 @@ type DraftRequest struct {
 	RigorLevel                   string
 	RigorLabel                   string
 	ReportMode                   string
+	PipelineFamily               string
+	PipelineGraph                string
 	ReportSessionPolicy          string
 	ReportSessionPolicySelection string
 	PostReportHumanize           string
 	GenerationGuidanceProfile    string
 	GenerationGuidanceSHA256     string
+	RetryStrategy                string
+	RetryOfPendingEventID        string
+	ResumeStage                  string
 }
 
 // SessionPolicySelectionInput는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -60,7 +65,10 @@ type DesignRequest struct {
 	RendererVersion      string
 }
 
-// HumanizeRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
+// HumanizeRequest는 deprecated된 manual/post-canonical H5 compatibility
+// 실행에 전달되는 요청 값이다. 현행 장문 pre-canonical style edit과는 별도다.
+//
+// Deprecated: historical/direct API 및 CLI compatibility에만 사용한다.
 type HumanizeRequest struct {
 	SourceArtifactID       string
 	SourceArtifactSHA256   string
@@ -158,11 +166,16 @@ type DesignedHTMLExportEventRequest struct {
 
 // Runner는 report 요청을 pending event에서 terminal event까지 실행하는 오케스트레이터다.
 type Runner struct {
-	Service          Service
-	InFlight         *InFlight
-	NewID            func(string) string
-	GenerateDraft    func(context.Context, string, DraftRequest, string) error
-	GenerateDesign   func(context.Context, string, DesignRequest, string) error
+	Service              Service
+	InFlight             *InFlight
+	NewID                func(string) string
+	GenerateDraft        func(context.Context, string, DraftRequest, string) error
+	GenerateExperimental func(context.Context, string, DraftRequest, string) error
+	GenerateUnverified   func(context.Context, string, DraftRequest, string) error
+	GenerateDesign       func(context.Context, string, DesignRequest, string) error
+	// GenerateHumanize runs the legacy manual/post-canonical H5 compatibility worker.
+	//
+	// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 	GenerateHumanize func(context.Context, string, HumanizeRequest, string) error
 	GeneratePatch    func(context.Context, string, PatchRequest, string) error
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/url"
 	"sort"
 	"strings"
@@ -215,9 +216,15 @@ func (server *Server) appSourceCandidateFetcher() sourcecandidates.SourceCandida
 		if err != nil {
 			return sourcecandidates.SourceCandidateFetched{}, err
 		}
+		candidateKind := ""
+		if fetched.MediaKind == sourceretrieval.MediaKindImage {
+			candidateKind = "media_url"
+		}
 		return sourcecandidates.SourceCandidateFetched{
+			CandidateKind:     candidateKind,
 			Content:           fetched.Content,
 			MediaType:         fetched.MediaType,
+			MediaKind:         fetched.MediaKind,
 			Title:             fetched.Title,
 			ExternalVersion:   fetched.ExternalVersion,
 			ExternalUpdatedAt: fetched.ExternalUpdatedAt,
@@ -225,6 +232,8 @@ func (server *Server) appSourceCandidateFetcher() sourcecandidates.SourceCandida
 			PageCount:         fetched.PageCount,
 			TextLength:        fetched.TextLength,
 			TextLengthKnown:   fetched.TextLengthKnown,
+			Width:             fetched.Width,
+			Height:            fetched.Height,
 		}, nil
 	}
 }
@@ -317,6 +326,15 @@ func (server *Server) callSourceCandidatesRead(ctx context.Context, call ToolCal
 	if artifact.MissionID != missionID {
 		return errorResult(call.Name, missionID, "validation", "staged candidate artifact belongs to another mission", false, []string{record.ArtifactID})
 	}
+	if sourceCandidateImageMediaType(artifact.MediaType) {
+		artifactOutput := rawArtifactFromApp(artifact)
+		output.Artifact = &artifactOutput
+		output.ContentLength = len(artifact.Content)
+		output.ContentLengthKnown = true
+		output.Message = "이 후보는 미승인 이미지입니다. 바이너리 내용은 반환하지 않으며 MIME·크기 메타데이터만 제공합니다."
+		output.Extraction = &sourceExtractionOutput{Type: "binary_metadata", TextLengthKnown: false}
+		return ToolResult{ToolName: call.Name, MissionID: missionID, Content: output}
+	}
 	if pdfdocument.IsPDFMediaType(artifact.MediaType) || pdfdocument.IsPDFBytes(artifact.Content) {
 		chunk, err := pdfdocument.ExtractChunk(artifact.Content, input.Offset, input.MaxBytes)
 		if err != nil {
@@ -353,6 +371,19 @@ func (server *Server) callSourceCandidatesRead(ctx context.Context, call ToolCal
 	output.ContentLengthKnown = true
 	output.Truncated = truncated
 	return ToolResult{ToolName: call.Name, MissionID: missionID, Content: output}
+}
+
+func sourceCandidateImageMediaType(mediaType string) bool {
+	base, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		base = mediaType
+	}
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "image/png", "image/jpeg", "image/gif":
+		return true
+	default:
+		return false
+	}
 }
 
 func (server *Server) findSourceCandidateReadRecord(ctx context.Context, missionID, urlValue, proposalEventID, stagingEventID, artifactID string) (sourceCandidateReadRecord, bool, error) {

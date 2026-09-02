@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -15,7 +16,6 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
-	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 func runReports(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -47,7 +47,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	mcpMode := fs.String("mcp-mode", "auto", "MCP mode")
 	wait := fs.Bool("wait", false, "run the report agent and wait for the artifact")
 	jsonOut := fs.Bool("json", false, "write JSON")
-	humanize := fs.Bool("humanize", false, "run the optional post-report H5 humanize pass")
+	humanize := fs.Bool("humanize", false, "deprecated manual post-canonical H5 compatibility pass; current long-form reports use pre-canonical style edit")
 	generationGuidance := fs.String("generation-guidance", "visual-plan", "report generation guidance profile: visual-plan, g2, or none")
 	experimentalGenerationGuidance := fs.String("experimental-generation-guidance", "", "deprecated alias for -generation-guidance")
 	reportSessionPolicyFlag := fs.String("report-session-policy", "", "report session policy: auto, same_session, or isolated_fork")
@@ -140,7 +140,17 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 1
 	}
-	preReportSessionID := workflowruntime.LatestAgentSessionID(events, resolvedAgentName)
+	preReportSession := conversation.LatestAgentSession(events, resolvedAgentName)
+	preReportSessionID := preReportSession.SessionID
+	profile, err := agentcapability.Resolve(preReportSession.ProfileID, preReportSession.ProfileRevision)
+	if preReportSessionID == "" {
+		profile, err = agentcapability.Resolve("", "")
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "reports draft: persisted agent capability profile is invalid: %v\n", err)
+		return 1
+	}
+	executor = agentexec.WithCapabilityProfile(executor, profile)
 	providerModel := strings.TrimSpace(agentCfg.ClaudeModel)
 	if resolvedAgentName == "claude" && providerModel == "" {
 		providerModel = "haiku"
@@ -320,6 +330,21 @@ func runReportsPatch(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprintf(stderr, "agent: %v\n", err)
 		return 2
 	}
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		fmt.Fprintf(stderr, "reports patch: %v\n", err)
+		return 1
+	}
+	session, ok := conversation.AgentSessionByID(events, executorName, info.ReportSessionID)
+	profile, profileErr := agentcapability.Resolve("", "")
+	if ok {
+		profile, profileErr = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+	}
+	if profileErr != nil {
+		fmt.Fprintf(stderr, "reports patch: persisted agent capability profile is invalid: %v\n", profileErr)
+		return 1
+	}
+	executor = agentexec.WithCapabilityProfile(executor, profile)
 	selection, err := reportpatch.SelectSession(ctx, executor, info.ReportSessionID, *reportSessionPolicy)
 	if err != nil {
 		fmt.Fprintf(stderr, "reports patch: %v\n", err)

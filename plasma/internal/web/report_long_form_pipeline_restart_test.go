@@ -172,9 +172,11 @@ func TestReaderStyleGateRestartReturnsExistingCanonicalWithoutProvider(t *testin
 		t.Fatalf("existing canonical reran provider requests: %#v", executor.requests)
 	}
 	events := w4BEvents(t, ctx, reopened, req.missionID)
-	if len(events) != beforeEvents {
-		t.Fatalf("existing canonical replay changed event count %d -> %d", beforeEvents, len(events))
+	if len(events) != beforeEvents+3 {
+		t.Fatalf("completion recovery appended unexpected event count %d -> %d", beforeEvents, len(events))
 	}
+	assertW4BEventCount(t, events, reporting.ReportAgentUsageRecordedEventType, 2)
+	assertW4BEventCount(t, events, reporting.ReportRunCompletedEventType, 1)
 	if artifact, event := w4BResultArtifact(t, result), w4BResultEvent(t, result); artifact.ArtifactID != finalized.Artifact.ArtifactID || event.EventID != finalized.Event.EventID {
 		t.Fatalf("existing canonical replay identity differs artifact=%#v event=%#v want=%#v/%#v", artifact, event, finalized.Artifact, finalized.Event)
 	}

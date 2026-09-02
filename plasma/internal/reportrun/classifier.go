@@ -1,17 +1,21 @@
 package reportrun
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 type eventPayload map[string]any
 
 type runBuild struct {
-	run       Run
-	events    map[string]EventMembership
-	artifacts map[string]ArtifactMembership
-	ambiguous bool
+	run            Run
+	events         map[string]EventMembership
+	artifacts      map[string]ArtifactMembership
+	pipelineFamily string
+	ambiguous      bool
 }
 
 // BuildRegistration deterministically projects report events into run
@@ -58,6 +62,7 @@ func BuildRegistration(events []Event, status string, now time.Time) (Registrati
 		}
 		rootID := firstNonEmpty(lineage.roots[event.EventID], event.EventID)
 		run := ensureRun(runs, rootID, event.MissionID, payloadString(payload, "title"), status, now)
+		run.pipelineFamily = payloadString(payload, "pipeline_family")
 		addEvent(run, event, "draft_pending", event.EventID, now)
 		eventRun[event.EventID] = rootID
 	}
@@ -144,8 +149,24 @@ func addClassifiedEvent(run *runBuild, event Event, payload eventPayload, attemp
 	case "report.artifact.created":
 		artifactID := payloadString(payload, "artifact_id")
 		addArtifact(run, artifactID, event.MissionID, ArtifactRoleFinal, OwnershipCreated, attemptID, event.EventID, now)
+		if run.pipelineFamily == reportilcontract.PipelineFamily {
+			if entries, ok := validILBundleEntries(payload, attemptID); ok {
+				ids := make([]string, 0, len(entries))
+				for _, entry := range entries {
+					if entry.ArtifactID != artifactID {
+						addArtifact(run, entry.ArtifactID, event.MissionID, entryRole(entry.Role), OwnershipCreated, attemptID, event.EventID, now)
+					}
+					ids = append(ids, entry.ArtifactID)
+				}
+				run.run.FinalArtifactID = artifactID
+				return ids
+			}
+		}
 		run.run.FinalArtifactID = artifactID
 		return []string{artifactID}
+
+	case "report.il.checkpoint.created":
+		return nil
 	case "report.artifact.exported":
 		artifactID := payloadString(payload, "artifact_id")
 		contentModelArtifactID := payloadString(payload, "content_model_artifact_id")
@@ -200,6 +221,25 @@ func addAmbiguousArtifacts(run *runBuild, event Event, payload eventPayload, now
 			addArtifact(run, artifactID, event.MissionID, ArtifactRoleIntermediate, OwnershipReferenced, attemptID, event.EventID, now)
 		}
 	}
+}
+
+func entryRole(role string) string {
+	if role == ArtifactRoleDerivative {
+		return ArtifactRoleDerivative
+	}
+	return ArtifactRoleIntermediate
+}
+
+func validILBundleEntries(payload eventPayload, attemptID string) ([]reportilcontract.TerminalArtifactEntry, bool) {
+	if payloadString(payload, "pipeline_family") != reportilcontract.PipelineFamily || payloadString(payload, "pending_event_id") != attemptID {
+		return nil, false
+	}
+	raw, _ := json.Marshal(payload)
+	decoded, err := reportilcontract.DecodeTerminalPayload(raw)
+	if err != nil {
+		return nil, false
+	}
+	return decoded.Bundle.Artifacts, true
 }
 
 func redpenArtifactOwnership(payload eventPayload) (string, bool) {

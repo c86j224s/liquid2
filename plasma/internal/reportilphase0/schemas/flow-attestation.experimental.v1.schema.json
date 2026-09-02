@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:plasma:report-flow-attestation:experimental:v1",
+  "title": "Plasma Phase 0 Whole-Manuscript Flow Attestation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "document_id", "revision_id", "linear_projection_sha256", "reviewer", "reviewed_full_manuscript", "central_thread_preserved", "section_handoffs_resolved", "open_loops_resolved", "terminology_continuous", "verdict"],
+  "properties": {
+    "schema_version": {"const": "plasma.report_flow_attestation.experimental.v1"},
+    "document_id": {"$ref": "#/$defs/id"},
+    "revision_id": {"$ref": "#/$defs/id"},
+    "linear_projection_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "reviewer": {"$ref": "#/$defs/nonempty"},
+    "reviewed_full_manuscript": {"const": true},
+    "central_thread_preserved": {"type": "boolean"},
+    "section_handoffs_resolved": {"type": "boolean"},
+    "open_loops_resolved": {"type": "boolean"},
+    "terminology_continuous": {"type": "boolean"},
+    "evidence_support_coverage": {"type": "array", "items": {"$ref": "#/$defs/evidenceSupportCoverage"}},
+    "preservation_coverage": {"type": "array", "items": {"$ref": "#/$defs/preservationCoverage"}},
+    "accidental_repetition_findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "abrupt_transition_findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "unsupported_addition_findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}},
+    "verdict": {"enum": ["accept", "revise", "reject"]}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "detail"],
+      "properties": {"node_id": {"$ref": "#/$defs/id"}, "detail": {"$ref": "#/$defs/nonempty"}}
+    },
+    "evidenceSupportCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "evidence_receipt", "source_excerpt_sha256", "claim_sha256", "covered_node_id", "support_level"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"},
+        "evidence_receipt": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_excerpt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "claim_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "covered_node_id": {"$ref": "#/$defs/id"},
+        "support_level": {"type": "string", "enum": ["direct_source_statement", "bounded_inference", "unsupported_removed"]}
+      }
+    },
+    "preservationCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "evidence_receipt", "source_excerpt_sha256", "covered_node_id", "coverage_quote_sha256"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"},
+        "evidence_receipt": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_excerpt_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "covered_node_id": {"$ref": "#/$defs/id"},
+        "coverage_quote_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    }
+  }
+}

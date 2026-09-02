@@ -116,6 +116,15 @@ func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID st
 	if fetched.PageCount > 0 {
 		payload["page_count"] = fetched.PageCount
 	}
+	if strings.TrimSpace(fetched.MediaKind) != "" {
+		payload["media_kind"] = strings.TrimSpace(fetched.MediaKind)
+	}
+	if fetched.Width > 0 {
+		payload["width"] = fetched.Width
+	}
+	if fetched.Height > 0 {
+		payload["height"] = fetched.Height
+	}
 	if fetched.TextLength > 0 {
 		payload["text_length"] = fetched.TextLength
 	}

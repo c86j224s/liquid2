@@ -29,6 +29,7 @@
     return {
       cloud_id: locator?.cloud_id || locator?.CloudID || (parts.length >= 2 ? parts[0] : ""),
       site_url: locator?.site_url || locator?.SiteURL || "",
+      web_url: locator?.web_url || locator?.WebURL || "",
       page_id: locator?.page_id || locator?.PageID || (parts.length >= 2 ? parts.slice(1).join(":") : externalID),
       external_uri: externalURI,
       version: connector.ExternalVersion || connector.external_version || "",
@@ -106,9 +107,16 @@
   }
 
   function confluenceDisplayableExternalURI(uri) {
+    const raw = String(uri || "");
+    if (/[\x00-\x1f\x7f]/.test(raw)) return "";
     try {
-      const parsed = new URL(uri);
-      return parsed.protocol === "https:" || parsed.protocol === "http:" ? uri : "";
+      const parsed = new URL(raw.trim());
+      if (
+        (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+        parsed.username ||
+        parsed.password
+      ) return "";
+      return parsed.toString();
     } catch (err) {
       return "";
     }

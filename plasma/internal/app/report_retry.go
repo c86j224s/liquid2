@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 const reportRetryLineageLimit = 64
@@ -21,6 +23,7 @@ type reportAttemptPayload struct {
 	RetryStrategy  string `json:"retry_strategy"`
 	RetryRequestID string `json:"retry_request_id"`
 	ReportMode     string `json:"report_mode"`
+	PipelineFamily string `json:"pipeline_family"`
 	Attempt        int    `json:"attempt_number"`
 }
 
@@ -60,6 +63,10 @@ func (s *Service) RequestReportRetry(ctx context.Context, req ReportRetryRequest
 		if !ok || terminals[target.EventID] != "failed" {
 			return nil, fmt.Errorf("%w: retry target must be a failed terminal report attempt", ErrInvalidInput)
 		}
+		family := strings.TrimSpace(target.PipelineFamily)
+		if family != "" && family != "report_il_experimental" {
+			return nil, fmt.Errorf("%w: independent report retries are not supported", ErrInvalidInput)
+		}
 		if target.ReportMode != "long_form" {
 			return nil, fmt.Errorf("%w: report retry requires a long-form failed attempt", ErrInvalidInput)
 		}
@@ -73,6 +80,11 @@ func (s *Service) RequestReportRetry(ctx context.Context, req ReportRetryRequest
 		payload["retry_strategy"] = req.Strategy
 		payload["retry_request_id"] = req.RetryRequestID
 		payload["resume_stage"] = retryResumeStage(events, target.EventID, req.Strategy)
+		if family == "report_il_experimental" && req.Strategy == "resume_failed" &&
+			!reportILLineageCheckpointAvailable(events, attempts, target) &&
+			!reportILLegacyCheckpointAvailable(events, target.EventID) {
+			return nil, fmt.Errorf("%w: report IL retry has no recoverable checkpoint", ErrInvalidInput)
+		}
 		if req.Strategy == "restart" {
 			delete(payload, "resume_stage_artifact_ids")
 			delete(payload, "report_session_id")
@@ -218,6 +230,90 @@ func copyRetryPayload(payload map[string]any) map[string]any {
 	}
 	return out
 }
+func reportILLegacyCheckpointAvailable(events []LedgerEvent, pendingID string) bool {
+	failedAtReader := false
+	finalCompleted := false
+	memoryArtifact := false
+	finalArtifact := false
+	for _, event := range events {
+		var payload struct {
+			PendingID string `json:"pending_event_id"`
+			Failed    string `json:"failed_stage_kind"`
+			ToolName  string `json:"tool_name"`
+			Success   bool   `json:"success"`
+			IOMetrics struct {
+				Stage      string `json:"report_il_stage"`
+				ArtifactID string `json:"artifact_id"`
+				SHA256     string `json:"sha256"`
+				ByteSize   int    `json:"byte_size"`
+				Revision   int    `json:"revision"`
+				Accounts   int    `json:"accounts"`
+				Finalized  bool   `json:"finalized"`
+			} `json:"io_metrics"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload.PendingID == pendingID {
+			switch event.EventType {
+			case "report.draft.failed":
+				failedAtReader = payload.Failed == "il_reader"
+			case "report.il_long_form_final.completed":
+				finalCompleted = true
+			}
+		}
+		if event.EventType != "mcp.tool.called" || !payload.Success || !payload.IOMetrics.Finalized ||
+			payload.IOMetrics.ArtifactID == "" || len(payload.IOMetrics.SHA256) != 64 ||
+			payload.IOMetrics.ByteSize < 1 || payload.IOMetrics.Revision < 1 {
+			continue
+		}
+		switch {
+		case payload.ToolName == reportilcontract.EditorialMemoryFinalizeTool &&
+			payload.IOMetrics.Stage == "il_editorial_memory" && payload.IOMetrics.Accounts > 0:
+			memoryArtifact = true
+		case payload.ToolName == reportilcontract.LongFormDocumentFinalizeTool &&
+			payload.IOMetrics.Stage == "il_long_form_final":
+			finalArtifact = true
+		}
+	}
+	return failedAtReader && finalCompleted && memoryArtifact && finalArtifact
+}
+
+func reportILLineageCheckpointAvailable(events []LedgerEvent, attempts map[string]reportAttempt, target reportAttempt) bool {
+	current := target
+	for depth := 0; depth < reportRetryLineageLimit; depth++ {
+		if reportILCheckpointAvailable(events, current.EventID) {
+			return true
+		}
+		if current.RetryOf == "" {
+			return false
+		}
+		parent, ok := attempts[current.RetryOf]
+		if !ok {
+			return false
+		}
+		current = parent
+	}
+	return false
+}
+
+func reportILCheckpointAvailable(events []LedgerEvent, pendingID string) bool {
+	for _, event := range events {
+		if event.EventType != reportILCheckpointEventType || event.CausationEventID != pendingID {
+			continue
+		}
+		var payload struct {
+			PendingID  string `json:"pending_event_id"`
+			Checkpoint struct {
+				Stage string `json:"stage"`
+			} `json:"checkpoint"`
+		}
+		if json.Unmarshal(event.Payload, &payload) == nil &&
+			payload.PendingID == pendingID && reportILResumeStageOrder(payload.Checkpoint.Stage) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func retryResumeStage(events []LedgerEvent, pendingID, strategy string) string {
 	if strategy == "restart" {
 		return "plan"

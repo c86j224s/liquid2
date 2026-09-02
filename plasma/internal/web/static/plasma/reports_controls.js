@@ -15,25 +15,41 @@
   const missionLifecycleWriteBlocked = () => reports.call("missionLifecycleWriteBlocked");
   const selectedAgentModel = () => reports.call("selectedAgentModel");
   const selectedAgentReasoningEffort = () => reports.call("selectedAgentReasoningEffort");
-async function draftReport(reportMode = "one_take") {
+async function draftReport(reportMode = "one_take", options) {
+  options = options || {};
   if (!requireMission()) return;
 	if (state.turnPending || state.workflowPending || state.workflowGoalDraftPending || state.reportPending) return;
   const owner = captureMissionSelection();
   const missionId = owner.missionId;
-  const title = `${state.detail?.projection?.title || "미션"} 리포트`;
-  const reportSelection = reports.modelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
-  const executionStrategy = reportMode === "long_form"
+  const requestedFamily = String(options.pipelineFamily || "").trim();
+  const validation = String($("reportRigor").value || "strict").trim() || "strict";
+  const ilReport = requestedFamily === reports.REPORT_IL_PIPELINE_FAMILY;
+  const pipelineFamily = ilReport
+    ? reports.REPORT_IL_PIPELINE_FAMILY
+    : validation === "unverified"
+      ? reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
+      : "";
+  const unverified = pipelineFamily === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
+  const independent = ilReport || unverified;
+  const longFormIL = ilReport && reportMode === "long_form";
+  const familyTitle = longFormIL ? " 장문 IL" : ilReport ? " IL" : unverified ? " 무검증" : "";
+  const title = `${state.detail?.projection?.title || "미션"}${familyTitle} 리포트`;
+  const reportSelection = independent
+    ? { agent_model: "gpt-5.6-luna", agent_reasoning_effort: "xhigh" }
+    : reports.modelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
+  const executionStrategy = independent ? "" : reportMode === "long_form"
     ? ($("reportLongFormExecutionStrategy")?.value || "serial")
     : "serial";
-  const generationGuidanceProfile = reports.selectedReportGenerationGuidance(reportMode);
-  const postReportHumanize = reportMode === "long_form" ? "enabled" : "disabled";
+  const generationGuidanceProfile = independent ? "" : reports.selectedReportGenerationGuidance(reportMode);
+  const postReportHumanize = independent ? "disabled" : reportMode === "long_form" ? "enabled" : "disabled";
   const pendingPayload = {
     title,
     report_mode: reportMode,
+    ...(independent ? { pipeline_family: pipelineFamily } : {}),
     execution_strategy: executionStrategy,
     generation_guidance_profile: generationGuidanceProfile,
     post_report_humanize: postReportHumanize,
-    rigor_level: $("reportRigor").value || "strict",
+    rigor_level: unverified ? "unverified" : validation,
     agent_model: reportSelection.agent_model,
     agent_reasoning_effort: reportSelection.agent_reasoning_effort,
     direction_hint: typeof reports.direction.current === "function" ? reports.direction.current() : ""
@@ -46,8 +62,8 @@ async function draftReport(reportMode = "one_take") {
       method: "POST",
       body: {
         ...pendingPayload,
-        agent_executor: $("agentExecutor").value,
-        mcp_mode: $("mcpMode").value
+        agent_executor: independent ? "codex" : $("agentExecutor").value,
+        mcp_mode: independent ? "source_read_only" : $("mcpMode").value
       }
     });
   } catch (err) {
@@ -202,6 +218,8 @@ function setReportBusy(busy) {
   $("cancelReportButton").classList.toggle("hidden", !busy);
   window.Plasma.ui.setButtonText("draftQuickReport", busy ? "생성 중" : "보고서");
   window.Plasma.ui.setButtonText("draftLongReport", busy ? "생성 중" : "장문 보고서");
+  window.Plasma.ui.setButtonText("draftExperimentalReport", busy ? "생성 중" : "IL 보고서");
+  window.Plasma.ui.setButtonText("draftLongExperimentalReport", busy ? "생성 중" : "장문 IL 보고서");
 }
 
 function syncReportControls() {
@@ -212,6 +230,8 @@ function syncReportControls() {
 	window.Plasma.ui.setElementDisabled("reportLongFormExecutionStrategy", blocked);
 	window.Plasma.ui.setElementDisabled("draftQuickReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftLongReport", blocked);
+	window.Plasma.ui.setElementDisabled("draftExperimentalReport", blocked);
+	window.Plasma.ui.setElementDisabled("draftLongExperimentalReport", blocked);
 }
   Object.assign(reports, { draftReport, patchReportArtifact, deleteReportArtifact, cancelReport, setReportBusy, syncReportControls });
 })(window);

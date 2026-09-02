@@ -12,7 +12,7 @@ func reportrunEvents(events []ledger.Event) []reportrun.Event {
 	for _, event := range events {
 		out = append(out, reportrun.Event{
 			EventID: event.EventID, MissionID: event.MissionID,
-			Sequence: event.Sequence, EventType: event.EventType, Payload: event.Payload,
+			Sequence: event.Sequence, EventType: event.EventType, Producer: event.Producer, CausationEventID: event.CausationEventID, CorrelationID: event.CorrelationID, Payload: event.Payload,
 			CreatedAt: event.CreatedAt,
 		})
 	}

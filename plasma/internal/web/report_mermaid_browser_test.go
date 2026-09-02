@@ -1,9 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportmermaidassets"
 )
 
 func TestReportMermaidStaticAssetOrderAndLazyRuntime(t *testing.T) {
@@ -36,6 +39,24 @@ func TestReportMermaidStaticAssetOrderAndLazyRuntime(t *testing.T) {
 	} {
 		if len(mustReadStatic(t, asset)) == 0 {
 			t.Fatalf("empty static asset %q", asset)
+		}
+	}
+}
+
+func TestReportMermaidStaticCopiesMatchSharedAssets(t *testing.T) {
+	for _, check := range []struct {
+		path   string
+		shared []byte
+	}{
+		{"static/vendor/mermaid.min.js", reportmermaidassets.MermaidRuntime()},
+		{"static/vendor/mermaid.LICENSE", reportmermaidassets.License()},
+		{"static/vendor/purify.min.js", reportmermaidassets.DOMPurifyRuntime()},
+		{"static/plasma/reports_mermaid.js", reportmermaidassets.Renderer()},
+		{"static/plasma/reports_mermaid_legend.js", reportmermaidassets.LegendRenderer()},
+		{"static/report_mermaid.css", reportmermaidassets.Stylesheet()},
+	} {
+		if !bytes.Equal(mustReadStatic(t, check.path), check.shared) {
+			t.Fatalf("static Mermaid asset differs from shared source: %s", check.path)
 		}
 	}
 }

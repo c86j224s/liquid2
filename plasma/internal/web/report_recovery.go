@@ -8,6 +8,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
@@ -107,11 +108,15 @@ func (server *Server) resumeReportDraftWorker(ctx context.Context, missionID str
 		MCPMode:                      req.MCPMode,
 		RigorLevel:                   req.RigorLevel,
 		ReportMode:                   req.ReportMode,
+		PipelineFamily:               req.PipelineFamily,
 		ReportSessionPolicy:          req.ReportSessionPolicy,
 		ReportSessionPolicySelection: req.ReportSessionPolicySelection,
 		PostReportHumanize:           req.PostReportHumanize,
 		GenerationGuidanceProfile:    req.GenerationGuidanceProfile,
 		GenerationGuidanceSHA256:     req.GenerationGuidanceSHA256,
+		RetryStrategy:                req.RetryStrategy,
+		RetryOfPendingEventID:        req.RetryOfPendingEventID,
+		ResumeStage:                  req.ResumeStage,
 	}, pending.EventID)
 }
 
@@ -125,9 +130,18 @@ func reportDraftPendingHasRecoveryContract(event app.LedgerEvent) bool {
 		ReportMode        string `json:"report_mode"`
 		MCPMode           string `json:"mcp_mode"`
 		ExecutionStrategy string `json:"execution_strategy"`
+		PipelineFamily    string `json:"pipeline_family"`
+		RetryStrategy     string `json:"retry_strategy"`
+		RetryOf           string `json:"retry_of_pending_event_id"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return false
+	}
+	if strings.TrimSpace(payload.PipelineFamily) == reportilcontract.PipelineFamily &&
+		(strings.TrimSpace(payload.RetryStrategy) == "restart" ||
+			strings.TrimSpace(payload.RetryStrategy) == "resume_failed") &&
+		strings.HasPrefix(strings.TrimSpace(payload.RetryOf), "evt_") {
+		return true
 	}
 	switch strings.TrimSpace(payload.Kind) {
 	case "markdown_report_artifact_pending", "report_draft_pending":
@@ -149,37 +163,58 @@ func reportDraftRequestFromPendingEvent(event app.LedgerEvent) (reportDraftReque
 		MCPMode                      string `json:"mcp_mode"`
 		RigorLevel                   string `json:"rigor_level"`
 		ReportMode                   string `json:"report_mode"`
+		PipelineFamily               string `json:"pipeline_family"`
 		ReportSessionPolicy          string `json:"report_session_policy"`
 		ReportSessionPolicySelection string `json:"report_session_policy_selection"`
 		PostReportHumanize           string `json:"post_report_humanize"`
 		GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
 		GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
+		RetryStrategy                string `json:"retry_strategy"`
+		RetryOfPendingEventID        string `json:"retry_of_pending_event_id"`
+		ResumeStage                  string `json:"resume_stage"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return reportDraftRequest{}, fmt.Errorf("%w: invalid report pending payload", app.ErrInvalidInput)
 	}
-	return reportDraftRequest{
-		Title:                firstNonEmpty(payload.Title, "Mission report"),
-		DirectionHint:        reportexecution.NormalizeDirectionHint(payload.DirectionHint),
-		ExecutionStrategy:    strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
-		AgentExecutor:        firstNonEmpty(payload.AgentExecutor, "codex"),
-		AgentModel:           strings.TrimSpace(payload.AgentModel),
-		AgentReasoningEffort: strings.TrimSpace(payload.AgentReasoningEffort),
-		AgentSelectionSource: strings.TrimSpace(payload.AgentSelectionSource),
-		MCPMode:              firstNonEmpty(payload.MCPMode, "auto"),
-		// rigor가 지속 상태로 저장되기 전의 pending event는 과거 balanced 동작을 사용했다.
-		// recovery는 새 요청 기본값이 아니라 그 frozen behavior를 재개해야 한다.
+	req := reportDraftRequest{
+		Title:                        firstNonEmpty(payload.Title, "Mission report"),
+		DirectionHint:                reportexecution.NormalizeDirectionHint(payload.DirectionHint),
+		ExecutionStrategy:            strings.TrimSpace(strings.ToLower(payload.ExecutionStrategy)),
+		AgentExecutor:                firstNonEmpty(payload.AgentExecutor, "codex"),
+		AgentModel:                   strings.TrimSpace(payload.AgentModel),
+		AgentReasoningEffort:         strings.TrimSpace(payload.AgentReasoningEffort),
+		AgentSelectionSource:         strings.TrimSpace(payload.AgentSelectionSource),
+		MCPMode:                      firstNonEmpty(payload.MCPMode, "auto"),
 		RigorLevel:                   firstNonEmpty(payload.RigorLevel, legacyPendingReportRigorLevel),
 		ReportMode:                   firstNonEmpty(payload.ReportMode, defaultReportMode),
+		PipelineFamily:               strings.TrimSpace(payload.PipelineFamily),
 		ReportSessionPolicy:          firstNonEmpty(payload.ReportSessionPolicy, reportSessionPolicySameSession),
 		ReportSessionPolicySelection: strings.TrimSpace(payload.ReportSessionPolicySelection),
 		PostReportHumanize:           strings.TrimSpace(payload.PostReportHumanize),
-		// guidance profile이 지속 상태로 저장되기 전의 pending event는 legacy
-		// preserve-markdown 경로에 속한다. 재시작 recovery에서 중단된 과거 리포트를
-		// 새 기본 profile로 재해석하면 안 된다.
-		GenerationGuidanceProfile: firstNonEmpty(payload.GenerationGuidanceProfile, reportprompt.ProfileVisualPlan),
-		GenerationGuidanceSHA256:  strings.TrimSpace(payload.GenerationGuidanceSHA256),
-	}, nil
+		GenerationGuidanceProfile:    firstNonEmpty(payload.GenerationGuidanceProfile, reportprompt.ProfileVisualPlan),
+		GenerationGuidanceSHA256:     strings.TrimSpace(payload.GenerationGuidanceSHA256),
+		RetryStrategy:                strings.TrimSpace(payload.RetryStrategy),
+		RetryOfPendingEventID:        strings.TrimSpace(payload.RetryOfPendingEventID),
+		ResumeStage:                  strings.TrimSpace(payload.ResumeStage),
+	}
+	canonical := reportexecution.NormalizeDraftRequest(reportexecution.DraftRequest{
+		Title: req.Title, DirectionHint: req.DirectionHint, ExecutionStrategy: req.ExecutionStrategy,
+		AgentExecutor: req.AgentExecutor, AgentModel: req.AgentModel, AgentReasoningEffort: req.AgentReasoningEffort,
+		AgentSelectionSource: req.AgentSelectionSource, MCPMode: req.MCPMode, RigorLevel: req.RigorLevel,
+		ReportMode: req.ReportMode, PipelineFamily: req.PipelineFamily, ReportSessionPolicy: req.ReportSessionPolicy,
+		ReportSessionPolicySelection: req.ReportSessionPolicySelection, PostReportHumanize: req.PostReportHumanize,
+		GenerationGuidanceProfile: req.GenerationGuidanceProfile, GenerationGuidanceSHA256: req.GenerationGuidanceSHA256,
+		RetryStrategy: req.RetryStrategy, RetryOfPendingEventID: req.RetryOfPendingEventID, ResumeStage: req.ResumeStage,
+	})
+	req.AgentExecutor, req.AgentModel, req.AgentReasoningEffort = canonical.AgentExecutor, canonical.AgentModel, canonical.AgentReasoningEffort
+	req.AgentSelectionSource, req.MCPMode, req.RigorLevel = canonical.AgentSelectionSource, canonical.MCPMode, canonical.RigorLevel
+	req.ReportMode, req.PipelineFamily = canonical.ReportMode, canonical.PipelineFamily
+	req.ReportSessionPolicy, req.ReportSessionPolicySelection = canonical.ReportSessionPolicy, canonical.ReportSessionPolicySelection
+	req.PostReportHumanize, req.GenerationGuidanceProfile = canonical.PostReportHumanize, canonical.GenerationGuidanceProfile
+	req.GenerationGuidanceSHA256 = canonical.GenerationGuidanceSHA256
+	req.RetryStrategy, req.RetryOfPendingEventID, req.ResumeStage = canonical.RetryStrategy, canonical.RetryOfPendingEventID, canonical.ResumeStage
+	req.ExecutionStrategy, req.Title, req.DirectionHint = canonical.ExecutionStrategy, canonical.Title, canonical.DirectionHint
+	return req, nil
 }
 
 func (server *Server) loadSectionalReportProgress(ctx context.Context, missionID string, pendingEventID string) (sectionalReportProgress, error) {

@@ -195,17 +195,32 @@ func (s *Service) SnapshotConfluenceSourceWithEvent(
 	if err != nil {
 		return ConfluenceSnapshotWithEventResult{}, err
 	}
+	payload := sourceevents.BuildConnectorSourceSnapshottedPayload(sourceevents.ConnectorSourceSnapshottedPayloadRequest{
+		SnapshotID:  snapshot.SnapshotID,
+		ArtifactIDs: snapshot.ArtifactIDs,
+		Connector:   sourceEventConnectorRef(snapshot.Connector),
+		Reason:      req.Snapshot.Reason,
+	})
+	var payloadFields map[string]any
+	if err := json.Unmarshal(payload, &payloadFields); err != nil {
+		return ConfluenceSnapshotWithEventResult{}, err
+	}
+	if proposalID := strings.TrimSpace(req.SourceCandidateProposalEventID); proposalID != "" {
+		payloadFields["source_candidate_proposal_event_id"] = proposalID
+	}
+	if candidateURL := strings.TrimSpace(req.SourceCandidateURL); candidateURL != "" {
+		payloadFields["url"] = candidateURL
+	}
+	payload, err = json.Marshal(payloadFields)
+	if err != nil {
+		return ConfluenceSnapshotWithEventResult{}, err
+	}
 	event, err := buildLedgerEvent(AppendEventRequest{
 		EventID:   req.EventID,
 		MissionID: snapshot.MissionID,
 		EventType: sourceevents.SourceSnapshottedEventType,
 		Producer:  req.Producer,
-		Payload: sourceevents.BuildConnectorSourceSnapshottedPayload(sourceevents.ConnectorSourceSnapshottedPayloadRequest{
-			SnapshotID:  snapshot.SnapshotID,
-			ArtifactIDs: snapshot.ArtifactIDs,
-			Connector:   sourceEventConnectorRef(snapshot.Connector),
-			Reason:      req.Snapshot.Reason,
-		}),
+		Payload:   payload,
 	})
 	if err != nil {
 		return ConfluenceSnapshotWithEventResult{}, err

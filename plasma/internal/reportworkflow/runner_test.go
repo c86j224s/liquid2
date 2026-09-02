@@ -11,7 +11,10 @@ import (
 )
 
 func TestRunDraftObservesFinalStoreAfterOneTakeDraft(t *testing.T) {
-	service := &workflowService{}
+	service := &workflowService{events: []ledger.Event{{
+		EventID: "evt_pending", MissionID: "mis_1", EventType: "report.draft.pending",
+		Payload: mustWorkflowJSON(map[string]any{"origin_pending_event_id": "evt_pending", "retry_strategy": "initial"}),
+	}}}
 	executor := &workflowExecutor{results: []agentexec.AgentResult{{Text: "# Quick\n\nBody.", SessionID: "research-session-1"}}}
 	observer := &workflowObserver{}
 	runner := workflowRunner(service, executor, observer)
@@ -24,6 +27,7 @@ func TestRunDraftObservesFinalStoreAfterOneTakeDraft(t *testing.T) {
 		t.Fatalf("unexpected one_take output: %#v", out)
 	}
 	assertObservedNodes(t, observer, []string{NodeDirectDraft, NodeDirectDraft, NodeFinalStore, NodeFinalStore})
+	assertWorkflowCompletion(t, service, 0, 0, 0)
 }
 
 func TestRunDraftObservesFinalStoreAfterPlannedDraft(t *testing.T) {
@@ -55,6 +59,7 @@ func TestRunDraftObservesFinalStoreAfterPlannedDraft(t *testing.T) {
 	if service.atomicCalls != 1 || len(service.appended) != 0 {
 		t.Fatalf("planned runtime must keep atomic finalstore write: atomic=%d appended=%d", service.atomicCalls, len(service.appended))
 	}
+	assertWorkflowCompletion(t, service, 0, 0, 0)
 }
 
 func TestRunDraftSkipsFinalStoreWhenProviderFails(t *testing.T) {

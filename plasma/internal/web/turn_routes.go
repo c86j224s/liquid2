@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
 	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
@@ -377,7 +378,16 @@ func (server *Server) runAgentTurn(
 	if isManualCompactCommand(userText) {
 		return server.runManualAgentCompaction(ctx, missionID, userEventID, recall, executorName, mcpMode, toolSessionID)
 	}
-	previousSessionID := server.latestAgentSessionID(ctx, missionID, executorName)
+	session := server.latestAgentSession(ctx, missionID, executorName)
+	previousSessionID := session.SessionID
+	profile := agentcapability.Research()
+	if previousSessionID != "" {
+		var err error
+		profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+		if err != nil {
+			return app.LedgerEvent{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
+		}
+	}
 	agentModel := server.latestAgentSessionModel(ctx, missionID, executorName)
 	agentReasoningEffort := server.latestAgentReasoningEffort(ctx, missionID, executorName)
 	agentModel, agentReasoningEffort, err := resolveAgentSettings(executorName, agentModel, agentReasoningEffort, previousSessionID)
@@ -397,6 +407,8 @@ func (server *Server) runAgentTurn(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 	}
 	result, err := server.runObservedAgent(ctx, missionID, userEventID, executor, agentReq)
 	durationMS := time.Since(started).Milliseconds()
@@ -405,7 +417,7 @@ func (server *Server) runAgentTurn(
 			return app.LedgerEvent{}, err
 		}
 		if shouldAutoCompactAfterAgentError(previousSessionID, err, result) {
-			return server.retryAgentTurnAfterAutoCompaction(ctx, missionID, userText, userEventID, recall, executor, executorName, agentModel, agentReasoningEffort, mcpMode, toolSessionID, previousSessionID, prompt, err, result, durationMS, controller)
+			return server.retryAgentTurnAfterAutoCompaction(ctx, missionID, userText, userEventID, recall, executor, executorName, agentModel, agentReasoningEffort, mcpMode, profile, toolSessionID, previousSessionID, prompt, err, result, durationMS, controller)
 		}
 		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, durationMS, map[string]any{
 			"previous_agent_session_id": previousSessionID,
@@ -428,7 +440,7 @@ func (server *Server) runAgentTurn(
 			"text":                      sameSessionValidationUserText(err),
 		})
 	}
-	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, result, durationMS, map[string]any{
+	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, profile, result, durationMS, map[string]any{
 		"tool_session_id":           toolSessionID,
 		"strategy_id":               controller.ID,
 		"previous_agent_session_id": previousSessionID,
@@ -459,6 +471,7 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 	agentModel string,
 	agentReasoningEffort string,
 	mcpMode string,
+	profile agentcapability.Profile,
 	toolSessionID string,
 	previousSessionID string,
 	prompt string,
@@ -479,6 +492,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 		Compaction:        true,
 	})
 	compactDurationMS := time.Since(compactStarted).Milliseconds()
@@ -519,6 +534,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		AgentExecutor:          executorName,
 		AgentModel:             agentModel,
 		AgentReasoningEffort:   agentReasoningEffort,
+		CapabilityProfile:      profile.ID,
+		ProfileRevision:        profile.Revision,
 		MCPMode:                mcpMode,
 		AgentSessionID:         compactResult.SessionID,
 		PreviousAgentSessionID: previousSessionID,
@@ -548,6 +565,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 	}
 	result, err := server.runObservedAgent(ctx, missionID, userEventID, executor, agentReq)
 	retryDurationMS := time.Since(retryStarted).Milliseconds()
@@ -587,7 +606,7 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 			"text":                      "에이전트가 자동 압축 후 재개 요청과 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다.",
 		})
 	}
-	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, result, retryDurationMS, map[string]any{
+	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, profile, result, retryDurationMS, map[string]any{
 		"compaction_attempted":      true,
 		"compaction_event_id":       compactEvent.EventID,
 		"previous_agent_session_id": previousSessionID,
@@ -722,7 +741,8 @@ func (server *Server) runManualAgentCompaction(
 	mcpMode string,
 	toolSessionID string,
 ) (app.LedgerEvent, error) {
-	previousSessionID := server.latestAgentSessionID(ctx, missionID, executorName)
+	session := server.latestAgentSession(ctx, missionID, executorName)
+	previousSessionID := session.SessionID
 	if previousSessionID == "" {
 		return server.service.AppendEvent(ctx, conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
 			EventID:        newID("evt"),
@@ -750,9 +770,13 @@ func (server *Server) runManualAgentCompaction(
 			Producer:       app.Producer{Type: "agent", ID: executorName},
 		}))
 	}
+	profile, err := agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+	if err != nil {
+		return app.LedgerEvent{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
+	}
 	agentModel := server.latestAgentSessionModel(ctx, missionID, executorName)
 	agentReasoningEffort := server.latestAgentReasoningEffort(ctx, missionID, executorName)
-	agentModel, agentReasoningEffort, err := resolveAgentSettings(executorName, agentModel, agentReasoningEffort, previousSessionID)
+	agentModel, agentReasoningEffort, err = resolveAgentSettings(executorName, agentModel, agentReasoningEffort, previousSessionID)
 	if err != nil {
 		return app.LedgerEvent{}, err
 	}
@@ -768,6 +792,8 @@ func (server *Server) runManualAgentCompaction(
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     executorName,
 		MCPMode:           mcpMode,
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 		Compaction:        true,
 	})
 	durationMS := time.Since(started).Milliseconds()
@@ -803,6 +829,8 @@ func (server *Server) runManualAgentCompaction(
 		AgentExecutor:          executorName,
 		AgentModel:             agentModel,
 		AgentReasoningEffort:   agentReasoningEffort,
+		CapabilityProfile:      profile.ID,
+		ProfileRevision:        profile.Revision,
 		MCPMode:                mcpMode,
 		AgentSessionID:         result.SessionID,
 		PreviousAgentSessionID: previousSessionID,
@@ -826,6 +854,9 @@ func (server *Server) runManualAgentCompaction(
 		AgentModel:            agentModel,
 		AgentReasoningEffort:  agentReasoningEffort,
 		IncludeAgentConfig:    true,
+		CapabilityProfile:     profile.ID,
+		ProfileRevision:       profile.Revision,
+		IncludeProfile:        true,
 		MCPMode:               mcpMode,
 		IncludeMCPMode:        true,
 		Text:                  "에이전트 세션 압축 요청을 완료했습니다. 같은 세션에서 다음 턴을 이어갈 수 있습니다.",
@@ -854,6 +885,7 @@ func (server *Server) appendAgentSuccess(
 	userEventID string,
 	executorName string,
 	mcpMode string,
+	profile agentcapability.Profile,
 	result AgentResult,
 	durationMS int64,
 	extra map[string]any,
@@ -867,6 +899,9 @@ func (server *Server) appendAgentSuccess(
 		MissionID:              missionID,
 		Kind:                   "agent_response",
 		AgentExecutor:          executorName,
+		CapabilityProfile:      profile.ID,
+		ProfileRevision:        profile.Revision,
+		IncludeProfile:         true,
 		MCPMode:                mcpMode,
 		IncludeMCPMode:         true,
 		Text:                   result.Text,
@@ -1016,9 +1051,15 @@ func (server *Server) sourceCandidateFetcher(missionID string) sourcecandidates.
 		if err != nil {
 			return sourcecandidates.SourceCandidateFetched{}, err
 		}
+		candidateKind := ""
+		if fetched.MediaKind == app.MediaKindImage {
+			candidateKind = "media_url"
+		}
 		return sourcecandidates.SourceCandidateFetched{
+			CandidateKind:     candidateKind,
 			Content:           fetched.Content,
 			MediaType:         fetched.MediaType,
+			MediaKind:         fetched.MediaKind,
 			Title:             fetched.Title,
 			ExternalVersion:   fetched.ExternalVersion,
 			ExternalUpdatedAt: fetched.ExternalUpdatedAt,
@@ -1026,6 +1067,8 @@ func (server *Server) sourceCandidateFetcher(missionID string) sourcecandidates.
 			PageCount:         fetched.PageCount,
 			TextLength:        fetched.TextLength,
 			TextLengthKnown:   fetched.TextLengthKnown,
+			Width:             fetched.Width,
+			Height:            fetched.Height,
 		}, nil
 	}
 }
@@ -1183,12 +1226,16 @@ func shouldAutoCompactAfterAgentError(previousSessionID string, err error, resul
 	return strings.Contains(text, "ran out of room in the model's context window")
 }
 
-func (server *Server) latestAgentSessionID(ctx context.Context, missionID string, executorName string) string {
+func (server *Server) latestAgentSession(ctx context.Context, missionID string, executorName string) conversation.AgentSession {
 	events, err := server.service.ListEvents(ctx, missionID)
 	if err != nil {
-		return ""
+		return conversation.AgentSession{}
 	}
-	return conversation.LatestAgentSessionID(events, executorName)
+	return conversation.LatestAgentSession(events, executorName)
+}
+
+func (server *Server) latestAgentSessionID(ctx context.Context, missionID string, executorName string) string {
+	return server.latestAgentSession(ctx, missionID, executorName).SessionID
 }
 
 func (server *Server) latestAgentSessionModel(ctx context.Context, missionID string, executorName string) string {

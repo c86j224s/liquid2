@@ -30,6 +30,7 @@ import (
 // Service는 보고서 계획부터 최종 저장까지 각 단계가 소비하는 저장소 기능의 합집합이다.
 // 단계 패키지는 이 인터페이스의 필요한 부분만 좁은 소비자 계약으로 다시 받는다.
 type Service interface {
+	reporting.ReportCompletionStore
 	plan.Service
 	plan.LongFormSectionPlanRepairService
 	finalstore.Service
@@ -53,6 +54,11 @@ type RunnerConfig struct {
 	Executor        agentexec.AgentExecutor
 	NewID           func(string) string
 	LatestSessionID func(context.Context, string, string) string
+}
+
+func (runner Runner) complete(ctx context.Context, output DraftOutput, actual *reporting.ReportAgentUsageRequest) error {
+	_, err := reporting.CompleteReportRun(ctx, runner.service, reporting.ReportCompletionRequest{MissionID: output.Event.MissionID, CanonicalEventID: output.Event.EventID, ActualUsage: actual})
+	return err
 }
 
 // DraftInput은 reportexecution pending payload에서 복원된 typed 실행 입력이다.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -19,6 +20,50 @@ func TestLatestAgentSessionIDKeepsResearchSessionForIsolatedReport(t *testing.T)
 
 	if got := LatestAgentSessionID(events, "codex"); got != "research-session" {
 		t.Fatalf("expected pre-report research session, got %q", got)
+	}
+}
+
+func TestLatestAgentSessionInheritsResearchProfileForIsolatedReport(t *testing.T) {
+	events := []app.LedgerEvent{
+		ledgerEvent(t, "turn.agent.response", map[string]any{
+			"kind":                        "agent_response",
+			"agent_executor":              "codex",
+			"agent_session_id":            "research-session",
+			"capability_profile":          "research.v1",
+			"capability_profile_revision": "1",
+		}),
+		ledgerEvent(t, "report.artifact.created", map[string]any{
+			"agent_executor":                 "codex",
+			"agent_session_id":               "report-session",
+			"report_session_policy":          "isolated_fork",
+			"pre_report_research_session_id": "research-session",
+		}),
+	}
+	events[0].Sequence = 1
+	events[1].Sequence = 2
+
+	got := LatestAgentSession(events, "codex")
+	if got.SessionID != "research-session" || got.ProfileID != agentcapability.ProfileResearchV1 || got.ProfileRevision != agentcapability.RevisionV1 {
+		t.Fatalf("unexpected research session lineage: %#v", got)
+	}
+	reportSession, ok := AgentSessionByID(events, "codex", "report-session")
+	if !ok || reportSession.ProfileID != agentcapability.ProfileResearchV1 || reportSession.ProfileRevision != agentcapability.RevisionV1 {
+		t.Fatalf("unexpected report session lineage: ok=%v session=%#v", ok, reportSession)
+	}
+}
+
+func TestLatestAgentSessionMapsHistoricalSessionToLegacyProfile(t *testing.T) {
+	events := []app.LedgerEvent{
+		ledgerEvent(t, "turn.agent.response", map[string]any{
+			"kind":             "agent_response",
+			"agent_executor":   "codex",
+			"agent_session_id": "historical-session",
+		}),
+	}
+
+	got := LatestAgentSession(events, "codex")
+	if got.SessionID != "historical-session" || got.ProfileID != agentcapability.ProfileLegacyV1 || got.ProfileRevision != agentcapability.RevisionV1 {
+		t.Fatalf("unexpected historical session profile: %#v", got)
 	}
 }
 

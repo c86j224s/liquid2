@@ -53,7 +53,14 @@ func TestLongFormProductPathMapsRequirementToOnlyOwnedSection(t *testing.T) {
 		"title": "Report", "report_mode": reportModeLongForm, "direction_hint": "include a comparison table",
 		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
-	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	detail := waitForEventType(t, server.URL, missionID, reporting.ReportRunCompletedEventType)
+	if countEvents(detail, reporting.ReportRunCompletedEventType) != 1 {
+		t.Fatalf("report completion boundary was not durably recorded once: %#v", detail["events"])
+	}
+	completionPayload := lastEventPayload(t, detail, reporting.ReportRunCompletedEventType)
+	if nestedFloat(t, completionPayload, "delayed_usage_target_count") != 1 || nestedFloat(t, completionPayload, "usage_recorded_count") != 0 || nestedFloat(t, completionPayload, "usage_unavailable_count") != 1 {
+		t.Fatalf("unexpected completion usage counts: %#v", completionPayload)
+	}
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
 		t.Fatalf("requirement map was not durably recorded: %#v", detail["events"])
 	}
@@ -230,7 +237,14 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 		"title": "Fanout Report", "report_mode": reportModeLongForm, "execution_strategy": reportExecutionStrategySectionFanout,
 		"direction_hint": "include calibrated risk register", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
-	detail := waitForEventType(t, server.URL, missionID, "report.artifact.created")
+	detail := waitForEventType(t, server.URL, missionID, reporting.ReportRunCompletedEventType)
+	if countEvents(detail, reporting.ReportRunCompletedEventType) != 1 {
+		t.Fatalf("fanout completion boundary was not durably recorded once: %#v", detail["events"])
+	}
+	completionPayload := lastEventPayload(t, detail, reporting.ReportRunCompletedEventType)
+	if nestedFloat(t, completionPayload, "delayed_usage_target_count") != 5 || nestedFloat(t, completionPayload, "usage_recorded_count") != 5 || nestedFloat(t, completionPayload, "usage_unavailable_count") != 0 {
+		t.Fatalf("unexpected fanout completion usage counts: %#v", completionPayload)
+	}
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
 		t.Fatalf("fanout requirement map was not durably recorded once: %#v", detail["events"])
 	}
@@ -444,7 +458,7 @@ func (agent *fanoutRequirementAgent) Run(_ context.Context, req AgentRequest) (A
 	if sessionID == "" {
 		sessionID = "report-session"
 	}
-	usage := agentusage.New("openai", "codex", "model", "high", req.Prompt).WithProviderUsage(agentusage.ProviderUsage{
+	usage := agentusage.New("openai", req.AgentExecutor, req.Model, req.ReasoningEffort, req.Prompt).WithProviderUsage(agentusage.ProviderUsage{
 		Scope: agentusage.UsageScopeCall, InputTokens: 10, CachedInputTokens: 4, OutputTokens: 2,
 	}, "provider")
 	result := func(text string) AgentResult {

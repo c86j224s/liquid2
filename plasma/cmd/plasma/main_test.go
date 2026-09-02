@@ -15,12 +15,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
@@ -206,6 +208,179 @@ func TestRunMCPRequiresMissionAndAgentSessionBinding(t *testing.T) {
 	if !strings.Contains(errOut.String(), "mission-id") {
 		t.Fatalf("expected binding error, got %q", errOut.String())
 	}
+}
+
+func TestRunMCPReportILEditorialMemoryBindingExposesFrozenSourcesAndMemoryWorkspace(t *testing.T) {
+	const (
+		missionID  = "mis_cli_report_il"
+		sessionID  = "ses_cli_report_il"
+		sourceText = "CLI frozen source body"
+	)
+	dbPath := filepath.Join(t.TempDir(), "plasma.db")
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(store)
+	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "CLI report IL"}); err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		ArtifactID: "art_cli_report_il", MissionID: missionID, MediaType: "text/plain",
+		Filename: "private-source.txt", Producer: app.Producer{Type: "user", ID: "test"}, Content: []byte(sourceText),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+		SnapshotID: "src_cli_report_il", MissionID: missionID,
+		Connector: app.ConnectorRef{ConnectorID: "manual", ConnectorType: "manual", ExternalSourceID: "private-source.txt"},
+		Title:     "Private source", ArtifactIDs: []string{artifact.ArtifactID},
+		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := reportilcontract.SealSourceCatalog(reportilcontract.SourceCatalog{
+		MissionID: missionID,
+		Sources: []reportilcontract.SourceCatalogEntry{{
+			SourceKey: "source_001", SnapshotID: "src_cli_report_il",
+			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_cli_report_il", artifact.SHA256),
+			ContentHash:     artifact.SHA256, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			Artifacts: []reportilcontract.SourceCatalogArtifact{{
+				ArtifactID: artifact.ArtifactID, SHA256: artifact.SHA256, ByteSize: artifact.ByteSize, MediaType: artifact.MediaType,
+			}},
+			ReadableSHA256: artifact.SHA256, ReadableBytes: len(sourceText), Extraction: "stored_text",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindingJSON, err := json.Marshal(reportilcontract.SourceAccessBinding{
+		PendingEventID: "evt_cli_report_il", Stage: "il_editorial_memory", Attempt: 1,
+		MaxCallBytes: 8, MaxReadBytes: 32, Catalog: catalog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"plasma.report_il.sources.list","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"plasma.report_il.sources.read","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"plasma.report_il.sources.read","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"plasma.report_il.sources.read","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"plasma.report_il.memory.start","arguments":{"language":"en"}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"plasma.report_il.sources.quote","arguments":{"source_key":"source_001","quote":"frozen source"}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"plasma.sources.read","arguments":{}}}`,
+	}, "\n")
+	var out, errOut bytes.Buffer
+	code := runMCP(ctx, []string{
+		"-db", dbPath, "-mission-id", missionID, "-agent-session-id", sessionID, "-agent-executor", "codex",
+		"-enabled-tool", "plasma.sources.read", "-legacy-research-loop", "-experimental-report-composition",
+		"-report-il-source-binding-json", string(bindingJSON),
+	}, strings.NewReader(input), &out, &errOut)
+	if code != 0 {
+		t.Fatalf("runMCP returned %d, stderr %q", code, errOut.String())
+	}
+	output := out.String()
+	for _, want := range []string{
+		`"name":"plasma.report_il.sources.list"`,
+		`"name":"plasma.report_il.sources.read"`,
+		`"name":"plasma.report_il.sources.quote"`,
+		`"name":"plasma.report_il.memory.start"`,
+		`"name":"plasma.report_il.memory.append"`,
+		`"name":"plasma.report_il.memory.read"`,
+		`"name":"plasma.report_il.memory.finalize"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("report IL editorial-memory MCP lacks %q: %s", want, output)
+		}
+	}
+	for _, forbidden := range []string{
+		`"name":"plasma.sources.read"`,
+		`"name":"plasma.evidence.propose"`,
+		`"name":"plasma.experiment.report.create"`,
+		`"name":"plasma.report_il.document.start"`,
+		`"name":"plasma.report_il.document.revise_block"`,
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("report IL editorial-memory MCP widened its tool surface with %q: %s", forbidden, output)
+		}
+	}
+	for _, want := range []string{catalog.SHA256, `\"stage\":\"il_editorial_memory\"`, `\"source_key\":\"source_001\"`, `\"content\":\"CLI froz\"`, `\"offset\":8`, `\"remaining_sources\":0`, `\"message\":\"tool is not enabled for this MCP server\"`, `\"workspace_id\":\"ilm_`} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("report IL editorial-memory MCP output lacks %q: %s", want, output)
+		}
+	}
+	if strings.Contains(output, "private-source.txt") || strings.Contains(output, "src_cli_report_il") || strings.Contains(output, "art_cli_report_il") {
+		t.Fatalf("report IL editorial-memory MCP leaked frozen identity metadata: %s", output)
+	}
+}
+
+func TestRunMCPReportILSourceBindingRejectsInvalidJSONBeforeServe(t *testing.T) {
+	valid := testCLIReportILSourceBindingJSON(t, "mis_cli_report_il")
+	var unknown map[string]any
+	if err := json.Unmarshal([]byte(valid), &unknown); err != nil {
+		t.Fatal(err)
+	}
+	unknown["ambient_tools"] = true
+	unknownJSON, err := json.Marshal(unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossMission := testCLIReportILSourceBindingJSON(t, "mis_cli_other")
+	cases := []struct {
+		name, binding, want string
+	}{
+		{name: "malformed", binding: `{"pending_event_id":`, want: "unexpected EOF"},
+		{name: "unknown field", binding: string(unknownJSON), want: "unknown field"},
+		{name: "trailing value", binding: valid + ` {}`, want: "multiple JSON values"},
+		{name: "cross mission", binding: crossMission, want: "mission binding conflicts"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errOut bytes.Buffer
+			code := runMCP(context.Background(), []string{
+				"-db", filepath.Join(t.TempDir(), "plasma.db"), "-mission-id", "mis_cli_report_il",
+				"-agent-session-id", "ses_cli_report_il", "-agent-executor", "codex",
+				"-report-il-source-binding-json", tc.binding,
+			}, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`), &out, &errOut)
+			if code != 2 || out.Len() != 0 || !strings.Contains(errOut.String(), tc.want) {
+				t.Fatalf("runMCP invalid binding returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
+			}
+		})
+	}
+}
+
+func testCLIReportILSourceBindingJSON(t *testing.T, missionID string) string {
+	t.Helper()
+	catalog, err := reportilcontract.SealSourceCatalog(reportilcontract.SourceCatalog{
+		MissionID: missionID,
+		Sources: []reportilcontract.SourceCatalogEntry{{
+			SourceKey: "source_001", SnapshotID: "src_cli_report_il", SnapshotReceipt: strings.Repeat("a", 64),
+			ContentHash: strings.Repeat("b", 64), RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			Artifacts: []reportilcontract.SourceCatalogArtifact{{
+				ArtifactID: "art_cli_report_il", SHA256: strings.Repeat("b", 64), ByteSize: 5, MediaType: "text/plain",
+			}},
+			ReadableSHA256: strings.Repeat("c", 64), ReadableBytes: 5, Extraction: "stored_text",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(reportilcontract.SourceAccessBinding{
+		PendingEventID: "evt_cli_report_il", Stage: "il_document", Attempt: 1,
+		MaxCallBytes: 5, MaxReadBytes: 5, Catalog: catalog,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded)
 }
 
 func TestRunMCPFinalEditStageBindingRejectsReaderFinalFallback(t *testing.T) {
@@ -1553,6 +1728,11 @@ func TestRunWorkflowWaitResumesSameSessionAfterTurn(t *testing.T) {
 	if len(fake.requests) != 2 || fake.requests[1].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected workflow request to resume same provider session, got %#v", fake.requests)
 	}
+	for _, req := range fake.requests {
+		if req.CapabilityProfile != agentcapability.ProfileResearchV1 || req.ProfileRevision != agentcapability.RevisionV1 {
+			t.Fatalf("expected CLI turn and workflow to preserve research profile, got %#v", fake.requests)
+		}
+	}
 	out.Reset()
 	errOut.Reset()
 	code = run(context.Background(), []string{"workflow", "start", missionID, "-db", dbPath, "-instruction", "legacy budget", "-max-duration-ms", "60000", "-wait", "-json"}, &out, &errOut)
@@ -1592,6 +1772,8 @@ func TestCLIWorkflowAgentAdapterForwardsCompactionAndUsage(t *testing.T) {
 		PreviousSessionID: "agent-session-0",
 		AgentExecutor:     "codex",
 		MCPMode:           "workflow",
+		CapabilityProfile: agentcapability.ProfileResearchV1,
+		ProfileRevision:   agentcapability.RevisionV1,
 		Compaction:        true,
 	})
 	if err != nil {
@@ -1605,6 +1787,9 @@ func TestCLIWorkflowAgentAdapterForwardsCompactionAndUsage(t *testing.T) {
 	}
 	if fake.requests[0].MCPMode != "workflow" || fake.requests[0].PreviousSessionID != "agent-session-0" {
 		t.Fatalf("expected workflow request metadata to be forwarded, got %#v", fake.requests[0])
+	}
+	if fake.requests[0].CapabilityProfile != agentcapability.ProfileResearchV1 || fake.requests[0].ProfileRevision != agentcapability.RevisionV1 {
+		t.Fatalf("expected workflow capability profile to be forwarded, got %#v", fake.requests[0])
 	}
 	if result.Usage.ProviderUsage == nil {
 		t.Fatal("expected usage to be returned from CLI workflow adapter")

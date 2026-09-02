@@ -15,6 +15,7 @@ func TestPreviewReportDeleteBackfillsAndReturnsFacts(t *testing.T) {
 		events: []LedgerEvent{
 			{EventID: "evt_report_pending", MissionID: "mis_1", EventType: "report.draft.pending", Payload: []byte(`{"title":"Report"}`)},
 			{EventID: "evt_report_final", MissionID: "mis_1", EventType: "report.artifact.created", Payload: []byte(`{"pending_event_id":"evt_report_pending","artifact_id":"art_1"}`)},
+			{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)},
 		},
 		facts: completedReportDeleteFacts(),
 	}
@@ -146,9 +147,14 @@ func completedReportDeleteFacts() reportrun.DeleteFacts {
 			LifecycleState: reportrun.LifecycleCompleted, Revision: 3, FinalArtifactID: "art_1",
 		},
 		Events: []reportrun.MemberEvent{{
-			Event: reportrun.Event{EventID: "evt_report_pending", MissionID: "mis_1", EventType: "report.draft.pending", Payload: []byte(`{"title":"Report"}`), CreatedAt: now},
+			Membership: reportrun.EventMembership{RunID: "evt_report_pending", EventID: "evt_report_pending", MissionID: "mis_1", EventRole: "draft_pending", AttemptEventID: "evt_report_pending"},
+			Event:      reportrun.Event{EventID: "evt_report_pending", MissionID: "mis_1", EventType: "report.draft.pending", Payload: []byte(`{"title":"Report"}`), CreatedAt: now},
 		}, {
-			Event: reportrun.Event{EventID: "evt_report_final", MissionID: "mis_1", EventType: "report.artifact.created", Payload: []byte(`{"pending_event_id":"evt_report_pending","artifact_id":"art_1"}`), CreatedAt: now},
+			Membership: reportrun.EventMembership{RunID: "evt_report_pending", EventID: "evt_report_final", MissionID: "mis_1", EventRole: "final", AttemptEventID: "evt_report_pending"},
+			Event:      reportrun.Event{EventID: "evt_report_final", MissionID: "mis_1", EventType: "report.artifact.created", Payload: []byte(`{"pending_event_id":"evt_report_pending","artifact_id":"art_1"}`), CreatedAt: now},
+		}, {
+			Membership: reportrun.EventMembership{RunID: "evt_report_pending", EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventRole: "completion", AttemptEventID: "evt_report_pending"},
+			Event:      reportrun.Event{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`), CreatedAt: now},
 		}},
 		Artifacts: []reportrun.MemberArtifact{{
 			Membership: reportrun.ArtifactMembership{ArtifactID: "art_1", ArtifactRole: reportrun.ArtifactRoleFinal, Ownership: reportrun.OwnershipCreated},

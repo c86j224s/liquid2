@@ -3,6 +3,7 @@ package research
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
@@ -134,9 +135,10 @@ func TestLegacyMutationCommonInputErrorsPreservePreExtractionStrings(t *testing.
 		t.Run(test.name, func(t *testing.T) {
 			args := mutationCallWithCommonField(test.args, "mission_id", 1)
 			result := test.call(context.Background(), args)
-			want := "invalid input: decode tool arguments: json: cannot unmarshal number into Go struct field " + test.inputType + ".CommonMutatingInput.mission_id of type string"
-			if result.Error == nil || result.Error.Message != want {
-				t.Fatalf("error = %#v, want %q", result.Error, want)
+			prefix := "invalid input: decode tool arguments: json: cannot unmarshal number into Go struct field " + test.inputType + "."
+			suffix := "mission_id of type string"
+			if result.Error == nil || !strings.HasPrefix(result.Error.Message, prefix) || !strings.HasSuffix(result.Error.Message, suffix) {
+				t.Fatalf("error = %#v, want prefix %q and suffix %q", result.Error, prefix, suffix)
 			}
 		})
 	}

@@ -55,6 +55,8 @@ func (runner Runner) compactBeforeNextStep(ctx context.Context, view workflowsta
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
+		CapabilityProfile: runner.CapabilityProfile,
+		ProfileRevision:   runner.ProfileRevision,
 		Compaction:        true,
 	})
 	err = agentExecutionError(agentCtx, err)
@@ -72,6 +74,8 @@ func (runner Runner) compactBeforeNextStep(ctx context.Context, view workflowsta
 		AgentExecutor:           view.AgentExecutor,
 		AgentModel:              strings.TrimSpace(runner.AgentModel),
 		AgentReasoningEffort:    strings.TrimSpace(runner.ReasoningEffort),
+		CapabilityProfile:       runner.CapabilityProfile,
+		ProfileRevision:         runner.ProfileRevision,
 		MCPMode:                 view.MCPMode,
 		AgentSessionID:          result.SessionID,
 		PreviousAgentSessionID:  previousSessionID,

@@ -17,6 +17,11 @@ func codexMCPArgsForRequest(base []string, req AgentRequest) []string {
 	if req.ReportPlan != nil {
 		args = appendReportPlanMCPArgs(args, req.ToolSessionID, *req.ReportPlan)
 	}
+	if req.ReportILSources != nil {
+		if encoded, err := json.Marshal(req.ReportILSources); err == nil {
+			args = append(args, "-report-il-source-binding-json", string(encoded))
+		}
+	}
 	if req.ReportRequirements != nil {
 		if encoded, err := json.Marshal(req.ReportRequirements); err == nil {
 			args = append(args, "-report-requirements-binding-json", string(encoded))

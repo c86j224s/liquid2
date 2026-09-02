@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/source"
@@ -37,6 +38,8 @@ type AgentRequest struct {
 	PreviousSessionID string
 	AgentExecutor     string
 	MCPMode           string
+	CapabilityProfile agentcapability.ProfileID
+	ProfileRevision   string
 	Compaction        bool
 }
 
@@ -56,6 +59,8 @@ type Runner struct {
 	Agent                 AgentExecutor
 	AgentModel            string
 	ReasoningEffort       string
+	CapabilityProfile     agentcapability.ProfileID
+	ProfileRevision       string
 	Now                   func() time.Time
 	NewID                 func(string) string
 	SourceCandidateStager func(context.Context, ledger.Event)

@@ -7,8 +7,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
+	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
@@ -125,9 +127,25 @@ func runWorkflowStart(ctx context.Context, args []string, stdout, stderr io.Writ
 		return 1
 	}
 	if *wait {
+		events, listErr := svc.ListEvents(ctx, missionID)
+		if listErr != nil {
+			fmt.Fprintf(stderr, "workflow run: %v\n", listErr)
+			return 1
+		}
+		session := conversation.LatestAgentSession(events, resolvedAgentName)
+		profile := agentcapability.Research()
+		if session.SessionID != "" {
+			profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+			if err != nil {
+				fmt.Fprintf(stderr, "workflow run: persisted agent capability profile is invalid: %v\n", err)
+				return 1
+			}
+		}
 		runner := workflowruntime.Runner{
 			Service:               svc,
 			Agent:                 cliWorkflowAgentAdapter{executor: executor},
+			CapabilityProfile:     profile.ID,
+			ProfileRevision:       profile.Revision,
 			NewID:                 cliNewID,
 			SourceCandidateStager: cliSourceCandidateStager(svc),
 		}

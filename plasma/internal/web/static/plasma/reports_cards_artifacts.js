@@ -36,7 +36,9 @@
   function renderArtifactCard(key, isLatest, payload, selectedKey) {
     const plan = reports.reportArtifactPlanPayload(payload);
     const planData = plan.plan || {};
-    const modeLabel = payload.report_mode_label || reports.REPORT_MODE_LABELS[payload.report_mode] || "보고서";
+    const modeLabel = payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
+      ? "무검증형"
+      : payload.report_mode_label || reports.REPORT_MODE_LABELS[payload.report_mode] || "보고서";
     const planLabel = reports.reportPlanLabel(planData) || (payload.report_mode === "one_take" ? "원테이크 생성: 별도 계획 없음" : "기록된 생성 계획 없음");
     const planButton = plan.event_id ? `<button type="button" class="secondary" data-report-plan-event-id="${escapeAttr(plan.event_id)}" data-action="plan">생성 계획</button>` : "";
     const trace = reports.mcpTraceSummary(payload.tool_session_id || payload.plan_tool_session_id || "");

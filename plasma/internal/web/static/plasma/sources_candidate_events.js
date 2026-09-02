@@ -46,10 +46,16 @@
   function confluenceCandidateKeyFromURL(rawURL) {
     try {
       const url = new URL(rawURL);
+      const queryID = url.searchParams.get("pageId");
+      if (/^\d+$/.test(queryID || "")) return confluenceSourceKey(`${url.protocol}//${url.host}`, queryID);
       const segments = url.pathname.split("/").filter(Boolean);
-      const index = segments.findIndex((segment) => segment.toLowerCase() === "pages");
-      if (index < 0 || index + 1 >= segments.length) return "";
-      return confluenceSourceKey(`${url.protocol}//${url.host}`, decodeURIComponent(segments[index + 1]));
+      for (let index = 0; index + 1 < segments.length; index++) {
+        const marker = decodeURIComponent(segments[index]).toLowerCase();
+        if (marker !== "pages" && marker !== "edit-v2") continue;
+        const pageID = decodeURIComponent(segments[index + 1]);
+        if (/^\d+$/.test(pageID)) return confluenceSourceKey(`${url.protocol}//${url.host}`, pageID);
+      }
+      return "";
     } catch (err) {
       return "";
     }
@@ -87,7 +93,7 @@
           sequence,
           userEventID: payload.user_event_id || "",
           agentEventID: payload.agent_event_id || "",
-          staging: staging.get(url) || staging.get(event.EventID) || null
+          staging: staging.get(url) || null
         });
       }
     }
@@ -95,34 +101,35 @@
   }
 
   function sourceCandidateStagingByProposal(events) {
-    const byKey = new Map();
+    const byURL = new Map();
+    const latestStarts = new Map();
+    for (const event of events) {
+      if (event.EventType !== "source.candidate.staging_started") continue;
+      const payload = event.Payload || {};
+      const url = normalizeSourceURL(payload.url || payload.URL || "");
+      if (!url) continue;
+      const existing = latestStarts.get(url);
+      if (!existing || Number(existing.sequence || 0) <= Number(event.Sequence || 0)) {
+        latestStarts.set(url, { eventID: event.EventID, sequence: Number(event.Sequence || 0) });
+      }
+    }
     for (const event of events) {
       if (!["source.candidate.staging_started", "source.candidate.staged", "source.candidate.staging_failed"].includes(event.EventType)) continue;
       const payload = event.Payload || {};
       const proposalEventID = payload.proposal_event_id || "";
       const url = normalizeSourceURL(payload.url || payload.URL || "");
+      if (!url) continue;
       const sequence = Number(event.Sequence || 0);
-      const state = event.EventType === "source.candidate.staged"
-      ? "staged"
-      : event.EventType === "source.candidate.staging_failed"
-      ? "failed"
-      : "fetching";
-      const record = {
-        state,
-        eventID: event.EventID,
-        sequence,
-        artifactID: payload.artifact_id || "",
-        message: payload.message || "",
-        browserRenderCandidate: payload.browser_render_candidate || payload.browserRenderCandidate || null
-      };
-      for (const key of [proposalEventID, url].filter(Boolean)) {
-        const existing = byKey.get(key);
-        if (!existing || Number(existing.sequence || 0) <= sequence) {
-          byKey.set(key, record);
-        }
-      }
+      const latestStart = latestStarts.get(url);
+      const attemptID = String(payload.staging_event_id || "").trim();
+      if (event.EventType !== "source.candidate.staging_started" && latestStart &&
+          (!attemptID || attemptID !== latestStart.eventID)) continue;
+      const state = event.EventType === "source.candidate.staged" ? "staged" : event.EventType === "source.candidate.staging_failed" ? "failed" : "fetching";
+      const record = { state, eventID: event.EventID, sequence, artifactID: payload.artifact_id || "", proposalEventID, url, stagedTerminalEventID: event.EventID, message: payload.message || "", browserRenderCandidate: payload.browser_render_candidate || payload.browserRenderCandidate || null };
+      const existing = byURL.get(url);
+      if (!existing || Number(existing.sequence || 0) <= sequence) byURL.set(url, record);
     }
-    return byKey;
+    return byURL;
   }
 
   function sourceCandidateStagingLabel(staging) {
@@ -142,6 +149,56 @@
     const visible = Number(diagnosis.visible_text_length || 0);
     const suffix = visible > 0 ? ` · 본문 ${visible}자` : "";
     return ` · <span class="source-candidate-diagnostic">브라우저 렌더링 후보${suffix}</span>`;
+  }
+
+  function confluenceCandidateKeyFromLegacyConnector(connector) {
+    const type = String(connector?.connector_type || connector?.ConnectorType || "").trim().toLowerCase();
+    const id = String(connector?.connector_id || connector?.ConnectorID || "").trim().toLowerCase();
+    if (type !== "confluence_cloud" && id !== "confluence") return "";
+    const raw = String(connector?.external_source_id || connector?.ExternalSourceID || "").trim();
+    if (!raw.toLowerCase().startsWith("site_")) return "";
+    const separator = raw.indexOf(":", 5);
+    if (separator <= 5 || separator + 1 >= raw.length) return "";
+    const host = raw.slice(5, separator).toLowerCase();
+    const pageID = raw.slice(separator + 1).trim();
+    if (!host || !pageID || host.includes("/") || host.includes("\\")) return "";
+    return `confluence:${host}:${pageID}`;
+  }
+
+  function sourceCandidateSnapshotConsumption(events) {
+    const consumedURLs = new Set();
+    const consumedConfluenceKeys = new Set();
+
+    for (const event of events || []) {
+      if (event.EventType !== "source.snapshotted") continue;
+      const payload = event.Payload || {};
+      if (typeof payload !== "object" || Array.isArray(payload)) continue;
+      const connector = payload.connector || payload.Connector || {};
+      if (typeof connector !== "object" || Array.isArray(connector)) continue;
+      const legacyKey = confluenceCandidateKeyFromLegacyConnector(connector);
+      if (legacyKey) consumedConfluenceKeys.add(legacyKey);
+      for (const value of [payload.url, payload.URL, connector.external_uri, connector.ExternalURI, connector.external_source_id, connector.ExternalSourceID]) {
+        const normalized = normalizeSourceURL(value);
+        if (normalized) consumedURLs.add(normalized);
+      }
+    }
+    return { consumedURLs, consumedConfluenceKeys };
+  }
+
+  function sourceCandidateConsumedBySnapshot(consumption, candidate) {
+    const normalized = normalizeSourceURL(candidate.url);
+    return (normalized && consumption.consumedURLs.has(normalized)) || consumption.consumedConfluenceKeys.has(confluenceCandidateKeyFromURL(normalized));
+  }
+
+  function sourceCandidateDownloadExcluded(candidate) {
+    const normalized = normalizeSourceURL(candidate?.url || "");
+    if (!normalized) return true;
+    try {
+      const host = new URL(normalized).hostname.toLowerCase();
+      return (host === "atlassian.net" || host.endsWith(".atlassian.net")) && Boolean(confluenceCandidateKeyFromURL(normalized));
+    } catch (err) {
+      return true;
+    }
   }
 
   function sourceCandidateDecisions(events) {
@@ -179,6 +236,9 @@
     sourceCandidateStagingLabel,
     sourceCandidateBrowserRenderLabel,
     sourceCandidateDecisions,
+    sourceCandidateSnapshotConsumption,
+    sourceCandidateConsumedBySnapshot,
+    sourceCandidateDownloadExcluded,
     sourceCandidateTitleForURL
   });
 })(window.Plasma);

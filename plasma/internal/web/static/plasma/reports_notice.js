@@ -53,6 +53,11 @@ function renderReportDraftStatus(status, wasPending) {
       setReportNotice(`${prefix}${reportTimingDetails(status.event)}\n\n${payload.error || payload.text || "패치 실패 사유 없음"}\n\n원본 Markdown 리포트는 유지되었습니다.`, payload.canceled === true ? undefined : "error");
     } else if (payload.canceled === true) {
       setReportNotice(`리포트 생성이 취소되었습니다.${reportTimingDetails(status.event)}\n\n${payload.text || "사용자가 리포트 생성을 취소했습니다."}`);
+    } else if (String(payload.pipeline_family || eventByID(payload.pending_event_id)?.Payload?.pipeline_family || "").trim() === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY) {
+      setReportNotice(`무검증 보고서 생성 실패${reportTimingDetails(status.event)}\n\n${payload.safe_error_message || payload.error || payload.text || "모델 호출 또는 결과 저장이 완료되지 않았습니다."}\n\n원고 교정과 자동 재시도 없이 종료되었습니다.`, "error");
+    } else if (payload.failed_stage_kind && (reports.REPORT_IL_STAGE_LABELS || {})[payload.failed_stage_kind]) {
+      const stage = reports.REPORT_IL_STAGE_LABELS[payload.failed_stage_kind];
+      setReportNotice(`IL 보고서 · ${stage} 단계 실패${reportTimingDetails(status.event)}\n\n${payload.safe_error_message || payload.text || "리포트 생성 단계가 실패했습니다."}\n\n다른 생성 방식으로 바꾸거나 자동 재시도하지 않았습니다.`, "error");
     } else {
       setReportNotice(`리포트 초안 생성 실패${reportTimingDetails(status.event)}\n\n${payload.error || payload.text || "실패 사유 없음"}`, "error");
     }
@@ -92,6 +97,40 @@ function reportPendingMessage(event) {
     ].join("\n") + title + base + reportTimingDetails(event) + eventID;
   }
   const title = payload.title ? `\n대상: ${payload.title}` : "";
+  const experimental = payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY;
+  const unverified = payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
+  if (experimental) {
+    const direction = String(payload.direction_hint || "").trim();
+    const longForm = payload.report_mode === "long_form";
+    const profile = String(payload.rigor_level || "strict").trim();
+    const profileLine = profile === "unverified"
+      ? "무검증: 자료를 읽고 원고를 한 번 작성하며, 별도 근거 교정 단계는 생략합니다."
+      : profile === "exploratory"
+        ? "탐색형: 자료 관계를 정리해 원고를 작성하고 독자 관점의 경량 편집을 거칩니다."
+        : "검증형: 자료 관계·근거를 확인하고 독자 편집과 최종 관계 교정을 거칩니다.";
+    const eventID = event?.EventID ? `\n대기 이벤트: ${event.EventID}` : "";
+    return [
+      longForm ? "장문 IL 보고서 생성 요청을 보냈습니다." : "IL 보고서 생성 요청을 보냈습니다.",
+      longForm
+        ? "장문 작성: 하나의 긴 원고를 완성하고 전체를 다시 읽은 뒤 같은 원고를 모든 형식으로 투영합니다."
+        : "일반 작성: 하나의 완성 원고를 작성한 뒤 같은 원고를 모든 형식으로 투영합니다.",
+      profileLine,
+      "선택한 검증 방식과 관계없이 같은 원고로 Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다.",
+      "모델: gpt-5.6-luna · 추론: xhigh · 새 세션",
+      "완료되면 출력 형식별 보기와 받기가 하나의 보고서 카드에 표시됩니다."
+    ].join("\n") + title + `\n방향: ${direction || "지정 없음"}` + reportTimingDetails(event) + eventID;
+  }
+  if (unverified) {
+    const direction = String(payload.direction_hint || "").trim();
+    const eventID = event?.EventID ? `\n대기 이벤트: ${event.EventID}` : "";
+    return [
+      "무검증 보고서 생성 요청을 보냈습니다.",
+      "주제·방향과 연결 자료를 바탕으로 모델이 Markdown을 한 번 작성합니다.",
+      "근거 확인과 별도 원고 교정 없이 반환된 내용을 그대로 저장합니다.",
+      "모델: gpt-5.6-luna · 추론: xhigh · 새 세션",
+      "완료되면 Markdown 보고서가 아래 목록에 표시됩니다."
+    ].join("\n") + title + `\n방향: ${direction || "지정 없음"}` + reportTimingDetails(event) + eventID;
+  }
   const rigor = payload.rigor_label || REPORT_RIGOR_LABELS[payload.rigor_level] || "";
   const rigorLine = rigor ? `\n엄격도: ${rigor}` : "";
   const mode = payload.report_mode || "planned";

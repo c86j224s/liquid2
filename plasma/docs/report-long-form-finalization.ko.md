@@ -318,3 +318,5 @@ event ID와 session lineage, 표준 `agent_usage`만 기록한다. redacted 운�
 공용 `mcp.tool.called` payload는 변경하지 않는다. tool name, success, created event
 ID를 canonical 보고서 provenance와 결합해 경로를 검증할 수 있으며 opening,
 closing, prompt, 전체 보고서 본문은 trace 요약에 기록하지 않는다.
+
+`report.artifact.created`는 artifact를 즉시 사용할 수 있고 pending을 닫는 경계이며, usage/accounting bookkeeping 완료를 뜻하지 않는다. delayed usage outcome과 `report.run.completed`를 확인해야 report run bookkeeping finality를 판단할 수 있다.

@@ -123,7 +123,9 @@ func (runner Runner) AppendDesignCanceled(ctx context.Context, missionID string,
 	return appended[0], nil
 }
 
-// AppendHumanizeCanceled는 humanize 취소 terminal 이벤트를 기록한다.
+// AppendHumanizeCanceled는 legacy H5 compatibility 취소 terminal 이벤트를 기록한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func (runner Runner) AppendHumanizeCanceled(ctx context.Context, missionID string, pending ledger.Event, canceledInFlight bool, producer ledger.Producer) (ledger.Event, error) {
 	payload := humanizePendingPayloadFromEvent(pending)
 	executor := firstNonEmpty(payload.AgentExecutor, "plasma")

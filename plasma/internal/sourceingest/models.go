@@ -130,8 +130,11 @@ type StagedSourceCandidate struct {
 	Title             string
 	ProposalEventID   string
 	Artifact          RawArtifact
+	MediaKind         string
 	ExternalVersion   string
 	ExternalUpdatedAt time.Time
+	Width             int
+	Height            int
 }
 
 // URLSourceSnapshotResult는 URL/PDF 계열 ingest가 만든 artifact, snapshot,
@@ -216,6 +219,20 @@ type CreateFetchedPDFURLSourceRequest struct {
 	Producer   Producer
 	Fetched    FetchedURLSource
 	FetchedAt  time.Time
+}
+
+// CreateStagedImageMediaURLSourceRequest는 staged 이미지 후보의 기존 artifact를
+// image source snapshot으로 승격하기 위한 입력이다.
+type CreateStagedImageMediaURLSourceRequest struct {
+	MissionID   string
+	URL         string
+	Title       string
+	License     string
+	Attribution string
+	SnapshotID  string
+	EventID     string
+	Producer    Producer
+	Staged      StagedSourceCandidate
 }
 
 // CreateFetchedMediaURLSourceRequest는 미디어 URL fetch 결과를 source snapshot

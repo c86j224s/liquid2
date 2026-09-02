@@ -18,6 +18,16 @@ import (
 //go:embed static/*
 var staticFiles embed.FS
 
+const (
+	katexRuntimeStaticPath      = "static/vendor/katex/katex.min.js"
+	mermaidRuntimeStaticPath    = "static/vendor/mermaid.min.js"
+	mermaidLicenseStaticPath    = "static/vendor/mermaid.LICENSE"
+	domPurifyRuntimeStaticPath  = "static/vendor/purify.min.js"
+	mermaidRendererStaticPath   = "static/plasma/reports_mermaid.js"
+	mermaidLegendStaticPath     = "static/plasma/reports_mermaid_legend.js"
+	mermaidStylesheetStaticPath = "static/report_mermaid.css"
+)
+
 // Server는 Plasma browser/API HTTP route를 묶는 adapter state다.
 //
 // mission/report/source/workflow 제품 규칙은 app/reporting service로 위임하고, 이
@@ -36,12 +46,14 @@ type Server struct {
 	reports                     missionTurnLocks
 	runningReports              reportexecution.InFlight
 	workflowSupervisor          *workflowruntime.Supervisor
+	workflowReconcile           func(context.Context, string) error
 	workflowGoalModel           string
 	workflowGoalReasoningEffort string
 	confluenceOAuth             confluenceconnector.OAuthConfig
 	confluenceOAuthDiscoveryURL string
 	confluenceAPIBaseURL        string
 	confluenceOAuthStates       confluenceOAuthStates
+	reportILChromePath          string
 	fetchURLSource              urlSourceFetchFunc
 	renderBrowserURLSource      browserURLSourceRenderFunc
 	fetchMedia                  mediaSourceFetchFunc
@@ -69,6 +81,8 @@ type Options struct {
 	ConfluenceOAuthDiscoveryURL string
 	ConfluenceAPIBaseURL        string
 	EnvironmentLabel            string
+	// ReportILChromePath optionally selects the executable used by experimental report renders.
+	ReportILChromePath string
 	// StaticDir은 설정되면 embedded copy 대신 디스크의 정적 asset을 제공한다.
 	// 개발 중 edit + refresh를 위한 값이며, release 동작의 source of truth가 아니다.
 	StaticDir string
@@ -121,6 +135,7 @@ func NewServer(service *app.Service, options Options) http.Handler {
 		confluenceOAuth:             options.ConfluenceOAuth,
 		confluenceOAuthDiscoveryURL: strings.TrimSpace(options.ConfluenceOAuthDiscoveryURL),
 		confluenceAPIBaseURL:        strings.TrimSpace(options.ConfluenceAPIBaseURL),
+		reportILChromePath:          strings.TrimSpace(options.ReportILChromePath),
 		fetchURLSource:              urlFetcher,
 		renderBrowserURLSource:      browserRenderer,
 		fetchMedia:                  mediaFetcher,
@@ -136,5 +151,8 @@ func NewServer(service *app.Service, options Options) http.Handler {
 		AgentAvailable: func(name string) bool { return server.agentExecutor(name) != nil },
 		NewID:          newID,
 	})
+	server.workflowReconcile = func(ctx context.Context, missionID string) error {
+		return server.workflowSupervisor.Reconcile(ctx, missionID)
+	}
 	return server
 }

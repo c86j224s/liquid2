@@ -7,6 +7,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
@@ -27,7 +28,10 @@ func NormalizeExecutorName(value string) (string, error) {
 // LockedExecutorFromEvents returns the first durable event that explicitly
 // fixes a mission to one executor.
 func LockedExecutorFromEvents(events []ledger.Event) string {
-	for _, event := range events {
+	for index, event := range events {
+		if event.EventType == "report.artifact.created" && independentReportTerminal(event, events[:index]) {
+			continue
+		}
 		if executor, ok := ExplicitLockingExecutor(event); ok {
 			return executor
 		}
@@ -51,7 +55,11 @@ func ValidateMissionExecutor(events []ledger.Event, requested string) error {
 // ValidateAppend ensures one append cannot introduce mixed or conflicting executors.
 func ValidateAppend(events, appended []ledger.Event) error {
 	requested := ""
-	for _, event := range appended {
+	for index, event := range appended {
+		prior := append(append([]ledger.Event(nil), events...), appended[:index]...)
+		if isIndependentReportEvent(event) || independentReportTerminal(event, prior) {
+			continue
+		}
 		executor, ok, err := explicitLockingExecutor(event)
 		if err != nil {
 			return err
@@ -83,7 +91,7 @@ func ExplicitLockingExecutor(event ledger.Event) (string, bool) {
 }
 
 func explicitLockingExecutor(event ledger.Event) (string, bool, error) {
-	if !EventLocksExecutor(event.EventType) {
+	if !EventLocksExecutor(event.EventType) || isIndependentReportEvent(event) {
 		return "", false, nil
 	}
 	var payload struct {
@@ -97,6 +105,46 @@ func explicitLockingExecutor(event ledger.Event) (string, bool, error) {
 		return "", true, err
 	}
 	return name, true, nil
+}
+
+func isIndependentReportEvent(event ledger.Event) bool {
+	return event.EventType == "report.draft.pending" && independentReportFamily(event) != ""
+}
+
+func independentReportFamily(event ledger.Event) string {
+	if event.EventType != "report.draft.pending" {
+		return ""
+	}
+	var payload struct {
+		PipelineFamily string `json:"pipeline_family"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return ""
+	}
+	family := strings.TrimSpace(payload.PipelineFamily)
+	if !reportpipeline.Independent(family) {
+		return ""
+	}
+	return family
+}
+
+func independentReportTerminal(event ledger.Event, prior []ledger.Event) bool {
+	if event.EventType != "report.artifact.created" {
+		return false
+	}
+	var payload struct {
+		PipelineFamily string `json:"pipeline_family"`
+		PendingID      string `json:"pending_event_id"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil || !reportpipeline.Independent(strings.TrimSpace(payload.PipelineFamily)) || strings.TrimSpace(payload.PendingID) == "" {
+		return false
+	}
+	for _, candidate := range prior {
+		if candidate.EventID == payload.PendingID && independentReportFamily(candidate) == strings.TrimSpace(payload.PipelineFamily) {
+			return true
+		}
+	}
+	return false
 }
 
 // EventLocksExecutor reports whether an event commits the mission to a provider.

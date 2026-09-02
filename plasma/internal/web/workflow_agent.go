@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
@@ -22,6 +23,8 @@ func (adapter workflowAgentAdapter) Run(ctx context.Context, req workflowruntime
 		PreviousSessionID: req.PreviousSessionID,
 		AgentExecutor:     req.AgentExecutor,
 		MCPMode:           req.MCPMode,
+		CapabilityProfile: req.CapabilityProfile,
+		ProfileRevision:   req.ProfileRevision,
 		Compaction:        req.Compaction,
 	}
 	var result AgentResult
@@ -53,7 +56,16 @@ func (server *Server) workflowRunner(ctx context.Context, missionID string, exec
 	if executor == nil {
 		return nil, fmt.Errorf("%w: workflow start requires a configured agent executor", app.ErrInvalidInput)
 	}
-	previousSessionID := server.latestAgentSessionID(ctx, missionID, executorName)
+	session := server.latestAgentSession(ctx, missionID, executorName)
+	profile := agentcapability.Research()
+	if session.SessionID != "" {
+		var err error
+		profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+		if err != nil {
+			return nil, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
+		}
+	}
+	previousSessionID := session.SessionID
 	model, effort, err := resolveAgentSettings(
 		executorName,
 		server.latestAgentSessionModel(ctx, missionID, executorName),
@@ -68,6 +80,8 @@ func (server *Server) workflowRunner(ctx context.Context, missionID string, exec
 		Agent:                 workflowAgentAdapter{server: server, executor: executor},
 		AgentModel:            model,
 		ReasoningEffort:       effort,
+		CapabilityProfile:     profile.ID,
+		ProfileRevision:       profile.Revision,
 		NewID:                 newID,
 		SourceCandidateStager: server.stageSourceCandidateProposalEvent,
 		AgentTurnStarted:      server.liveTurns.start,

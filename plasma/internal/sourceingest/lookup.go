@@ -64,17 +64,36 @@ func confluencePageURLKey(rawURL string) (string, bool) {
 	if err != nil || parsed.Hostname() == "" {
 		return "", false
 	}
+	if pageID := parsed.Query().Get("pageId"); isConfluencePageID(pageID) {
+		return confluenceLocatorKey(parsed.Scheme+"://"+parsed.Host, pageID)
+	}
 	segments := strings.Split(strings.Trim(parsed.EscapedPath(), "/"), "/")
 	for i := 0; i < len(segments)-1; i++ {
-		if strings.EqualFold(segments[i], "pages") {
+		marker, err := url.PathUnescape(segments[i])
+		if err != nil {
+			continue
+		}
+		if strings.EqualFold(marker, "pages") || strings.EqualFold(marker, "edit-v2") {
 			pageID, err := url.PathUnescape(segments[i+1])
-			if err != nil {
+			if err != nil || !isConfluencePageID(pageID) {
 				return "", false
 			}
 			return confluenceLocatorKey(parsed.Scheme+"://"+parsed.Host, pageID)
 		}
 	}
 	return "", false
+}
+
+func isConfluencePageID(value string) bool {
+	if strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, r := range strings.TrimSpace(value) {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func confluenceLocatorKey(siteURL string, pageID string) (string, bool) {
@@ -136,7 +155,10 @@ func LatestStagedSourceCandidateForURL(ctx context.Context, store Store, mission
 		Title:             strings.TrimSpace(selected.Title),
 		ProposalEventID:   strings.TrimSpace(selected.ProposalEventID),
 		Artifact:          artifact,
+		MediaKind:         strings.TrimSpace(selected.MediaKind),
 		ExternalVersion:   strings.TrimSpace(selected.ExternalVersion),
 		ExternalUpdatedAt: updatedAt,
+		Width:             selected.Width,
+		Height:            selected.Height,
 	}, true, nil
 }

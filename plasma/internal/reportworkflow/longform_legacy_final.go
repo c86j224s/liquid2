@@ -57,8 +57,13 @@ func (runner Runner) runLegacyFinalTail(ctx context.Context, prefix PrefixOutput
 	}
 	out := DraftOutput{Artifact: finalized.Artifact, Event: finalized.Event, Markdown: finalized.Markdown, ReportSessionID: finalSessionID}
 	if prefix.PostReportHumanize == reporting.FinalEditHumanizeDisabled {
+		if err := runner.complete(context.WithoutCancel(ctx), out, nil); err != nil {
+			return DraftOutput{}, err
+		}
 		return out, nil
 	}
+	// Deprecated compatibility tail: current long-form reports run the separate
+	// pre-canonical style-edit stage before the canonical artifact is committed.
 	doneHumanize := runner.observeStart(NodeHumanize)
 	humanized, err := reporthumanize.HumanizeMarkdownReport(ctx, runner.humanizeService, runner.newID, prefix.MissionID, reporthumanize.Input{
 		Title: prefix.Title, Markdown: finalized.Markdown, SourceArtifact: finalized.Artifact,
@@ -71,6 +76,9 @@ func (runner Runner) runLegacyFinalTail(ctx context.Context, prefix PrefixOutput
 		return DraftOutput{}, err
 	}
 	out.Humanized = &humanized
+	if err := runner.complete(context.WithoutCancel(ctx), out, nil); err != nil {
+		return DraftOutput{}, err
+	}
 	return out, nil
 }
 

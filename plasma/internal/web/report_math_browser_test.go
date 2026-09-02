@@ -17,10 +17,14 @@ func TestReportMathStaticAssetOrder(t *testing.T) {
 		}
 		last = at
 	}
-	for _, asset := range []string{"static/plasma/reports_math.js", "static/report_math.css", "static/vendor/markdown-it-texmath.js", "static/vendor/katex/katex.min.js", "static/vendor/katex/katex.min.css", "static/vendor/katex/fonts/KaTeX_Main-Regular.woff2"} {
+	for _, asset := range []string{"static/plasma/reports_math.js", "static/report_math.css", "static/vendor/markdown-it-texmath.js", "static/vendor/katex/katex.min.css", "static/vendor/katex/fonts/KaTeX_Main-Regular.woff2"} {
 		if len(mustReadStatic(t, asset)) == 0 {
 			t.Fatalf("empty static asset %q", asset)
 		}
+	}
+	runtime, err := (&Server{}).readStaticFile(katexRuntimeStaticPath)
+	if err != nil || len(runtime) == 0 {
+		t.Fatalf("shared KaTeX runtime: %v", err)
 	}
 }
 
@@ -79,7 +83,7 @@ if(heading.tabIndex!==0||!heading.listener) throw new Error("heading binding mis
 heading.listener();if(!heading.classList.marked) throw new Error("heading interaction missing");
 	global.Plasma.reports.bindReportHeadingInteractions({querySelectorAll(){return [heading];}});
 if(heading.dataset.plasmaHeadingBound!=="true") throw new Error("heading binding marker missing");
-const katex=require("./static/vendor/katex/katex.min.js");
+const katex=require("../reportmathassets/katex.min.js");
 if(katex.version!=="0.17.0") throw new Error("KaTeX version");
 let received;
 global.katex={renderToString(tex,options){received=options;return katex.renderToString(tex,options)}};

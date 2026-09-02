@@ -30,6 +30,16 @@ func (executor CodexExecutor) RunWithObserver(ctx context.Context, req AgentRequ
 }
 
 func (executor CodexExecutor) run(ctx context.Context, req AgentRequest, observer AgentObserver) (AgentResult, error) {
+	if len(req.OutputJSONSchema) > 0 && !json.Valid(req.OutputJSONSchema) {
+		return AgentResult{}, fmt.Errorf("invalid Codex output JSON schema: malformed JSON")
+	}
+	if len(req.OutputJSONSchema) > 0 && req.Compaction {
+		return AgentResult{}, fmt.Errorf("Codex output JSON schema is unavailable for compaction")
+	}
+	req, err := applyCapabilityProfile(req, "codex")
+	if err != nil {
+		return AgentResult{}, fmt.Errorf("invalid agent capability profile: %w", err)
+	}
 	model, effort, err := agentmodels.ResolveForSession(req.Model, req.ReasoningEffort, req.PreviousSessionID)
 	if err != nil {
 		return AgentResult{}, fmt.Errorf("invalid Codex model settings: %w", err)
@@ -56,6 +66,23 @@ func (executor CodexExecutor) run(ctx context.Context, req AgentRequest, observe
 	_ = tmp.Close()
 	defer os.Remove(lastPath)
 
+	outputSchemaPath := ""
+	if len(req.OutputJSONSchema) > 0 {
+		schemaFile, createErr := os.CreateTemp("", "plasma-codex-schema-*.json")
+		if createErr != nil {
+			return AgentResult{}, createErr
+		}
+		outputSchemaPath = schemaFile.Name()
+		defer os.Remove(outputSchemaPath)
+		if _, writeErr := schemaFile.Write(req.OutputJSONSchema); writeErr != nil {
+			_ = schemaFile.Close()
+			return AgentResult{}, writeErr
+		}
+		if closeErr := schemaFile.Close(); closeErr != nil {
+			return AgentResult{}, closeErr
+		}
+	}
+
 	timeout := executor.Timeout
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -70,7 +97,7 @@ func (executor CodexExecutor) run(ctx context.Context, req AgentRequest, observe
 	}
 
 	resumed := strings.TrimSpace(req.PreviousSessionID) != ""
-	args := codexCommandArgs(executor.MCPServer, req, workDir, lastPath)
+	args := codexCommandArgs(executor.MCPServer, req, workDir, lastPath, outputSchemaPath)
 
 	cmd := exec.CommandContext(ctx, command, args...)
 	cmd.Dir = workDir
@@ -151,9 +178,12 @@ func (executor CodexExecutor) run(ctx context.Context, req AgentRequest, observe
 	if err != nil {
 		return AgentResult{Log: log, Resumed: resumed, SessionID: sessionID, Usage: usage}, err
 	}
-	text := strings.TrimSpace(string(content))
-	if text == "" {
+	text := string(content)
+	if strings.TrimSpace(text) == "" {
 		return AgentResult{Log: log, Resumed: resumed, SessionID: sessionID, Usage: usage}, fmt.Errorf("agent returned an empty response")
+	}
+	if !req.PreserveResponseWhitespace {
+		text = strings.TrimSpace(text)
 	}
 	return AgentResult{
 		Text:      text,

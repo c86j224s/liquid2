@@ -25,6 +25,10 @@ func (executor ClaudeExecutor) RunWithObserver(ctx context.Context, req AgentReq
 }
 
 func (executor ClaudeExecutor) run(ctx context.Context, req AgentRequest, stream bool, observer AgentObserver) (AgentResult, error) {
+	req, err := applyCapabilityProfile(req, "claude")
+	if err != nil {
+		return AgentResult{}, fmt.Errorf("invalid agent capability profile: %w", err)
+	}
 	command := strings.TrimSpace(executor.Command)
 	if command == "" {
 		command = "claude"

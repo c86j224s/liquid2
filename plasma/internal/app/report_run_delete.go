@@ -110,6 +110,16 @@ func (s *Service) reportRunStore() (ReportRunStore, error) {
 	return store, nil
 }
 
+// RebuildReportRuns reprojects one mission's durable report-run registration.
+// It is used after classifier fixes and remains content-free.
+func (s *Service) RebuildReportRuns(ctx context.Context, missionID string) error {
+	store, err := s.reportRunStore()
+	if err != nil {
+		return err
+	}
+	return s.ensureReportRuns(ctx, missionID, store)
+}
+
 func (s *Service) ensureReportRuns(ctx context.Context, missionID string, store ReportRunStore) error {
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
@@ -139,7 +149,7 @@ func appReportRunEvents(events []LedgerEvent) []reportrun.Event {
 	for _, event := range events {
 		out = append(out, reportrun.Event{
 			EventID: event.EventID, MissionID: event.MissionID,
-			Sequence: event.Sequence, EventType: event.EventType, Payload: event.Payload,
+			Sequence: event.Sequence, EventType: event.EventType, Producer: event.Producer, CausationEventID: event.CausationEventID, CorrelationID: event.CorrelationID, Payload: event.Payload,
 			CreatedAt: event.CreatedAt,
 		})
 	}

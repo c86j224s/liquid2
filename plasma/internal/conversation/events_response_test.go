@@ -3,6 +3,7 @@ package conversation
 import (
 	"testing"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
@@ -121,6 +122,8 @@ func TestBuildTurnAgentCompactedAppendRequestPreservesPayloadContract(t *testing
 		AgentExecutor:           "codex",
 		AgentModel:              "",
 		AgentReasoningEffort:    "",
+		CapabilityProfile:       agentcapability.ProfileResearchV1,
+		ProfileRevision:         agentcapability.RevisionV1,
 		MCPMode:                 "auto",
 		AgentSessionID:          "ses_next",
 		PreviousAgentSessionID:  "ses_prev",
@@ -142,6 +145,8 @@ func TestBuildTurnAgentCompactedAppendRequestPreservesPayloadContract(t *testing
 	if payload["kind"] != "agent_session_compacted" ||
 		payload["agent_model"] != "" ||
 		payload["agent_reasoning_effort"] != "" ||
+		payload["capability_profile"] != string(agentcapability.ProfileResearchV1) ||
+		payload["capability_profile_revision"] != agentcapability.RevisionV1 ||
 		payload["workflow_run_id"] != "wfr_1" ||
 		payload["workflow_step_id"] != "wfs_1" ||
 		payload["manual"] != false ||

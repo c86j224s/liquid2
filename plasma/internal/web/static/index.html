@@ -483,42 +483,46 @@
                 </div>
               </div>
 			  <div class="report-request-panel">
-				<div class="report-request-actions">
-				  <div class="report-generation-settings" aria-label="리포트 생성 설정">
-					<label class="inline-control segmented-select-control report-select-rigor" for="reportRigor">
-					  <span class="segmented-select-label">엄격도</span>
-					  <select id="reportRigor">
-						<option value="exploratory">탐색적</option>
-						<option value="strict" selected>검증형</option>
-					  </select>
-					</label>
-					<div class="report-model-controls">
-					  <label class="inline-control segmented-select-control report-select-model" for="reportAgentModel"><span class="segmented-select-label">모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
-					  <label class="inline-control segmented-select-control report-select-effort" for="reportAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
-					</div>
-					<label class="inline-control segmented-select-control report-select-execution" for="reportLongFormExecutionStrategy">
-					  <span class="segmented-select-label">장문 작성</span>
-					  <select id="reportLongFormExecutionStrategy" title="장문 보고서 생성에만 적용됩니다">
-						<option value="serial" selected>순차</option>
-						<option value="section_fanout">빠른 병렬</option>
-					  </select>
-					</label>
-				  </div>
-				  <details class="report-direction-details">
-					<summary>방향 추가 <span class="badge muted">선택</span></summary>
-					<label class="report-direction-field" for="reportDirectionHint">
-					  <span>이번 요청에만 적용할 약한 편집 방향</span>
-					  <textarea id="reportDirectionHint" rows="2" placeholder="예: 구현 세부보다 운영 위험과 의사결정 근거를 중심으로 정리"></textarea>
-					</label>
-				  </details>
-				  <div class="report-mode-actions" aria-label="리포트 생성 방식">
-					<button id="draftQuickReport" title="계획 기반 Markdown 보고서 생성">보고서</button>
-					<button id="draftLongReport" class="secondary" title="섹션별 작성, 파트 조립, 최종 편집 방식의 장문 보고서 생성">장문 보고서</button>
-					<button id="cancelReportButton" class="secondary hidden" type="button">생성 취소</button>
-				  </div>
-				</div>
-			  </div>
-			  <div id="reportActiveWork" class="active-work-notice hidden" role="status" aria-live="polite"></div>
+                    <div class="report-request-actions">
+                      <div class="report-generation-settings" aria-label="리포트 생성 설정">
+                        <label class="inline-control segmented-select-control report-select-rigor" for="reportRigor">
+                          <span class="segmented-select-label">검증</span>
+                          <select id="reportRigor" aria-describedby="reportValidationHelp">
+                            <option value="unverified">무검증</option>
+                            <option value="exploratory">탐색형</option>
+                            <option value="strict" selected>검증형</option>
+                          </select>
+                        </label>
+                        <div class="report-model-controls" aria-label="보고서와 장문 보고서 모델 설정">
+                          <label class="inline-control segmented-select-control report-select-model" for="reportAgentModel"><span class="segmented-select-label">모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
+                          <label class="inline-control segmented-select-control report-select-effort" for="reportAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
+                        </div>
+                        <label class="inline-control segmented-select-control report-select-execution" for="reportLongFormExecutionStrategy">
+                          <span class="segmented-select-label">장문 작성</span>
+                          <select id="reportLongFormExecutionStrategy" title="장문 보고서 생성에만 적용됩니다">
+                            <option value="serial" selected>순차</option>
+                            <option value="section_fanout">빠른 병렬</option>
+                          </select>
+                        </label>
+                      </div>
+                      <p id="reportValidationHelp" class="report-validation-help">검증형은 근거를 확인하고 원고를 교정합니다. IL 보고서는 Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다.</p>
+                      <details class="report-direction-details">
+                        <summary>방향 추가 <span class="badge muted">선택</span></summary>
+                        <label class="report-direction-field" for="reportDirectionHint">
+                          <span>이번 요청에만 적용할 약한 편집 방향</span>
+                          <textarea id="reportDirectionHint" rows="2" placeholder="예: 구현 세부보다 운영 위험과 의사결정 근거를 중심으로 정리"></textarea>
+                        </label>
+                      </details>
+                      <div class="report-mode-actions" aria-label="리포트 생성 방식">
+                        <button id="draftQuickReport" title="계획과 자료 확인을 거쳐 Markdown 보고서 생성">보고서</button>
+                        <button id="draftLongReport" class="secondary" title="섹션별 작성, 파트 조립, 최종 편집 방식의 장문 보고서 생성">장문 보고서</button>
+                        <button id="draftExperimentalReport" class="secondary" type="button" title="선택한 검증 방식으로 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">IL 보고서</button>
+                        <button id="draftLongExperimentalReport" class="secondary" type="button" title="긴 원고를 작성한 뒤 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">장문 IL 보고서</button>
+                        <button id="cancelReportButton" class="secondary hidden" type="button">생성 취소</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div id="reportActiveWork" class="active-work-notice hidden" role="status" aria-live="polite"></div>
 			  <div id="reportPipeline"></div>
               <div id="reportNotice" class="report-notice hidden"></div>
               <div id="reportList" class="list compact"></div>
@@ -808,6 +812,7 @@
     <script src="/static/plasma/reports_rendering.js"></script>
     <script src="/static/plasma/reports_cards_conversation.js"></script>
     <script src="/static/plasma/reports_cards_artifacts.js"></script>
+    <script src="/static/plasma/reports_cards_il.js"></script>
     <script src="/static/plasma/reports_cards_legacy.js"></script>
     <script src="/static/plasma/reports_exports_core.js"></script>
     <script src="/static/plasma/reports_exports_html.js"></script>

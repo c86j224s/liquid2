@@ -88,6 +88,7 @@ func TestSnapshotConfluenceSourcePersistsArtifactAndSnapshot(t *testing.T) {
 		t.Fatalf("unexpected read request: %#v", connector.readRequest)
 	}
 	if result.Artifact.MediaType != ConfluenceSnapshotMediaType ||
+		result.Artifact.Filename != "plasma-confluence-snapshot-cloud_1_123.json" ||
 		result.Artifact.Producer.Type != "connector" ||
 		result.Artifact.Producer.ID != ConfluenceConnectorID {
 		t.Fatalf("unexpected artifact: %#v", result.Artifact)
@@ -112,8 +113,9 @@ func TestSnapshotConfluenceSourcePersistsArtifactAndSnapshot(t *testing.T) {
 	if !strings.Contains(string(result.Snapshot.Locators), `"locator_type":"confluence_page_body"`) {
 		t.Fatalf("snapshot locators were not recorded: %s", string(result.Snapshot.Locators))
 	}
-	if !strings.Contains(string(result.Snapshot.Locators), `"site_url":"https://example.atlassian.net/wiki"`) {
-		t.Fatalf("snapshot locators missing site URL: %s", string(result.Snapshot.Locators))
+	if !strings.Contains(string(result.Snapshot.Locators), `"site_url":"https://example.atlassian.net/wiki"`) ||
+		!strings.Contains(string(result.Snapshot.Locators), `"web_url":"https://example.atlassian.net/wiki/spaces/ENG/pages/123"`) {
+		t.Fatalf("snapshot locators missing source URLs: %s", string(result.Snapshot.Locators))
 	}
 }
 
@@ -143,8 +145,10 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 			ExpectedVersion: 7,
 			Reason:          " support claim ",
 		},
-		EventID:  "evt_1",
-		Producer: Producer{Type: "user", ID: "plasma-ui"},
+		EventID:                        "evt_1",
+		Producer:                       Producer{Type: "user", ID: "plasma-ui"},
+		SourceCandidateProposalEventID: "evt_candidate",
+		SourceCandidateURL:             "https://EXAMPLE.com/doc#fragment",
 	})
 	if err != nil {
 		t.Fatalf("SnapshotConfluenceSourceWithEvent returned error: %v", err)
@@ -154,9 +158,11 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 		t.Fatalf("unexpected event shell: %#v", result.Event)
 	}
 	assertJSONPayloadIncludes(t, result.Event.Payload, map[string]any{
-		"snapshot_id":  "src_1",
-		"artifact_ids": []any{"art_1"},
-		"reason":       "support claim",
+		"snapshot_id":                        "src_1",
+		"source_candidate_proposal_event_id": "evt_candidate",
+		"url":                                "https://EXAMPLE.com/doc#fragment",
+		"artifact_ids":                       []any{"art_1"},
+		"reason":                             "support claim",
 		"connector": map[string]any{
 			"connector_id":       ConfluenceConnectorID,
 			"connector_type":     ConfluenceConnectorType,
@@ -166,6 +172,24 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 			"connector_version":  ConfluenceHTTPConnectorV1,
 		},
 	})
+}
+
+func TestSnapshotConfluenceSourceWithEventWithoutCandidateProvenancePreservesLegacyPayload(t *testing.T) {
+	connector := &fakeConfluenceConnector{page: ConfluenceSourcePage{CloudID: "cloud_1", PageID: "123", Title: "Roadmap", Version: 7, BodyStorage: "<p>Body</p>", PlainText: "Body"}}
+	result, err := NewService(&confluenceSnapshotFakeStore{}).SnapshotConfluenceSourceWithEvent(context.Background(), connector, SnapshotConfluenceSourceWithEventRequest{Snapshot: SnapshotConfluenceSourceRequest{MissionID: "mis_1", ArtifactID: "art_1", SnapshotID: "src_1", CloudID: "cloud_1", PageID: "123", ExpectedVersion: 7}, EventID: "evt_1", Producer: Producer{Type: "user", ID: "plasma-ui"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(result.Event.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["source_candidate_proposal_event_id"]; ok {
+		t.Fatal("unexpected candidate proposal provenance")
+	}
+	if _, ok := payload["url"]; ok {
+		t.Fatal("unexpected candidate URL provenance")
+	}
 }
 
 func TestSnapshotConfluenceSourceRejectsVersionDrift(t *testing.T) {
@@ -189,6 +213,69 @@ func TestSnapshotConfluenceSourceRejectsVersionDrift(t *testing.T) {
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestSnapshotConfluenceSourceRejectsUnsafeWebURL(t *testing.T) {
+	for _, webURL := range []string{
+		"https://person:secret@example.atlassian.net/wiki/spaces/ENG/pages/123",
+		"https://attacker.example/wiki/spaces/ENG/pages/123",
+		"https://example.atlassian.net/wiki/spaces/ENG/pages/123\nheader",
+	} {
+		t.Run(webURL, func(t *testing.T) {
+			connector := &fakeConfluenceConnector{
+				page: ConfluenceSourcePage{
+					CloudID:     "cloud_1",
+					SiteURL:     "https://example.atlassian.net/wiki",
+					PageID:      "123",
+					WebURL:      webURL,
+					Version:     7,
+					BodyStorage: "<p>Hello</p>",
+					PlainText:   "Hello",
+				},
+			}
+			_, err := NewService(&confluenceSnapshotFakeStore{}).SnapshotConfluenceSource(context.Background(), connector, SnapshotConfluenceSourceRequest{
+				MissionID:       "mis_1",
+				ArtifactID:      "art_1",
+				SnapshotID:      "src_1",
+				CloudID:         "cloud_1",
+				PageID:          "123",
+				ExpectedVersion: 7,
+			})
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Fatalf("expected ErrInvalidInput for unsafe WebURL, got %v", err)
+			}
+		})
+	}
+}
+
+func TestSearchConfluenceSourcesSuppressesUnsafeSourceURI(t *testing.T) {
+	for _, sourceURI := range []string{
+		"https://person:secret@example.atlassian.net/wiki/spaces/ENG/pages/123",
+		"https://attacker.example/wiki/spaces/ENG/pages/123",
+	} {
+		t.Run(sourceURI, func(t *testing.T) {
+			connector := &fakeConfluenceConnector{
+				searchResult: ConfluenceSourceSearchResult{
+					Candidates: []ConfluenceSourceCandidate{{
+						Connector: ConnectorRef{ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123")},
+						SiteURL:   "https://example.atlassian.net/wiki",
+						SourceURI: sourceURI,
+						Title:     "Roadmap",
+					}},
+				},
+			}
+			result, err := NewService(fakeStore{}).SearchConfluenceSources(context.Background(), connector, ConfluenceSourceSearchRequest{
+				MissionID: "mis_1",
+				CloudID:   "cloud_1",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Candidates) != 1 || result.Candidates[0].SourceURI != "" {
+				t.Fatalf("unsafe source URI was not suppressed: %#v", result.Candidates)
+			}
+		})
 	}
 }
 

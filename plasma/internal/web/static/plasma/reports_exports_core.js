@@ -57,6 +57,21 @@ async function viewReportArtifact(artifactID) {
   }
 }
 
+async function viewReportTextArtifact(artifactID, label = "Artifact", cardKey = "") {
+  if (!state.missionId || !artifactID) return;
+  const owner = captureMissionSelection();
+  const key = cardKey || `artifact:${artifactID}`;
+  reports.setReportPreviewLoading(key);
+  try {
+    const result = await missionApi(owner, `/artifacts/${artifactID}`);
+    reports.applyReportPreview(key, "text", `${label}\n${reports.reportArtifactPreviewHeader(artifactID, result)}`, result.content || "");
+  } catch (err) {
+    if (isStaleMissionOperation(err) || !ownsMissionSelection(owner)) return;
+    if (state.reportPreview && state.reportPreview.key === key) reports.clearReportPreview();
+    showError(err);
+  }
+}
+
 async function viewReportRedpenWorkcopy(sourceArtifactID) {
   if (!state.missionId || !sourceArtifactID) return;
   const owner = captureMissionSelection();
@@ -150,5 +165,5 @@ async function viewConversationExport(artifactID) {
 }
 
 
-  Object.assign(reports, { exportReport, viewReportArtifact, viewReportRedpenWorkcopy, downloadReportArtifact, downloadReportRedpenWorkcopy, createConversationExport, viewConversationExport });
+  Object.assign(reports, { exportReport, viewReportArtifact, viewReportTextArtifact, viewReportRedpenWorkcopy, downloadReportArtifact, downloadReportRedpenWorkcopy, createConversationExport, viewConversationExport });
 })(window);

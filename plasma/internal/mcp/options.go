@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 )
@@ -130,6 +131,14 @@ func WithExperimentalReportComposition() Option {
 func WithOperatorSourceMutation() Option {
 	return func(server *Server) {
 		server.operatorSourceMutation = true
+	}
+}
+
+// WithReportILSourceBinding exposes only sources frozen by one IL stage attempt.
+func WithReportILSourceBinding(binding reportilcontract.SourceAccessBinding) Option {
+	return func(server *Server) {
+		server.reportILSourceBinding = binding
+		server.reportILSourceBindingSet = true
 	}
 }
 
@@ -333,9 +342,8 @@ func WithEnabledTools(tools []string) Option {
 				enabled[tool] = struct{}{}
 			}
 		}
-		if len(enabled) > 0 {
-			server.enabledTools = enabled
-		}
+		server.enabledTools = enabled
+		server.enabledToolsSet = true
 	}
 }
 

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:plasma:report-il:experimental:v2",
+  "title": "Plasma Phase 0 Semantic Document IL",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pipeline_family", "document_id", "revision_id", "title", "language", "blocks", "provenance"],
+  "properties": {
+    "schema_version": {"const": "plasma.report_il.experimental.v2"},
+    "pipeline_family": {"const": "report_il_experimental"},
+    "document_id": {"$ref": "#/$defs/id"},
+    "revision_id": {"$ref": "#/$defs/id"},
+    "narrative_contract_id": {"$ref": "#/$defs/id"},
+    "title": {"$ref": "#/$defs/nonempty"},
+    "language": {"type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"},
+    "blocks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/block"}},
+    "references": {"type": "array", "items": {"$ref": "#/$defs/reference"}},
+    "assets": {"type": "array", "items": {"$ref": "#/$defs/asset"}},
+    "coverage": {"type": "array", "items": {"$ref": "#/$defs/coverage"}},
+    "provenance": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/nonempty"}},
+    "extensions": {"type": "object", "additionalProperties": true}
+  },
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "nonempty": {"type": "string", "minLength": 1},
+    "idList": {"type": "array", "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "kind"],
+      "properties": {
+        "node_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["section", "prose", "list", "quote", "code", "table", "equation", "figure", "callout", "raw"]},
+        "parent_node_id": {"$ref": "#/$defs/id"},
+        "level": {"type": "integer", "minimum": 1, "maximum": 6},
+        "title": {"type": "string"},
+        "prose": {"type": "string"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/nonempty"}},
+        "code": {"type": "string"},
+        "language": {"type": "string"},
+        "table": {"$ref": "#/$defs/table"},
+        "equation": {"$ref": "#/$defs/equation"},
+        "figure": {"$ref": "#/$defs/figure"},
+        "semantic_role": {"enum": ["opening", "context", "claim", "mechanism", "evidence", "example", "contrast", "caveat", "implication", "synthesis", "transition", "conclusion"]},
+        "supports": {"$ref": "#/$defs/idList"},
+        "qualifies": {"$ref": "#/$defs/idList"},
+        "contrasts_with": {"$ref": "#/$defs/idList"},
+        "elaborates": {"$ref": "#/$defs/idList"},
+        "refers_to": {"$ref": "#/$defs/idList"},
+        "evidence_refs": {"$ref": "#/$defs/idList"},
+        "requirement_refs": {"$ref": "#/$defs/idList"},
+        "presentation_intent": {"enum": ["prose", "supporting", "formal_display", "keep_with_next"]},
+        "extension": {}
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns", "rows"],
+      "properties": {
+        "caption": {"type": "string"},
+        "columns": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/nonempty"}},
+        "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+      }
+    },
+    "equation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expression", "notation"],
+      "properties": {
+        "expression": {"$ref": "#/$defs/nonempty"},
+        "notation": {"const": "latex"}
+      }
+    },
+    "figure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "caption", "alt"],
+      "properties": {"asset_id": {"$ref": "#/$defs/id"}, "caption": {"$ref": "#/$defs/nonempty"}, "alt": {"type": "string"}, "decorative": {"type": "boolean"}}
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "kind", "target"],
+      "properties": {
+        "ref_id": {"$ref": "#/$defs/id"},
+        "kind": {"enum": ["citation", "footnote", "cross_reference"]},
+        "target": {"$ref": "#/$defs/nonempty"},
+        "visible_label": {"type": "string"},
+        "locator": {"type": "string"}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "media_type", "sha256", "license_status"],
+      "properties": {
+        "asset_id": {"$ref": "#/$defs/id"},
+        "media_type": {"type": "string", "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+$"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "data_base64": {"type": "string", "contentEncoding": "base64"},
+        "alt": {"type": "string"},
+        "decorative": {"type": "boolean"},
+        "license_status": {"enum": ["allowed", "private_source", "unknown", "prohibited"]},
+        "artifact_id": {"$ref": "#/$defs/id"},
+        "source_snapshot_receipt": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "source_page_url": {"type": "string"},
+        "source_image_url": {"type": "string"}
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requirement_id", "node_ids", "status"],
+      "properties": {
+        "requirement_id": {"$ref": "#/$defs/id"},
+        "node_ids": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+        "status": {"enum": ["covered", "partial", "omitted"]}
+      }
+    }
+  }
+}

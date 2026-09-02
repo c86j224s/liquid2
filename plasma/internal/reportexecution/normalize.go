@@ -2,12 +2,23 @@ package reportexecution
 
 import (
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 )
 
-func normalizeDraftRequest(req DraftRequest) DraftRequest {
+// NormalizeDraftRequest applies the request-local defaults and the independent
+// report IL server contract. Callers may use it before dispatch or recovery;
+// it never resolves classic model, session, or capability policy.
+func NormalizeDraftRequest(req DraftRequest) DraftRequest {
 	req.DirectionHint = NormalizeDirectionHint(req.DirectionHint)
-	req.ExecutionStrategy = strings.TrimSpace(strings.ToLower(req.ExecutionStrategy))
 	req.Title = firstNonEmpty(req.Title, "Mission report")
+	req.AgentSelectionSource = strings.TrimSpace(req.AgentSelectionSource)
+	if family, familyErr := NormalizePipelineFamily(req.PipelineFamily); familyErr == nil {
+		req.PipelineFamily = family
+	} else {
+		req.PipelineFamily = strings.TrimSpace(req.PipelineFamily)
+	}
+	req.ExecutionStrategy = strings.TrimSpace(strings.ToLower(req.ExecutionStrategy))
 	req.AgentExecutor = firstNonEmpty(req.AgentExecutor, "codex")
 	req.AgentModel = strings.TrimSpace(req.AgentModel)
 	req.AgentReasoningEffort = strings.TrimSpace(req.AgentReasoningEffort)
@@ -28,7 +39,81 @@ func normalizeDraftRequest(req DraftRequest) DraftRequest {
 	req.PostReportHumanize = normalizePostReportHumanize(req.PostReportHumanize)
 	req.GenerationGuidanceProfile = normalizeGenerationGuidanceProfile(req.GenerationGuidanceProfile)
 	req.GenerationGuidanceSHA256 = strings.TrimSpace(req.GenerationGuidanceSHA256)
+	req.RetryStrategy = strings.TrimSpace(req.RetryStrategy)
+	req.RetryOfPendingEventID = strings.TrimSpace(req.RetryOfPendingEventID)
+	req.ResumeStage = strings.TrimSpace(req.ResumeStage)
+
+	switch req.PipelineFamily {
+	case reportpipeline.ExperimentalIL:
+		req.PipelineGraph = normalizePipelineGraph(req.PipelineFamily, req.PipelineGraph)
+		req.ExecutionStrategy = ""
+		if req.ReportMode != ModeLongForm {
+			req.ReportMode = ModePlanned
+		}
+		req.AgentExecutor = "codex"
+		req.AgentModel = "gpt-5.6-luna"
+		req.AgentReasoningEffort = "xhigh"
+		req.AgentSelectionSource = "experimental_fixed"
+		req.MCPMode = "source_read_only"
+		req.RigorLevel, req.RigorLabel = normalizeILValidationProfile(req.RigorLevel)
+		req.ReportSessionPolicy = SessionPolicyFreshSession
+		req.ReportSessionPolicySelection = "experimental_fixed"
+		req.PostReportHumanize = "disabled"
+		req.GenerationGuidanceProfile = ""
+		req.GenerationGuidanceSHA256 = ""
+	case reportpipeline.Unverified:
+		req.PipelineGraph = ""
+		req.ExecutionStrategy = ""
+		req.ReportMode = ModePlanned
+		req.AgentExecutor = "codex"
+		req.AgentModel = "gpt-5.6-luna"
+		req.AgentReasoningEffort = "xhigh"
+		req.AgentSelectionSource = "unverified_fixed"
+		req.MCPMode = "source_read_only"
+		req.RigorLevel = "unverified"
+		req.RigorLabel = "무검증형"
+		req.ReportSessionPolicy = SessionPolicyFreshSession
+		req.ReportSessionPolicySelection = "unverified_fixed"
+		req.PostReportHumanize = "disabled"
+		req.GenerationGuidanceProfile = ""
+		req.GenerationGuidanceSHA256 = ""
+	default:
+		req.PipelineGraph = ""
+	}
 	return req
+}
+
+func normalizeDraftRequest(req DraftRequest) DraftRequest {
+	return NormalizeDraftRequest(req)
+}
+
+func normalizePipelineGraph(family, graph string) string {
+	if strings.TrimSpace(family) != reportpipeline.ExperimentalIL {
+		return ""
+	}
+	switch strings.TrimSpace(graph) {
+	case reportpipeline.ExperimentalILFlowGraph:
+		return reportpipeline.ExperimentalILFlowGraph
+	case reportpipeline.ExperimentalILReaderGraph:
+		return reportpipeline.ExperimentalILReaderGraph
+	case reportpipeline.ExperimentalILEditorialGraph:
+		return reportpipeline.ExperimentalILEditorialGraph
+	case reportpipeline.ExperimentalILEditorialMemoryGraph:
+		return reportpipeline.ExperimentalILEditorialMemoryGraph
+	default:
+		return reportpipeline.ExperimentalILValidationProfilesGraph
+	}
+}
+
+func normalizeILValidationProfile(value string) (string, string) {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "unverified":
+		return "unverified", "무검증"
+	case "exploratory":
+		return "exploratory", "탐색형"
+	default:
+		return "strict", "검증형"
+	}
 }
 
 func normalizePostReportHumanize(value string) string {

@@ -10,6 +10,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
+// StartHumanize starts the legacy manual/post-canonical H5 compatibility run.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func (runner Runner) StartHumanize(ctx context.Context, missionID string, req HumanizeRequest, producer ledger.Producer) (ledger.Event, error) {
 	req = normalizeHumanizeRequest(req)
 	eventID := runner.id("evt")
@@ -51,7 +54,10 @@ func (runner Runner) StartHumanize(ctx context.Context, missionID string, req Hu
 	return pending, runner.RunHumanize(context.Background(), missionID, req, pending.EventID)
 }
 
-// ResumeHumanize는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
+// ResumeHumanize는 deprecated된 manual/post-canonical H5 compatibility
+// lifecycle을 durable pending event에서 재개한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func (runner Runner) ResumeHumanize(ctx context.Context, missionID string, pending ledger.Event) error {
 	req, err := HumanizeRequestFromPendingEvent(pending)
 	if err != nil {
@@ -61,7 +67,10 @@ func (runner Runner) ResumeHumanize(ctx context.Context, missionID string, pendi
 	return runner.RunHumanize(context.Background(), missionID, req, pending.EventID)
 }
 
-// RunHumanize는 보고서 생성 파이프라인 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
+// RunHumanize는 deprecated된 manual/post-canonical H5 compatibility worker를
+// 실행한다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func (runner Runner) RunHumanize(ctx context.Context, missionID string, req HumanizeRequest, pendingEventID string) error {
 	req = normalizeHumanizeRequest(req)
 	if runner.InFlight == nil {

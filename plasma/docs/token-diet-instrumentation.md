@@ -98,6 +98,11 @@ The missing piece is usage telemetry:
 - MCP trace events store timing and summaries, but not enough byte-size fields
   to connect tool-result volume with later token growth.
 
+Report usage is finalized separately from immediate artifact availability. Durable
+stage targets can receive a later `report.agent_usage.recorded` event, and the
+conditional `report.run.completed` event is the accounting boundary. A missing
+provider snapshot is recorded as explicit unavailable rather than estimated.
+
 The workflow-step experiment captured Codex JSONL externally. Across the
 available `turn.completed` events from that experiment, the raw cumulative
 snapshot sum was:

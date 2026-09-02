@@ -26,14 +26,17 @@ func (runner Runner) AppendDraftFailed(ctx context.Context, missionID string, pe
 		"failed_at":         time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	mergeFailurePayload(payload, cause)
+	var stage *StageFailureError
+	if errors.As(cause, &stage) {
+		stage.appendProviderFailurePayload(payload)
+	}
 	terminalID := runner.id("evt")
 	terminal := ledger.AppendRequest{EventID: terminalID,
 		MissionID: missionID,
 		EventType: "report.draft.failed",
 		Producer:  ledger.Producer{Type: "agent", ID: executor},
 		Payload:   mustJSON(payload)}
-	var stage *StageFailureError
-	if !errors.As(cause, &stage) {
+	if stage == nil {
 		appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []ledger.AppendRequest{terminal})
 		if err != nil || !ok {
 			return ledger.Event{}, err
@@ -50,6 +53,7 @@ func (runner Runner) AppendDraftFailed(ctx context.Context, missionID string, pe
 	payload["stage_failure_event_id"] = stage.EventID
 	payload["safe_error_class"] = stage.ErrorClass
 	payload["safe_error_message"] = stage.Message
+	payload["retryable"] = stage.Retryable
 	terminal.Payload = mustJSON(payload)
 	stageReq := stage.AppendRequest(missionID, pendingEventID, terminalID, ledger.Producer{Type: "agent", ID: executor})
 	appended, ok, err := runner.Service.AppendReportTerminalIfOpen(ctx, missionID, pendingEventID, []ledger.AppendRequest{stageReq, terminal})
@@ -86,7 +90,9 @@ func (runner Runner) AppendPatchFailed(ctx context.Context, missionID string, pe
 	return appended[0], nil
 }
 
-// AppendHumanizeFailed는 humanize 실패 terminal 이벤트를 기록한다.
+// AppendHumanizeFailed는 legacy H5 compatibility 실패 terminal 이벤트를 기록한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func (runner Runner) AppendHumanizeFailed(ctx context.Context, missionID string, pendingEventID string, executor string, sourceArtifactID string, reportMode string, cause error) (ledger.Event, error) {
 	executor = validAgentExecutorOrEmpty(executor)
 	producerID := firstNonEmpty(executor, "plasma")
@@ -173,7 +179,8 @@ func allowedFailurePayloadKey(key string) bool {
 		"previous_agent_session_id",
 		"returned_agent_session_id",
 		"tool_session_id",
-		"resumed":
+		"resumed",
+		"internal_failure_detail":
 		return true
 	default:
 		return false

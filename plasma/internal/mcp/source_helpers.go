@@ -115,6 +115,16 @@ func mcpLocatorType(locatorType string, legacyKind string) string {
 	return strings.TrimSpace(legacyKind)
 }
 
+func newReportILLiveSourceReadRequest(missionID, snapshotID, sessionID string, maxBytes int) app.ReadLocalPathSourceRequest {
+	return app.ReadLocalPathSourceRequest{
+		MissionID:     missionID,
+		SnapshotID:    snapshotID,
+		MaxBytes:      int64(maxBytes),
+		Producer:      app.Producer{Type: "agent_session", ID: sessionID},
+		ToolSessionID: sessionID,
+	}
+}
+
 func sourceState(snapshot app.SourceSnapshot) app.SourceState {
 	state := snapshot.State
 	if state.Removed || strings.TrimSpace(state.State) == app.SourceStateRemoved {
@@ -163,6 +173,10 @@ func selectedSnapshotArtifactID(snapshot app.SourceSnapshot, requested string) (
 }
 
 func boundedArtifactContent(content []byte, offset int, maxBytes int) (string, int, int, bool, error) {
+	return boundedArtifactContentWithLimit(content, offset, maxBytes, 50000)
+}
+
+func boundedArtifactContentWithLimit(content []byte, offset int, maxBytes, maxLimit int) (string, int, int, bool, error) {
 	if !utf8.Valid(content) {
 		return "", 0, 0, false, fmt.Errorf("%w: source artifact is not UTF-8 text", app.ErrInvalidInput)
 	}
@@ -175,11 +189,17 @@ func boundedArtifactContent(content []byte, offset int, maxBytes int) (string, i
 	if offset < len(content) && !utf8.RuneStart(content[offset]) {
 		return "", 0, 0, false, fmt.Errorf("%w: source artifact offset must align to UTF-8 boundary", app.ErrInvalidInput)
 	}
+	if maxLimit < 1 {
+		return "", 0, 0, false, fmt.Errorf("%w: source artifact byte ceiling must be positive", app.ErrInvalidInput)
+	}
 	limit := maxBytes
 	if limit <= 0 {
 		limit = 20000
-	} else if limit > 50000 {
-		limit = 50000
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+	} else if limit > maxLimit {
+		limit = maxLimit
 	}
 	remaining := content[offset:]
 	if len(remaining) <= limit {

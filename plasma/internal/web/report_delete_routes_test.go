@@ -29,7 +29,7 @@ func TestReportArtifactDeletePreviewAndDeleteRoutes(t *testing.T) {
 
 	preview := getJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+artifactID+"/report_delete_preview")
 	if preview["eligible"] != true || preview["run_id"] != "evt_http_report_pending" ||
-		preview["deletable_event_count"] != float64(2) || preview["deletable_artifact_count"] != float64(1) ||
+		preview["deletable_event_count"] != float64(3) || preview["deletable_artifact_count"] != float64(1) ||
 		strings.TrimSpace(preview["delete_facts_hash"].(string)) == "" {
 		t.Fatalf("unexpected delete preview: %#v", preview)
 	}
@@ -220,6 +220,14 @@ func seedHTTPCompletedReportRun(t *testing.T, ctx context.Context, service *app.
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifactWithEvent returned error: %v", err)
+	}
+	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		EventID: "evt_report_run_completed_http_report_pending", MissionID: missionID,
+		EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"},
+		CausationEventID: "evt_http_report_final", CorrelationID: "evt_http_report_pending",
+		Payload: mustJSON(map[string]any{"kind": "report_run_completed", "schema_version": "plasma.report_run_completion.v1", "run_id": "evt_http_report_pending", "pending_event_id": "evt_http_report_pending", "canonical_event_id": "evt_http_report_final", "artifact_id": artifact.ArtifactID, "delayed_usage_target_count": 0, "usage_recorded_count": 0, "usage_unavailable_count": 0}),
+	}); err != nil {
+		t.Fatalf("AppendEvent completion returned error: %v", err)
 	}
 	return artifact.ArtifactID
 }

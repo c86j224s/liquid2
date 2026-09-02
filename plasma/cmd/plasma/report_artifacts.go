@@ -7,13 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
-	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 type cliReportDraftRunResult struct {
@@ -260,8 +261,20 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	postReportHumanize = cliNormalizePostReportHumanize(postReportHumanize)
 	generationGuidanceProfile = strings.TrimSpace(generationGuidanceProfile)
 	generationGuidanceSHA256 = strings.TrimSpace(generationGuidanceSHA256)
-	events, _ := svc.ListEvents(ctx, missionID)
-	preReportResearchSessionID := workflowruntime.LatestAgentSessionID(events, strings.TrimSpace(agentName))
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		return cliReportDraftRunResult{Err: err}
+	}
+	researchSession := conversation.LatestAgentSession(events, strings.TrimSpace(agentName))
+	preReportResearchSessionID := researchSession.SessionID
+	profile, err := agentcapability.Resolve(researchSession.ProfileID, researchSession.ProfileRevision)
+	if preReportResearchSessionID == "" {
+		profile, err = agentcapability.Resolve("", "")
+	}
+	if err != nil {
+		return cliReportDraftRunResult{Err: fmt.Errorf("persisted agent capability profile is invalid: %w", err)}
+	}
+	executor = agentexec.WithCapabilityProfile(executor, profile)
 	previousSessionID := preReportResearchSessionID
 	forkSourceSessionID := ""
 	sessionChainKind := "same_session_report"
@@ -305,6 +318,8 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 			Model:             req.AgentModel,
 			ReasoningEffort:   req.AgentReasoningEffort,
 			MCPMode:           strings.TrimSpace(mcpMode),
+			CapabilityProfile: profile.ID,
+			ProfileRevision:   profile.Revision,
 		})
 		if err != nil {
 			return cliReportDraftRunResult{Err: fmt.Errorf("report plan agent: %w", err)}
@@ -360,6 +375,8 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		Model:             req.AgentModel,
 		ReasoningEffort:   req.AgentReasoningEffort,
 		MCPMode:           strings.TrimSpace(mcpMode),
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 	})
 	if err != nil {
 		return cliReportDraftRunResult{Err: fmt.Errorf("report agent: %w", err)}

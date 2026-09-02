@@ -11,6 +11,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
 	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
@@ -85,6 +86,9 @@ func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEve
 		if err != nil {
 			return nil, false, err
 		}
+		if terminal && isIndependentReportILPending(pending) && event.EventType != "report.draft.failed" {
+			return nil, false, fmt.Errorf("%w: report IL success requires atomic bundle storage", ErrInvalidInput)
+		}
 		if terminal {
 			terminalCount++
 			terminalID = event.EventID
@@ -95,7 +99,7 @@ func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEve
 		return nil, false, fmt.Errorf("%w: report closure requires exactly one terminal event", ErrInvalidInput)
 	}
 	for _, event := range built {
-		if event.EventType != "report.plan.failed" && event.EventType != "report.requirements.failed" && event.EventType != "report.part_plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.part_edit.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" {
+		if event.EventType != "report.plan.failed" && event.EventType != "report.requirements.failed" && event.EventType != "report.part_plan.failed" && event.EventType != "report.section.failed" && event.EventType != "report.part.failed" && event.EventType != "report.part_edit.failed" && event.EventType != "report.final.failed" && event.EventType != "report.artifact.failed" && event.EventType != "report.il_source_selection.failed" && event.EventType != "report.il_editorial_memory.failed" && event.EventType != "report.il_narrative.failed" && event.EventType != "report.il_long_form_plan.failed" && event.EventType != "report.il_long_form_sections.failed" && event.EventType != "report.il_long_form_parts.failed" && event.EventType != "report.il_long_form_final.failed" && event.EventType != "report.il_continuity.failed" && event.EventType != "report.il_reader.failed" && event.EventType != "report.il_images.failed" && event.EventType != "report.il_document.failed" && event.EventType != "report.il_flow.failed" && event.EventType != "report.il_render.failed" && event.EventType != "report.il_store.failed" && event.EventType != "report.source_packet.failed" {
 			continue
 		}
 		var payload struct {
@@ -127,13 +131,31 @@ func reportPendingEvent(events []LedgerEvent, pendingID string) (LedgerEvent, bo
 	return LedgerEvent{}, false
 }
 
+func reportPendingPipelineFamily(event LedgerEvent) string {
+	if event.EventType != "report.draft.pending" {
+		return ""
+	}
+	var payload struct {
+		PipelineFamily string `json:"pipeline_family"`
+	}
+	if json.Unmarshal(event.Payload, &payload) != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.PipelineFamily)
+}
+
+func isIndependentReportILPending(event LedgerEvent) bool {
+	return reportPendingPipelineFamily(event) == reportpipeline.ExperimentalIL
+}
+
 func validateReportTerminalAppend(pending, terminal LedgerEvent) (bool, error) {
 	var payload struct {
-		PendingID  string `json:"pending_event_id"`
-		StageKind  string `json:"stage_kind"`
-		StageID    string `json:"stage_id"`
-		TerminalID string `json:"terminal_event_id"`
-		Generation struct {
+		PendingID      string `json:"pending_event_id"`
+		StageKind      string `json:"stage_kind"`
+		StageID        string `json:"stage_id"`
+		TerminalID     string `json:"terminal_event_id"`
+		PipelineFamily string `json:"pipeline_family"`
+		Generation     struct {
 			PendingID string `json:"pending_event_id"`
 		} `json:"generation"`
 	}
@@ -146,10 +168,22 @@ func validateReportTerminalAppend(pending, terminal LedgerEvent) (bool, error) {
 	if strings.TrimSpace(payload.PendingID) != pending.EventID {
 		return false, fmt.Errorf("%w: report event must correlate to pending event %q", ErrInvalidInput, pending.EventID)
 	}
+	family := strings.TrimSpace(payload.PipelineFamily)
+	pendingFamily := reportPendingPipelineFamily(pending)
+	if pendingFamily != "" && !reportpipeline.Independent(pendingFamily) {
+		return false, fmt.Errorf("%w: unsupported report pending pipeline family", ErrInvalidInput)
+	}
+	if family != "" && (!reportpipeline.Independent(family) || family != pendingFamily) {
+		return false, fmt.Errorf("%w: report terminal family does not match pending event", ErrInvalidInput)
+	}
+	if family == "" && reportpipeline.Independent(pendingFamily) && terminal.EventType == "report.artifact.created" {
+		return false, fmt.Errorf("%w: independent report terminal family is required", ErrInvalidInput)
+	}
 	if strings.HasPrefix(terminal.EventType, "report.") && strings.HasSuffix(terminal.EventType, ".failed") && terminal.EventType != "report.draft.failed" && terminal.EventType != "report.patch.failed" && terminal.EventType != "report.design.failed" && terminal.EventType != "report.humanize.failed" {
 		kind := strings.TrimPrefix(strings.TrimSuffix(terminal.EventType, ".failed"), "report.")
-		validKind := map[string]bool{"plan": true, "requirements": true, "part_plan": true, "section": true, "part": true, "part_edit": true, "final": true, "artifact": true}[kind]
-		if pending.EventType != "report.draft.pending" || !validKind || payload.StageKind != kind || payload.StageID == "" {
+		validKind := map[string]bool{"plan": true, "requirements": true, "part_plan": true, "section": true, "part": true, "part_edit": true, "final": true, "artifact": true, "il_source_selection": true, "il_editorial_memory": true, "il_narrative": true, "il_long_form_plan": true, "il_long_form_sections": true, "il_long_form_parts": true, "il_long_form_final": true, "il_continuity": true, "il_reader": true, "il_images": true, "il_document": true, "il_flow": true, "il_render": true, "il_store": true, "source_packet": true}[kind]
+		independentKind := map[string]bool{"il_source_selection": true, "il_editorial_memory": true, "il_narrative": true, "il_long_form_plan": true, "il_long_form_sections": true, "il_long_form_parts": true, "il_long_form_final": true, "il_continuity": true, "il_reader": true, "il_images": true, "il_document": true, "il_flow": true, "il_render": true, "il_store": true, "source_packet": true}[kind]
+		if pending.EventType != "report.draft.pending" || !validKind || payload.StageKind != kind || payload.StageID == "" || independentKind && !isIndependentReportILPending(pending) {
 			return false, fmt.Errorf("%w: invalid report stage companion", ErrInvalidInput)
 		}
 		return false, nil

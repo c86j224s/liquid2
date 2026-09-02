@@ -51,6 +51,58 @@ func TestCreateFetchedMediaURLSourceWithEventStoresImageArtifact(t *testing.T) {
 	})
 }
 
+func TestCreateStagedImageMediaURLSourceWithEventReusesArtifact(t *testing.T) {
+	store := &sourceCandidateServiceStore{}
+	content := []byte("image bytes!")
+	artifact := RawArtifact{
+		ArtifactID: "art_image_candidate", MissionID: "mis_1", MediaType: "image/jpeg",
+		ByteSize: int64(len(content)), SHA256: sha256HexBytes(content), Content: content,
+	}
+	result, err := CreateStagedImageMediaURLSourceWithEvent(context.Background(), store, CreateStagedImageMediaURLSourceRequest{
+		MissionID:  "mis_1",
+		URL:        "https://cdn.example.com/viewimage.php?id=1",
+		Title:      "Staged image",
+		SnapshotID: "src_image",
+		EventID:    "evt_image",
+		Producer:   Producer{Type: "user", ID: "plasma-ui"},
+		Staged: StagedSourceCandidate{
+			URL: "https://cdn.example.com/viewimage.php?id=1", ProposalEventID: "evt_proposed",
+			Artifact: artifact, MediaKind: MediaKindImage, Width: 1280, Height: 720,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.HasArtifact || result.Artifact.ArtifactID != artifact.ArtifactID || len(result.Snapshot.ArtifactIDs) != 1 || result.Snapshot.ArtifactIDs[0] != artifact.ArtifactID {
+		t.Fatalf("staged image result = %#v", result)
+	}
+	locator := oneMediaLocator(t, result.Snapshot.Locators)
+	if locator.MIMEType != "image/jpeg" || locator.Width != 1280 || locator.Height != 720 || locator.SHA256 != artifact.SHA256 {
+		t.Fatalf("staged image locator = %#v", locator)
+	}
+	assertJSONPayloadIncludes(t, result.Event.Payload, map[string]any{
+		"source_kind": SourceConnectorTypeMediaURL, "media_kind": MediaKindImage,
+		"source_candidate_proposal_event_id": "evt_proposed", "source_candidate_artifact_reused": true,
+	})
+}
+
+func TestCreateStagedImageMediaURLSourceWithEventRejectsChangedArtifact(t *testing.T) {
+	content := []byte("image bytes!")
+	artifact := RawArtifact{
+		ArtifactID: "art_image_candidate", MissionID: "mis_1", MediaType: "image/jpeg",
+		ByteSize: int64(len(content)), SHA256: sha256HexBytes(content), Content: append([]byte(nil), content...),
+	}
+	artifact.Content[0] = 'X'
+	_, err := CreateStagedImageMediaURLSourceWithEvent(context.Background(), &sourceCandidateServiceStore{}, CreateStagedImageMediaURLSourceRequest{
+		MissionID: "mis_1", URL: "https://example.com/viewimage.php?id=1", SnapshotID: "src_image", EventID: "evt_image",
+		Producer: Producer{Type: "user", ID: "plasma-ui"},
+		Staged:   StagedSourceCandidate{Artifact: artifact, MediaKind: MediaKindImage},
+	})
+	if err == nil {
+		t.Fatal("changed staged image artifact was accepted")
+	}
+}
+
 func TestCreateFetchedMediaURLSourceWithEventStoresAudioLiveReference(t *testing.T) {
 	store := &sourceCandidateServiceStore{}
 	result, err := CreateFetchedMediaURLSourceWithEvent(context.Background(), store, CreateFetchedMediaURLSourceRequest{

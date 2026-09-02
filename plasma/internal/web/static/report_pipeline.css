@@ -93,9 +93,64 @@
 .pipeline-timing { color: var(--muted); }
 .pipeline-reason { color: var(--muted); overflow-wrap: anywhere; }
 
+.report-il-pipeline {
+  border-color: color-mix(in srgb, var(--amber) 38%, var(--line2));
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+}
+
+.report-il-stage-list {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(110px, 1fr));
+  gap: 7px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-il-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+
+.report-il-stage > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.report-il-stage strong,
+.report-il-stage small,
+.report-il-stage em {
+  overflow-wrap: anywhere;
+}
+
+.report-il-stage strong { color: var(--ink2); font-size: 11.5px; }
+.report-il-stage small { color: var(--muted); font-size: 10.5px; }
+.report-il-stage em { color: var(--red); font-size: 10.5px; font-style: normal; }
+.report-il-stage.state-completed { border-color: color-mix(in srgb, var(--green) 38%, var(--line2)); }
+.report-il-stage.state-running { border-color: color-mix(in srgb, var(--amber) 52%, var(--line2)); }
+.report-il-stage.state-failed { border-color: color-mix(in srgb, var(--red) 50%, var(--line2)); }
+
+.report-il-retry-boundary {
+  margin-top: 10px;
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .report-il-stage-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
 @media (max-width: 700px) {
   .pipeline-header { align-items: flex-start; }
   .pipeline-current { justify-content: flex-start; }
+  .report-il-stage-list { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

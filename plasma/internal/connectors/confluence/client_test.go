@@ -334,6 +334,33 @@ func TestClientRejectsInvalidSiteURLOption(t *testing.T) {
 	}
 }
 
+func TestClientAbsoluteURLRejectsCredentialsAndOtherHosts(t *testing.T) {
+	client, err := NewClient(
+		"https://api.atlassian.com/ex/confluence/cloud_1/wiki",
+		"cloud_1",
+		WithSiteURL("https://docs.atlassian.net/wiki"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "relative tenant path", value: "/spaces/ENG/pages/123/Roadmap", want: "https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap"},
+		{name: "absolute tenant URL", value: "https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap", want: "https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap"},
+		{name: "credentials", value: "https://person:secret@docs.atlassian.net/wiki/spaces/ENG/pages/123", want: ""},
+		{name: "other host", value: "https://attacker.example/wiki/spaces/ENG/pages/123", want: ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := client.absoluteURL(client.siteURLString(), tc.value); got != tc.want {
+				t.Fatalf("absoluteURL() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDiscoveryClientListsConfluenceSites(t *testing.T) {
 	var gotPath string
 	var gotAuth string

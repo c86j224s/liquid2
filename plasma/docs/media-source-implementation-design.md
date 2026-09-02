@@ -237,10 +237,10 @@ Audio/video default:
    pinning option.
 
 Re-adding the same accepted media should dedupe by normalized canonical URL when
-possible and by mission plus SHA-256 when bytes are pinned. If SQLite's current
-`(mission_id, sha256)` unique index finds an existing artifact, the source
-creation path should reuse the existing artifact instead of surfacing a
-constraint failure to the user.
+possible and by mission plus SHA-256 when bytes are pinned. Source creation
+paths should reuse an existing source snapshot or eligible staged artifact
+instead of relying on database-wide content uniqueness. Distinct report bundle
+artifacts may intentionally retain separate identities for the same bytes.
 
 PDF URL default:
 

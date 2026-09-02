@@ -7,7 +7,8 @@
     const state = core.escapeHTML(node.state || "unknown");
     const timing = core.escapeHTML(core.nodeTiming(node));
     const fixedClass = fixed ? " pipeline-visual-node-plan" : "";
-    return `<g class="pipeline-visual-node${fixedClass} state-${state}" data-pipeline-node-width="${width}" transform="translate(${x} ${y})">
+    const kind = core.escapeHTML(node.kind || "unknown");
+    return `<g class="pipeline-visual-node${fixedClass} state-${state}" data-pipeline-node-kind="${kind}" data-pipeline-node-width="${width}" transform="translate(${x} ${y})">
       ${timing ? `<title${core.liveTimingAttributes(node, core.nodeLabel(node))}>${core.escapeHTML(`${core.nodeLabel(node)} ${timing}`)}</title>` : ""}
       <circle class="pipeline-visual-dot" r="5"></circle>
       <text class="pipeline-visual-label" y="27" text-anchor="middle">${label}</text>
@@ -66,6 +67,111 @@
   }
   function arrowMarker() {
     return `<marker id="pipeline-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z"></path></marker>`;
+  }
+  function stageProgressGraph(nodes) {
+    const stages = nodes.filter((node) => (reports.REPORT_IL_STAGE_LABELS || {})[node.kind]);
+    if (!stages.length) return "";
+    const output = [];
+    const nodeGap = 32;
+    const graphPadding = 32;
+    let previous;
+    let nextX = graphPadding;
+    stages.forEach((node) => {
+      const width = visualNodeWidth(node);
+      const x = previous ? previous.x + previous.width / 2 + nodeGap + width / 2 : nextX + width / 2;
+      if (previous) output.push(connector(previous.x, x));
+      output.push(visualNode(node, x, 62, width, !previous));
+      previous = { x, width };
+      nextX = x + width / 2 + graphPadding;
+    });
+    const width = Math.max(760, nextX);
+    const aria = `${stages.map((node) => core.nodeLabel(node)).join(", ")} 순서의 IL 보고서 생성 진행 상황`;
+    return `<svg class="pipeline-graph pipeline-graph-stages" style="--pipeline-width: ${width}px; --pipeline-height: 136px" viewBox="0 0 ${width} 136" role="img" aria-label="${core.escapeHTML(aria)}"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
+  }
+  function longFormILProgressGraph(nodes) {
+    const sections = nodes.filter((node) => node.kind === "section");
+    const partEdits = nodes.filter((node) => node.kind === "part_edit").sort((a, b) => (a.part_index || 0) - (b.part_index || 0));
+    if (!sections.length || !partEdits.length) return stageProgressGraph(nodes);
+    const typedStages = nodes.filter((node) => (reports.REPORT_IL_STAGE_LABELS || {})[node.kind]);
+    const prefixKinds = new Set(["source_packet", "il_source_selection", "il_editorial_memory", "il_long_form_plan"]);
+    const aggregateKinds = new Set(["il_narrative", "il_long_form_sections", "il_long_form_parts"]);
+    const prefix = typedStages.filter((node) => prefixKinds.has(node.kind));
+    const narrative = typedStages.find((node) => node.kind === "il_narrative");
+    const planIndex = prefix.findIndex((node) => node.kind === "il_long_form_plan");
+    if (narrative) prefix.splice(planIndex < 0 ? prefix.length : planIndex, 0, narrative);
+    const closing = typedStages.filter((node) => !prefixKinds.has(node.kind) && !aggregateKinds.has(node.kind));
+    const artifact = nodes.find((node) => node.kind === "artifact");
+    if (artifact) closing.push(artifact);
+
+    const output = [];
+    const padding = 36;
+    const nodeGap = 42;
+    const branchGap = 76;
+    const rowGap = 84;
+    const rows = groupByPart(sections);
+    const rowCount = Math.max(1, rows.length);
+    const lastRowY = 62 + (rowCount - 1) * rowGap;
+    const centerY = 62 + (lastRowY - 62) / 2;
+    const height = Math.max(136, Math.round(lastRowY + 74));
+    const maxSectionsPerPart = Math.max(...rows.map(([, items]) => items.length));
+    const sectionWidth = maxNodeWidth(sections);
+    const partEditWidth = maxNodeWidth(partEdits);
+
+    const prefixLayouts = [];
+    let prefixRight = padding;
+    prefix.forEach((node, index) => {
+      const width = visualNodeWidth(node);
+      const x = prefixRight + width / 2;
+      prefixLayouts.push({ node, x, width, fixed: index === 0 });
+      prefixRight = x + width / 2 + nodeGap;
+    });
+    const branchSource = prefixLayouts[prefixLayouts.length - 1];
+    const firstSectionX = (branchSource ? branchSource.x + branchSource.width / 2 : prefixRight) + branchGap + sectionWidth / 2;
+    const sectionStep = sectionWidth + nodeGap;
+    const lastSectionRight = firstSectionX + Math.max(0, maxSectionsPerPart - 1) * sectionStep + sectionWidth / 2;
+    const firstPartEditX = lastSectionRight + branchGap + partEditWidth / 2;
+    const partEditStep = partEditWidth + nodeGap;
+    const lastPartEditX = firstPartEditX + Math.max(0, partEdits.length - 1) * partEditStep;
+
+    const sectionPhaseStart = firstSectionX - sectionWidth / 2 - 16;
+    const sectionPhaseEnd = lastSectionRight + 16;
+    output.push(`<g class="pipeline-visual-phase pipeline-visual-phase-fanout"><rect x="${sectionPhaseStart}" y="16" width="${sectionPhaseEnd - sectionPhaseStart}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${sectionPhaseStart + 10}" y="34">섹션 병렬 작성</text></g>`);
+    const partPhaseStart = firstPartEditX - partEditWidth / 2 - 16;
+    const partPhaseEnd = lastPartEditX + partEditWidth / 2 + 16;
+    output.push(`<g class="pipeline-visual-phase"><rect x="${partPhaseStart}" y="16" width="${partPhaseEnd - partPhaseStart}" height="${height - 38}" rx="4"></rect><text class="pipeline-phase-label" x="${partPhaseStart + 10}" y="34">파트 순차 편집</text></g>`);
+
+    prefixLayouts.forEach((layout, index) => {
+      if (index > 0) output.push(pathConnector(prefixLayouts[index - 1].x, centerY, layout.x, centerY));
+      output.push(visualNode(layout.node, layout.x, centerY, layout.width, layout.fixed));
+    });
+    const sectionLayouts = [];
+    rows.forEach(([, items], rowIndex) => {
+      const y = 62 + rowIndex * rowGap;
+      items.forEach((node, index) => {
+        const x = firstSectionX + index * sectionStep;
+        if (branchSource) output.push(pathConnector(branchSource.x, centerY, x, y));
+        output.push(visualNode(node, x, y, sectionWidth, false));
+        sectionLayouts.push({ x, y });
+      });
+    });
+    sectionLayouts.forEach((layout) => output.push(pathConnector(layout.x, layout.y, firstPartEditX, centerY)));
+    partEdits.forEach((node, index) => {
+      const x = firstPartEditX + index * partEditStep;
+      if (index > 0) output.push(pathConnector(x - partEditStep, centerY, x, centerY));
+      output.push(visualNode(node, x, centerY, partEditWidth, false));
+    });
+
+    let previous = { x: lastPartEditX, y: centerY, width: partEditWidth };
+    closing.forEach((node) => {
+      const width = visualNodeWidth(node);
+      const x = previous.x + previous.width / 2 + nodeGap + width / 2;
+      output.push(pathConnector(previous.x, previous.y, x, centerY));
+      output.push(visualNode(node, x, centerY, width, false));
+      previous = { x, y: centerY, width };
+    });
+    const width = Math.max(760, Math.round(previous.x + previous.width / 2 + padding));
+    const aria = "장문 구성 설계 뒤 여러 섹션으로 병렬 분기하고 파트를 순서대로 편집한 뒤 최종화하는 IL 보고서 생성 진행 상황";
+    return `<svg class="pipeline-graph pipeline-graph-fanout pipeline-graph-il-long-form" style="--pipeline-width: ${width}px; --pipeline-height: ${height}px" viewBox="0 0 ${width} ${height}" role="img" aria-label="${aria}"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
   }
   function groupByPart(nodes) {
     const groups = new Map();
@@ -189,5 +295,5 @@
         `계획에서 ${partPlans.length ? "파트 계획과 " : ""}여러 섹션 작성으로 갈라지고 파트 조립으로 합쳐지는 병렬 리포트 생성 진행 상황`;
     return `<svg class="pipeline-graph pipeline-graph-fanout${transition}" style="--pipeline-width: ${width}px; --pipeline-height: ${height}px" viewBox="0 0 ${width} ${height}" role="img" aria-label="${aria}"><defs>${arrowMarker()}</defs>${output.join("")}</svg>`;
   }
-  reports.pipelineGraph = { progressGraph };
+  reports.pipelineGraph = { progressGraph, stageProgressGraph, longFormILProgressGraph };
 })(window);

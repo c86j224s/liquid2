@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -26,19 +27,53 @@ type OpenAgentPending struct {
 // 원장 이벤트에서 복원한다. isolated/fresh 보고서 세션은 보고서 작성용 세션을
 // 이어 쓰지 않도록 pre-report 연구 세션으로 되돌린다.
 func LatestAgentSessionID(events []app.LedgerEvent, executorName string) string {
+	return LatestAgentSession(events, executorName).SessionID
+}
+
+// AgentSession identifies the latest resumable provider session and the immutable
+// capability profile that was used to create it.
+type AgentSession struct {
+	SessionID       string
+	ProfileID       agentcapability.ProfileID
+	ProfileRevision string
+}
+
+// LatestAgentSession restores the latest provider session and profile identity.
+// Historical events without profile fields map to legacy.v1. Report sessions
+// inherit the profile of their recorded pre-report or same-session ancestor.
+func LatestAgentSession(events []app.LedgerEvent, executorName string) AgentSession {
+	latest, _ := scanAgentSessions(events, executorName)
+	return latest
+}
+
+// AgentSessionByID restores the immutable profile associated with a recorded
+// provider session. It includes report sessions whose profile is inherited from
+// their pre-report research lineage.
+func AgentSessionByID(events []app.LedgerEvent, executorName string, sessionID string) (AgentSession, bool) {
+	_, sessions := scanAgentSessions(events, executorName)
+	session, ok := sessions[strings.TrimSpace(sessionID)]
+	return session, ok
+}
+
+type agentSessionPayload struct {
+	AgentSessionID             string                    `json:"agent_session_id"`
+	AgentExecutor              string                    `json:"agent_executor"`
+	CapabilityProfile          agentcapability.ProfileID `json:"capability_profile"`
+	CapabilityProfileRevision  string                    `json:"capability_profile_revision"`
+	Kind                       string                    `json:"kind"`
+	ReportSessionPolicy        string                    `json:"report_session_policy"`
+	PreReportResearchSessionID string                    `json:"pre_report_research_session_id"`
+}
+
+func scanAgentSessions(events []app.LedgerEvent, executorName string) (AgentSession, map[string]AgentSession) {
 	latestOrder := int64(-1)
-	latestSessionID := ""
+	latest := AgentSession{}
+	sessions := map[string]AgentSession{}
 	for i, event := range events {
 		if event.EventType != "turn.agent.response" && event.EventType != "report.artifact.created" && event.EventType != "agent.session.reset" {
 			continue
 		}
-		var payload struct {
-			AgentSessionID             string `json:"agent_session_id"`
-			AgentExecutor              string `json:"agent_executor"`
-			Kind                       string `json:"kind"`
-			ReportSessionPolicy        string `json:"report_session_policy"`
-			PreReportResearchSessionID string `json:"pre_report_research_session_id"`
-		}
+		var payload agentSessionPayload
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			continue
 		}
@@ -52,29 +87,88 @@ func LatestAgentSessionID(events []app.LedgerEvent, executorName string) string 
 		if order == 0 {
 			order = int64(i + 1)
 		}
-		if order < latestOrder {
-			continue
-		}
 		if event.EventType == "agent.session.reset" {
-			latestOrder = order
-			latestSessionID = ""
+			if order >= latestOrder {
+				latestOrder = order
+				latest = AgentSession{}
+			}
 			continue
 		}
+
+		sessionID := strings.TrimSpace(payload.AgentSessionID)
+		preReportSessionID := strings.TrimSpace(payload.PreReportResearchSessionID)
+		profile := profileFromSessionPayload(payload, sessions, sessionID, preReportSessionID)
+		if sessionID != "" {
+			sessions[sessionID] = AgentSession{
+				SessionID:       sessionID,
+				ProfileID:       profile.ProfileID,
+				ProfileRevision: profile.ProfileRevision,
+			}
+		}
+
 		if event.EventType == "report.artifact.created" && isReportSessionIsolatedFromResearch(payload.ReportSessionPolicy) {
-			preReportSessionID := strings.TrimSpace(payload.PreReportResearchSessionID)
-			if preReportSessionID == "" {
+			if preReportSessionID == "" || order < latestOrder {
 				continue
 			}
+			preReportSession := sessions[preReportSessionID]
+			if preReportSession.SessionID == "" {
+				preReportSession = AgentSession{
+					SessionID:       preReportSessionID,
+					ProfileID:       profile.ProfileID,
+					ProfileRevision: profile.ProfileRevision,
+				}
+				sessions[preReportSessionID] = preReportSession
+			}
 			latestOrder = order
-			latestSessionID = preReportSessionID
+			latest = preReportSession
 			continue
 		}
-		if strings.TrimSpace(payload.AgentSessionID) != "" {
+		if sessionID != "" && order >= latestOrder {
 			latestOrder = order
-			latestSessionID = strings.TrimSpace(payload.AgentSessionID)
+			latest = sessions[sessionID]
 		}
 	}
-	return latestSessionID
+	return latest, sessions
+}
+
+type sessionProfile struct {
+	ProfileID       agentcapability.ProfileID
+	ProfileRevision string
+}
+
+func profileFromSessionPayload(payload agentSessionPayload, sessions map[string]AgentSession, sessionID string, preReportSessionID string) sessionProfile {
+	if payload.CapabilityProfile != "" || strings.TrimSpace(payload.CapabilityProfileRevision) != "" {
+		return sessionProfile{
+			ProfileID:       firstProfileID(payload.CapabilityProfile),
+			ProfileRevision: firstProfileRevision(payload.CapabilityProfileRevision),
+		}
+	}
+	for _, ancestorID := range []string{sessionID, preReportSessionID} {
+		if ancestor := sessions[ancestorID]; ancestor.SessionID != "" {
+			return sessionProfile{
+				ProfileID:       ancestor.ProfileID,
+				ProfileRevision: ancestor.ProfileRevision,
+			}
+		}
+	}
+	return sessionProfile{
+		ProfileID:       agentcapability.ProfileLegacyV1,
+		ProfileRevision: agentcapability.RevisionV1,
+	}
+}
+
+func firstProfileID(value agentcapability.ProfileID) agentcapability.ProfileID {
+	if value == "" {
+		return agentcapability.ProfileLegacyV1
+	}
+	return value
+}
+
+func firstProfileRevision(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return agentcapability.RevisionV1
+	}
+	return strings.TrimSpace(value)
 }
 
 // LatestAgentModel은 특정 executor에 대해 마지막으로 확인된 모델명을 반환한다.

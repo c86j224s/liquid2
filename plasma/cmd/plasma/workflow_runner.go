@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
@@ -22,13 +24,27 @@ func drainCLIQueuedWorkflows(ctx context.Context, svc *app.Service, missionID st
 		if !strings.EqualFold(strings.TrimSpace(run.AgentExecutor), strings.TrimSpace(executorName)) {
 			return fmt.Errorf("queued workflow %s requires agent_executor %q but current CLI executor is %q", run.WorkflowRunID, run.AgentExecutor, executorName)
 		}
+		events, err := svc.ListEvents(ctx, missionID)
+		if err != nil {
+			return err
+		}
+		session := conversation.LatestAgentSession(events, executorName)
+		profile := agentcapability.Research()
+		if session.SessionID != "" {
+			profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+			if err != nil {
+				return fmt.Errorf("persisted agent capability profile is invalid: %w", err)
+			}
+		}
 		runner := workflowruntime.Runner{
 			Service:               svc,
 			Agent:                 cliWorkflowAgentAdapter{executor: executor},
+			CapabilityProfile:     profile.ID,
+			ProfileRevision:       profile.Revision,
 			NewID:                 cliNewID,
 			SourceCandidateStager: cliSourceCandidateStager(svc),
 		}
-		_, err := runner.Run(ctx, missionID, run.WorkflowRunID)
+		_, err = runner.Run(ctx, missionID, run.WorkflowRunID)
 		return err
 	}
 	return nil
@@ -50,6 +66,8 @@ func (adapter cliWorkflowAgentAdapter) Run(ctx context.Context, req workflowrunt
 		PreviousSessionID: req.PreviousSessionID,
 		AgentExecutor:     req.AgentExecutor,
 		MCPMode:           req.MCPMode,
+		CapabilityProfile: req.CapabilityProfile,
+		ProfileRevision:   req.ProfileRevision,
 		Compaction:        req.Compaction,
 	})
 	return workflowruntime.AgentResult{

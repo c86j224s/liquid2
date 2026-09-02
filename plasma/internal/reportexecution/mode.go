@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 )
 
 func NormalizeMode(mode string) (string, error) {
@@ -22,6 +23,20 @@ func NormalizeMode(mode string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: unsupported report mode", producterror.ErrInvalidInput)
 	}
+}
+
+// NormalizePipelineFamily validates the independent report pipeline selector.
+// Empty selects the classic report pipeline; independent families are
+// intentionally not report modes and must never be normalized into one.
+func NormalizePipelineFamily(family string) (string, error) {
+	normalized := strings.TrimSpace(family)
+	if normalized == "" {
+		return "", nil
+	}
+	if reportpipeline.Independent(normalized) {
+		return normalized, nil
+	}
+	return "", fmt.Errorf("%w: unsupported report pipeline family", producterror.ErrInvalidInput)
 }
 
 // NormalizeSessionPolicy는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.

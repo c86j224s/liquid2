@@ -25,6 +25,15 @@
       const artifactID = artifactButton.dataset.reportArtifactId;
       const action = artifactButton.dataset.action;
       if (action === "download-artifact") reports.downloadReportArtifact(artifactID);
+      else if (action === "view-text-artifact") {
+        const bundleCard = event.target.closest("[data-report-il-bundle-key]");
+        reports.viewReportTextArtifact(
+          artifactID,
+          artifactButton.dataset.reportArtifactLabel || "Artifact",
+          bundleCard?.dataset.reportIlBundleKey || `artifact:${artifactID}`
+        );
+      }
+      else if (action === "view-stored-html-artifact") reports.viewStoredReportHTMLArtifact(artifactID);
       else if (action === "view-redpen-artifact") reports.viewReportRedpenWorkcopy(artifactID);
       else if (action === "download-redpen-artifact") reports.downloadReportRedpenWorkcopy(artifactID);
       else if (action === "view-html-artifact") reports.exportReportArtifactHTML(artifactID);

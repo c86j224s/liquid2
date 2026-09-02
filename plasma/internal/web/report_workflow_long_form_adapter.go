@@ -10,9 +10,9 @@ import (
 
 func (server *Server) createLongFormPrefixWorkflowDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executionStrategy string, executor AgentExecutor) (map[string]any, error) {
 	runner := reportworkflow.NewRunner(reportworkflow.RunnerConfig{
-		Service:         server.service,
-		Lifecycle:       reporting.Runner(server.reportRunner()),
-		Executor:        executor,
+		Service:   server.service,
+		Lifecycle: reporting.Runner(server.reportRunner()),
+		Executor:  executor,
 		NewID:           newID,
 		LatestSessionID: server.latestAgentSessionID,
 	})

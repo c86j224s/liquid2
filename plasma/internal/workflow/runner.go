@@ -105,6 +105,8 @@ func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRun
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     view.AgentExecutor,
 		MCPMode:           view.MCPMode,
+		CapabilityProfile: runner.CapabilityProfile,
+		ProfileRevision:   runner.ProfileRevision,
 	})
 	err = agentExecutionError(agentCtx, err)
 	durationMS := runner.now().Sub(started).Milliseconds()
@@ -162,6 +164,9 @@ func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRun
 		AgentModel:             strings.TrimSpace(runner.AgentModel),
 		AgentReasoningEffort:   strings.TrimSpace(runner.ReasoningEffort),
 		IncludeAgentConfig:     true,
+		CapabilityProfile:      runner.CapabilityProfile,
+		ProfileRevision:        runner.ProfileRevision,
+		IncludeProfile:         true,
 		MCPMode:                view.MCPMode,
 		IncludeMCPMode:         true,
 		Text:                   visibleText,

@@ -59,19 +59,33 @@ func (client *Client) absoluteURL(baseURL string, values ...string) string {
 			continue
 		}
 		parsed, err := url.Parse(value)
-		if err == nil && parsed.Scheme != "" && parsed.Host != "" {
-			return parsed.String()
+		if err == nil && parsed.Scheme != "" {
+			if parsed.Host != "" && client.safeWebURL(parsed) {
+				return parsed.String()
+			}
+			continue
 		}
 		if joined := joinBasePath(baseURL, value); joined != "" {
-			return joined
+			if parsed, err := url.Parse(joined); err == nil && client.safeWebURL(parsed) {
+				return parsed.String()
+			}
 		}
 		if client.siteURL != nil {
 			if joined := joinBasePath(client.siteURL.String(), value); joined != "" {
-				return joined
+				if parsed, err := url.Parse(joined); err == nil && client.safeWebURL(parsed) {
+					return parsed.String()
+				}
 			}
 		}
 	}
 	return ""
+}
+
+func (client *Client) safeWebURL(parsed *url.URL) bool {
+	if parsed == nil || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return false
+	}
+	return client.siteURL == nil || strings.EqualFold(parsed.Hostname(), client.siteURL.Hostname())
 }
 
 func joinBasePath(base string, path string) string {

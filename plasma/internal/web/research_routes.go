@@ -62,6 +62,10 @@ func (server *Server) handleMissionClaims(w http.ResponseWriter, r *http.Request
 }
 
 func (server *Server) handleMissionCandidates(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
+	if len(rest) == 3 && rest[0] == "sources" && rest[2] == "download" {
+		server.handleSourceCandidateDownload(w, r, missionID, rest[1])
+		return
+	}
 	if len(rest) == 2 && rest[0] == "sources" && rest[1] == "reject" {
 		server.handleRejectSourceCandidate(w, r, missionID)
 		return

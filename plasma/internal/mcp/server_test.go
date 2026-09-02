@@ -189,6 +189,17 @@ func TestEnabledToolsFiltersListedAndCallableTools(t *testing.T) {
 	}
 }
 
+func TestEnabledToolsEmptyAllowlistDeniesAllTools(t *testing.T) {
+	server := NewServer(&fakeMCPService{}, WithEnabledTools(nil))
+	if tools := server.ListTools(); len(tools) != 0 {
+		t.Fatalf("empty explicit allowlist exposed tools: %#v", toolNames(tools))
+	}
+	result := server.dispatchCall(context.Background(), ToolCall{Name: ToolMissionGet})
+	if result.Error == nil || !strings.Contains(result.Error.Message, "not enabled") {
+		t.Fatalf("empty explicit allowlist accepted tool call: %#v", result)
+	}
+}
+
 func TestLegacyResearchLoopToolsRequireExplicitOption(t *testing.T) {
 	defaultServerTools := NewServer(&fakeMCPService{}).ListTools()
 	defaultTools := toolNames(defaultServerTools)
@@ -2644,6 +2655,39 @@ func TestSourceCandidatesReadReturnsStagedUnapprovedCandidate(t *testing.T) {
 	}
 	if output.StagingState != "staged" || output.Content != "candidate body" {
 		t.Fatalf("unexpected staged candidate read output: %#v", output)
+	}
+}
+
+func TestSourceCandidatesReadReturnsImageMetadataWithoutBinary(t *testing.T) {
+	content := []byte{0xff, 0xd8, 0xff, 0xd9}
+	sum := sha256.Sum256(content)
+	service := &fakeMCPService{
+		ledgerEvents: []app.LedgerEvent{{
+			EventID: "evt_staged", MissionID: "mis_1", Sequence: 1,
+			EventType: "source.candidate.staged",
+			Payload: mustJSON(map[string]any{
+				"url": "https://example.com/viewimage.php?id=1", "proposal_event_id": "evt_proposed",
+				"artifact_id": "art_candidate", "media_kind": "image",
+			}),
+		}},
+		artifacts: map[string]app.RawArtifact{
+			"art_candidate": {
+				ArtifactID: "art_candidate", MissionID: "mis_1", MediaType: "image/jpeg",
+				ByteSize: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Content: content,
+			},
+		},
+	}
+	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1"}))
+	result := server.Call(context.Background(), ToolCall{
+		Name:      ToolSourceCandidatesRead,
+		Arguments: mustArgs(t, map[string]any{"mission_id": "mis_1", "url": "https://example.com/viewimage.php?id=1"}),
+	})
+	if result.Error != nil {
+		t.Fatalf("source candidate read returned error: %#v", result.Error)
+	}
+	output := result.Content.(sourceCandidatesReadOutput)
+	if output.Content != "" || output.Extraction == nil || output.Extraction.Type != "binary_metadata" || output.Artifact == nil || output.Artifact.MediaType != "image/jpeg" {
+		t.Fatalf("image candidate output = %#v", output)
 	}
 }
 

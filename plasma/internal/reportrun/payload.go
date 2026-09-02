@@ -35,7 +35,7 @@ func eventRole(eventType string, payload eventPayload) string {
 		return "operation_pending"
 	case "report.artifact.created":
 		return "final"
-	case "report.draft.failed", "report.design.failed", "report.humanize.failed", "report.humanize.skipped", "report.patch.failed":
+	case "report.draft.failed", "report.design.failed", "report.humanize.failed", "report.humanize.skipped", "report.patch.failed", "report.il_source_selection.failed", "report.il_editorial_memory.failed", "report.il_narrative.failed", "report.il_long_form_plan.failed", "report.il_long_form_sections.failed", "report.il_long_form_parts.failed", "report.il_long_form_final.failed", "report.il_continuity.failed", "report.il_reader.failed", "report.il_images.failed", "report.il_document.failed", "report.il_flow.failed", "report.il_render.failed", "report.il_store.failed", "report.source_packet.failed":
 		if payloadString(payload, "kind") == "report_draft_canceled" ||
 			strings.Contains(payloadString(payload, "kind"), "_canceled") ||
 			payloadBool(payload, "canceled") {
@@ -46,6 +46,8 @@ func eventRole(eventType string, payload eventPayload) string {
 		return "derivative"
 	case "report.patch.finalized":
 		return "patch_finalized"
+	case "report.run.completed":
+		return "completion"
 	default:
 		return "stage"
 	}
@@ -73,6 +75,7 @@ func isCreatedIntermediateEvent(eventType string) bool {
 func isKnownNonCreatorReportEvent(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
 	case "report.drafted",
+		"report.il.checkpoint.created",
 		"report.plan.created",
 		"report.plan.submitted",
 		"report.plan.section_repair.completed",
@@ -106,7 +109,8 @@ func isKnownNonCreatorReportEvent(eventType string) bool {
 		"report.requirements.failed",
 		"report.section.failed",
 		"report.humanize.skipped",
-		"report.patch.rejected":
+		"report.patch.rejected",
+		"report.run.completed":
 		return true
 	default:
 		return false

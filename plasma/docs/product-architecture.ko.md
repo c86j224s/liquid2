@@ -107,11 +107,21 @@ action, input/goal-draft/busy control, run/status rendering 역할별 classic sc
 
 `Plasma.sources`는 source intake, 저장된 source 렌더링과 locator, source candidate 렌더링과 source-candidate
 bulk action, local-path source control, Liquid2 source control, 미션 범위 Confluence source UI를 소유합니다.
-Confluence 파일은 실행 가능한 오류 매핑, connection/site core, 공통 source control, URL/search flow, one-click
-flow, OAuth listener, mission access, browse fetch/rendering, review/approval, update check, result click 처리처럼
-역할별로 나뉩니다. `Plasma.dom`, `Plasma.state`, `Plasma.transport`, `Plasma.mission`, `Plasma.ui`와 `app.js`가
-넘긴 조립 callback을 명시적으로 사용합니다. 기능 사이 form blocking, mission lifecycle 정책, active-work 정책,
-evidence proposal selection, report 요청 시점 model override는 소유하지 않습니다.
+다운로드 가능한 열린 staged 후보와 정확히 하나의 artifact를 가진 active·비대체 snapshot-only source에는
+`저장본 다운로드`를 표시합니다. 이 route는 connector나 외부 원본을 다시 가져오지 않고 durable artifact의
+바이트를 저장된 그대로 제공합니다. 일반 HTML, PDF, 이미지, upload, pasted text와 실제 저장한 media bytes는
+다운로드할 수 있으며, browser-rendered HTML도 현재 원문과 비교할 수 있도록 다운로드와 `브라우저 렌더링
+저장본` badge를 유지합니다. browser-render 후보의 승인 전 raw fetch는 `초기 저장본 다운로드`로 구분합니다.
+Confluence·Liquid2 connector가 생성한 snapshot은 durable 내부 artifact로 계속 저장하지만 source download route에서는
+제외합니다. 대신 server metadata에서 얻은 credential 없는 HTTP(S) 원문 링크만 노출합니다. Confluence는 `WebURL`,
+Liquid2는 `SourceURI`, 일반 source는 `ExternalURI`를 사용하며 `confluence:`, `liquid2:`, `file:`, `file-upload:` 같은
+내부 scheme은 외부 링크로 렌더링하지 않습니다. live reference와 local path는 계속 다운로드하지 않습니다.
+Confluence 파일은
+실행 가능한 오류 매핑, connection/site core, 공통 source control, URL/search flow, one-click flow, OAuth listener,
+mission access, browse fetch/rendering, review/approval, update check, result click 처리처럼 역할별로 나뉩니다.
+`Plasma.dom`, `Plasma.state`, `Plasma.transport`, `Plasma.mission`, `Plasma.ui`와 `app.js`가 넘긴 조립 callback을
+명시적으로 사용합니다. 기능 사이 form blocking, mission lifecycle 정책, active-work 정책, evidence proposal
+selection, report 요청 시점 model override는 소유하지 않습니다.
 
 `Plasma.settings`는 persisted model defaults와 Confluence connection management의 전역 settings UI를 소유합니다.
 Model-default settings는 report 요청 시점 model selection과 분리되어 있습니다. Confluence settings는 rendering과
@@ -188,6 +198,14 @@ call, report request는 모두 같은 ledger 위의 event producer입니다.
   event ID를 실행 identity로 쓰며, run state, revision, final artifact link, membership identity,
   ownership role, compact usage aggregate만 저장합니다. Ledger payload와 artifact body는 계속 mission
   ledger와 raw artifact table이 단일 원본입니다.
+- 보고서 pipeline family는 classic workflow와 독립 실행 경로를 닫힌 목록으로 구분합니다. `report_unverified`는
+  UI에서 **무검증형 — 자료와 주제만 전달**로 명시하며, Codex `gpt-5.6-luna` `xhigh` 새 ephemeral session 한 번에
+  mission title·objective·사용자 direction과 `plasma.sources.list`/`plasma.sources.read` 읽기 전용 접근만 제공합니다.
+  Source ranking, IL schema, claim·terminology·coverage·depth 검증, classic plan/requirements/section assembly/final edit,
+  final reader, semantic repair, 말투 보정은 실행하지 않습니다. Provider가 반환한 Markdown은 빈 응답과 4 MiB 저장
+  한도만 확인하고 byte-for-byte 저장합니다. 인증·미션 권한, source mission binding, user config와 ambient tool 격리,
+  artifact 크기, artifact와 terminal event의 원자 저장, idempotent completion 복구는 계속 제품 안전 경계로 유지합니다.
+  Independent family의 성공은 classic executor lock을 만들지 않으며, unknown family와 independent retry는 fail closed입니다.
 - Report attempt는 `report.draft.pending` event ID를 durable identity로 씁니다. Retry pending ID는
   같은 run 안의 attempt이며, root/original pending ID가 report-run identity입니다. 계보가 명시 링크로
   결정되지 않는 legacy report는 읽을 수 있지만 삭제할 수 없는 ambiguous run으로 남깁니다.
@@ -657,6 +675,14 @@ source, evidence, result, saved knowledge를 만들지 않습니다.
 - unbound MCP mission create/open tools
 - cross-process durable queue/lease table
 - read-first research surface를 넘어서는 MCP report control tools
+
+## 보고서 artifact 및 accounting 경계
+
+`report.artifact.created`는 artifact 가용성과 pending 종료를 즉시 표시합니다. Reporting은 이후 내구성 있는 delayed-usage target을 조건부로 기록하고 root pending event에서 파생한 결정적 ID의 `report.run.completed` 하나를 남깁니다. Report completion 복구는 시작 시와 lazy mission detail 접근 시 모두 DB만 사용하며, 사라진 provider usage는 추정 없이 unavailable로 표시합니다. usage 또는 accounting 최종성을 요구하는 consumer는 `report.run.completed`를 기다려야 합니다.
+
+### 시작 복구와 lazy mission 복구의 경계
+
+시작 시 복구는 DB 전용이며 provider나 executor의 active work를 절대 재개하지 않습니다. Full-detail GET만 read-triggered lazy recovery 경로이며, coordinator는 다음 고정 순서로 실행합니다: `report_completion` (`fail_fast`), `workflow_state` (`best_effort`), 그리고 하나의 report-lock scope 안에서 `report_draft` (`fail_fast`)와 `designed_report_export` (`fail_fast`)를 실행합니다. 두 pre-lock 단계 뒤에 report lock을 정확히 한 번 획득하고, 오류가 나도 report-lock scope가 끝날 때 해제합니다. 기존 mutation route는 새 작업을 시작하기 전에 operation-local stale reconciliation을 수행할 수 있으며, Issue #330은 이 경로를 이동하거나 변경하지 않습니다. mission list, activity 조회, server construction 및 다른 read route는 lazy coordinator를 호출하지 않습니다.
 
 ## 보고서 모델 선택 경계
 

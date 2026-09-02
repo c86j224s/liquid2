@@ -13,8 +13,9 @@
 
   function confluenceCandidateDetailPayload(candidate) {
     const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence 페이지";
-    const sourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
+    const rawSourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
     const siteURL = confluenceDisplayableExternalURI(candidate.SiteURL || candidate.site_url || "");
+    const sourceURI = rawSourceURI && siteURL && confluenceExternalURIHost(rawSourceURI) === confluenceExternalURIHost(siteURL) ? rawSourceURI : "";
     const pageID = confluenceCandidatePageID(candidate);
     const detail = {
       type: "confluence_candidate",
@@ -36,7 +37,9 @@
     if (!container) return;
     container.innerHTML = candidates.length ? candidates.map((candidate, index) => {
       const title = candidate.Title || candidate.title || confluenceCandidatePageID(candidate) || "Confluence 페이지";
-      const sourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
+      const rawSourceURI = confluenceDisplayableExternalURI(candidate.SourceURI || candidate.source_uri || "");
+      const siteURL = confluenceDisplayableExternalURI(candidate.SiteURL || candidate.site_url || "");
+      const sourceURI = rawSourceURI && siteURL && confluenceExternalURIHost(rawSourceURI) === confluenceExternalURIHost(siteURL) ? rawSourceURI : "";
       const space = candidate.SpaceKey || candidate.space_key || "";
       const version = candidate.Version || candidate.version || 0;
       const updated = candidate.UpdatedAt || candidate.updated_at || "";

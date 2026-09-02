@@ -1,6 +1,10 @@
 package reportrun
 
-import "time"
+import (
+	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+)
 
 const (
 	LifecycleActive    = "active"
@@ -96,12 +100,15 @@ type Registration struct {
 
 // Event is the ledger subset needed by report-run classification.
 type Event struct {
-	EventID   string
-	MissionID string
-	Sequence  int64
-	EventType string
-	Payload   []byte
-	CreatedAt time.Time
+	EventID          string
+	MissionID        string
+	Sequence         int64
+	EventType        string
+	Producer         ledger.Producer
+	CausationEventID string
+	CorrelationID    string
+	Payload          []byte
+	CreatedAt        time.Time
 }
 
 // Artifact is the raw artifact metadata needed by report-run deletion.

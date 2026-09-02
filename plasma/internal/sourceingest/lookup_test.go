@@ -6,6 +6,20 @@ import (
 	"testing"
 )
 
+func TestConfluencePageURLKeySupportsAllStableURLForms(t *testing.T) {
+	for _, raw := range []string{
+		"https://example.atlassian.net/wiki/pages/123/title",
+		"https://example.atlassian.net/wiki/edit-v2/123",
+		"https://example.atlassian.net/wiki/%70ages/123/title",
+		"https://example.atlassian.net/wiki/%65dit-v2/123",
+		"https://example.atlassian.net/wiki?spaceKey=ENG&pageId=123",
+	} {
+		if key, ok := confluencePageURLKey(raw); !ok || key != "example.atlassian.net\x00123" {
+			t.Fatalf("%s => %q %v", raw, key, ok)
+		}
+	}
+}
+
 func TestExistingSourceSnapshotForURLMatchesConfluenceLocator(t *testing.T) {
 	locators, err := json.Marshal([]map[string]string{{
 		"locator_type": "confluence_page",

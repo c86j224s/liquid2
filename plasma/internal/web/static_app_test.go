@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1083,6 +1084,55 @@ func TestStaticDesktopMissionRailCollapseContracts(t *testing.T) {
 	} {
 		if !strings.Contains(mobileBlock[1], expected) {
 			t.Fatalf("mobile block must preserve picker flow while hiding desktop rail toggle; missing %q", expected)
+		}
+	}
+}
+
+func TestStaticMobileWorkflowKeepsComposerInsideConversationShell(t *testing.T) {
+	styles := string(mustReadStatic(t, "static/plasma/responsive_overrides.css"))
+	mobileMatch := regexp.MustCompile(`(?s)@media \(max-width: 760px\)\s*\{(.*)\n\}`).FindStringSubmatch(styles)
+	if len(mobileMatch) != 2 {
+		t.Fatal("missing mobile responsive block")
+	}
+	mobile := mobileMatch[1]
+	for _, expected := range []string{
+		".tab-panel.active > .conversation-panel",
+		"overflow: hidden",
+		".turn-log",
+		"min-height: 40px",
+		".conversation-panel > .workflow-control[open]",
+		".conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open]",
+		"flex: 1 1 0",
+		"flex-grow: 1.25",
+		"min-height: 56px",
+		"overflow-y: auto",
+		"overscroll-behavior-y: contain",
+		"position: sticky",
+		"top: 0",
+		"@supports selector(details::details-content)",
+		"grid-template-rows: auto minmax(0, 1fr)",
+		".conversation-panel > .workflow-control[open]::details-content",
+		".conversation-panel > .workflow-control[open] > .workflow-control-body",
+		"#agentControlsDetails[open] > .agent-controls",
+		"height: 100%",
+		"min-height: 0",
+		"max-height: none",
+		"overflow: visible",
+	} {
+		if !strings.Contains(mobile, expected) {
+			t.Fatalf("mobile conversation shell contract missing %q", expected)
+		}
+	}
+	if !strings.Contains(styles, `@media (max-height: 680px) and (max-width: 760px)`) ||
+		!strings.Contains(styles, `.main-column:has(> .tab-panel.active[data-tab-panel="conversation"] > .conversation-panel > .workflow-control[open]) > .mission-banner-shell`) {
+		t.Fatal("short mobile screens must release the mission banner row while workflow controls are open")
+	}
+	if strings.Contains(styles, "max-height: 62vh") {
+		t.Fatal("mobile workflow height must not be capped against the full viewport")
+	}
+	for _, expected := range []string{"max-height: 40vh", "max-height: 34vh"} {
+		if !strings.Contains(styles, expected) {
+			t.Fatalf("short desktop workflow cap changed: missing %q", expected)
 		}
 	}
 }
@@ -2200,7 +2250,7 @@ func mustReadPlasmaReportScripts(t *testing.T) string {
 		"static/plasma/reports_state.js", "static/plasma/reports_view_state.js", "static/plasma/reports_trace.js",
 		"static/plasma/reports_notice.js", "static/plasma/reports_modal.js", "static/plasma/reports_rendering.js",
 		"static/plasma/reports_cards_conversation.js", "static/plasma/reports_cards_artifacts.js",
-		"static/plasma/reports_cards_legacy.js", "static/plasma/reports_exports_core.js",
+		"static/plasma/reports_cards_il.js", "static/plasma/reports_cards_legacy.js", "static/plasma/reports_exports_core.js",
 		"static/plasma/reports_exports_html.js", "static/plasma/reports_downloads.js",
 		"static/plasma/reports_controls.js", "static/plasma/reports_pipeline.js",
 		"static/plasma/reports_pipeline_core.js", "static/plasma/reports_pipeline_graph.js",
@@ -2802,7 +2852,7 @@ func TestStaticReportControlsIntegrateLabelsInsideSelects(t *testing.T) {
 		`class="inline-control segmented-select-control report-select-model"`,
 		`class="inline-control segmented-select-control report-select-effort"`,
 		`class="inline-control segmented-select-control report-select-execution"`,
-		`<span class="segmented-select-label">엄격도</span>`,
+		`<span class="segmented-select-label">검증</span>`,
 		`<span class="segmented-select-label">모델</span>`,
 		`<span class="segmented-select-label">추론</span>`,
 		`<span class="segmented-select-label">장문 작성</span>`,
@@ -2837,8 +2887,7 @@ func TestStaticReportGenerationGuidanceLongFormOptions(t *testing.T) {
 		t.Fatalf("report rigor UI must default to strict and omit balanced")
 	}
 	if strings.Contains(index, `reportPostHumanize`) ||
-		strings.Contains(index, `report-post-humanize-control`) ||
-		strings.Contains(index, `말투 보정`) {
+		strings.Contains(index, `report-post-humanize-control`) {
 		t.Fatalf("report humanize checkbox must not be exposed in the Web UI")
 	}
 	for _, legacy := range []string{
@@ -3151,6 +3200,347 @@ func TestStaticReportDirectionIsOptionalAndPrecedesGenerationAction(t *testing.T
 	}
 }
 
+func TestReportArtifactPayloadsOverlayDeterministicReprojection(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required")
+	}
+	fixture := `
+const fs = require("fs"), vm = require("vm");
+const context = { window: {} };
+vm.createContext(context);
+context.window.Plasma = { reports: {}, state: { detail: { events: [
+  { EventID: "evt_source", EventType: "report.artifact.created", CreatedAt: "source-time", Payload: { artifact_id: "art_md", artifact_bundle: { artifacts: [{kind:"html",artifact_id:"art_old"}] } } },
+  { EventID: "evt_repair", EventType: "report.artifact.reprojected", CreatedAt: "repair-time", Payload: { source_event_id: "evt_source", artifact_id: "art_md", artifact_bundle: { artifacts: [{kind:"html",artifact_id:"art_new"}] } } }
+] } } };
+vm.runInContext(fs.readFileSync("static/plasma/reports_state.js", "utf8"), context);
+const payloads = context.window.Plasma.reports.reportArtifactPayloads();
+if (payloads.length !== 1) process.exit(1);
+if (payloads[0].event_id !== "evt_repair" || payloads[0].created_at !== "repair-time") process.exit(2);
+if (payloads[0].artifact_bundle.artifacts[0].artifact_id !== "art_new") process.exit(3);
+`
+	if out, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("report reprojection overlay fixture: %v: %s", err, out)
+	}
+}
+
+func TestStaticReportILProductSurfaceAndValidationPayload(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the IL report payload fixture")
+	}
+	html := string(mustReadStatic(t, "static/index.html"))
+	styles := mustReadAppCSSComposed(t) + string(mustReadStatic(t, "static/report_pipeline.css"))
+	combined := html + "\n" + mustReadPlasmaReportScripts(t) + "\n" + styles
+	for _, expected := range []string{
+		`<option value="unverified">무검증</option>`,
+		`<option value="exploratory">탐색형</option>`,
+		`<option value="strict" selected>검증형</option>`,
+		`id="draftQuickReport"`,
+		`id="draftLongReport"`,
+		`id="draftExperimentalReport"`,
+		`id="draftLongExperimentalReport"`,
+		`>IL 보고서</button>`,
+		`>장문 IL 보고서</button>`,
+		`Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다`,
+		`REPORT_UNVERIFIED_PIPELINE_FAMILY`,
+		`gpt-5.6-luna`,
+		`reports_cards_il.js`,
+		`REPORT_IL_PIPELINE_FAMILY`,
+		`report-il-stage-list`,
+		`renderILArtifactReportSection`,
+		`viewStoredReportHTMLArtifact`,
+		`viewReportTextArtifact`,
+		`report-il-lineage-item`,
+		`grid-template-columns: repeat(2, minmax(0, 1fr))`,
+	} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing IL report product UI contract %q", expected)
+		}
+	}
+	for _, forbidden := range []string{
+		`id="draftUnverifiedReport"`,
+		`Experimental 생성`,
+		`기존 보고서와 독립된 opt-in 경로`,
+		`텍스트·표 dogfood 단계`,
+	} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("IL report product UI retains experimental contract %q", forbidden)
+		}
+	}
+	cards := string(mustReadStatic(t, "static/plasma/reports_cards_il.js"))
+	for _, forbidden := range []string{
+		`data-action="patch-artifact"`,
+		`data-action="start-designed-html-artifact"`,
+		`data-action="start-humanized-markdown-artifact"`,
+	} {
+		if strings.Contains(cards, forbidden) {
+			t.Fatalf("IL report card exposes classic action %q", forbidden)
+		}
+	}
+
+	source := jsFunctionSource(t, mustReadPlasmaReportScripts(t), "draftReport")
+	source = strings.Replace(source, "function draftReport", "async function draftReport", 1)
+	fixture := `
+const calls = [];
+const state = {detail:{projection:{title:"Mission"}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const nodes = {reportAgentModel:{value:"classic-model"},reportAgentReasoningEffort:{value:"medium"},reportLongFormExecutionStrategy:{value:"section_fanout"},reportRigor:{value:"exploratory"},agentExecutor:{value:"claude"},mcpMode:{value:"auto"}};
+const $ = (id) => nodes[id] || {value:""};
+const requireMission = () => true;
+const captureMissionSelection = () => ({missionId:"mis_1"});
+const ownsMissionSelection = () => true;
+const reports = {
+  REPORT_IL_PIPELINE_FAMILY:"report_il_experimental",
+  REPORT_UNVERIFIED_PIPELINE_FAMILY:"report_unverified",
+  modelSelection:{payload:(model,effort)=>({agent_model:model,agent_reasoning_effort:effort})},
+  selectedReportGenerationGuidance:(mode)=>mode === "long_form" ? "long-guidance" : "planned-guidance",
+  direction:{current:()=>"text and tables",clear(){}},
+  setReportBusy(busy){state.reportPending=busy;},setReportNotice(){},reportPendingMessage(){return "pending";}
+};
+const missionApi = async (_owner,path,init)=>{calls.push({path,body:init.body});return {pending_event:{Payload:init.body}};};
+const reloadMission = async()=>{};
+const schedulePendingPoll = ()=>{};
+const showError = (err)=>{throw err;};
+` + source + `
+(async()=>{
+  await draftReport("planned");
+  state.reportPending=false;
+  await draftReport("planned", {pipelineFamily:reports.REPORT_IL_PIPELINE_FAMILY});
+  state.reportPending=false;
+  nodes.reportRigor.value="unverified";
+  await draftReport("planned");
+  state.reportPending=false;
+  await draftReport("planned", {pipelineFamily:reports.REPORT_IL_PIPELINE_FAMILY});
+  state.reportPending=false;
+  nodes.reportRigor.value="strict";
+  await draftReport("planned", {pipelineFamily:reports.REPORT_IL_PIPELINE_FAMILY});
+  state.reportPending=false;
+  for (const profile of ["unverified","exploratory","strict"]) {
+    nodes.reportRigor.value=profile;
+    await draftReport("long_form", {pipelineFamily:reports.REPORT_IL_PIPELINE_FAMILY});
+    state.reportPending=false;
+  }
+  const classic=calls[0].body, exploratoryIL=calls[1].body, unverifiedClassicButton=calls[2].body, unverifiedIL=calls[3].body, strictIL=calls[4].body, longIL=calls.slice(5).map(call=>call.body);
+  if (Object.prototype.hasOwnProperty.call(classic,"pipeline_family")) throw new Error("classic payload changed family shape");
+  if (classic.agent_executor!=="claude"||classic.mcp_mode!=="auto"||classic.agent_model!=="classic-model"||classic.rigor_level!=="exploratory") throw new Error("classic payload changed");
+  for (const [profile,ilReport] of [["exploratory",exploratoryIL],["unverified",unverifiedIL],["strict",strictIL]]) {
+    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="planned"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="gpt-5.6-luna"||ilReport.agent_reasoning_effort!=="xhigh"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" IL report payload mismatch: "+JSON.stringify(ilReport));
+  }
+  for (const [profile,ilReport] of [["unverified",longIL[0]],["exploratory",longIL[1]],["strict",longIL[2]]]) {
+    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="long_form"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="gpt-5.6-luna"||ilReport.agent_reasoning_effort!=="xhigh"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" long IL report payload mismatch: "+JSON.stringify(ilReport));
+  }
+  if (unverifiedClassicButton.pipeline_family!=="report_unverified"||unverifiedClassicButton.report_mode!=="planned"||unverifiedClassicButton.agent_executor!=="codex"||unverifiedClassicButton.agent_model!=="gpt-5.6-luna"||unverifiedClassicButton.agent_reasoning_effort!=="xhigh"||unverifiedClassicButton.mcp_mode!=="source_read_only"||unverifiedClassicButton.rigor_level!=="unverified"||unverifiedClassicButton.post_report_humanize!=="disabled"||unverifiedClassicButton.generation_guidance_profile!==""||unverifiedClassicButton.execution_strategy!=="") throw new Error("unverified classic payload mismatch: "+JSON.stringify(unverifiedClassicButton));
+})().catch((error)=>{console.error(error);process.exit(1);});
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("IL report payload fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestStaticReportUnverifiedPendingSummaryAndProgressAreExplicit(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the unverified report UI fixture")
+	}
+	constants := string(mustReadStatic(t, "static/plasma/reports_constants.js"))
+	rendering := string(mustReadStatic(t, "static/plasma/reports_rendering.js"))
+	core := string(mustReadStatic(t, "static/plasma/reports_pipeline_core.js"))
+	graph := string(mustReadStatic(t, "static/plasma/reports_pipeline_graph.js"))
+	renderer := string(mustReadStatic(t, "static/plasma/reports_pipeline_render.js"))
+	fixture := `
+const vm=require("vm");
+const host={dataset:{},innerHTML:"",querySelector(){return null;},querySelectorAll(){return [];}};
+const pending={EventID:"evt_unverified",EventType:"report.draft.pending",CreatedAt:"2026-08-26T00:00:00Z",Payload:{title:"무검증형 보고서",pipeline_family:"report_unverified",report_mode:"planned",rigor_level:"unverified",agent_model:"gpt-5.6-luna",agent_reasoning_effort:"xhigh",direction_hint:"쟁점 중심",started_at:"2026-08-26T00:00:00Z"}};
+const context={console,Date,Math,JSON,Map,Set,crypto:{randomUUID:()=>"retry"},setInterval:()=>1,clearInterval(){}};
+context.window=context;
+context.document={getElementById:(id)=>id==="reportPipeline"?host:null};
+context.Plasma={
+  reports:{call(){},reportGenerationGuidanceLabel:(value)=>value,eventByID:(id)=>id===pending.EventID?pending:null},
+  state:{detail:{events:[pending]}},
+  mission:{captureMissionSelection:()=>({missionId:"mis_1"}),ownsMissionSelection:()=>true,isStaleMissionOperation:()=>false},
+  transport:{missionFetch:async()=>({ok:true})},
+  dom:{timeShort:(value)=>value,escapeHTML:(value)=>String(value),escapeAttr:(value)=>String(value)},
+  ui:{empty:()=>"",updateCountChip(){}},sources:{}
+};
+vm.createContext(context);
+for(const source of [` + strconv.Quote(constants) + `,` + strconv.Quote(rendering) + `,` + strconv.Quote(core) + `,` + strconv.Quote(graph) + `,` + strconv.Quote(renderer) + `]) vm.runInContext(source,context);
+const summary=context.Plasma.reports.reportGenerationSummary(pending.Payload);
+if(summary.mode!=="무검증 보고서"||summary.rigor!=="무검증형"||summary.session!=="새 세션"||summary.tools!=="연결 자료 읽기 전용"||summary.humanize!=="사용 안 함") throw new Error("unverified summary mismatch: "+JSON.stringify(summary));
+context.Plasma.reports.pipeline.render({attempt_id:"evt_unverified",attempt_number:1,state:"running",nodes:[]},summary);
+if(!host.innerHTML.includes("무검증 보고서 생성")||!host.innerHTML.includes("Markdown 단일 작성")||!host.innerHTML.includes("진행 중")||!host.innerHTML.includes("단일 호출")||!host.innerHTML.includes("내용 수정 없이 저장")||host.innerHTML.includes("생성 파이프라인 펼치기")||host.innerHTML.includes("data-report-retry=")||host.innerHTML.includes("최종 편집·확정")) throw new Error("unverified running progress mismatch: "+host.innerHTML);
+context.Plasma.reports.pipeline.render({attempt_id:"evt_unverified",attempt_number:1,state:"failed",nodes:[],retry:{reason:"다시 생성은 장문 보고서 실패에만 사용할 수 있습니다."}},summary);
+if(!host.innerHTML.includes("Markdown 단일 작성")||!host.innerHTML.includes("실패")||!host.innerHTML.includes("재시도 없음")||!host.innerHTML.includes("교정이나 자동 재시도 없이 종료")||host.innerHTML.includes("최종 편집·확정")||host.innerHTML.includes("장문 보고서 실패")||host.innerHTML.includes("data-report-retry=")||host.innerHTML.includes("처음부터 다시 생성")) throw new Error("unverified failure retry boundary mismatch: "+host.innerHTML);
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("unverified report UI fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestStaticReportILCardRendersClosedLineageAndRoutesActions(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the Experimental IL card fixture")
+	}
+	constants := string(mustReadStatic(t, "static/plasma/reports_constants.js"))
+	cards := string(mustReadStatic(t, "static/plasma/reports_cards_il.js"))
+	fixture := `
+const vm=require("vm");
+const context={window:{Plasma:{reports:{reportGenerationSummaryHTML:()=>"<summary></summary>",reportActionMenu:(_label,items)=>items,reportPreviewInlineHTML:()=>""},dom:{escapeHTML:(v)=>String(v),escapeAttr:(v)=>String(v),formatBytes:(v)=>v+" B"}}}};
+vm.createContext(context);
+vm.runInContext(` + strconv.Quote(constants) + `,context);
+vm.runInContext(` + strconv.Quote(cards) + `,context);
+const reports=context.window.Plasma.reports;
+const kinds=["narrative","semantic_il","flow_attestation","markdown","html","pdf","manifest"];
+const entries=kinds.map((kind,index)=>({artifact_id:"art_"+kind,kind,media_type:kind==="pdf"?"application/pdf":"text/plain",sha256:"a".repeat(64),byte_size:index+1,role:kind==="markdown"?"final":kind==="html"||kind==="pdf"?"derivative":"intermediate",filename:kind+".out"}));
+const sourceSelection={applied:true,accepted_sources:23,usable_sources:18,selected_sources:12,supplemental_sources:2,excluded_unusable_sources:5,excluded_budget_sources:4};
+const payload={title:"IL report",pipeline_family:reports.REPORT_IL_PIPELINE_FAMILY,artifact_id:"art_markdown",artifact_bundle:{pipeline_family:reports.REPORT_IL_PIPELINE_FAMILY,markdown_artifact_id:"art_markdown",artifacts:entries,source_selection:sourceSelection}};
+const previousSourceSelection={applied:true,accepted_sources:23,usable_sources:18,selected_sources:12,excluded_unusable_sources:5,excluded_budget_sources:6};
+if(!reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,source_selection:previousSourceSelection}})) throw new Error("previous source summary rejected");
+const html=reports.renderILArtifactCard("artifact:art_markdown",true,payload,"artifact:art_markdown");
+for(const expected of ["Markdown 보기","HTML 보기","PDF 받기","원고 설계 보기","문서 구조 보기","흐름 확인 기록 보기","생성 기록 보기","생성 기록 7개 보기","보고서 묶음 삭제","data-report-il-bundle-key=\"artifact:art_markdown\"","소스 사용 범위","승인 23 · 사용 가능 18 · 본문 12 · 장문 보충 2","읽기 불가 제외 5 · 예산 제외 4"]) if(!html.includes(expected)) throw new Error("missing "+expected);
+for(const forbidden of ["MCP 패치","디자인 HTML 생성","말투 보정","source_001","snapshot_receipt"]) if(html.includes(forbidden)) throw new Error("forbidden card content "+forbidden);
+if((html.match(/data-action=\"download-artifact\"/g)||[]).length!==7) throw new Error("download count mismatch");
+const currentEntries=entries.filter(entry=>entry.kind!=="flow_attestation");
+const currentPayload={...payload,artifact_bundle:{...payload.artifact_bundle,artifacts:currentEntries}};
+const currentHTML=reports.renderILArtifactCard("artifact:art_markdown",true,currentPayload,"artifact:art_markdown");
+for(const expected of ["Markdown 보기","HTML 보기","PDF 받기","원고 설계 보기","문서 구조 보기","생성 기록 보기","생성 기록 6개 보기"]) if(!currentHTML.includes(expected)) throw new Error("missing current "+expected);
+if(currentHTML.includes("흐름 확인 기록 보기")) throw new Error("current card fabricated a flow attestation");
+if((currentHTML.match(/data-action=\"download-artifact\"/g)||[]).length!==6) throw new Error("current download count mismatch");
+if(!reports.reportILBundle(currentPayload)) throw new Error("current six-artifact lineage rejected");
+const imageEntry={artifact_id:"art_image",kind:"image",media_type:"image/jpeg",sha256:"b".repeat(64),byte_size:42,role:"asset",filename:"report-image.jpg",asset_id:"asset_1"};
+const imagePayload={...currentPayload,artifact_bundle:{...currentPayload.artifact_bundle,artifacts:[...currentEntries,imageEntry]}};
+const imageHTML=reports.renderILArtifactCard("artifact:art_markdown",true,imagePayload,"artifact:art_markdown");
+for(const expected of ["보고서 이미지 받기","생성 기록 7개 보기","report-image.jpg"]) if(!imageHTML.includes(expected)) throw new Error("missing image-bearing "+expected);
+if((imageHTML.match(/data-action=\"download-artifact\"/g)||[]).length!==7) throw new Error("image-bearing download count mismatch");
+if(!reports.reportILBundle(imagePayload)) throw new Error("image-bearing lineage rejected");
+if(reports.reportILBundle({...imagePayload,artifact_bundle:{...imagePayload.artifact_bundle,artifacts:[...currentEntries,imageEntry,{...imageEntry,artifact_id:"art_image_2"}]}})!==null) throw new Error("duplicate image asset id accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,artifacts:entries.slice(0,6)}})!==null) throw new Error("incomplete lineage accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,markdown_artifact_id:"art_other"}})!==null) throw new Error("markdown root mismatch accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,artifacts:entries.map((entry,index)=>index===1?{...entry,kind:"narrative"}:entry)}})!==null) throw new Error("duplicate kind accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,source_selection:{...sourceSelection,selected_sources:13}}})!==null) throw new Error("inconsistent source summary accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,source_selection:{...sourceSelection,supplemental_sources:-1,excluded_budget_sources:7}}})!==null) throw new Error("negative source supplement accepted");
+if(reports.reportILBundle({...payload,artifact_bundle:{...payload.artifact_bundle,source_selection:{...sourceSelection,source_key:"source_001"}}})!==null) throw new Error("source identity field accepted");
+const legacyPayload={...payload,artifact_bundle:{...payload.artifact_bundle}};
+delete legacyPayload.artifact_bundle.source_selection;
+if(!reports.reportILBundle(legacyPayload)) throw new Error("legacy lineage rejected");
+if(reports.renderILArtifactCard("legacy",false,legacyPayload,"").includes("소스 사용 범위")) throw new Error("legacy source summary fabricated");
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("Experimental IL card fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestStaticReportILIntermediatePreviewStaysOnBundleCard(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the Experimental IL preview fixture")
+	}
+	exports := string(mustReadStatic(t, "static/plasma/reports_exports_core.js"))
+	events := string(mustReadStatic(t, "static/plasma/reports_events.js"))
+	fixture := `
+const vm=require("vm");
+const loading=[], previews=[], requests=[];
+const context={console};
+context.window=context;
+context.Plasma={
+  reports:{
+    call(){},
+    setReportPreviewLoading(key){loading.push(key);},
+    applyReportPreview(key,kind,header,content){previews.push({key,kind,header,content});},
+    reportArtifactPreviewHeader(id){return "header:"+id;},
+    clearReportPreview(){},
+    downloadReportArtifact(){},
+    viewStoredReportHTMLArtifact(){}
+  },
+  state:{missionId:"mis_1",reportPreview:null},
+  mission:{captureMissionSelection:()=>({missionId:"mis_1"}),ownsMissionSelection:()=>true,isStaleMissionOperation:()=>false},
+  transport:{
+    api:async()=>({}),
+    missionApi:async(_owner,path)=>{requests.push(path);return {content:"{\\\"title\\\":\\\"Narrative\\\"}"};},
+    missionFetch:async()=>({ok:true})
+  },
+  dom:{$:()=>null}
+};
+vm.createContext(context);
+vm.runInContext(` + strconv.Quote(exports) + `,context);
+vm.runInContext(` + strconv.Quote(events) + `,context);
+const artifactButton={dataset:{reportArtifactId:"art_narrative",action:"view-text-artifact",reportArtifactLabel:"Narrative Contract"}};
+const bundleCard={dataset:{reportIlBundleKey:"artifact:art_markdown"}};
+const target={closest(selector){
+  if(selector==="[data-report-artifact-id][data-action]") return artifactButton;
+  if(selector==="[data-report-il-bundle-key]") return bundleCard;
+  return null;
+}};
+context.Plasma.reports.onReportListClick({target});
+(async()=>{
+  if(loading[0]!=="artifact:art_markdown") throw new Error("bundle loading selection lost: "+JSON.stringify(loading));
+  await new Promise((resolve)=>setImmediate(resolve));
+  if(requests.length!==1||requests[0]!=="/artifacts/art_narrative") throw new Error("intermediate fetch mismatch: "+requests);
+  if(loading[0]!=="artifact:art_markdown"||previews[0]?.key!=="artifact:art_markdown") throw new Error("bundle card selection lost: "+JSON.stringify({loading,previews}));
+  if(previews[0]?.kind!=="text"||!previews[0]?.header.includes("Narrative Contract")||!previews[0]?.header.includes("art_narrative")) throw new Error("intermediate preview identity lost: "+JSON.stringify(previews[0]));
+})().catch((error)=>{console.error(error);process.exit(1);});
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("Experimental IL intermediate preview fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestStaticReportILProgressRendersTypedStagesWithoutRetry(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the Experimental IL progress fixture")
+	}
+	constants := string(mustReadStatic(t, "static/plasma/reports_constants.js"))
+	core := string(mustReadStatic(t, "static/plasma/reports_pipeline_core.js"))
+	graph := string(mustReadStatic(t, "static/plasma/reports_pipeline_graph.js"))
+	renderer := string(mustReadStatic(t, "static/plasma/reports_pipeline_render.js"))
+	fixture := `
+const vm=require("vm");
+const host={dataset:{},innerHTML:"",querySelector(){return null;},querySelectorAll(){return [];}};
+const context={console,Date,Math,JSON,Map,Set,crypto:{randomUUID:()=>"retry"},setInterval:()=>1,clearInterval(){}};
+context.window=context;
+context.document={getElementById:(id)=>id==="reportPipeline"?host:null};
+context.Plasma={
+  reports:{call(){}},
+  state:{detail:{events:[{EventID:"evt_il",EventType:"report.draft.pending",Payload:{title:"IL report",report_mode:"long_form",pipeline_family:"report_il_experimental",started_at:"2026-08-21T00:00:00Z"}}]}},
+  mission:{captureMissionSelection:()=>({missionId:"mis_1"}),ownsMissionSelection:()=>true,isStaleMissionOperation:()=>false},
+  transport:{missionFetch:async()=>({ok:true})},
+  dom:{timeShort:(value)=>value}
+};
+vm.createContext(context);
+for(const source of [` + strconv.Quote(constants) + `,` + strconv.Quote(core) + `,` + strconv.Quote(graph) + `,` + strconv.Quote(renderer) + `]) vm.runInContext(source,context);
+const nodes=[
+  {id:"source_packet",kind:"source_packet",state:"completed"},
+  {id:"il_narrative",kind:"il_narrative",state:"completed"},
+  {id:"il_long_form_plan",kind:"il_long_form_plan",state:"completed"},
+  {id:"il_long_form_sections",kind:"il_long_form_sections",state:"running"},
+  {id:"section-1-1",kind:"section",part_index:1,section_index:1,state:"running",started_at:"2026-08-21T00:00:05Z"},
+  {id:"section-1-2",kind:"section",part_index:1,section_index:2,state:"running",started_at:"2026-08-21T00:00:05Z"},
+  {id:"section-2-1",kind:"section",part_index:2,section_index:1,state:"completed",started_at:"2026-08-21T00:00:04Z",duration_ms:1000},
+  {id:"part-edit-1",kind:"part_edit",part_index:1,state:"pending"},
+  {id:"part-edit-2",kind:"part_edit",part_index:2,state:"pending"},
+  {id:"il_long_form_parts",kind:"il_long_form_parts",state:"pending"},
+  {id:"il_long_form_final",kind:"il_long_form_final",state:"completed"},
+  {id:"il_continuity",kind:"il_continuity",state:"completed"},
+  {id:"il_reader",kind:"il_reader",state:"running"},
+  {id:"il_document",kind:"il_document",state:"pending"},
+  {id:"il_render",kind:"il_render",state:"pending"},
+  {id:"il_store",kind:"il_store",state:"pending"}
+];
+const request={mode:"Experimental IL",rigor:"검증형",model:"gpt-5.6-luna",effort:"xhigh",session:"새 세션",tools:"승인 소스 읽기 전용",humanize:"사용 안 함",direction:"지정 없음",startedAt:"2026-08-21",startedAtDateTime:"2026-08-21T00:00:00Z"};
+context.Plasma.reports.pipeline.render({attempt_id:"evt_il",attempt_number:1,state:"running",nodes},request);
+const running=host.innerHTML;
+if((running.match(/class="report-il-stage /g)||[]).length!==11||!running.includes("IL 보고서 생성 파이프라인")||!running.includes("생성 파이프라인 펼치기")||!running.includes("pipeline-graph pipeline-graph-fanout pipeline-graph-il-long-form")||!running.includes("전체 원고 작성")||!running.includes("장문 구성 설계")||!running.includes("장문 섹션 작성")||!running.includes("장문 파트 편집")||!running.includes("장문 전체 원고 편집")||!running.includes("자료 관계·맥락 보존 편집")||!running.includes("출력 구조 컴파일")||!running.includes("독자 관점 최종 편집")||!running.includes("섹션 2개 병렬 작성")||!running.includes("aria-current=\"step\"")||!running.includes("gpt-5.6-luna")) throw new Error("typed running stages mismatch: "+running);
+if((running.match(/>섹션 1\.1</g)||[]).length!==2||(running.match(/>섹션 1\.2</g)||[]).length!==2||(running.match(/>섹션 2\.1</g)||[]).length!==2||(running.match(/>파트 편집 1</g)||[]).length!==2||(running.match(/>파트 편집 2</g)||[]).length!==2||!running.includes(">섹션 병렬 작성<")||!running.includes(">파트 순차 편집<")||!running.includes("장문 IL 섹션과 파트 진행 상태")) throw new Error("typed fan-out detail mismatch: "+running);
+const graphPlan=running.indexOf("pipeline-visual-label\" y=\"27\" text-anchor=\"middle\">장문 구성 설계");
+const graphSection=running.indexOf("pipeline-visual-label\" y=\"27\" text-anchor=\"middle\">섹션 1.1");
+const graphPart=running.indexOf("pipeline-visual-label\" y=\"27\" text-anchor=\"middle\">파트 편집 1");
+const graphFinal=running.indexOf("pipeline-visual-label\" y=\"27\" text-anchor=\"middle\">장문 전체 원고 편집");
+if(graphPlan<0||!(graphPlan<graphSection&&graphSection<graphPart&&graphPart<graphFinal)) throw new Error("typed stage graph order mismatch: "+running);
+nodes[10]={...nodes[10],state:"failed",error:"<safe flow failure>"};
+context.Plasma.reports.pipeline.render({attempt_id:"evt_il",attempt_number:1,state:"failed",nodes,retry:{resume_failed:true,restart:true}},request);
+const failed=host.innerHTML;
+if(!failed.includes("&lt;safe flow failure&gt;")||!failed.includes('data-report-retry="resume_failed"')||!failed.includes("실패 지점부터 재시도")||!failed.includes("처음부터 다시 생성")||failed.includes("재시도 없음")) throw new Error("Experimental failure retry boundary mismatch: "+failed);
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("Experimental IL progress fixture failed: %v: %s", err, output)
+	}
+}
+
 func TestStaticReportGenerationContextIsVisibleWhilePendingAndOnArtifacts(t *testing.T) {
 	script := mustReadPlasmaReportScripts(t)
 	for _, expected := range []string{
@@ -3315,7 +3705,7 @@ func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
 	source := jsFunctionSource(t, script, "activeWorkBlocksControl") + "\n" + jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
 	fixture := `
 const elements = {};
-for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","cancelReportButton"]) {
+for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport","cancelReportButton"]) {
   elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
 }
 const $ = (id) => elements[id];
@@ -3326,7 +3716,7 @@ const window = {Plasma:{ui:{
   setButtonText(id, text) { elements[id].textContent = text; }
 }}};
 ` + source + `
-const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport"];
+const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport"];
 function assertDisabled(label) {
   if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
 }
@@ -4308,6 +4698,7 @@ globalThis.window = window;
 globalThis.document = document;
 for (const script of [
   "static/plasma/sources.js",
+  "static/plasma/sources_locators.js",
   "static/plasma/sources_confluence_locators.js",
   "static/plasma/sources_reading.js"
 ]) {

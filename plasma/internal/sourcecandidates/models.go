@@ -35,6 +35,7 @@ type SourceCandidateFetched struct {
 	CandidateKind     string
 	Content           []byte
 	MediaType         string
+	MediaKind         string
 	Title             string
 	ExternalVersion   string
 	ExternalUpdatedAt time.Time
@@ -42,6 +43,8 @@ type SourceCandidateFetched struct {
 	PageCount         int
 	TextLength        int
 	TextLengthKnown   bool
+	Width             int
+	Height            int
 }
 
 // SourceCandidateFetcher는 후보 URL을 승인 전 artifact 후보로 가져오는 fetch 포트다.

@@ -133,6 +133,9 @@ func WithConnectorVersion(version string) Option {
 func WithSiteURL(siteURL string) Option {
 	return func(client *Client) {
 		parsed, err := parseHTTPURL(siteURL, "confluence site URL")
+		if err == nil {
+			err = rejectSensitiveURLParts(parsed, "confluence site URL")
+		}
 		if err != nil {
 			client.optionErr = err
 			return

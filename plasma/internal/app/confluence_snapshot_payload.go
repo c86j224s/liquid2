@@ -47,6 +47,7 @@ type confluenceSnapshotLocator struct {
 	ArtifactID  string `json:"artifact_id"`
 	CloudID     string `json:"cloud_id"`
 	SiteURL     string `json:"site_url,omitempty"`
+	WebURL      string `json:"web_url,omitempty"`
 	PageID      string `json:"page_id"`
 	ContentID   string `json:"content_id"`
 	Format      string `json:"format"`
@@ -143,6 +144,7 @@ func confluenceLocator(
 		ArtifactID:  artifactID,
 		CloudID:     page.CloudID,
 		SiteURL:     page.SiteURL,
+		WebURL:      page.WebURL,
 		PageID:      page.PageID,
 		ContentID:   content.ContentID,
 		Format:      content.Format,

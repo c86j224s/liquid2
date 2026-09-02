@@ -39,6 +39,259 @@ type missionGetOutput struct {
 	ActiveReportVersion any                    `json:"active_report_version"`
 }
 
+type reportILSourcesListInput struct{}
+
+type reportILSourcesListOutput struct {
+	CatalogSHA256 string                   `json:"catalog_sha256"`
+	Stage         string                   `json:"stage"`
+	Attempt       int                      `json:"attempt"`
+	Sources       []reportILSourceListItem `json:"sources"`
+}
+
+type reportILSourceListItem struct {
+	SourceKey     string `json:"source_key"`
+	ReadableBytes int    `json:"readable_bytes"`
+	Extraction    string `json:"extraction"`
+}
+
+type reportILSourcesReadInput struct {
+	SourceKey string `json:"source_key"`
+	Offset    int    `json:"offset"`
+	MaxBytes  int    `json:"max_bytes"`
+}
+
+type reportILSourceQuoteInput struct {
+	SourceKey string `json:"source_key"`
+	Quote     string `json:"quote"`
+}
+
+type reportILSourceQuoteOutput struct {
+	SourceReceipt string `json:"source_receipt"`
+	sourceKey     string
+	offset        int
+	byteSize      int
+	sha256        string
+	catalogSHA256 string
+	stage         string
+}
+
+type reportILSourcesReadOutput struct {
+	SourceKey        string `json:"source_key"`
+	CatalogSHA256    string `json:"catalog_sha256"`
+	Stage            string `json:"stage"`
+	Content          string `json:"content"`
+	Offset           int    `json:"offset"`
+	NextOffset       int    `json:"next_offset,omitempty"`
+	ContentLength    int    `json:"content_length"`
+	Truncated        bool   `json:"truncated"`
+	Extraction       string `json:"extraction"`
+	AttemptReadBytes int    `json:"attempt_read_bytes"`
+	AttemptMaxBytes  int    `json:"attempt_max_bytes"`
+}
+
+type reportILSourceBatchItem struct {
+	SourceKey     string `json:"source_key"`
+	Content       string `json:"content"`
+	Offset        int    `json:"offset"`
+	NextOffset    int    `json:"next_offset,omitempty"`
+	ContentLength int    `json:"content_length"`
+	Truncated     bool   `json:"truncated"`
+	Extraction    string `json:"extraction"`
+}
+
+type reportILSourcesBatchReadOutput struct {
+	CatalogSHA256    string                    `json:"catalog_sha256"`
+	Stage            string                    `json:"stage"`
+	Sources          []reportILSourceBatchItem `json:"sources"`
+	RemainingSources int                       `json:"remaining_sources"`
+	AttemptReadBytes int                       `json:"attempt_read_bytes"`
+	AttemptMaxBytes  int                       `json:"attempt_max_bytes"`
+}
+
+type reportILEditorialMemoryStartInput struct {
+	Language string `json:"language"`
+}
+
+type reportILEditorialMemoryAppendInput struct {
+	WorkspaceID   string   `json:"workspace_id"`
+	Importance    string   `json:"importance"`
+	Account       string   `json:"account"`
+	SourceKeys    []string `json:"source_keys"`
+	SourceAnchors []string `json:"source_anchors"`
+}
+
+type reportILEditorialMemoryReadInput struct {
+	WorkspaceID string `json:"workspace_id"`
+	Offset      int    `json:"offset"`
+	MaxBytes    int    `json:"max_bytes"`
+}
+
+type reportILEditorialMemoryFinalizeInput struct {
+	WorkspaceID string `json:"workspace_id"`
+}
+
+type reportILEditorialMemoryStateOutput struct {
+	WorkspaceID string `json:"workspace_id"`
+	Revision    int    `json:"revision"`
+	Accounts    int    `json:"accounts"`
+	ByteSize    int    `json:"byte_size"`
+	Finalized   bool   `json:"finalized"`
+	ArtifactID  string `json:"artifact_id,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+}
+
+type reportILEditorialMemoryReadOutput struct {
+	WorkspaceID   string `json:"workspace_id"`
+	ReportILStage string `json:"report_il_stage"`
+	Revision      int    `json:"revision"`
+	Content       string `json:"content"`
+	Offset        int    `json:"offset"`
+	NextOffset    int    `json:"next_offset,omitempty"`
+	ContentLength int    `json:"content_length"`
+	Truncated     bool   `json:"truncated"`
+}
+
+type reportILDocumentStartInput struct {
+	Title    string `json:"title"`
+	Language string `json:"language"`
+}
+
+type reportILDocumentOpenInput struct{}
+
+type reportILDocumentAppendInput struct {
+	WorkspaceID          string                      `json:"workspace_id"`
+	SectionTitle         string                      `json:"section_title"`
+	Kind                 string                      `json:"kind"`
+	Prose                string                      `json:"prose"`
+	Items                []string                    `json:"items"`
+	Code                 string                      `json:"code"`
+	Language             *string                     `json:"language"`
+	Table                *reportILDocumentTableInput `json:"table"`
+	EditorialAccountKeys []string                    `json:"editorial_account_keys"`
+}
+
+type reportILDocumentAppendSourceInput struct {
+	WorkspaceID        string                      `json:"workspace_id"`
+	SectionTitle       string                      `json:"section_title"`
+	Kind               string                      `json:"kind"`
+	Prose              string                      `json:"prose"`
+	Items              []string                    `json:"items"`
+	Code               string                      `json:"code"`
+	Language           *string                     `json:"language"`
+	Table              *reportILDocumentTableInput `json:"table"`
+	EvidenceSourceKeys []string                    `json:"evidence_source_keys"`
+}
+
+type reportILDocumentTableInput struct {
+	Caption *string                         `json:"caption"`
+	Columns []string                        `json:"columns"`
+	Rows    []reportILDocumentTableRowInput `json:"rows"`
+}
+
+type reportILDocumentTableRowInput struct {
+	Cells []string `json:"cells"`
+}
+
+type reportILDocumentReadInput struct {
+	WorkspaceID string `json:"workspace_id"`
+	Offset      int    `json:"offset"`
+	MaxBytes    int    `json:"max_bytes"`
+}
+
+type reportILDocumentReplaceInput struct {
+	WorkspaceID string `json:"workspace_id"`
+	OldText     string `json:"old_text"`
+	NewText     string `json:"new_text"`
+}
+
+type reportILDocumentEditTextInput struct {
+	WorkspaceID string `json:"workspace_id"`
+	TargetKind  string `json:"target_kind"`
+	TargetKey   string `json:"target_key"`
+	OldText     string `json:"old_text"`
+	NewText     string `json:"new_text"`
+}
+
+type reportILDocumentReviseBlockInput struct {
+	WorkspaceID          string   `json:"workspace_id"`
+	BlockKey             string   `json:"block_key"`
+	OldText              string   `json:"old_text"`
+	NewText              string   `json:"new_text"`
+	EditorialAccountKeys []string `json:"editorial_account_keys"`
+}
+
+type reportILDocumentFinalizeInput struct {
+	WorkspaceID string `json:"workspace_id"`
+}
+
+type reportILDocumentStateOutput struct {
+	WorkspaceID   string `json:"workspace_id"`
+	ReportILStage string `json:"report_il_stage"`
+	Revision      int    `json:"revision"`
+	Replacements  int    `json:"replacements"`
+	Sections      int    `json:"sections"`
+	Blocks        int    `json:"blocks"`
+	ByteSize      int    `json:"byte_size"`
+	Finalized     bool   `json:"finalized"`
+	ArtifactID    string `json:"artifact_id,omitempty"`
+	SHA256        string `json:"sha256,omitempty"`
+}
+
+type reportILDocumentReadOutput struct {
+	WorkspaceID   string `json:"workspace_id"`
+	ReportILStage string `json:"report_il_stage"`
+	Revision      int    `json:"revision"`
+	Content       string `json:"content"`
+	Offset        int    `json:"offset"`
+	NextOffset    int    `json:"next_offset,omitempty"`
+	ContentLength int    `json:"content_length"`
+	Truncated     bool   `json:"truncated"`
+}
+
+type reportILLongFormDocumentStartInput struct {
+	Title    string `json:"title"`
+	Language string `json:"language"`
+}
+
+type reportILLongFormDocumentAppendInput struct {
+	WorkspaceID          string                         `json:"workspace_id"`
+	SectionKey           string                         `json:"section_key,omitempty"`
+	SectionTitle         string                         `json:"section_title,omitempty"`
+	Kind                 string                         `json:"kind"`
+	Prose                string                         `json:"prose"`
+	Items                []string                       `json:"items"`
+	Code                 string                         `json:"code"`
+	Language             *string                        `json:"language"`
+	Table                *reportILDocumentTableInput    `json:"table"`
+	Equation             *reportILDocumentEquationInput `json:"equation"`
+	EditorialAccountKeys []string                       `json:"editorial_account_keys"`
+	EvidenceSourceKeys   []string                       `json:"evidence_source_keys"`
+}
+
+type reportILLongFormDocumentCorrectBlockInput struct {
+	WorkspaceID string                                 `json:"workspace_id"`
+	BlockKey    string                                 `json:"block_key"`
+	Operation   string                                 `json:"operation"`
+	Replacement *reportILLongFormBlockReplacementInput `json:"replacement"`
+}
+
+type reportILLongFormBlockReplacementInput struct {
+	Kind                 string                         `json:"kind"`
+	Prose                string                         `json:"prose"`
+	Items                []string                       `json:"items"`
+	Code                 string                         `json:"code"`
+	Language             *string                        `json:"language"`
+	Table                *reportILDocumentTableInput    `json:"table"`
+	Equation             *reportILDocumentEquationInput `json:"equation"`
+	EditorialAccountKeys []string                       `json:"editorial_account_keys"`
+	EvidenceSourceKeys   []string                       `json:"evidence_source_keys"`
+}
+
+type reportILDocumentEquationInput struct {
+	Expression string `json:"expression"`
+	Notation   string `json:"notation"`
+}
+
 type sourcesListInput struct {
 	MissionID         string `json:"mission_id"`
 	IncludeRemoved    bool   `json:"include_removed"`

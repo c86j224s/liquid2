@@ -79,6 +79,7 @@ func TestSnapshotLiquid2SourcePersistsArtifactAndSnapshot(t *testing.T) {
 		t.Fatalf("unexpected read request: %#v", connector.readRequest)
 	}
 	if result.Artifact.MediaType != Liquid2SnapshotMediaType ||
+		result.Artifact.Filename != "plasma-liquid2-snapshot-doc_1.json" ||
 		result.Artifact.Producer.Type != "connector" ||
 		result.Artifact.Producer.ID != Liquid2ConnectorID {
 		t.Fatalf("unexpected artifact: %#v", result.Artifact)
@@ -92,7 +93,8 @@ func TestSnapshotLiquid2SourcePersistsArtifactAndSnapshot(t *testing.T) {
 		result.Snapshot.ExternalUpdatedAt != updatedAt {
 		t.Fatalf("unexpected snapshot connector metadata: %#v", result.Snapshot)
 	}
-	if !strings.Contains(string(result.Snapshot.Locators), `"locator_type":"liquid2_content_range"`) {
+	if !strings.Contains(string(result.Snapshot.Locators), `"locator_type":"liquid2_content_range"`) ||
+		!strings.Contains(string(result.Snapshot.Locators), `"source_uri":"https://example.com/source"`) {
 		t.Fatalf("snapshot locators were not recorded: %s", string(result.Snapshot.Locators))
 	}
 }

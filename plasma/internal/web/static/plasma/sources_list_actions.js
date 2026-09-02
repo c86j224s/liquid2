@@ -9,6 +9,7 @@
   const restoreSource = (...args) => sources.restoreSource(...args);
 
   async function onSourceListClick(event) {
+    if (event.target.closest("a.source-saved-download, a.source-original-link")) return;
     if (onDetailButtonClick(event)) return;
     const confluenceUpdateButton = event.target.closest("[data-confluence-source-update]");
     if (confluenceUpdateButton) {

@@ -2,8 +2,10 @@ package reportworkflow
 
 import (
 	"context"
+	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/evidencecheck"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/finalstore"
@@ -100,5 +102,27 @@ func (runner Runner) runGateAndAdopt(ctx context.Context, base finaledit.Input, 
 	if err != nil {
 		return DraftOutput{}, err
 	}
-	return draftOutput(stored), nil
+	output := draftOutput(stored)
+	actual := gate.Run.AgentResult
+	if usableGateUsage(actual, gate.Run.Binding) {
+		usage := &reporting.ReportAgentUsageRequest{MissionID: base.MissionID, PendingEventID: base.PendingEventID, CanonicalEventID: gate.Run.Stage.Event.EventID, Surface: "report_" + gate.Run.Binding.Stage, PreviousAgentSessionID: gate.Run.Binding.ProviderSessionID, AgentSessionID: actual.SessionID, DurationMS: gate.Run.DurationMS, Resumed: actual.Resumed, Usage: actual.Usage, ForkSourceAgentSessionID: gate.Run.Binding.ForkSourceAgentSessionID}
+		if err := runner.complete(context.WithoutCancel(ctx), output, usage); err != nil {
+			return DraftOutput{}, err
+		}
+	} else if err := runner.complete(context.WithoutCancel(ctx), output, nil); err != nil {
+		return DraftOutput{}, err
+	}
+	return output, nil
+}
+
+func usableGateUsage(result agentexec.AgentResult, binding reporting.FinalEditStageBinding) bool {
+	usage := result.Usage
+	return strings.TrimSpace(result.SessionID) == strings.TrimSpace(binding.ProviderSessionID) &&
+		strings.TrimSpace(result.SessionID) != "" &&
+		usage.SchemaVersion == agentusage.SchemaVersion && !usage.Empty() &&
+		strings.TrimSpace(usage.Executor) == strings.TrimSpace(binding.AgentExecutor) &&
+		strings.TrimSpace(usage.Model) == strings.TrimSpace(binding.AgentModel) &&
+		strings.TrimSpace(usage.ReasoningEffort) == strings.TrimSpace(binding.AgentReasoningEffort) &&
+		((usage.ProviderUsage != nil && !usage.UsageUnavailable) ||
+			(usage.ProviderUsage == nil && usage.UsageUnavailable && strings.TrimSpace(usage.UsageUnavailableReason) != ""))
 }

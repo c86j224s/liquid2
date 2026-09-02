@@ -28,7 +28,9 @@ func (executor ClaudeExecutor) baseArgsWithToolMode(requestModel string, disable
 		"--output-format", "json",
 		"--permission-mode", firstNonEmpty(strings.TrimSpace(executor.Permission), "dontAsk"),
 	}
-	if !disableTools {
+	if disableTools {
+		args = append(args, "--tools", "")
+	} else {
 		args = append(args, "--allowedTools", executor.allowedTools(!mcpOnly))
 	}
 	args = append(args, "--disallowedTools")

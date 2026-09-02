@@ -5,6 +5,7 @@ import (
 	"compress/zlib"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,59 @@ func TestFetchWithClientAcceptsPDFSource(t *testing.T) {
 	}
 	if !strings.HasSuffix(fetched.Title, "candidate.pdf") {
 		t.Fatalf("expected PDF title from URL, got %q", fetched.Title)
+	}
+}
+
+func TestFetchWithClientSniffsOctetStreamImage(t *testing.T) {
+	imageBytes := testPNGBytes()
+	sourceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(imageBytes)
+	}))
+	defer sourceServer.Close()
+
+	fetched, err := FetchWithClient(context.Background(), sourceServer.URL+"/viewimage.php?id=1", sourceServer.Client())
+	if err != nil {
+		t.Fatalf("FetchWithClient returned error: %v", err)
+	}
+	if fetched.MediaType != "image/png" || fetched.MediaKind != MediaKindImage || fetched.Width != 1 || fetched.Height != 1 || fetched.ByteSize != int64(len(imageBytes)) {
+		t.Fatalf("expected sniffed image metadata, got %#v", fetched)
+	}
+}
+
+type testRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn testRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
+
+func TestFetchWithClientLimitsOctetStreamBeforeReadingImageBody(t *testing.T) {
+	called := false
+	client := &http.Client{Transport: testRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		called = true
+		header := make(http.Header)
+		header.Set("Content-Type", "application/octet-stream")
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: header, Body: io.NopCloser(strings.NewReader("not read")),
+			ContentLength: MaxImageSourceBytes + 1, Request: req,
+		}, nil
+	})}
+	_, err := FetchWithClient(context.Background(), "https://example.com/viewimage.php?id=1", client)
+	if !called || err == nil || !strings.Contains(err.Error(), "larger than 10 MiB") {
+		t.Fatalf("octet-stream size guard: called=%v err=%v", called, err)
+	}
+}
+
+func testPNGBytes() []byte {
+	return []byte{
+		0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n',
+		0, 0, 0, 13, 'I', 'H', 'D', 'R',
+		0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0,
+		0x90, 0x77, 0x53, 0xde,
+		0, 0, 0, 12, 'I', 'D', 'A', 'T',
+		8, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0, 0, 3, 1, 1, 0,
+		0x18, 0xdd, 0x8d, 0xb0,
+		0, 0, 0, 0, 'I', 'E', 'N', 'D', 0xae, 0x42, 0x60, 0x82,
 	}
 }
 

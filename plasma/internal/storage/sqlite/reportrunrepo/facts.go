@@ -95,7 +95,7 @@ ORDER BY r.updated_at DESC, r.run_id`, missionID, artifactID)
 func memberEventsTx(ctx context.Context, tx *sql.Tx, runID string) ([]reportrun.MemberEvent, error) {
 	rows, err := tx.QueryContext(ctx, `
 SELECT m.run_id, m.event_id, m.mission_id, m.event_role, m.attempt_event_id, m.created_at,
-       e.event_id, e.mission_id, e.sequence, e.event_type, e.payload_json, e.created_at
+       e.event_id, e.mission_id, e.sequence, e.event_type, e.producer_type, e.producer_id, e.causation_event_id, e.correlation_id, e.payload_json, e.created_at
 FROM plasma_report_run_events m
 JOIN plasma_report_runs r ON r.run_id = m.run_id AND r.mission_id = m.mission_id
 JOIN plasma_ledger_events e ON e.event_id = m.event_id AND e.mission_id = r.mission_id
@@ -115,7 +115,7 @@ ORDER BY e.sequence`, runID)
 			&member.Membership.MissionID, &member.Membership.EventRole,
 			&member.Membership.AttemptEventID, &membershipCreatedAt,
 			&member.Event.EventID, &member.Event.MissionID, &member.Event.Sequence,
-			&member.Event.EventType, &member.Event.Payload, &eventCreatedAt); err != nil {
+			&member.Event.EventType, &member.Event.Producer.Type, &member.Event.Producer.ID, &member.Event.CausationEventID, &member.Event.CorrelationID, &member.Event.Payload, &eventCreatedAt); err != nil {
 			return nil, err
 		}
 		created, err := parseTime(membershipCreatedAt)

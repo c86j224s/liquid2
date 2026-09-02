@@ -24,6 +24,9 @@
   const mediaSourceText = (...args) => sources.mediaSourceText(...args);
   const confluenceSourceText = (...args) => sources.confluenceSourceText(...args);
   const sourceDetailPayload = (...args) => sources.sourceDetailPayload(...args);
+  const sourceOriginalLink = (...args) => sources.sourceOriginalLink(...args);
+  const sourceDownloadExcluded = (...args) => sources.sourceDownloadExcluded(...args);
+  const sourceRetrievalLabel = (...args) => sources.sourceRetrievalLabel(...args);
 
   function renderSources(sources) {
     const n = sources.length;
@@ -38,6 +41,8 @@
       const access = source.Access || source.access || {};
       const sourceState = source.State || source.state || {};
       const removed = Boolean(sourceState.removed || sourceState.Removed || sourceState.state === "removed" || sourceState.State === "removed");
+      const superseded = Boolean(sourceState.superseded || sourceState.Superseded);
+      const artifactIDs = source.ArtifactIDs || source.artifact_ids || [];
       const retrievalPolicy = source.Access?.RetrievalPolicy || access.retrieval_policy || source.retrieval_policy || "snapshot_only";
       const modeLabel = retrievalPolicy === "live_reference" ? "라이브 참조" : "스냅샷";
       const locator = localPathLocator(source);
@@ -58,6 +63,8 @@
       if (media) locatorText = mediaSourceText(media);
       if (confluence) locatorText = confluenceSourceText(confluence);
       const detailPayload = sourceDetailPayload(source, confluence);
+      const originalLink = sourceOriginalLink(source, confluence);
+      const retrievalLabel = sourceRetrievalLabel(source);
       const title = source.Title || source.title || snapshotID;
       const displayTitle = confluence ? confluenceDisplayTitle(title) : title;
       return `
@@ -69,6 +76,7 @@
           ${pdfLabel ? `<span class="badge">${escapeHTML(pdfLabel)}</span>` : ""}
           ${documentLabel ? `<span class="badge">${escapeHTML(documentLabel)}</span>` : ""}
           ${confluenceLabel ? `<span class="badge">${escapeHTML(confluenceLabel)}</span>` : ""}
+          ${retrievalLabel ? `<span class="badge">${escapeHTML(retrievalLabel)}</span>` : ""}
           ${confluence ? `<span class="badge muted">${escapeHTML(confluenceScopeLabel(confluence))}</span>` : ""}
           ${confluence?.version ? `<span class="badge muted">v${escapeHTML(confluence.version)}</span>` : ""}
           ${removed ? `<span class="badge warn">제거됨</span>` : ""}
@@ -78,6 +86,8 @@
         ${confluenceUpdateLabel ? `<div class="item-meta">${escapeHTML(confluenceUpdateLabel)}</div>` : ""}
         <div class="item-actions">
           <button type="button" class="secondary" data-detail-title="소스 상세" data-detail-json="${escapeAttr(JSON.stringify(detailPayload))}">자세히</button>
+          ${!removed && !superseded && originalLink ? `<a class="button-link secondary source-original-link" href="${escapeAttr(originalLink.url)}" target="_blank" rel="noopener noreferrer">${escapeHTML(originalLink.label)}</a>` : ""}
+          ${!removed && !superseded && retrievalPolicy === "snapshot_only" && artifactIDs.length === 1 && !sourceDownloadExcluded(source) ? `<a class="button-link secondary source-saved-download" href="/api/missions/${encodeURIComponent(state.missionId)}/sources/${encodeURIComponent(snapshotID)}/download?artifact_id=${encodeURIComponent(artifactIDs[0])}" download>저장본 다운로드</a>` : ""}
           ${removed ? `
       <button type="button" data-source-restore="${escapeAttr(snapshotID)}">복원</button>
       ` : `

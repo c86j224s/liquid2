@@ -104,6 +104,8 @@
 	  $("candidateForm").addEventListener("submit", Plasma.proposals.proposeEvidence);
   $("draftQuickReport").addEventListener("click", () => reports.draftReport("planned"));
   $("draftLongReport").addEventListener("click", () => reports.draftReport("long_form"));
+  $("draftExperimentalReport").addEventListener("click", () => reports.draftReport("planned", { pipelineFamily: reports.REPORT_IL_PIPELINE_FAMILY }));
+  $("draftLongExperimentalReport").addEventListener("click", () => reports.draftReport("long_form", { pipelineFamily: reports.REPORT_IL_PIPELINE_FAMILY }));
 	$("reportAgentModel").addEventListener("change", () => {
 		const status = reports.modelSelection.configuredStatus(state.detail?.agent_executors || [], $("agentExecutor").value);
 		reports.modelSelection.refreshEfforts(status);

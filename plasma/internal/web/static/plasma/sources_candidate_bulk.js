@@ -148,6 +148,7 @@
   }
 
   async function onSourceCandidateListClick(event) {
+    if (event.target.closest("a.source-saved-download, a.source-original-link")) return;
     if (onDetailButtonClick(event)) return;
     const addButton = event.target.closest("[data-add-source-url]");
     if (addButton) {

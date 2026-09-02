@@ -44,6 +44,14 @@ func (server *Server) recordToolCall(ctx context.Context, call ToolCall, result 
 	}
 	argumentSummary := summarizeToolArguments(call.Arguments)
 	resultSummary := summarizeToolResult(result)
+	if call.Name == ToolReportILSourcesQuote {
+		argumentSummary = summarizeReportILSourceQuoteArguments(call.Arguments)
+		resultSummary = summarizeReportILSourceQuoteResult(result)
+	}
+	if reportILDocumentTool(call.Name) || reportILEditorialMemoryTool(call.Name) {
+		argumentSummary = summarizeReportILDocumentArguments(call.Arguments)
+		resultSummary = summarizeReportILDocumentResult(result)
+	}
 	eventID := newTraceEventID()
 	_, err := server.service.AppendEvent(ctx, mcptrace.BuildToolCalledAppendRequest(mcptrace.ToolCalledAppendRequest{
 		EventID:        eventID,
@@ -141,6 +149,69 @@ func summarizeToolArguments(args json.RawMessage) map[string]any {
 	return summary
 }
 
+func summarizeReportILSourceQuoteArguments(args json.RawMessage) map[string]any {
+	summary := map[string]any{"argument_keys": []string{}}
+	var decoded map[string]json.RawMessage
+	if json.Unmarshal(args, &decoded) != nil {
+		return summary
+	}
+	keys := make([]string, 0, len(decoded))
+	for key := range decoded {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	summary["argument_keys"] = keys
+	return summary
+}
+
+func summarizeReportILSourceQuoteResult(result ToolResult) map[string]any {
+	summary := map[string]any{
+		"mission_id": strings.TrimSpace(result.MissionID),
+		"success":    result.Error == nil,
+	}
+	if result.Error != nil {
+		summary["error"] = map[string]any{
+			"error_kind": result.Error.ErrorKind,
+			"message":    truncateTraceString(result.Error.Message, 512),
+			"retryable":  result.Error.Retryable,
+		}
+		return summary
+	}
+	if content, ok := result.Content.(reportILSourceQuoteOutput); ok {
+		summary["content"] = map[string]any{"source_receipt": content.SourceReceipt}
+	}
+	return summary
+}
+
+func summarizeReportILDocumentArguments(args json.RawMessage) map[string]any {
+	summary := map[string]any{"argument_keys": []string{}}
+	var decoded map[string]json.RawMessage
+	if json.Unmarshal(args, &decoded) != nil {
+		return summary
+	}
+	keys := make([]string, 0, len(decoded))
+	for key := range decoded {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	summary["argument_keys"] = keys
+	return summary
+}
+
+func summarizeReportILDocumentResult(result ToolResult) map[string]any {
+	summary := map[string]any{
+		"mission_id": strings.TrimSpace(result.MissionID),
+		"success":    result.Error == nil,
+	}
+	if result.Error != nil {
+		summary["error"] = map[string]any{
+			"error_kind": result.Error.ErrorKind,
+			"retryable":  result.Error.Retryable,
+		}
+	}
+	return summary
+}
+
 func summarizeToolResult(result ToolResult) map[string]any {
 	summary := map[string]any{
 		"mission_id": strings.TrimSpace(result.MissionID),
@@ -168,6 +239,22 @@ func summarizeToolResult(result ToolResult) map[string]any {
 }
 
 func toolIOMetrics(args json.RawMessage, result ToolResult, argumentSummary map[string]any, resultSummary map[string]any) map[string]any {
+	if result.ToolName == ToolReportILSourcesQuote {
+		metrics := map[string]any{}
+		addReportILSourceQuoteIOMetrics(metrics, result)
+		if result.Error != nil {
+			metrics["error_kind"] = result.Error.ErrorKind
+		}
+		return metrics
+	}
+	if reportILDocumentTool(result.ToolName) || reportILEditorialMemoryTool(result.ToolName) {
+		metrics := map[string]any{}
+		addReportILDocumentIOMetrics(metrics, result)
+		if result.Error != nil {
+			metrics["error_kind"] = result.Error.ErrorKind
+		}
+		return metrics
+	}
 	metrics := map[string]any{
 		"argument_raw_bytes":     len(args),
 		"argument_summary_bytes": jsonByteLen(argumentSummary),
@@ -189,8 +276,175 @@ func addReadIOMetrics(metrics map[string]any, args json.RawMessage, result ToolR
 	switch result.ToolName {
 	case ToolSourcesRead:
 		addSourceReadIOMetrics(metrics, args, result)
+	case ToolReportILSourcesRead:
+		addReportILSourceReadIOMetrics(metrics, args, result)
+	case ToolReportILSourcesQuote:
+		addReportILSourceQuoteIOMetrics(metrics, result)
 	case ToolResearchRead:
 		addResearchReadIOMetrics(metrics, args, result)
+	}
+}
+
+func addReportILSourceQuoteIOMetrics(metrics map[string]any, result ToolResult) {
+	content, ok := result.Content.(reportILSourceQuoteOutput)
+	if !ok {
+		return
+	}
+	metrics["read_kind"] = "report_il_source_quote"
+	metrics["source_receipt"] = content.SourceReceipt
+	metrics["source_key"] = content.sourceKey
+	metrics["source_offset"] = content.offset
+	metrics["source_byte_size"] = content.byteSize
+	metrics["source_sha256"] = content.sha256
+	metrics["catalog_sha256"] = content.catalogSHA256
+	metrics["report_il_stage"] = content.stage
+}
+
+func reportILDocumentTool(name string) bool {
+	switch name {
+	case ToolReportILDocumentStart, ToolReportILDocumentOpen, ToolReportILDocumentAppend,
+		ToolReportILDocumentAppendSource, ToolReportILDocumentRead, ToolReportILDocumentReplace, ToolReportILDocumentEditText,
+		ToolReportILDocumentReviseBlock, ToolReportILDocumentFinalize, ToolReportILLongFormPlanSubmit, ToolReportILLongFormPlanRead,
+		ToolReportILLongFormDocumentStart, ToolReportILLongFormDocumentAppend, ToolReportILLongFormDocumentRead,
+		ToolReportILLongFormDocumentReplace, ToolReportILLongFormDocumentCorrectBlock, ToolReportILLongFormDocumentFinalize:
+		return true
+	default:
+		return false
+	}
+}
+
+func reportILEditorialMemoryTool(name string) bool {
+	switch name {
+	case ToolReportILEditorialMemoryStart, ToolReportILEditorialMemoryAppend,
+		ToolReportILEditorialMemoryRead, ToolReportILEditorialMemoryFinalize:
+		return true
+	default:
+		return false
+	}
+}
+
+func addReportILDocumentIOMetrics(metrics map[string]any, result ToolResult) {
+	metrics["write_kind"] = "report_il_document_workspace"
+	switch content := result.Content.(type) {
+	case reportILEditorialMemoryStateOutput:
+		metrics["write_kind"] = "report_il_editorial_memory_workspace"
+		metrics["workspace_id"] = content.WorkspaceID
+		metrics["report_il_stage"] = "il_editorial_memory"
+		metrics["revision"] = content.Revision
+		metrics["accounts"] = content.Accounts
+		metrics["byte_size"] = content.ByteSize
+		metrics["finalized"] = content.Finalized
+		if content.ArtifactID != "" {
+			metrics["artifact_id"] = content.ArtifactID
+			metrics["sha256"] = content.SHA256
+		}
+	case reportILEditorialMemoryReadOutput:
+		metrics["write_kind"] = "report_il_editorial_memory_workspace"
+		metrics["workspace_id"] = content.WorkspaceID
+		metrics["report_il_stage"] = content.ReportILStage
+		metrics["revision"] = content.Revision
+		metrics["returned_offset"] = content.Offset
+		metrics["returned_content_bytes"] = len([]byte(content.Content))
+		metrics["content_length"] = content.ContentLength
+		metrics["response_truncated"] = content.Truncated
+		if content.NextOffset > 0 {
+			metrics["next_offset"] = content.NextOffset
+		}
+	case reportILDocumentStateOutput:
+		metrics["workspace_id"] = content.WorkspaceID
+		metrics["report_il_stage"] = content.ReportILStage
+		metrics["revision"] = content.Revision
+		metrics["replacements"] = content.Replacements
+		metrics["sections"] = content.Sections
+		metrics["blocks"] = content.Blocks
+		metrics["byte_size"] = content.ByteSize
+		metrics["finalized"] = content.Finalized
+		if content.ArtifactID != "" {
+			metrics["artifact_id"] = content.ArtifactID
+			metrics["sha256"] = content.SHA256
+		}
+	case reportILDocumentReadOutput:
+		metrics["workspace_id"] = content.WorkspaceID
+		metrics["report_il_stage"] = content.ReportILStage
+		metrics["revision"] = content.Revision
+		metrics["returned_offset"] = content.Offset
+		metrics["returned_content_bytes"] = len([]byte(content.Content))
+		metrics["content_length"] = content.ContentLength
+		metrics["response_truncated"] = content.Truncated
+		if content.NextOffset > 0 {
+			metrics["next_offset"] = content.NextOffset
+		}
+	case reportILLongFormPlanStateOutput:
+		metrics["write_kind"] = "report_il_long_form_plan"
+		metrics["report_il_stage"] = content.ReportILStage
+		metrics["artifact_id"] = content.ArtifactID
+		metrics["sha256"] = content.SHA256
+		metrics["byte_size"] = content.ByteSize
+		metrics["parts"] = content.Parts
+		metrics["sections"] = content.Sections
+	case reportILLongFormPlanReadOutput:
+		metrics["write_kind"] = "report_il_long_form_plan_read"
+		metrics["report_il_stage"] = content.ReportILStage
+		metrics["returned_offset"] = content.Offset
+		metrics["returned_content_bytes"] = len([]byte(content.Content))
+		metrics["content_length"] = content.ContentLength
+		metrics["response_truncated"] = content.Truncated
+		if content.NextOffset > 0 {
+			metrics["next_offset"] = content.NextOffset
+		}
+	}
+}
+
+func addReportILSourceReadIOMetrics(metrics map[string]any, args json.RawMessage, result ToolResult) {
+	var input reportILSourcesReadInput
+	if err := json.Unmarshal(args, &input); err == nil {
+		metrics["read_kind"] = "report_il_source"
+		metrics["source_key"] = strings.TrimSpace(input.SourceKey)
+		metrics["requested_offset"] = input.Offset
+		metrics["requested_max_bytes"] = input.MaxBytes
+	}
+	if content, ok := result.Content.(reportILSourcesReadOutput); ok {
+		metrics["read_kind"] = "report_il_source"
+		metrics["source_key"] = content.SourceKey
+		metrics["catalog_sha256"] = content.CatalogSHA256
+		metrics["report_il_stage"] = content.Stage
+		metrics["returned_offset"] = content.Offset
+		metrics["returned_content_bytes"] = len([]byte(content.Content))
+		metrics["content_length"] = content.ContentLength
+		metrics["response_truncated"] = content.Truncated
+		metrics["extraction_type"] = content.Extraction
+		metrics["attempt_read_bytes"] = content.AttemptReadBytes
+		metrics["attempt_max_bytes"] = content.AttemptMaxBytes
+		if content.NextOffset > 0 {
+			metrics["next_offset"] = content.NextOffset
+		}
+	}
+	if content, ok := result.Content.(reportILSourcesBatchReadOutput); ok {
+		reads := make([]map[string]any, 0, len(content.Sources))
+		returnedBytes := 0
+		for _, source := range content.Sources {
+			sourceBytes := len([]byte(source.Content))
+			returnedBytes += sourceBytes
+			reads = append(reads, map[string]any{
+				"source_key":             source.SourceKey,
+				"returned_offset":        source.Offset,
+				"returned_content_bytes": sourceBytes,
+				"content_length":         source.ContentLength,
+				"response_truncated":     source.Truncated,
+				"extraction_type":        source.Extraction,
+			})
+			if source.NextOffset > 0 {
+				reads[len(reads)-1]["next_offset"] = source.NextOffset
+			}
+		}
+		metrics["read_kind"] = "report_il_source_batch"
+		metrics["report_il_stage"] = content.Stage
+		metrics["catalog_sha256"] = content.CatalogSHA256
+		metrics["source_reads"] = reads
+		metrics["returned_content_bytes"] = returnedBytes
+		metrics["remaining_sources"] = content.RemainingSources
+		metrics["attempt_read_bytes"] = content.AttemptReadBytes
+		metrics["attempt_max_bytes"] = content.AttemptMaxBytes
 	}
 }
 

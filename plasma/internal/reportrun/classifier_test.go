@@ -6,7 +6,42 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
+
+func TestLongFormILFailureCompanionsAreTerminalRoles(t *testing.T) {
+	payload := eventPayload{"pending_event_id": "evt_pending"}
+	for _, eventType := range []string{
+		"report.il_long_form_plan.failed",
+		"report.il_long_form_sections.failed",
+		"report.il_long_form_parts.failed",
+		"report.il_long_form_final.failed",
+	} {
+		if role := eventRole(eventType, payload); role != "terminal" {
+			t.Fatalf("eventRole(%q) = %q", eventType, role)
+		}
+	}
+}
+
+func TestBuildRegistrationAcceptsInitialRootStrategy(t *testing.T) {
+	registration, err := BuildRegistration(sequencedEvents([]Event{testEvent("evt_root", "report.draft.pending", map[string]any{"origin_pending_event_id": "evt_root", "retry_strategy": "initial", "attempt_number": 1})}), RegistrationNative, time.Now().UTC())
+	if err != nil || len(registration.Runs) != 1 || registration.Runs[0].RunID != "evt_root" || registration.Runs[0].LifecycleState != LifecycleActive {
+		t.Fatalf("initial root should be valid: %#v err=%v", registration.Runs, err)
+	}
+}
+
+func TestBuildRegistrationRejectsInitialRetryChild(t *testing.T) {
+	registration, err := BuildRegistration(sequencedEvents([]Event{
+		testEvent("evt_root", "report.draft.pending", map[string]any{"origin_pending_event_id": "evt_root", "retry_strategy": "initial", "attempt_number": 1}),
+		testEvent("evt_failed", "report.draft.failed", map[string]any{"pending_event_id": "evt_root"}),
+		testEvent("evt_child", "report.draft.pending", map[string]any{"origin_pending_event_id": "evt_root", "retry_of_pending_event_id": "evt_root", "retry_strategy": "initial", "attempt_number": 2}),
+	}), RegistrationBackfilled, time.Now().UTC())
+	run := runByID(registration.Runs, "evt_child")
+	if err != nil || run == nil || run.LifecycleState != LifecycleAmbiguous {
+		t.Fatalf("initial retry child should fail closed: %#v err=%v", registration.Runs, err)
+	}
+}
 
 func TestBuildRegistrationKeepsRetryLineageInOneRun(t *testing.T) {
 	now := time.Date(2026, 8, 9, 1, 2, 3, 0, time.UTC)
@@ -50,6 +85,24 @@ func TestBuildRegistrationKeepsRetryLineageInOneRun(t *testing.T) {
 	}
 	if hasArtifactMembership(registration.Artifacts, "art_plan_1", ArtifactRoleIntermediate, OwnershipCreated) {
 		t.Fatalf("plan event must not claim artifact ownership: %#v", registration.Artifacts)
+	}
+}
+
+func TestBuildRegistrationKeepsCheckpointedRetryLineageUnambiguous(t *testing.T) {
+	now := time.Date(2026, 9, 1, 1, 2, 3, 0, time.UTC)
+	events := sequencedEvents([]Event{
+		testEvent("evt_pending_1", "report.draft.pending", map[string]any{"origin_pending_event_id": "evt_pending_1", "pipeline_family": reportilcontract.PipelineFamily}),
+		testEvent("evt_failed_1", "report.draft.failed", map[string]any{"pending_event_id": "evt_pending_1"}),
+		testEvent("evt_checkpoint", "report.il.checkpoint.created", map[string]any{"pending_event_id": "evt_pending_1", "checkpoint": map[string]any{"stage": "il_long_form_final", "artifact_id": "art_final_author"}}),
+		testEvent("evt_pending_2", "report.draft.pending", map[string]any{
+			"origin_pending_event_id": "evt_pending_1", "retry_of_pending_event_id": "evt_pending_1",
+			"retry_strategy": "resume_failed", "pipeline_family": reportilcontract.PipelineFamily,
+		}),
+		testEvent("evt_reader_started", "report.il_reader.started", map[string]any{"pending_event_id": "evt_pending_2"}),
+	})
+	registration, err := BuildRegistration(events, RegistrationNative, now)
+	if err != nil || len(registration.Runs) != 1 || registration.Runs[0].LifecycleState == LifecycleAmbiguous {
+		t.Fatalf("checkpointed retry registration=%#v err=%v", registration.Runs, err)
 	}
 }
 

@@ -48,13 +48,13 @@ async function exportReportArtifactHTML(artifactID, options = {}) {
   }
 }
 
-function openReportHTMLPreviewWindow() {
+function openReportHTMLPreviewWindow(label = "기본 HTML") {
   const preview = window.open("", "_blank");
   if (!preview) return null;
   try {
     preview.opener = null;
-    preview.document.title = "기본 HTML 준비 중";
-    preview.document.body.innerHTML = `<main style="font-family:system-ui,sans-serif;max-width:560px;margin:20vh auto;padding:24px;color:#1f2937"><h1 style="font-size:18px;margin:0 0 8px">기본 HTML을 준비 중입니다</h1><p style="margin:0;color:#64748b;line-height:1.6">저장된 HTML artifact를 새 탭에서 여는 중입니다.</p></main>`;
+    preview.document.title = `${label} 준비 중`;
+    preview.document.body.innerHTML = `<main style="font-family:system-ui,sans-serif;max-width:560px;margin:20vh auto;padding:24px;color:#1f2937"><h1 style="font-size:18px;margin:0 0 8px">${label}을(를) 준비 중입니다</h1><p style="margin:0;color:#64748b;line-height:1.6">저장된 HTML artifact를 새 탭에서 여는 중입니다.</p></main>`;
   } catch (_err) {
     // Some browsers restrict writing to a newly opened tab. Navigation below can still work.
   }
@@ -75,6 +75,15 @@ function closeReportHTMLPreviewWindow(previewWindow) {
     if (previewWindow && !previewWindow.closed) previewWindow.close();
   } catch (_err) {
     // Best-effort cleanup for a failed export placeholder tab.
+  }
+}
+
+function viewStoredReportHTMLArtifact(artifactID) {
+  if (!state.missionId || !artifactID) return;
+  const previewWindow = openReportHTMLPreviewWindow("IL 보고서 HTML");
+  const previewURL = reports.call("missionArtifactPreviewURL", state.missionId, artifactID);
+  if (!previewURL || !navigateReportHTMLPreviewWindow(previewWindow, previewURL)) {
+    reports.setReportNotice("새 탭을 열 수 없습니다. 브라우저의 팝업 차단 설정을 확인해 주세요.", "error");
   }
 }
 
@@ -140,5 +149,5 @@ async function exportReportArtifactHumanizedMarkdown(artifactID) {
 }
 
 
-  Object.assign(reports, { exportReportArtifactHTML, openReportHTMLPreviewWindow, navigateReportHTMLPreviewWindow, closeReportHTMLPreviewWindow, exportReportArtifactDesignedHTML, exportReportArtifactHumanizedMarkdown });
+  Object.assign(reports, { exportReportArtifactHTML, openReportHTMLPreviewWindow, navigateReportHTMLPreviewWindow, closeReportHTMLPreviewWindow, viewStoredReportHTMLArtifact, exportReportArtifactDesignedHTML, exportReportArtifactHumanizedMarkdown });
 })(window);

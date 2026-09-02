@@ -3,6 +3,7 @@ package finaledit
 import (
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
@@ -91,7 +92,9 @@ type Result struct {
 // Binding은 provider session lineage의 원천이며, Stage는 다음 stage의
 // SourceArtifactID로만 소비된다. Final은 terminal gate stage에서만 채워진다.
 type StageRun struct {
-	Binding reporting.FinalEditStageBinding
-	Stage   reporting.FinalEditStageResult
-	Final   reporting.LongFormFinalizeResult
+	Binding     reporting.FinalEditStageBinding
+	Stage       reporting.FinalEditStageResult
+	Final       reporting.LongFormFinalizeResult
+	AgentResult agentexec.AgentResult
+	DurationMS  int64
 }

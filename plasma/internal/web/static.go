@@ -8,6 +8,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportmathassets"
+	"github.com/c86j224s/liquid2/plasma/internal/reportmermaidassets"
 )
 
 func (server *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +46,22 @@ func (server *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 // 그 외에는 embedded copy로 fallback한다.
 func (server *Server) readStaticFile(name string) ([]byte, error) {
 	if server.staticDir == "" {
+		switch name {
+		case katexRuntimeStaticPath:
+			return reportmathassets.KaTeXRuntime(), nil
+		case mermaidRuntimeStaticPath:
+			return reportmermaidassets.MermaidRuntime(), nil
+		case mermaidLicenseStaticPath:
+			return reportmermaidassets.License(), nil
+		case domPurifyRuntimeStaticPath:
+			return reportmermaidassets.DOMPurifyRuntime(), nil
+		case mermaidRendererStaticPath:
+			return reportmermaidassets.Renderer(), nil
+		case mermaidLegendStaticPath:
+			return reportmermaidassets.LegendRenderer(), nil
+		case mermaidStylesheetStaticPath:
+			return reportmermaidassets.Stylesheet(), nil
+		}
 		return staticFiles.ReadFile(name)
 	}
 	rel := strings.TrimPrefix(name, "static/")

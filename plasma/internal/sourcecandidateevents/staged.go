@@ -34,40 +34,89 @@ type StagedPayload struct {
 	Title             string `json:"title"`
 	ProposalEventID   string `json:"proposal_event_id"`
 	ArtifactID        string `json:"artifact_id"`
+	MediaKind         string `json:"media_kind"`
 	ExternalVersion   string `json:"external_version"`
 	ExternalUpdatedAt string `json:"external_updated_at"`
+	StagingEventID    string `json:"staging_event_id"`
+	Width             int    `json:"width"`
+	Height            int    `json:"height"`
 }
 
-// LatestStagedPayloadForURL은 normalized URL에 대응하는 최신 staged payload를 찾는다.
-//
-// 같은 URL이 여러 번 staging되면 sequence가 가장 큰 event를 택한다. artifact ID가
-// 없는 event는 agent가 읽을 수 없으므로 false로 처리한다.
-func LatestStagedPayloadForURL(events []Event, normalizedURL string, normalize func(string) (string, error)) (StagedPayload, bool) {
+// LatestStagingTerminalEventForURL correlates terminal events to the newest
+// staging attempt. Terminal payloads with staging_event_id are authoritative;
+// legacy streams without starts retain sequence-based behavior.
+func LatestStagingTerminalEventForURL(events []Event, normalizedURL string, normalize func(string) (string, error)) (Event, StagedPayload, string, bool) {
 	if normalize == nil {
-		return StagedPayload{}, false
+		return Event{}, StagedPayload{}, "", false
 	}
 	ordered := append([]Event(nil), events...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return ordered[i].Sequence < ordered[j].Sequence
-	})
-	var selected StagedPayload
+	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Sequence < ordered[j].Sequence })
+	starts := map[string]Event{}
+	for _, event := range ordered {
+		if event.EventType != "source.candidate.staging_started" {
+			continue
+		}
+		var payload StagedPayload
+		if json.Unmarshal(event.Payload, &payload) != nil {
+			continue
+		}
+		existing, err := normalize(payload.URL)
+		if err == nil && existing == normalizedURL {
+			starts[existing] = event
+		}
+	}
+	latestStart := starts[normalizedURL]
+	var selected Event
+	var selectedPayload StagedPayload
+	selectedState := ""
 	found := false
 	for _, event := range ordered {
-		payload, ok := StagedPayloadFromEvent(event)
-		if !ok {
+		if event.EventType != "source.candidate.staging_started" && event.EventType != StagedEventType && event.EventType != "source.candidate.staging_failed" {
+			continue
+		}
+		var payload StagedPayload
+		if json.Unmarshal(event.Payload, &payload) != nil {
 			continue
 		}
 		existing, err := normalize(payload.URL)
 		if err != nil || existing != normalizedURL {
 			continue
 		}
-		selected = payload
-		found = true
+		if event.EventType != "source.candidate.staging_started" && latestStart.EventID != "" {
+			attemptID := strings.TrimSpace(payload.StagingEventID)
+			if attemptID == "" || attemptID != latestStart.EventID {
+				continue
+			}
+		}
+		if !found || event.Sequence >= selected.Sequence {
+			payload.StagingEventID = firstNonEmptyStagingID(payload.StagingEventID, event.EventID)
+			selected, selectedPayload, selectedState, found = event, payload, event.EventType, true
+		}
 	}
-	if !found || strings.TrimSpace(selected.ArtifactID) == "" {
+	return selected, selectedPayload, selectedState, found
+}
+
+func firstNonEmptyStagingID(payloadID, eventID string) string {
+	if strings.TrimSpace(payloadID) != "" {
+		return strings.TrimSpace(payloadID)
+	}
+	return strings.TrimSpace(eventID)
+}
+
+// LatestStagingTerminalForURL returns the latest staging lifecycle payload.
+func LatestStagingTerminalForURL(events []Event, normalizedURL string, normalize func(string) (string, error)) (StagedPayload, string, bool) {
+	_, payload, state, found := LatestStagingTerminalEventForURL(events, normalizedURL, normalize)
+	return payload, state, found
+}
+
+// LatestStagedPayloadForURL returns the latest staged payload only when its
+// lifecycle remains staged, not fetching or failed.
+func LatestStagedPayloadForURL(events []Event, normalizedURL string, normalize func(string) (string, error)) (StagedPayload, bool) {
+	payload, state, found := LatestStagingTerminalForURL(events, normalizedURL, normalize)
+	if !found || state != StagedEventType || strings.TrimSpace(payload.ArtifactID) == "" {
 		return StagedPayload{}, false
 	}
-	return selected, true
+	return payload, true
 }
 
 // StagedPayloadFromEvent는 source.candidate.staged event에서 payload를 안전하게 읽는다.

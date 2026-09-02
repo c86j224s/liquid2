@@ -13,8 +13,10 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
-// AppendStaleFailed closes an abandoned H5 pending event after restart while
-// preserving the original report artifact.
+// AppendStaleFailed closes an abandoned legacy H5 pending event after restart
+// while preserving the original report artifact.
+//
+// Deprecated: this recovers the manual/post-canonical H5 compatibility path.
 func AppendStaleFailed(ctx context.Context, service Service, idFunc IDFunc, missionID string, pending ledger.Event) (ledger.Event, error) {
 	payload := PendingPayloadFromEvent(pending)
 	executor := firstNonEmpty(strings.TrimSpace(payload.AgentExecutor), "plasma")
@@ -50,8 +52,10 @@ func AppendStaleFailed(ctx context.Context, service Service, idFunc IDFunc, miss
 	return event, err
 }
 
-// RecoverFinalizedPatch validates and promotes a finalized H5 patch that
+// RecoverFinalizedPatch validates and promotes a finalized legacy H5 patch that
 // completed before restart but whose H5 pending event was not terminally closed.
+//
+// Deprecated: this recovers the manual/post-canonical H5 compatibility path.
 func RecoverFinalizedPatch(ctx context.Context, service Service, idFunc IDFunc, missionID string, pending ledger.Event) (bool, error) {
 	if terminalExists(ctx, service, missionID, pending.EventID) {
 		return true, nil

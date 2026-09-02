@@ -6,6 +6,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 )
@@ -56,27 +57,43 @@ type Service interface {
 // 제품 상태의 source of truth가 아니므로, 완료된 결과는 app/reporting service를
 // 통해 장부나 artifact로 기록되어야 한다.
 type Server struct {
-	service                       Service
-	research                      *research.Handler
-	connectors                    map[string]app.Liquid2SourceConnector
-	confluenceConnectorFactory    ConfluenceConnectorFactory
-	binding                       Binding
-	legacyResearchLoop            bool
-	experimentalReportComposition bool
-	operatorSourceMutation        bool
-	reportPatch                   bool
-	reportPatchBinding            ReportPatchBinding
-	reportPlanBinding             ReportPlanBinding
-	reportRequirementMapBinding   reporting.ReportRequirementMapBinding
-	partAssemblyBinding           reporting.PartAssemblyBinding
-	partEditBinding               reporting.PartEditBinding
-	longFormFinalizeBinding       reporting.LongFormFinalizeBinding
-	longFormFinalizeBindingSet    bool
-	finalEditStageBinding         reporting.FinalEditStageBinding
-	finalEditStageBindingSet      bool
-	finalEditConfigErr            error
-	enabledTools                  map[string]struct{}
-	sourceCandidateFetcher        SourceCandidateFetcher
+	service                                 Service
+	research                                *research.Handler
+	connectors                              map[string]app.Liquid2SourceConnector
+	confluenceConnectorFactory              ConfluenceConnectorFactory
+	binding                                 Binding
+	legacyResearchLoop                      bool
+	experimentalReportComposition           bool
+	operatorSourceMutation                  bool
+	reportPatch                             bool
+	reportPatchBinding                      ReportPatchBinding
+	reportPlanBinding                       ReportPlanBinding
+	reportRequirementMapBinding             reporting.ReportRequirementMapBinding
+	partAssemblyBinding                     reporting.PartAssemblyBinding
+	partEditBinding                         reporting.PartEditBinding
+	longFormFinalizeBinding                 reporting.LongFormFinalizeBinding
+	longFormFinalizeBindingSet              bool
+	finalEditStageBinding                   reporting.FinalEditStageBinding
+	finalEditStageBindingSet                bool
+	finalEditConfigErr                      error
+	reportILSourceBinding                   reportilcontract.SourceAccessBinding
+	reportILSourceBindingSet                bool
+	reportILSourceReadBytes                 int
+	reportILSourceReadBySource              map[string]int
+	reportILSourceNextOffsets               map[string]int
+	reportILSourceComplete                  map[string]bool
+	reportILSourceQuotes                    map[string]reportilcontract.SourceQuoteReceipt
+	reportILSourceQuoteCount                int
+	reportILEditorialMemoryUsedAnchors      map[string]bool
+	reportILEditorialMemoryReviewNextOffset int
+	reportILEditorialMemoryReviewComplete   bool
+	reportILLongFormPlanReviewNextOffset    int
+	reportILLongFormPlanReviewComplete      bool
+	reportILEditorialMemoryWorkspaces       map[string]*reportILEditorialMemoryWorkspace
+	reportILDocumentWorkspaces              map[string]*reportILDocumentWorkspace
+	enabledTools                            map[string]struct{}
+	enabledToolsSet                         bool
+	sourceCandidateFetcher                  SourceCandidateFetcher
 
 	mu                           sync.Mutex
 	idempotency                  map[string]idempotencyEntry
@@ -97,19 +114,105 @@ type Server struct {
 // 호출은 각 handler에서 binding과 app/reporting 계약을 다시 확인한다.
 func NewServer(service Service, options ...Option) *Server {
 	server := &Server{
-		service:                  service,
-		connectors:               map[string]app.Liquid2SourceConnector{},
-		idempotency:              map[string]idempotencyEntry{},
-		reportDrafts:             map[string]*experimentReportDraft{},
-		reportPatches:            map[string]*reportPatchDraft{},
-		partAssemblyDrafts:       map[string]*partAssemblyDraft{},
-		partEditDrafts:           map[string]*partEditDraft{},
-		longFormEditDrafts:       map[string]*longFormEditDraft{},
-		longFormStageEditDrafts:  map[string]*longFormStageEditDraft{},
-		readOnlyValidationDrafts: map[string]*readOnlyValidationDraft{},
+		service:                            service,
+		connectors:                         map[string]app.Liquid2SourceConnector{},
+		idempotency:                        map[string]idempotencyEntry{},
+		reportDrafts:                       map[string]*experimentReportDraft{},
+		reportPatches:                      map[string]*reportPatchDraft{},
+		partAssemblyDrafts:                 map[string]*partAssemblyDraft{},
+		partEditDrafts:                     map[string]*partEditDraft{},
+		longFormEditDrafts:                 map[string]*longFormEditDraft{},
+		longFormStageEditDrafts:            map[string]*longFormStageEditDraft{},
+		readOnlyValidationDrafts:           map[string]*readOnlyValidationDraft{},
+		reportILSourceReadBySource:         map[string]int{},
+		reportILSourceNextOffsets:          map[string]int{},
+		reportILSourceComplete:             map[string]bool{},
+		reportILSourceQuotes:               map[string]reportilcontract.SourceQuoteReceipt{},
+		reportILEditorialMemoryUsedAnchors: map[string]bool{},
+		reportILEditorialMemoryWorkspaces:  map[string]*reportILEditorialMemoryWorkspace{},
+		reportILDocumentWorkspaces:         map[string]*reportILDocumentWorkspace{},
 	}
 	for _, option := range options {
 		option(server)
+	}
+	if server.reportILSourceBindingSet {
+		if reportilcontract.ValidateSourceAccessBinding(server.reportILSourceBinding) != nil {
+			server.enabledTools = map[string]struct{}{}
+			server.enabledToolsSet = true
+			server.research = research.NewHandler(service, server.binding.MissionID, server.legacyResearchLoop)
+			server.finalEditConfigErr = server.validateFinalEditConfiguration()
+			return server
+		}
+		server.enabledTools = map[string]struct{}{}
+		switch server.reportILSourceBinding.Stage {
+		case "il_source_selection", "il_editorial_memory", "il_document", "il_flow":
+			server.enabledTools[reportilcontract.SourceListTool] = struct{}{}
+			server.enabledTools[reportilcontract.SourceReadTool] = struct{}{}
+		}
+		switch server.reportILSourceBinding.Stage {
+		case "il_editorial_memory":
+			server.enabledTools[reportilcontract.SourceQuoteRegisterTool] = struct{}{}
+			server.enabledTools[reportilcontract.EditorialMemoryStartTool] = struct{}{}
+			server.enabledTools[reportilcontract.EditorialMemoryAppendTool] = struct{}{}
+			server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.EditorialMemoryFinalizeTool] = struct{}{}
+		case "il_narrative":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				server.enabledTools[reportilcontract.SourceListTool] = struct{}{}
+				server.enabledTools[reportilcontract.SourceReadTool] = struct{}{}
+				server.enabledTools[reportilcontract.AuthorDocumentAppendSourceTool] = struct{}{}
+			} else {
+				server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+				server.enabledTools[reportilcontract.AuthorDocumentAppendTool] = struct{}{}
+			}
+			server.enabledTools[reportilcontract.AuthorDocumentStartTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentReplaceTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentFinalizeTool] = struct{}{}
+		case "il_continuity":
+			server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentOpenTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentReviseBlockTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentFinalizeTool] = struct{}{}
+		case "il_reader":
+			server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentOpenTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentEditTextTool] = struct{}{}
+			server.enabledTools[reportilcontract.AuthorDocumentFinalizeTool] = struct{}{}
+		case "il_long_form_plan":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				server.enabledTools[reportilcontract.SourceListTool] = struct{}{}
+				server.enabledTools[reportilcontract.SourceReadTool] = struct{}{}
+			} else {
+				server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			}
+			server.enabledTools[reportilcontract.LongFormPlanSubmitTool] = struct{}{}
+		case "il_long_form_section":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				server.enabledTools[reportilcontract.SourceReadTool] = struct{}{}
+			} else {
+				server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			}
+			server.enabledTools[reportilcontract.LongFormPlanReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentStartTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentAppendTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentReplaceTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentCorrectBlockTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentFinalizeTool] = struct{}{}
+		case "il_long_form_part", "il_long_form_final":
+			if server.reportILSourceBinding.EditorialMemoryArtifactID != "" {
+				server.enabledTools[reportilcontract.EditorialMemoryReadTool] = struct{}{}
+			}
+			server.enabledTools[reportilcontract.LongFormPlanReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentStartTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentReadTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentReplaceTool] = struct{}{}
+			server.enabledTools[reportilcontract.LongFormDocumentFinalizeTool] = struct{}{}
+		}
+		server.enabledToolsSet = true
 	}
 	server.research = research.NewHandler(service, server.binding.MissionID, server.legacyResearchLoop)
 	server.finalEditConfigErr = server.validateFinalEditConfiguration()

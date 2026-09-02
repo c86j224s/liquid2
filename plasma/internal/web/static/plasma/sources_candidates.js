@@ -19,12 +19,13 @@
   const pruneSelectedSourceCandidates = (...args) => sources.pruneSelectedSourceCandidates(...args);
   const updateSourceCandidateBulkBar = (...args) => sources.updateSourceCandidateBulkBar(...args);
 
-  function renderSourceCandidates(events, sources) {
-    const existing = acceptedSourceCandidateKeys(sources);
+  function renderSourceCandidates(events, existingSources) {
+    const existing = acceptedSourceCandidateKeys(existingSources);
     const decisions = sourceCandidateDecisions(events);
+    const snapshotConsumption = sources.sourceCandidateSnapshotConsumption(events);
     const candidates = sourceCandidatesFromEvents(events).filter((candidate) => {
       const normalized = normalizeSourceURL(candidate.url);
-      return normalized && !sourceCandidateAccepted(existing, normalized) && decisions.get(normalized)?.state !== "rejected";
+      return normalized && !sourceCandidateAccepted(existing, normalized) && !sources.sourceCandidateConsumedBySnapshot(snapshotConsumption, candidate) && decisions.get(normalized)?.state !== "rejected";
     });
     updateCountChip("sourceCandidateCount", candidates.length);
     updateSourceCandidateIndicators(candidates.length);
@@ -48,6 +49,8 @@
         <div class="item-meta source-candidate-reason"><strong>채택 의견</strong> ${escapeHTML(candidate.reason)}</div>
         <div class="item-actions">
           <button type="button" class="secondary" data-detail-title="소스 후보 상세" data-detail-json="${escapeAttr(JSON.stringify(candidate))}">자세히</button>
+          <a class="button-link secondary source-original-link" href="${escapeAttr(normalized)}" target="_blank" rel="noopener noreferrer">원문 열기</a>
+          ${candidate.staging?.state === "staged" && candidate.staging.eventID && candidate.staging.artifactID && !sources.sourceCandidateDownloadExcluded(candidate) ? `<a class="button-link secondary source-saved-download" href="/api/missions/${encodeURIComponent(state.missionId)}/candidates/sources/${encodeURIComponent(candidate.staging.eventID)}/download?artifact_id=${encodeURIComponent(candidate.staging.artifactID)}" download>${browserRender ? "초기 저장본 다운로드" : "저장본 다운로드"}</a>` : ""}
           <button type="button" data-add-source-url="${escapeAttr(candidate.url)}" data-source-candidate-title="${escapeAttr(candidate.title || "")}" ${busy ? "disabled" : ""}>${busy ? "처리 중" : "소스로 추가"}</button>
           <button type="button" class="danger" data-reject-source-url="${escapeAttr(candidate.url)}" ${busy ? "disabled" : ""}>기각</button>
         </div>

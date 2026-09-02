@@ -13,6 +13,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
+	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
 )
 
@@ -891,7 +892,12 @@ func (server *Server) handleConfluenceURLSnapshot(w http.ResponseWriter, r *http
 		})
 		return
 	}
-	result, err := server.snapshotConfluenceURLSourceWithSelection(r.Context(), missionID, target, req.ConnectionID, req.CloudID, req.Title)
+	provenance, err := server.stagedConfluenceCandidateProvenance(r.Context(), missionID, normalizedURL)
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	result, err := server.snapshotConfluenceURLSourceWithSelection(r.Context(), missionID, target, req.ConnectionID, req.CloudID, req.Title, provenance)
 	if err != nil {
 		server.recordSourceSnapshotFailure(r.Context(), missionID, "confluence_url", normalizedURL, err)
 		writeAppError(w, err)
@@ -900,11 +906,16 @@ func (server *Server) handleConfluenceURLSnapshot(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusCreated, result)
 }
 
-func (server *Server) snapshotConfluenceURLSource(ctx context.Context, missionID string, target confluencePageURLTarget, title string) (app.ConfluenceSnapshotWithEventResult, error) {
-	return server.snapshotConfluenceURLSourceWithSelection(ctx, missionID, target, "", "", title)
+type stagedSourceCandidateProvenance struct {
+	ProposalEventID string
+	URL             string
 }
 
-func (server *Server) snapshotConfluenceURLSourceWithSelection(ctx context.Context, missionID string, target confluencePageURLTarget, connectionID string, cloudID string, title string) (app.ConfluenceSnapshotWithEventResult, error) {
+func (server *Server) snapshotConfluenceURLSource(ctx context.Context, missionID string, target confluencePageURLTarget, title string) (app.ConfluenceSnapshotWithEventResult, error) {
+	return server.snapshotConfluenceURLSourceWithSelection(ctx, missionID, target, "", "", title, stagedSourceCandidateProvenance{})
+}
+
+func (server *Server) snapshotConfluenceURLSourceWithSelection(ctx context.Context, missionID string, target confluencePageURLTarget, connectionID string, cloudID string, title string, provenance stagedSourceCandidateProvenance) (app.ConfluenceSnapshotWithEventResult, error) {
 	connection, err := server.confluenceConnectionForPageURL(ctx, target, connectionID, cloudID)
 	if err != nil {
 		return app.ConfluenceSnapshotWithEventResult{}, err
@@ -920,20 +931,17 @@ func (server *Server) snapshotConfluenceURLSourceWithSelection(ctx context.Conte
 	if version.SiteURL != "" && webConfluenceURLHost(version.SiteURL) != "" && webConfluenceURLHost(version.SiteURL) != webConfluenceURLHost(target.SiteURL) {
 		return app.ConfluenceSnapshotWithEventResult{}, fmt.Errorf("%w: Confluence page가 붙여넣은 URL의 site와 일치하지 않습니다. 페이지와 연결을 다시 확인하세요.", app.ErrInvalidInput)
 	}
-	return server.service.SnapshotConfluenceSourceWithEvent(ctx, connector, app.SnapshotConfluenceSourceWithEventRequest{
+	request := app.SnapshotConfluenceSourceWithEventRequest{
 		Snapshot: app.SnapshotConfluenceSourceRequest{
-			MissionID:       missionID,
-			ArtifactID:      newID("art"),
-			SnapshotID:      newID("src"),
-			CloudID:         target.CloudID,
-			PageID:          target.PageID,
-			Title:           title,
-			ExpectedVersion: version.Version,
-			Reason:          "Confluence URL에서 직접 추가",
+			MissionID: missionID, ArtifactID: newID("art"), SnapshotID: newID("src"),
+			CloudID: target.CloudID, PageID: target.PageID, Title: title,
+			ExpectedVersion: version.Version, Reason: "Confluence URL에서 직접 추가",
 		},
-		EventID:  newID("evt"),
-		Producer: app.Producer{Type: "user", ID: "plasma-ui"},
-	})
+		EventID: newID("evt"), Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+	}
+	request.SourceCandidateProposalEventID = strings.TrimSpace(provenance.ProposalEventID)
+	request.SourceCandidateURL = strings.TrimSpace(provenance.URL)
+	return server.service.SnapshotConfluenceSourceWithEvent(ctx, connector, request)
 }
 
 func confluenceVersionForURLSnapshot(ctx context.Context, connector app.ConfluenceSourceConnector, target confluencePageURLTarget) (app.ConfluenceSourceVersion, error) {
@@ -1135,4 +1143,20 @@ func parseConfluencePageURL(rawURL string) (confluencePageURLTarget, bool, error
 		CloudID: cloudID,
 		PageID:  pageID,
 	}, true, nil
+}
+
+func (server *Server) stagedConfluenceCandidateProvenance(ctx context.Context, missionID, normalizedURL string) (stagedSourceCandidateProvenance, error) {
+	events, err := server.service.ListEvents(ctx, missionID)
+	if err != nil {
+		return stagedSourceCandidateProvenance{}, err
+	}
+	converted := make([]sourcecandidateevents.Event, 0, len(events))
+	for _, event := range events {
+		converted = append(converted, sourcecandidateevents.Event{EventID: event.EventID, Sequence: event.Sequence, EventType: event.EventType, Payload: event.Payload, CreatedAt: event.CreatedAt})
+	}
+	payload, state, ok := sourcecandidateevents.LatestStagingTerminalForURL(converted, normalizedURL, func(value string) (string, error) { return normalizedHTTPURL(value) })
+	if !ok || state != sourcecandidateevents.StagedEventType || strings.TrimSpace(payload.ArtifactID) == "" || strings.TrimSpace(payload.ProposalEventID) == "" {
+		return stagedSourceCandidateProvenance{}, nil
+	}
+	return stagedSourceCandidateProvenance{ProposalEventID: payload.ProposalEventID, URL: normalizedURL}, nil
 }

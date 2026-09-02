@@ -59,6 +59,14 @@
   margin-bottom: 12px;
 }
 
+.report-validation-help {
+  flex: 1 0 100%;
+  margin: 0;
+  color: var(--ink2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .report-direction-details > summary {
   display: inline-flex;
   align-items: center;
@@ -147,9 +155,19 @@
   }
 
   .report-mode-actions {
-    width: auto;
-    margin-left: auto;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .report-mode-actions button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .report-mode-actions #cancelReportButton {
+    grid-column: 1 / -1;
   }
 }
 

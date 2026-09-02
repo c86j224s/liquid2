@@ -8,20 +8,32 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 )
 
-// ReportHumanizeInput는 웹 및 에이전트 어댑터에 전달되는 요청 값이다.
+// ReportHumanizeInput는 deprecated된 manual/post-canonical H5 Web
+// compatibility 요청 값이다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 type ReportHumanizeInput = reporthumanize.Input
 
 type reportHumanizeInput = ReportHumanizeInput
 
-// ReportHumanizeResult는 H5 보정 artifact와 agent 실행 metadata를 함께 반환한다.
+// ReportHumanizeResult는 legacy H5 compatibility artifact와 agent 실행
+// metadata를 함께 반환한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 type ReportHumanizeResult = reporthumanize.Result
 
 type reportHumanizeResult = ReportHumanizeResult
 
-// ReportHumanizeIDFunc는 웹 및 에이전트 어댑터에서 테스트와 실행이 같은 ID 생성 계약을 주입할 수 있게 하는 함수 포트다.
+// ReportHumanizeIDFunc는 legacy H5 Web compatibility adapter의 ID 생성
+// 계약을 주입하는 함수 포트다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 type ReportHumanizeIDFunc = reporthumanize.IDFunc
 
-// ReportHumanizeService는 H5 보정 실행에 필요한 report 조회와 이벤트 기록 기능을 제공한다.
+// ReportHumanizeService는 legacy H5 compatibility 실행에 필요한 report 조회와
+// 이벤트 기록 기능을 제공한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 type ReportHumanizeService = reporthumanize.Service
 
 type reportHumanizePendingPayload = reporthumanize.PendingPayload
@@ -30,7 +42,10 @@ func (server *Server) humanizeMarkdownReport(ctx context.Context, missionID stri
 	return reporthumanize.HumanizeMarkdownReport(ctx, server.service, newID, missionID, input, executor)
 }
 
-// HumanizeMarkdownReport는 Markdown 원본을 유지한 채 MCP patch 방식으로 말투 보정 artifact를 시도한다.
+// HumanizeMarkdownReport는 legacy manual/post-canonical H5 compatibility
+// artifact를 생성한다. Markdown 원본은 유지한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func HumanizeMarkdownReport(ctx context.Context, service ReportHumanizeService, idFunc ReportHumanizeIDFunc, missionID string, input ReportHumanizeInput, executor AgentExecutor) (ReportHumanizeResult, error) {
 	return reporthumanize.HumanizeMarkdownReport(ctx, service, idFunc, missionID, input, executor)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -55,6 +56,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 	reportPlanAgentModel := fs.String("report-plan-agent-model", "", "server-bound report planning model")
 	reportPlanAgentReasoningEffort := fs.String("report-plan-agent-reasoning-effort", "", "server-bound report planning reasoning effort")
 	reportPlanRequireWritingContract := fs.Bool("report-plan-require-writing-contract", false, "require a complete report writing contract in the submitted plan")
+	reportILSourceBindingJSON := fs.String("report-il-source-binding-json", "", "server-bound report IL frozen source metadata")
 	reportRequirementsBindingJSON := fs.String("report-requirements-binding-json", "", "server-bound long-form requirement mapping metadata")
 	partAssemblyBindingJSON := fs.String("report-part-assembly-binding-json", "", "server-bound long-form part assembly metadata")
 	partEditBindingJSON := fs.String("report-part-edit-binding-json", "", "server-bound long-form Part editing metadata")
@@ -149,6 +151,29 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 			return 2
 		}
 		options = append(options, mcp.WithReportPlanBinding(planBinding))
+	}
+	if strings.TrimSpace(*reportILSourceBindingJSON) != "" {
+		var sourceBinding reportilcontract.SourceAccessBinding
+		decoder := json.NewDecoder(strings.NewReader(*reportILSourceBindingJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&sourceBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp report IL source binding: %v\n", err)
+			return 2
+		}
+		var extra any
+		if err := decoder.Decode(&extra); err != io.EOF {
+			fmt.Fprintln(stderr, "mcp report IL source binding: multiple JSON values")
+			return 2
+		}
+		if err := reportilcontract.ValidateSourceAccessBinding(sourceBinding); err != nil {
+			fmt.Fprintf(stderr, "mcp report IL source binding: %v\n", err)
+			return 2
+		}
+		if sourceBinding.Catalog.MissionID != binding.MissionID {
+			fmt.Fprintln(stderr, "mcp report IL source binding: mission binding conflicts with source catalog")
+			return 2
+		}
+		options = append(options, mcp.WithReportILSourceBinding(sourceBinding))
 	}
 	if strings.TrimSpace(*reportRequirementsBindingJSON) != "" {
 		var requirementBinding reporting.ReportRequirementMapBinding

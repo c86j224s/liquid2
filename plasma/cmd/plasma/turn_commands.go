@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
-	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
 )
 
 func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -124,8 +124,21 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	}
 	userEvent := appendedEvents[0]
 	pendingEvent := appendedEvents[1]
-	events, _ := svc.ListEvents(ctx, missionID)
-	previousSessionID := workflowruntime.LatestAgentSessionID(events, resolvedAgentName)
+	events, err := svc.ListEvents(ctx, missionID)
+	if err != nil {
+		fmt.Fprintf(stderr, "list events: %v\n", err)
+		return 1
+	}
+	session := conversation.LatestAgentSession(events, resolvedAgentName)
+	previousSessionID := session.SessionID
+	profile := agentcapability.Research()
+	if previousSessionID != "" {
+		profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
+		if err != nil {
+			fmt.Fprintf(stderr, "agent capability profile: %v\n", err)
+			return 1
+		}
+	}
 	result, err := executor.Run(ctx, agentexec.AgentRequest{
 		UserText:          turnText,
 		Prompt:            cliTurnPrompt(missionID, turnText, toolSessionID),
@@ -135,6 +148,8 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		PreviousSessionID: previousSessionID,
 		AgentExecutor:     resolvedAgentName,
 		MCPMode:           strings.TrimSpace(*mcpMode),
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 	})
 	if err != nil {
 		_, _ = svc.AppendEvent(ctx, conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
@@ -188,6 +203,9 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		MissionID:             missionID,
 		Kind:                  "agent_response",
 		AgentExecutor:         resolvedAgentName,
+		CapabilityProfile:     profile.ID,
+		ProfileRevision:       profile.Revision,
+		IncludeProfile:        true,
 		MCPMode:               strings.TrimSpace(*mcpMode),
 		IncludeMCPMode:        true,
 		Text:                  strings.TrimSpace(result.Text),

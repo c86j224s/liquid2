@@ -24,7 +24,7 @@ func (server *Server) Call(ctx context.Context, call ToolCall) ToolResult {
 }
 
 func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResult {
-	if len(server.enabledTools) > 0 && !server.toolEnabled(call.Name) {
+	if server.enabledToolsSet && !server.toolEnabled(call.Name) {
 		return errorResult(call.Name, server.binding.MissionID, "validation", "tool is not enabled for this MCP server", false, nil)
 	}
 	switch call.Name {
@@ -36,6 +36,54 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 		return server.callSourcesList(ctx, call)
 	case ToolSourcesRead:
 		return server.callSourcesRead(ctx, call)
+	case ToolReportILSourcesList:
+		return server.callReportILSourcesList(call)
+	case ToolReportILSourcesRead:
+		return server.callReportILSourcesRead(ctx, call)
+	case ToolReportILSourcesQuote:
+		return server.callReportILSourceQuote(ctx, call)
+	case ToolReportILEditorialMemoryStart:
+		return server.callReportILEditorialMemoryStart(ctx, call)
+	case ToolReportILEditorialMemoryAppend:
+		return server.callReportILEditorialMemoryAppend(ctx, call)
+	case ToolReportILEditorialMemoryRead:
+		return server.callReportILEditorialMemoryRead(ctx, call)
+	case ToolReportILEditorialMemoryFinalize:
+		return server.callReportILEditorialMemoryFinalize(ctx, call)
+	case ToolReportILDocumentStart:
+		return server.callReportILDocumentStart(ctx, call)
+	case ToolReportILDocumentOpen:
+		return server.callReportILDocumentOpen(ctx, call)
+	case ToolReportILDocumentAppend:
+		return server.callReportILDocumentAppend(ctx, call)
+	case ToolReportILDocumentAppendSource:
+		return server.callReportILDocumentAppendSource(ctx, call)
+	case ToolReportILDocumentRead:
+		return server.callReportILDocumentRead(ctx, call)
+	case ToolReportILDocumentReplace:
+		return server.callReportILDocumentReplace(ctx, call)
+	case ToolReportILDocumentEditText:
+		return server.callReportILDocumentEditText(ctx, call)
+	case ToolReportILDocumentReviseBlock:
+		return server.callReportILDocumentReviseBlock(ctx, call)
+	case ToolReportILDocumentFinalize:
+		return server.callReportILDocumentFinalize(ctx, call)
+	case ToolReportILLongFormPlanSubmit:
+		return server.callReportILLongFormPlanSubmit(ctx, call)
+	case ToolReportILLongFormPlanRead:
+		return server.callReportILLongFormPlanRead(ctx, call)
+	case ToolReportILLongFormDocumentStart:
+		return server.callReportILLongFormDocumentStart(ctx, call)
+	case ToolReportILLongFormDocumentAppend:
+		return server.callReportILLongFormDocumentAppend(ctx, call)
+	case ToolReportILLongFormDocumentRead:
+		return server.callReportILLongFormDocumentRead(ctx, call)
+	case ToolReportILLongFormDocumentReplace:
+		return server.callReportILLongFormDocumentReplace(ctx, call)
+	case ToolReportILLongFormDocumentCorrectBlock:
+		return server.callReportILLongFormDocumentCorrectBlock(ctx, call)
+	case ToolReportILLongFormDocumentFinalize:
+		return server.callReportILLongFormDocumentFinalize(ctx, call)
 	case ToolSourcesTree:
 		return server.callSourcesTree(ctx, call)
 	case ToolSourcesGrep:

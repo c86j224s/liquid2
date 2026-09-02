@@ -51,6 +51,17 @@ func TestClassifyViolation(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "standalone command composition root uses app",
+			edge: importEdge{file: "cmd/plasma-report-recover/main.go", importPath: moduleImportPath + "/internal/app"},
+			want: false,
+		},
+		{
+			name: "standalone command helper cannot use app",
+			edge: importEdge{file: "cmd/plasma-report-recover/run.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "app-hub",
+			want: true,
+		},
+		{
 			name: "research mcp uses app port",
 			edge: importEdge{file: "internal/mcp/research/ports.go", importPath: moduleImportPath + "/internal/app"},
 			want: false,

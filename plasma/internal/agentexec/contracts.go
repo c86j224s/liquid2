@@ -4,7 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -13,6 +15,24 @@ import (
 // 구현체는 Codex, Claude 등 provider 차이를 숨기고 AgentResult로 정규화한다.
 type AgentExecutor interface {
 	Run(context.Context, AgentRequest) (AgentResult, error)
+}
+
+// ReportILSourceReadVerifier returns the content-free frozen-source inventory
+// read by one exact provider attempt. It never returns source content.
+type ReportILSourceReadVerifier interface {
+	VerifyReportILSourceRead(context.Context, string, string, string, reportilcontract.SourceCatalog) (reportilcontract.SourceReadReceipt, error)
+}
+
+// ReportILAuthorDocumentReader returns a finalized, request-bound MCP authoring
+// artifact after verifying its content-free tool trace. It never reads a value
+// from the provider's terminal response.
+type ReportILAuthorDocumentReader interface {
+	ReadReportILEditorialMemory(context.Context, string, string, reportilcontract.SourceCatalog) (reportilcontract.EditorialMemory, reportilcontract.EditorialMemoryReceipt, error)
+	ReadReportILAuthorDocument(context.Context, string, string, reportilcontract.SourceCatalog) (reportilcontract.AuthorDocument, reportilcontract.AuthorWorkspaceReceipt, error)
+	ReadReportILLongFormPlan(context.Context, string, string, reportilcontract.SourceCatalog) (reportilcontract.LongFormPlan, reportilcontract.LongFormPlanReceipt, error)
+	ReadReportILLongFormStageDocument(context.Context, string, string, string, reportilcontract.SourceCatalog) (reportilcontract.AuthorDocument, reportilcontract.AuthorWorkspaceReceipt, error)
+	ReadReportILContinuityDocument(context.Context, string, string, reportilcontract.SourceCatalog) (reportilcontract.AuthorDocument, reportilcontract.AuthorWorkspaceReceipt, error)
+	ReadReportILPublicationDocument(context.Context, string, string, reportilcontract.SourceCatalog) (reportilcontract.AuthorDocument, reportilcontract.AuthorWorkspaceReceipt, error)
 }
 
 // StreamingAgentExecutor는 기존 Run 계약을 유지하면서 안전하게 정규화된 실행 관찰
@@ -72,29 +92,35 @@ const (
 // 명시적으로 구성해야 하며 executor가 임의로 추론하지 않는다. EphemeralSession은
 // 장부 세션으로 이어지지 않는 보조 호출에만 사용한다.
 type AgentRequest struct {
-	UserText           string
-	Prompt             string
-	Model              string
-	ReasoningEffort    string
-	MissionID          string
-	ToolSessionID      string
-	UserEventID        string
-	PreviousSessionID  string
-	AgentExecutor      string
-	MCPMode            string
-	Compaction         bool
-	DisableTools       bool
-	IgnoreUserConfig   bool
-	EphemeralSession   bool
-	ExtraMCPTools      []string
-	ReplaceMCPTools    bool
-	ReportPatch        *AgentReportPatchContext
-	ReportPlan         *AgentReportPlanContext
-	ReportRequirements *reporting.ReportRequirementMapBinding
-	PartAssembly       *reporting.PartAssemblyBinding
-	PartEdit           *reporting.PartEditBinding
-	LongFormFinalize   *reporting.LongFormFinalizeBinding
-	FinalEditStage     *reporting.FinalEditStageBinding
+	UserText                   string
+	Prompt                     string
+	Model                      string
+	ReasoningEffort            string
+	MissionID                  string
+	ToolSessionID              string
+	UserEventID                string
+	PreviousSessionID          string
+	AgentExecutor              string
+	MCPMode                    string
+	CapabilityProfile          agentcapability.ProfileID
+	ProfileRevision            string
+	Compaction                 bool
+	DisableTools               bool
+	IgnoreUserConfig           bool
+	EphemeralSession           bool
+	PreserveResponseWhitespace bool
+	CodexConfig                []string
+	ExtraMCPTools              []string
+	ReplaceMCPTools            bool
+	OutputJSONSchema           []byte
+	ReportILSources            *reportilcontract.SourceAccessBinding
+	ReportPatch                *AgentReportPatchContext
+	ReportPlan                 *AgentReportPlanContext
+	ReportRequirements         *reporting.ReportRequirementMapBinding
+	PartAssembly               *reporting.PartAssemblyBinding
+	PartEdit                   *reporting.PartEditBinding
+	LongFormFinalize           *reporting.LongFormFinalizeBinding
+	FinalEditStage             *reporting.FinalEditStageBinding
 }
 
 // AgentReportPlanContext는 report planning MCP tool 제출에 필요한 session 계약이다.

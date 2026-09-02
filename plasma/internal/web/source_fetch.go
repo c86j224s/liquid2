@@ -37,6 +37,7 @@ func (server *Server) recordSourceSnapshotFailure(ctx context.Context, missionID
 type fetchedURLSource struct {
 	Content            []byte
 	MediaType          string
+	MediaKind          string
 	Title              string
 	ExternalVersion    string
 	ExternalUpdatedAt  time.Time
@@ -44,6 +45,8 @@ type fetchedURLSource struct {
 	PageCount          int
 	TextLength         int
 	TextLengthKnown    bool
+	Width              int
+	Height             int
 	RetrievalMethod    string
 	FinalURL           string
 	RenderedAt         time.Time
@@ -155,6 +158,7 @@ func webFetchedURLSource(fetched sourceretrieval.Fetched) fetchedURLSource {
 	return fetchedURLSource{
 		Content:           fetched.Content,
 		MediaType:         fetched.MediaType,
+		MediaKind:         fetched.MediaKind,
 		Title:             fetched.Title,
 		ExternalVersion:   fetched.ExternalVersion,
 		ExternalUpdatedAt: fetched.ExternalUpdatedAt,
@@ -162,6 +166,8 @@ func webFetchedURLSource(fetched sourceretrieval.Fetched) fetchedURLSource {
 		PageCount:         fetched.PageCount,
 		TextLength:        fetched.TextLength,
 		TextLengthKnown:   fetched.TextLengthKnown,
+		Width:             fetched.Width,
+		Height:            fetched.Height,
 	}
 }
 
@@ -205,10 +211,7 @@ func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http
 	if len(content) > maxImageMediaSourceBytes {
 		return fetchedMediaSource{}, fmt.Errorf("%w: image source response is larger than 10 MiB", app.ErrInvalidInput)
 	}
-	mediaType := declaredType
-	if mediaType == "" {
-		mediaType = http.DetectContentType(content)
-	}
+	mediaType := effectiveMediaType(declaredType, content)
 	kind := mediaKindForType(mediaType)
 	if kind == app.MediaKindAudio || kind == app.MediaKindVideo {
 		return fetchedMediaSource{
@@ -403,6 +406,18 @@ func mediaKindForType(mediaType string) string {
 	default:
 		return ""
 	}
+}
+
+func effectiveMediaType(declaredType string, content []byte) string {
+	declaredType = strings.ToLower(strings.TrimSpace(declaredType))
+	detectedType := strings.ToLower(strings.TrimSpace(http.DetectContentType(content)))
+	if declaredType == "" || declaredType == "application/octet-stream" || declaredType == "binary/octet-stream" {
+		return detectedType
+	}
+	if mediaKindForType(declaredType) == app.MediaKindImage && mediaKindForType(detectedType) == app.MediaKindImage {
+		return detectedType
+	}
+	return declaredType
 }
 
 func isPinnedImageMediaType(mediaType string) bool {

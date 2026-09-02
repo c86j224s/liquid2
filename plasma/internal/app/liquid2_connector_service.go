@@ -283,10 +283,10 @@ func mustMarshalJSON(value any) json.RawMessage {
 func liquid2SnapshotFilename(externalSourceID string) string {
 	externalSourceID = strings.TrimSpace(externalSourceID)
 	if externalSourceID == "" {
-		return "liquid2-source.json"
+		return "plasma-liquid2-snapshot.json"
 	}
 	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_")
-	return "liquid2-" + replacer.Replace(externalSourceID) + ".json"
+	return "plasma-liquid2-snapshot-" + replacer.Replace(externalSourceID) + ".json"
 }
 
 type liquid2SnapshotArtifact struct {
@@ -319,6 +319,7 @@ type liquid2SnapshotLocator struct {
 	LocatorType      string `json:"locator_type"`
 	ArtifactID       string `json:"artifact_id"`
 	ExternalSourceID string `json:"external_source_id"`
+	SourceURI        string `json:"source_uri,omitempty"`
 	ContentID        string `json:"content_id"`
 	Role             string `json:"role"`
 	Format           string `json:"format"`
@@ -465,6 +466,7 @@ func liquid2Locator(document Liquid2SourceDocument, artifactID string, content l
 		LocatorType:      "liquid2_content_range",
 		ArtifactID:       artifactID,
 		ExternalSourceID: document.Connector.ExternalSourceID,
+		SourceURI:        document.SourceURI,
 		ContentID:        content.ContentID,
 		Role:             content.Role,
 		Format:           content.Format,

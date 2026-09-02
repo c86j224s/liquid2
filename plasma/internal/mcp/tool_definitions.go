@@ -25,6 +25,30 @@ const (
 	ToolLocalPathAttach                             = mcptools.ToolLocalPathAttach
 	ToolSourcesRemove                               = mcptools.ToolSourcesRemove
 	ToolSourcesRestore                              = mcptools.ToolSourcesRestore
+	ToolReportILSourcesList                         = mcptools.ToolReportILSourcesList
+	ToolReportILSourcesRead                         = mcptools.ToolReportILSourcesRead
+	ToolReportILSourcesQuote                        = mcptools.ToolReportILSourcesQuote
+	ToolReportILEditorialMemoryStart                = mcptools.ToolReportILEditorialMemoryStart
+	ToolReportILEditorialMemoryAppend               = mcptools.ToolReportILEditorialMemoryAppend
+	ToolReportILEditorialMemoryRead                 = mcptools.ToolReportILEditorialMemoryRead
+	ToolReportILEditorialMemoryFinalize             = mcptools.ToolReportILEditorialMemoryFinalize
+	ToolReportILDocumentStart                       = mcptools.ToolReportILDocumentStart
+	ToolReportILDocumentOpen                        = mcptools.ToolReportILDocumentOpen
+	ToolReportILDocumentAppend                      = mcptools.ToolReportILDocumentAppend
+	ToolReportILDocumentAppendSource                = mcptools.ToolReportILDocumentAppendSource
+	ToolReportILDocumentRead                        = mcptools.ToolReportILDocumentRead
+	ToolReportILDocumentReplace                     = mcptools.ToolReportILDocumentReplace
+	ToolReportILDocumentEditText                    = mcptools.ToolReportILDocumentEditText
+	ToolReportILDocumentReviseBlock                 = mcptools.ToolReportILDocumentReviseBlock
+	ToolReportILDocumentFinalize                    = mcptools.ToolReportILDocumentFinalize
+	ToolReportILLongFormPlanSubmit                  = mcptools.ToolReportILLongFormPlanSubmit
+	ToolReportILLongFormPlanRead                    = mcptools.ToolReportILLongFormPlanRead
+	ToolReportILLongFormDocumentStart               = mcptools.ToolReportILLongFormDocumentStart
+	ToolReportILLongFormDocumentAppend              = mcptools.ToolReportILLongFormDocumentAppend
+	ToolReportILLongFormDocumentRead                = mcptools.ToolReportILLongFormDocumentRead
+	ToolReportILLongFormDocumentReplace             = mcptools.ToolReportILLongFormDocumentReplace
+	ToolReportILLongFormDocumentCorrectBlock        = mcptools.ToolReportILLongFormDocumentCorrectBlock
+	ToolReportILLongFormDocumentFinalize            = mcptools.ToolReportILLongFormDocumentFinalize
 	ToolResearchOutline                             = mcptools.ToolResearchOutline
 	ToolResearchChanges                             = mcptools.ToolResearchChanges
 	ToolResearchList                                = mcptools.ToolResearchList
@@ -127,6 +151,113 @@ func (server *Server) ListTools() []ToolDefinition {
 		{Name: ToolSourceCandidatesRead, Description: "Read a staged unapproved source candidate by URL, proposal event, or artifact id. This is for conversation/research only; staged candidates are not approved source snapshots and are excluded from default report generation.", InputSchema: schemaSourceCandidatesRead},
 		{Name: ToolLocalPathRoots, Description: "List configured allowlisted local path roots. Output never includes absolute filesystem paths.", InputSchema: schemaLocalPathRoots},
 		{Name: ToolLocalPathTree, Description: "Browse an allowlisted local path root by root_id and relative_path with bounded depth and entry count.", InputSchema: schemaLocalPathTree},
+	}
+	if server.reportILSourceBindingSet {
+		readDescription := "Report IL stage only: read one bounded canonical text chunk from a run-frozen accepted source key. Start at offset 0 and continue with next_offset when needed. HTML is returned as visible text and PDF as extracted text."
+		readSchema := schemaReportILSourcesRead
+		switch server.reportILSourceBinding.Stage {
+		case "il_source_selection":
+			readDescription = "Report IL source selection only: read the next server-ordered batch of bounded samples from the frozen catalog. Call with {} until the returned remaining_sources is zero, then stop. Each response stays within the source-read call ceiling."
+			readSchema = schemaReportILSourcesBatchRead
+		case "il_editorial_memory":
+			readDescription = "Report IL editorial-memory author only: read the next server-ordered batch of complete frozen source text. Call with {} until remaining_sources is zero, then preserve material connected accounts in the memory workspace."
+			readSchema = schemaReportILSourcesBatchRead
+		case "il_narrative":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				readDescription = "Report IL direct author only: read every selected frozen source by source_key. Start each source at offset 0 and continue with the exact returned next_offset until truncated is false before writing the report in the document workspace."
+			}
+		case "il_flow":
+			readDescription = "Report IL final reader only: read the next server-ordered batch of compact source evidence spans bound to the author's claim evidence packets. Call with {} until the returned remaining_sources is zero, then stop. Complete selected source bodies are unavailable in this stage."
+			readSchema = schemaReportILSourcesBatchRead
+		}
+		if server.reportILSourceBinding.Stage == "il_source_selection" || server.reportILSourceBinding.Stage == "il_editorial_memory" || server.reportILSourceBinding.Stage == "il_document" || server.reportILSourceBinding.Stage == "il_flow" ||
+			server.reportILSourceBinding.Stage == "il_narrative" && server.reportILSourceBinding.MaxReadBytes > 0 {
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILSourcesList, Description: "Report IL stage only: list the run-frozen accepted source keys and readable sizes without source content, locators, filenames, URLs, or mutable mission state.", InputSchema: schemaReportILSourcesList},
+				ToolDefinition{Name: ToolReportILSourcesRead, Description: readDescription, InputSchema: readSchema},
+			)
+		}
+		switch server.reportILSourceBinding.Stage {
+		case "il_editorial_memory":
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILSourcesQuote, Description: "Report IL editorial-memory author only: after completely reading the frozen catalog, register one bounded exact source excerpt. Returns an opaque source_receipt; the server later reconstructs the verified excerpt inside editorial memory.", InputSchema: schemaReportILSourceQuote},
+				ToolDefinition{Name: ToolReportILEditorialMemoryStart, Description: "Report IL editorial-memory author only: after completely reading the frozen catalog, start the server-owned connected-account memory.", InputSchema: schemaReportILEditorialMemoryStart},
+				ToolDefinition{Name: ToolReportILEditorialMemoryAppend, Description: "Report IL editorial-memory author only: append one material connected account with every supporting source key and successful exact source_receipt needed to preserve its actor, role, action, relation, date, duration, case, uncertainty, and any usable source-native code, equation, comparison, calculation, benchmark, configuration, or procedure. The server reconstructs and embeds the verified excerpts.", InputSchema: schemaReportILEditorialMemoryAppend},
+				ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Report IL editorial-memory author only: reread the entire assembled memory from offset 0 through EOF before finalizing.", InputSchema: schemaReportILEditorialMemoryRead},
+				ToolDefinition{Name: ToolReportILEditorialMemoryFinalize, Description: "Report IL editorial-memory author only: atomically finalize the completely reread memory as a bound artifact.", InputSchema: schemaReportILEditorialMemoryFinalize},
+			)
+		case "il_narrative":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				tools = append(tools,
+					ToolDefinition{Name: ToolReportILDocumentStart, Description: "Report IL direct author only: after completely reading the selected frozen sources, start the request-local server-owned report workspace with the reader-facing title and language.", InputSchema: schemaReportILDocumentStart},
+					ToolDefinition{Name: ToolReportILDocumentAppendSource, Description: "Report IL direct author only: append one complete reader-facing content block with the selected source keys that support it.", InputSchema: schemaReportILDocumentAppendSource},
+					ToolDefinition{Name: ToolReportILDocumentRead, Description: "Report IL author only: read the assembled manuscript from offset 0 through EOF after its latest edit. Complete this full read before finalizing.", InputSchema: schemaReportILDocumentRead},
+					ToolDefinition{Name: ToolReportILDocumentReplace, Description: "Report IL author only: replace one exact once-only reader-facing substring after reviewing the assembled manuscript. Every edit invalidates the prior full-read completion.", InputSchema: schemaReportILDocumentReplace},
+					ToolDefinition{Name: ToolReportILDocumentFinalize, Description: "Report IL author only: atomically finalize the server-owned manuscript after its latest revision has been read completely. Returns only content-free artifact identity and hash metadata.", InputSchema: schemaReportILDocumentFinalize},
+				)
+			} else {
+				tools = append(tools,
+					ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Report IL author only: read the complete bound editorial memory from offset 0 through EOF. Raw source bodies are unavailable in this stage.", InputSchema: schemaReportILEditorialMemoryRead},
+					ToolDefinition{Name: ToolReportILDocumentStart, Description: "Report IL author only: after reading the complete bound editorial memory, start the request-local server-owned report workspace with the reader-facing title and language.", InputSchema: schemaReportILDocumentStart},
+					ToolDefinition{Name: ToolReportILDocumentAppend, Description: "Report IL author only: append one complete reader-facing content block with the editorial account keys it realizes. The server derives source citations from those accounts.", InputSchema: schemaReportILDocumentAppend},
+					ToolDefinition{Name: ToolReportILDocumentRead, Description: "Report IL author only: read the assembled manuscript from offset 0 through EOF after its latest edit. Complete this full read before finalizing.", InputSchema: schemaReportILDocumentRead},
+					ToolDefinition{Name: ToolReportILDocumentReplace, Description: "Report IL author only: replace one exact once-only reader-facing substring after reviewing the assembled manuscript. Every edit invalidates the prior full-read completion.", InputSchema: schemaReportILDocumentReplace},
+					ToolDefinition{Name: ToolReportILDocumentFinalize, Description: "Report IL author only: atomically finalize the server-owned manuscript after its latest revision has been read completely. Returns only content-free artifact identity and hash metadata.", InputSchema: schemaReportILDocumentFinalize},
+				)
+			}
+		case "il_continuity":
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Report IL continuity editor only: read the complete bound editorial memory from offset 0 through EOF. Raw source bodies are unavailable in this stage.", InputSchema: schemaReportILEditorialMemoryRead},
+				ToolDefinition{Name: ToolReportILDocumentOpen, Description: "Report IL final continuity editor only: after reading the editorial memory, open the bound finalized publication-edited document in a request-local edit workspace.", InputSchema: schemaReportILDocumentOpen},
+				ToolDefinition{Name: ToolReportILDocumentRead, Description: "Report IL continuity editor only: read the entire bound manuscript from offset 0 through EOF after its latest edit.", InputSchema: schemaReportILDocumentRead},
+				ToolDefinition{Name: ToolReportILDocumentReviseBlock, Description: "Report IL continuity editor only: atomically replace one exact once-only substring inside a named content block and bind that block to the complete editorial account keys it realizes. The server derives citations from those accounts. Every edit invalidates the prior full-read completion.", InputSchema: schemaReportILDocumentReviseBlock},
+				ToolDefinition{Name: ToolReportILDocumentFinalize, Description: "Report IL continuity editor only: finalize the source-faithful manuscript after its latest revision has been read completely. Returns only content-free artifact identity and hash metadata.", InputSchema: schemaReportILDocumentFinalize},
+			)
+		case "il_reader":
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Report IL publication reader only: read the complete bound editorial memory from offset 0 through EOF. Raw source bodies are unavailable in this stage.", InputSchema: schemaReportILEditorialMemoryRead},
+				ToolDefinition{Name: ToolReportILDocumentOpen, Description: "Report IL publication reader only: open the bound finalized author document in a request-local edit workspace.", InputSchema: schemaReportILDocumentOpen},
+				ToolDefinition{Name: ToolReportILDocumentRead, Description: "Report IL publication reader only: read the entire bound manuscript from offset 0 through EOF after its latest edit.", InputSchema: schemaReportILDocumentRead},
+				ToolDefinition{Name: ToolReportILDocumentEditText, Description: "Report IL publication reader only: replace one exact once-only substring inside a named title or prose-like content block. Code, equations, tables, lists, citations, and structure are immutable. Every edit invalidates the prior full-read completion.", InputSchema: schemaReportILDocumentEditText},
+				ToolDefinition{Name: ToolReportILDocumentFinalize, Description: "Report IL publication reader only: finalize the reader-ready manuscript after its latest revision has been read completely. Returns only content-free artifact identity and hash metadata.", InputSchema: schemaReportILDocumentFinalize},
+			)
+		case "il_long_form_plan":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				tools = append(tools,
+					ToolDefinition{Name: ToolReportILSourcesList, Description: "Direct long-form planner only: list the run-frozen accepted source keys and readable sizes without source content or private locators.", InputSchema: schemaReportILSourcesList},
+					ToolDefinition{Name: ToolReportILSourcesRead, Description: "Direct long-form planner only: read every bound frozen source from offset 0 through EOF.", InputSchema: schemaReportILSourcesRead},
+				)
+			} else {
+				tools = append(tools, ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Long-form IL planner only: read the complete source-backed editorial memory through EOF before submitting the plan.", InputSchema: schemaReportILEditorialMemoryRead})
+			}
+			tools = append(tools, ToolDefinition{Name: ToolReportILLongFormPlanSubmit, Description: "Long-form IL planner only: submit one 2-5 Part, 6-14 Section source-bound plan with reader-useful representation obligations as a server-owned artifact.", InputSchema: schemaReportILLongFormPlanSubmit})
+		case "il_long_form_section":
+			if server.reportILSourceBinding.MaxReadBytes > 0 {
+				tools = append(tools, ToolDefinition{Name: ToolReportILSourcesRead, Description: "Direct long-form Section author only: read one bound frozen source from offset 0 through EOF.", InputSchema: schemaReportILSourcesRead})
+			} else {
+				tools = append(tools, ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Long-form Section author only: read the complete bound editorial memory through EOF.", InputSchema: schemaReportILEditorialMemoryRead})
+			}
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILLongFormPlanRead, Description: "Long-form Section author only: read the bound Part and Section plan from offset 0 through EOF.", InputSchema: schemaReportILLongFormPlanRead},
+				ToolDefinition{Name: ToolReportILLongFormDocumentStart, Description: "Long-form Section author only: start a server-owned workspace seeded with the bound Section identity.", InputSchema: schemaReportILLongFormDocumentStart},
+				ToolDefinition{Name: ToolReportILLongFormDocumentAppend, Description: "Long-form Section author only: append one reader-facing prose, table, code, equation, list, quote, or callout block with exact account/source bindings; realize every source-backed representation assigned by the bound plan. Never append a schema probe, test value, or scratch placeholder to discover the tool shape.", InputSchema: schemaReportILLongFormDocumentAppend},
+				ToolDefinition{Name: ToolReportILLongFormDocumentRead, Description: "Long-form Section author only: read the complete assembled Section after its latest edit.", InputSchema: schemaReportILDocumentRead},
+				ToolDefinition{Name: ToolReportILLongFormDocumentReplace, Description: "Long-form Section author only: replace one exact once-only reader-facing substring.", InputSchema: schemaReportILDocumentReplace},
+				ToolDefinition{Name: ToolReportILLongFormDocumentCorrectBlock, Description: "Long-form Section author only: delete or fully replace one named draft block that was appended incorrectly before Section finalization. Pass replacement:null for delete and a complete block payload for replace. Remaining block keys are compacted deterministically after deletion. This tool is unavailable after Section finalization and in Part or final editing.", InputSchema: schemaReportILLongFormDocumentCorrectBlock},
+				ToolDefinition{Name: ToolReportILLongFormDocumentFinalize, Description: "Long-form Section author only: finalize the Section artifact after reading it through EOF.", InputSchema: schemaReportILDocumentFinalize},
+			)
+		case "il_long_form_part", "il_long_form_final":
+			if server.reportILSourceBinding.EditorialMemoryArtifactID != "" {
+				tools = append(tools, ToolDefinition{Name: ToolReportILEditorialMemoryRead, Description: "Long-form editor only: read the complete bound editorial memory through EOF.", InputSchema: schemaReportILEditorialMemoryRead})
+			}
+			tools = append(tools,
+				ToolDefinition{Name: ToolReportILLongFormPlanRead, Description: "Long-form editor only: read the bound plan scope from offset 0 through EOF.", InputSchema: schemaReportILLongFormPlanRead},
+				ToolDefinition{Name: ToolReportILLongFormDocumentStart, Description: "Long-form editor only: open immutable Section or Part artifacts in a hierarchical workspace.", InputSchema: schemaReportILLongFormDocumentStart},
+				ToolDefinition{Name: ToolReportILLongFormDocumentRead, Description: "Long-form editor only: read the complete assembled manuscript after its latest edit.", InputSchema: schemaReportILDocumentRead},
+				ToolDefinition{Name: ToolReportILLongFormDocumentReplace, Description: "Long-form editor only: replace one exact once-only reader-facing substring without changing structure or source bindings.", InputSchema: schemaReportILDocumentReplace},
+				ToolDefinition{Name: ToolReportILLongFormDocumentFinalize, Description: "Long-form editor only: finalize the hierarchical manuscript after reading it through EOF.", InputSchema: schemaReportILDocumentFinalize},
+			)
+		}
 	}
 	tools = append(tools, research.Definitions(server.legacyResearchLoop)...)
 	tools = append(tools,
@@ -269,7 +400,7 @@ func (server *Server) ListTools() []ToolDefinition {
 	if server.legacyResearchLoop {
 		tools = append(tools, research.LegacyMutationDefinitions()...)
 	}
-	if len(server.enabledTools) > 0 {
+	if server.enabledToolsSet {
 		filtered := tools[:0]
 		for _, tool := range tools {
 			if server.toolEnabled(tool.Name) {

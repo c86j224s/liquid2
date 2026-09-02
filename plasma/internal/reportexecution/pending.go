@@ -22,11 +22,16 @@ func DraftRequestFromPendingEvent(event ledger.Event) (DraftRequest, error) {
 		RigorLevel                   string `json:"rigor_level"`
 		RigorLabel                   string `json:"rigor_label"`
 		ReportMode                   string `json:"report_mode"`
+		PipelineFamily               string `json:"pipeline_family"`
+		PipelineGraph                string `json:"pipeline_graph"`
 		ReportSessionPolicy          string `json:"report_session_policy"`
 		ReportSessionPolicySelection string `json:"report_session_policy_selection"`
 		PostReportHumanize           string `json:"post_report_humanize"`
 		GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
 		GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
+		RetryStrategy                string `json:"retry_strategy"`
+		RetryOfPendingEventID        string `json:"retry_of_pending_event_id"`
+		ResumeStage                  string `json:"resume_stage"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return DraftRequest{}, fmt.Errorf("%w: invalid report pending payload", producterror.ErrInvalidInput)
@@ -43,11 +48,16 @@ func DraftRequestFromPendingEvent(event ledger.Event) (DraftRequest, error) {
 		RigorLevel:                   payload.RigorLevel,
 		RigorLabel:                   payload.RigorLabel,
 		ReportMode:                   payload.ReportMode,
+		PipelineFamily:               payload.PipelineFamily,
+		PipelineGraph:                payload.PipelineGraph,
 		ReportSessionPolicy:          payload.ReportSessionPolicy,
 		ReportSessionPolicySelection: payload.ReportSessionPolicySelection,
 		PostReportHumanize:           payload.PostReportHumanize,
 		GenerationGuidanceProfile:    payload.GenerationGuidanceProfile,
 		GenerationGuidanceSHA256:     payload.GenerationGuidanceSHA256,
+		RetryStrategy:                strings.TrimSpace(payload.RetryStrategy),
+		RetryOfPendingEventID:        strings.TrimSpace(payload.RetryOfPendingEventID),
+		ResumeStage:                  strings.TrimSpace(payload.ResumeStage),
 	}), nil
 }
 
@@ -76,7 +86,10 @@ func DesignRequestFromPendingEvent(event ledger.Event) (DesignRequest, error) {
 	}, nil
 }
 
-// HumanizeRequestFromPendingEvent는 humanize pending payload에서 재개용 HumanizeRequest를 복원한다.
+// HumanizeRequestFromPendingEvent는 legacy H5 compatibility pending payload에서
+// 재개용 HumanizeRequest를 복원한다.
+//
+// Deprecated: current long-form reports use the pre-canonical style-edit stage.
 func HumanizeRequestFromPendingEvent(event ledger.Event) (HumanizeRequest, error) {
 	var payload humanizePendingPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
@@ -14,6 +15,9 @@ type TurnAgentResponseEventRequest struct {
 	AgentModel             string
 	AgentReasoningEffort   string
 	IncludeAgentConfig     bool
+	CapabilityProfile      agentcapability.ProfileID
+	ProfileRevision        string
+	IncludeProfile         bool
 	MCPMode                string
 	IncludeMCPMode         bool
 	Text                   string
@@ -43,6 +47,8 @@ type TurnAgentCompactedEventRequest struct {
 	AgentExecutor           string
 	AgentModel              string
 	AgentReasoningEffort    string
+	CapabilityProfile       agentcapability.ProfileID
+	ProfileRevision         string
 	MCPMode                 string
 	AgentSessionID          string
 	PreviousAgentSessionID  string
@@ -74,6 +80,8 @@ func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.
 	putOptionalString(payload, "mcp_mode", req.MCPMode, req.IncludeMCPMode)
 	putOptionalString(payload, "agent_model", req.AgentModel, req.IncludeAgentConfig)
 	putOptionalString(payload, "agent_reasoning_effort", req.AgentReasoningEffort, req.IncludeAgentConfig)
+	putOptionalString(payload, "capability_profile", string(req.CapabilityProfile), req.IncludeProfile)
+	putOptionalString(payload, "capability_profile_revision", req.ProfileRevision, req.IncludeProfile)
 	putOptionalString(payload, "agent_session_id", req.AgentSessionID, req.IncludeAgentSessionID)
 	if req.IncludeResumed {
 		payload["resumed"] = req.Resumed
@@ -99,18 +107,20 @@ func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.
 // BuildTurnAgentCompactedAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) app.AppendEventRequest {
 	payload := map[string]any{
-		"kind":                      "agent_session_compacted",
-		"agent_executor":            req.AgentExecutor,
-		"agent_model":               req.AgentModel,
-		"agent_reasoning_effort":    req.AgentReasoningEffort,
-		"mcp_mode":                  req.MCPMode,
-		"agent_session_id":          req.AgentSessionID,
-		"previous_agent_session_id": req.PreviousAgentSessionID,
-		"tool_session_id":           req.ToolSessionID,
-		"summary":                   req.Summary,
-		"duration_ms":               req.DurationMS,
-		"user_event_id":             req.UserEventID,
-		"manual":                    req.Manual,
+		"kind":                        "agent_session_compacted",
+		"agent_executor":              req.AgentExecutor,
+		"agent_model":                 req.AgentModel,
+		"agent_reasoning_effort":      req.AgentReasoningEffort,
+		"capability_profile":          req.CapabilityProfile,
+		"capability_profile_revision": req.ProfileRevision,
+		"mcp_mode":                    req.MCPMode,
+		"agent_session_id":            req.AgentSessionID,
+		"previous_agent_session_id":   req.PreviousAgentSessionID,
+		"tool_session_id":             req.ToolSessionID,
+		"summary":                     req.Summary,
+		"duration_ms":                 req.DurationMS,
+		"user_event_id":               req.UserEventID,
+		"manual":                      req.Manual,
 	}
 	putNonEmpty(payload, "workflow_run_id", req.WorkflowRunID)
 	putNonEmpty(payload, "workflow_step_id", req.WorkflowStepID)

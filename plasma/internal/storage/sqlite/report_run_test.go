@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestReportRunNativeMembershipAndDeletePurgesOwnedArtifacts(t *testing.T) {
 		t.Fatalf("LoadReportRunDeleteFacts returned error: %v", err)
 	}
 	preview := reportrun.PreviewDelete(facts, "")
-	if !preview.Eligible || preview.DeletableEventCount != 2 ||
+	if !preview.Eligible || preview.DeletableEventCount != 3 ||
 		preview.DeletableArtifactCount != 1 || preview.DeletableArtifactBytes != final.ByteSize {
 		t.Fatalf("unexpected preview: %#v", preview)
 	}
@@ -93,13 +94,14 @@ func TestReportRunArtifactMembershipPromotesIntermediateToFinal(t *testing.T) {
 		Payload:   []byte(`{"pending_event_id":"` + pendingID + `","artifact_id":"` + artifactID + `"}`),
 	})
 	assertArtifactMembership(t, ctx, store, pendingID, artifactID, reportrun.ArtifactRoleFinal, reportrun.OwnershipCreated)
+	appendLedgerEvent(t, ctx, store, app.LedgerEvent{EventID: "evt_report_run_completed_" + strings.TrimPrefix(pendingID, "evt_"), MissionID: missionID, EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_rr_promoted_final", CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"evt_rr_promoted_final","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
 
 	facts, err := store.LoadReportRunDeleteFacts(ctx, missionID, artifactID)
 	if err != nil {
 		t.Fatalf("LoadReportRunDeleteFacts on promoted final returned error: %v", err)
 	}
 	preview := reportrun.PreviewDelete(facts, "")
-	if !preview.Eligible || preview.DeletableEventCount != 3 || preview.DeletableArtifactCount != 1 {
+	if !preview.Eligible || preview.DeletableEventCount != 4 || preview.DeletableArtifactCount != 1 {
 		t.Fatalf("unexpected promoted preview: %#v", preview)
 	}
 	if _, err := store.DeleteReportRun(ctx, missionID, artifactID, preview.Revision, preview.DeleteFactsHash, func(facts reportrun.DeleteFacts) (reportrun.DeleteDecision, error) {
@@ -844,7 +846,7 @@ func TestReportRunDeleteRollsBackWhenArtifactDeleteFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected delete to fail on source snapshot foreign key")
 	}
-	if countRows(t, ctx, store, `SELECT COUNT(*) FROM plasma_report_run_events WHERE run_id = ?`, "evt_rr_rollback_pending") != 2 {
+	if countRows(t, ctx, store, `SELECT COUNT(*) FROM plasma_report_run_events WHERE run_id = ?`, "evt_rr_rollback_pending") != 3 {
 		t.Fatal("event memberships were not rolled back")
 	}
 	if countRows(t, ctx, store, `SELECT COUNT(*) FROM plasma_ledger_events WHERE event_id = ?`, "evt_rr_rollback_final") != 1 {
@@ -914,6 +916,8 @@ func seedCompletedReportAttempt(t *testing.T, ctx context.Context, store *Store,
 	if err != nil {
 		t.Fatalf("CreateRawArtifactWithEvent returned error: %v", err)
 	}
+	completionID := "evt_report_run_completed_" + strings.TrimPrefix(pendingID, "evt_")
+	appendLedgerEvent(t, ctx, store, app.LedgerEvent{EventID: completionID, MissionID: missionID, EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"}, CausationEventID: finalEventID, CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"` + finalEventID + `","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
 	return artifact
 }
 

@@ -104,7 +104,8 @@ func classifyViolation(edge importEdge) (string, bool) {
 		return "mcp-wire-boundary", true
 	case importMatches(edge.importPath, appImport) && !pathWithin(edge.file, "internal/app") &&
 		!pathWithin(edge.file, "internal/storage/sqlite") &&
-		!pathWithinAny(edge.file, []string{"internal/mcp/research", "internal/mcp/wire"}):
+		!pathWithinAny(edge.file, []string{"internal/mcp/research", "internal/mcp/wire"}) &&
+		!isCommandCompositionRoot(edge.file):
 		return "app-hub", true
 	case pathWithin(edge.file, "internal/web") && importMatches(edge.importPath, mcpImport):
 		return "transport-sibling", true
@@ -142,6 +143,10 @@ func moduleRoot(t *testing.T) string {
 
 func pathWithin(file, dir string) bool {
 	return file == dir || strings.HasPrefix(file, strings.TrimSuffix(dir, "/")+"/")
+}
+
+func isCommandCompositionRoot(file string) bool {
+	return pathWithin(file, "cmd") && filepath.Base(file) == "main.go"
 }
 
 func pathWithinAny(file string, dirs []string) bool {

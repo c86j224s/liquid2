@@ -70,7 +70,7 @@ func pendingRetryLinks(events []Event, payloads map[string]eventPayload) map[str
 		}
 		links[event.EventID] = pendingRetryLink{
 			event: event, origin: origin, parent: parent, strategy: strategy,
-			retry: origin != event.EventID || parent != "" || strategy != "",
+			retry: origin != event.EventID || parent != "" || (strategy != "" && strategy != "initial"),
 		}
 	}
 	return links
@@ -107,7 +107,7 @@ func validatePendingRetryLineage(id string, links map[string]pendingRetryLink, t
 		return "", false
 	}
 	if !link.retry {
-		if link.origin != id || link.parent != "" || link.strategy != "" {
+		if link.origin != id || link.parent != "" || (link.strategy != "" && link.strategy != "initial") {
 			return "", false
 		}
 		return id, true

@@ -394,6 +394,122 @@ button.item.secondary {
   border-left: 3px solid transparent;
 }
 
+.report-il-card {
+  border-color: color-mix(in srgb, var(--amber) 34%, var(--line2));
+  background: color-mix(in srgb, var(--amber) 3%, var(--surface));
+}
+
+.report-il-source-selection {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 9px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, var(--line2));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--amber) 4%, var(--surface));
+  color: var(--ink2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.report-il-source-selection > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.report-il-source-selection strong {
+  color: var(--ink);
+}
+
+.report-il-card-note {
+  margin-top: 9px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--amber);
+  background: color-mix(in srgb, var(--amber) 7%, transparent);
+  color: var(--ink2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.report-il-output-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.report-il-output-actions button {
+  min-height: var(--control-height);
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+.report-il-lineage-details {
+  margin-top: 10px;
+  color: var(--ink2);
+}
+
+.report-il-lineage-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.report-il-lineage-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.report-il-lineage-item {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto auto minmax(88px, auto);
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.report-il-lineage-item > div {
+  display: grid;
+  min-width: 0;
+}
+
+.report-il-lineage-item strong,
+.report-il-lineage-item code {
+  color: var(--ink2);
+}
+
+.report-il-lineage-item div span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-il-lineage-item code {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 640px) {
+  .report-il-lineage-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .report-il-lineage-item > span:not(.badge),
+  .report-il-lineage-item > code {
+    grid-column: 1 / -1;
+  }
+}
+
 .report-card.active {
   border-left-color: var(--accent-from);
 }

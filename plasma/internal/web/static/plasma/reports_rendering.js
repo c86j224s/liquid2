@@ -31,14 +31,20 @@ function reportGenerationSummary(payload = {}) {
   const strategy = String(context.execution_strategy || "serial").trim() || "serial";
   const model = String(context.agent_model || "").trim();
   const effort = String(context.agent_reasoning_effort || "").trim();
+  const experimental = Boolean(reports.REPORT_IL_PIPELINE_FAMILY) && context.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY;
+  const unverified = Boolean(reports.REPORT_UNVERIFIED_PIPELINE_FAMILY) && context.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
+  const independent = experimental || unverified;
   const guidance = String(context.generation_guidance_profile || "g2").trim() || "g2";
   return {
-    mode: context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서",
-    strategy: mode === "long_form" ? (REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy) : "",
-    guidance: reportGenerationGuidanceLabel(guidance),
-    rigor: context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정",
+    mode: experimental ? (mode === "long_form" ? "장문 IL 보고서" : "IL 보고서") : unverified ? "무검증 보고서" : (context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서"),
+    strategy: !independent && mode === "long_form" ? (REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy) : "",
+    guidance: independent ? "" : reportGenerationGuidanceLabel(guidance),
+    rigor: unverified ? "무검증형" : (context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정"),
     model: model || "미션 설정 상속",
     effort: effort || (model ? "모델 기본값" : "미션 설정 상속"),
+    session: independent ? "새 세션" : "",
+    tools: experimental ? "승인 소스 읽기 전용" : unverified ? "연결 자료 읽기 전용" : "",
+    humanize: independent ? "사용 안 함" : "",
     direction: String(context.direction_hint || "").trim() || "지정 없음"
   };
 }
@@ -53,6 +59,9 @@ function reportGenerationSummaryHTML(payload = {}) {
       <span class="report-generation-item"><strong>엄격도</strong><span>${escapeHTML(summary.rigor)}</span></span>
       <span class="report-generation-item"><strong>모델</strong><span>${escapeHTML(summary.model)}</span></span>
       <span class="report-generation-item"><strong>추론</strong><span>${escapeHTML(summary.effort)}</span></span>
+      ${summary.session ? `<span class="report-generation-item"><strong>세션</strong><span>${escapeHTML(summary.session)}</span></span>` : ""}
+      ${summary.tools ? `<span class="report-generation-item"><strong>능력</strong><span>${escapeHTML(summary.tools)}</span></span>` : ""}
+      ${summary.humanize ? `<span class="report-generation-item"><strong>말투 보정</strong><span>${escapeHTML(summary.humanize)}</span></span>` : ""}
       <span class="report-generation-item report-direction-line"><strong>방향</strong><span>${escapeHTML(summary.direction)}</span></span>
     </div>`;
 }
@@ -129,18 +138,22 @@ function reportSourceCheckText(check = {}) {
 function renderReports(versions) {
   reports.pipeline.render(state.detail?.report_progress, reportPipelineRequestSummary(state.detail?.report_progress));
   const conversationExports = reports.conversationExportPayloads();
-  const artifactReports = reports.reportArtifactPayloads();
+  const allArtifactReports = reports.reportArtifactPayloads();
+  const ilArtifactReports = allArtifactReports.filter((payload) => payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY);
+  const artifactReports = allArtifactReports.filter((payload) => payload.pipeline_family !== reports.REPORT_IL_PIPELINE_FAMILY);
   const legacyReports = versions.map((version, index) => reports.reportViewModel(version, index));
-  const total = conversationExports.length + artifactReports.length + legacyReports.length;
+  const total = conversationExports.length + ilArtifactReports.length + artifactReports.length + legacyReports.length;
   updateCountChip("reportListCount", total);
   updateCountChip("reportTabCount", total);
   const conversationCards = conversationExports.map((payload, index) => ({ key: `conversation:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
+  const ilArtifactCards = ilArtifactReports.map((payload, index) => ({ key: `artifact:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
   const artifactCards = artifactReports.map((payload, index) => ({ key: `artifact:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
   const legacyCards = legacyReports.map((report) => ({ key: `version:${report.versionID}`, report }));
-  const allKeys = [...conversationCards.map((c) => c.key), ...artifactCards.map((c) => c.key), ...legacyCards.map((c) => c.key)];
+  const allKeys = [...conversationCards.map((c) => c.key), ...ilArtifactCards.map((c) => c.key), ...artifactCards.map((c) => c.key), ...legacyCards.map((c) => c.key)];
   if (!state.selectedReportKey || !allKeys.includes(state.selectedReportKey)) state.selectedReportKey = allKeys[0] || "";
   if (state.reportPreview && !allKeys.includes(state.reportPreview.key)) state.reportPreview = null;
   const sections = [reports.renderConversationExportSection(conversationCards, state.selectedReportKey)];
+  if (ilArtifactCards.length) sections.push(reports.renderILArtifactReportSection(ilArtifactCards, state.selectedReportKey));
   if (artifactCards.length) sections.push(reports.renderArtifactReportSection(artifactCards, state.selectedReportKey));
   if (legacyCards.length) sections.push(reports.renderLegacyReportSection(legacyCards, state.selectedReportKey));
   $("reportList").innerHTML = sections.length ? sections.join("") : empty("리포트 artifact 없음");

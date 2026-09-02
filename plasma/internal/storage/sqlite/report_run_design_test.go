@@ -33,7 +33,7 @@ func TestDesignedReportHTMLExportConditionalCommitRegistersTwoArtifactsAtomicall
 		t.Fatalf("designed export did not advance run revision: before=%d after=%d", before.Run.Revision, after.Run.Revision)
 	}
 	preview := reportrun.PreviewDelete(after, "")
-	if !preview.Eligible || preview.DeletableArtifactCount != 3 || preview.DeletableEventCount != 4 {
+	if !preview.Eligible || preview.DeletableArtifactCount != 3 || preview.DeletableEventCount != 5 {
 		t.Fatalf("designed export should delete final, model, html, and lineage: %#v", preview)
 	}
 	if event.EventType != "report.artifact.exported" {

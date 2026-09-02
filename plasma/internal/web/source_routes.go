@@ -135,6 +135,10 @@ func (server *Server) handleMissionSources(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if len(rest) == 2 && rest[1] == "download" {
+		server.handleSourceSnapshotDownload(w, r, missionID, rest[0])
+		return
+	}
 	if len(rest) == 2 {
 		switch rest[1] {
 		case "read":
@@ -638,7 +642,12 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 			writeAppError(w, err)
 			return
 		}
-		result, err := server.snapshotConfluenceURLSource(r.Context(), missionID, target, req.Title)
+		provenance, provenanceErr := server.stagedConfluenceCandidateProvenance(r.Context(), missionID, normalizedURL)
+		if provenanceErr != nil {
+			writeAppError(w, provenanceErr)
+			return
+		}
+		result, err := server.snapshotConfluenceURLSourceWithSelection(r.Context(), missionID, target, "", "", req.Title, provenance)
 		if err != nil {
 			server.recordSourceSnapshotFailure(r.Context(), missionID, "confluence_url", normalizedURL, err)
 			writeAppError(w, err)
@@ -662,6 +671,51 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 	if err != nil {
 		server.recordSourceSnapshotFailure(r.Context(), missionID, "url", normalizedURL, err)
 		writeAppError(w, err)
+		return
+	}
+	if isPinnedImageMediaType(fetched.MediaType) {
+		contentSHA := sha256Hex(fetched.Content)
+		unlockContent := server.sources.lock(missionID + "\x00media-sha\x00" + contentSHA)
+		defer unlockContent()
+		if existing, ok, err := sourceingest.ExistingSourceSnapshotForContentHash(r.Context(), server.service, missionID, contentSHA); err != nil {
+			writeAppError(w, err)
+			return
+		} else if ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"existing": true,
+				"snapshot": existing,
+			})
+			return
+		}
+		result, err := sourceingest.CreateFetchedMediaURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateFetchedMediaURLSourceRequest{
+			MissionID:  missionID,
+			URL:        normalizedURL,
+			Title:      req.Title,
+			ArtifactID: newID("art"),
+			SnapshotID: newID("src"),
+			EventID:    newID("evt"),
+			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Fetched: sourceingest.FetchedMediaSource{
+				Content:           fetched.Content,
+				MediaType:         fetched.MediaType,
+				MediaKind:         app.MediaKindImage,
+				Title:             fetched.Title,
+				ExternalVersion:   fetched.ExternalVersion,
+				ExternalUpdatedAt: fetched.ExternalUpdatedAt,
+				ByteSize:          fetched.ByteSize,
+				Width:             fetched.Width,
+				Height:            fetched.Height,
+			},
+		})
+		if err != nil {
+			writeAppError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"artifact": rawArtifactResponse(result.Artifact),
+			"snapshot": result.Snapshot,
+			"event":    result.Event,
+		})
 		return
 	}
 	fetched, browserRendered, err := server.renderFetchedURLIfBrowserCandidate(r.Context(), normalizedURL, fetched)
@@ -732,6 +786,9 @@ func (server *Server) createURLSourceFromStagedCandidate(w http.ResponseWriter, 
 	if pdfdocument.IsPDFMediaType(staged.Artifact.MediaType) || pdfdocument.IsPDFBytes(staged.Artifact.Content) {
 		return server.createPDFURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, requestedTitle, staged), true
 	}
+	if isPinnedImageMediaType(staged.Artifact.MediaType) {
+		return server.createImageURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, requestedTitle, staged), true
+	}
 	result, err := sourceingest.CreateStagedURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateStagedURLSourceRequest{
 		MissionID:  missionID,
 		URL:        normalizedURL,
@@ -798,6 +855,28 @@ func (server *Server) createBrowserRenderedURLSourceFromStagedCandidate(w http.R
 	}
 }
 
+func (server *Server) createImageURLSourceFromStagedCandidate(w http.ResponseWriter, r *http.Request, missionID string, normalizedURL string, requestedTitle string, staged sourceingest.StagedSourceCandidate) map[string]any {
+	result, err := sourceingest.CreateStagedImageMediaURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateStagedImageMediaURLSourceRequest{
+		MissionID:  missionID,
+		URL:        normalizedURL,
+		Title:      requestedTitle,
+		SnapshotID: newID("src"),
+		EventID:    newID("evt"),
+		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Staged:     staged,
+	})
+	if err != nil {
+		writeAppError(w, err)
+		return nil
+	}
+	return map[string]any{
+		"artifact":                rawArtifactResponse(staged.Artifact),
+		"snapshot":                result.Snapshot,
+		"event":                   result.Event,
+		"reused_source_candidate": true,
+	}
+}
+
 func (server *Server) createPDFURLSourceFromStagedCandidate(w http.ResponseWriter, r *http.Request, missionID string, normalizedURL string, requestedTitle string, staged sourceingest.StagedSourceCandidate) map[string]any {
 	result, err := sourceingest.CreateStagedPDFURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateStagedPDFURLSourceRequest{
 		MissionID:  missionID,
@@ -844,6 +923,16 @@ func (server *Server) handleMediaURLSource(w http.ResponseWriter, r *http.Reques
 			"existing": true,
 			"snapshot": existing,
 		})
+		return
+	}
+	if staged, ok, err := sourceingest.LatestStagedSourceCandidateForURL(r.Context(), server.service, missionID, normalizedURL); err != nil {
+		writeAppError(w, err)
+		return
+	} else if ok && isPinnedImageMediaType(staged.Artifact.MediaType) {
+		result := server.createImageURLSourceFromStagedCandidate(w, r, missionID, normalizedURL, req.Title, staged)
+		if result != nil {
+			writeJSON(w, http.StatusCreated, result)
+		}
 		return
 	}
 	fetched, err := server.fetchMedia(r.Context(), normalizedURL)

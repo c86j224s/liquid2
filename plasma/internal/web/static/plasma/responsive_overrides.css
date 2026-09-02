@@ -116,6 +116,10 @@
     overflow: auto;
   }
 
+  .tab-panel.active > .conversation-panel {
+    overflow: hidden;
+  }
+
   /* --- A: Compact touch targets --- */
   button {
     min-height: var(--control-height);
@@ -290,7 +294,7 @@
   }
 
   .turn-log {
-    min-height: 0;
+    min-height: 40px;
     padding: 2px;
     gap: 8px;
   }
@@ -299,14 +303,69 @@
     grid-template-columns: 1fr;
   }
 
-  /* On mobile the conversation is the primary surface: 자율 진행 stays collapsed
-     by default; when expanded its body scrolls as one region. */
+  /* Keep the composer inside the fixed conversation shell. Open settings
+     share the remaining space with the turn log, while their summaries stay
+     fixed and only their content scrolls within that share. */
+  .conversation-panel > .workflow-control[open],
+  .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open] {
+    flex: 1 1 0;
+    min-height: 56px;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line2) transparent;
+  }
+
+  .conversation-panel > .workflow-control[open] {
+    flex-grow: 1.25;
+  }
+
+  .conversation-panel > .workflow-control[open] > summary,
+  .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open] > summary {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--surface);
+  }
+
   .workflow-control textarea {
     min-height: 40px;
   }
 
-  .workflow-control[open] > .workflow-control-body {
-    max-height: 62vh;
+  .conversation-panel > .workflow-control[open] > .workflow-control-body {
+    max-height: none;
+    overflow: visible;
+  }
+
+  @supports selector(details::details-content) {
+    .conversation-panel > .workflow-control[open],
+    .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open] {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      height: 0;
+      overflow: hidden;
+    }
+
+    .conversation-panel > .workflow-control[open]::details-content,
+    .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open]::details-content {
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .conversation-panel > .workflow-control[open] > summary,
+    .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open] > summary {
+      position: static;
+    }
+
+    .conversation-panel > .workflow-control[open] > .workflow-control-body,
+    .conversation-panel:has(> .workflow-control[open]) > #agentControlsDetails[open] > .agent-controls {
+      height: 100%;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior-y: contain;
+      scrollbar-width: thin;
+      scrollbar-color: var(--line2) transparent;
+    }
   }
 
   .confluence-status,
@@ -405,8 +464,7 @@
   }
 }
 
-/* --- Short screens (e.g. iPhone 13 mini, 812px tall): keep the conversation
-   and composer usable when 자율 진행 is expanded, and tighten vertical rhythm. --- */
+/* --- Short screens (e.g. iPhone 13 mini, 812px tall): tighten vertical rhythm. --- */
 @media (max-height: 820px) {
   .workflow-control[open] > .workflow-control-body {
     max-height: 40vh;
@@ -425,6 +483,12 @@
 @media (max-height: 680px) {
   .workflow-control[open] > .workflow-control-body {
     max-height: 34vh;
+  }
+}
+
+@media (max-height: 680px) and (max-width: 760px) {
+  .main-column:has(> .tab-panel.active[data-tab-panel="conversation"] > .conversation-panel > .workflow-control[open]) > .mission-banner-shell {
+    display: none;
   }
 }
 

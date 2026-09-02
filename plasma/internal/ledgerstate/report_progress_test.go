@@ -4,11 +4,352 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 )
 
 func reportEvent(id, kind string, payload map[string]any) Event {
 	b, _ := json.Marshal(payload)
 	return Event{EventID: id, EventType: kind, Payload: b}
+}
+
+func TestProjectReportProgressExperimentalStagesPreservePendingMetadataAndTiming(t *testing.T) {
+	base := time.Date(2026, 8, 21, 1, 0, 0, 0, time.UTC)
+	pendingID := "evt_experimental_pending"
+	events := []Event{{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+		"origin_pending_event_id": pendingID, "attempt_number": 7,
+		"report_mode": "planned", "pipeline_family": "report_il_experimental", "pipeline_graph": "report_il_source_anchored_images_v6",
+	}), CreatedAt: base}}
+	stages := []string{"source_packet", "il_source_selection", "il_editorial_memory", "il_narrative", "il_reader", "il_continuity", "il_images", "il_document", "il_render", "il_store"}
+	for index, stage := range stages {
+		start := base.Add(time.Duration(index+1) * time.Minute)
+		completed := start.Add(10 * time.Second)
+		events = append(events,
+			Event{EventID: "evt_" + stage + "_started", EventType: "report." + stage + ".started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID}), CreatedAt: start},
+			Event{EventID: "evt_" + stage + "_completed", EventType: "report." + stage + ".completed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID}), CreatedAt: completed},
+		)
+	}
+	events = append(events,
+		Event{EventID: "evt_final", EventType: "report.artifact.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID}), CreatedAt: base.Add(10 * time.Minute)},
+	)
+	progress := ProjectReportProgress(events)
+	wantOrder := []string{"start", "source_packet", "il_source_selection", "il_editorial_memory", "il_narrative", "il_reader", "il_continuity", "il_images", "il_document", "il_render", "il_store", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("node count = %d, want %d: %#v", len(progress.Nodes), len(wantOrder), progress.Nodes)
+	}
+	for index, want := range wantOrder {
+		if progress.Nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, want, progress.Nodes)
+		}
+	}
+	if progress.OriginID != pendingID || progress.Attempt != 7 || progress.AttemptID != pendingID || progress.State != "completed" {
+		t.Fatalf("pending metadata/state overwritten: %#v", progress)
+	}
+	for index, stage := range stages {
+		node := progress.Nodes[index+1]
+		if node.State != "completed" || node.AttemptID != pendingID || node.StartedAt == nil || !node.StartedAt.Equal(base.Add(time.Duration(index+1)*time.Minute)) || node.DurationMS == nil || *node.DurationMS != 10_000 {
+			t.Fatalf("stage %s projection = %#v", stage, node)
+		}
+	}
+}
+
+func TestProjectReportProgressLongFormExperimentalRemainsStageBased(t *testing.T) {
+	pendingID := "evt_long_form_il_pending"
+	progress := ProjectReportProgress([]Event{{
+		EventID: pendingID, EventType: "report.draft.pending",
+		Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "pipeline_family": reportpipeline.ExperimentalIL,
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph,
+			"rigor_level":    "strict",
+		}),
+	}})
+	want := []string{
+		"start", "source_packet", "il_editorial_memory", "il_narrative",
+		"il_long_form_plan", "il_long_form_sections", "il_long_form_parts", "il_long_form_final",
+		"il_reader", "il_continuity", "il_images", "il_document", "il_render", "il_store", "final", "artifact",
+	}
+	if len(progress.Nodes) != len(want) {
+		t.Fatalf("long-form IL node count = %d, want %d: %#v", len(progress.Nodes), len(want), progress.Nodes)
+	}
+	for index, id := range want {
+		if progress.Nodes[index].ID != id {
+			t.Fatalf("long-form IL node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, id, progress.Nodes)
+		}
+	}
+	for _, node := range progress.Nodes {
+		if node.Kind == "part" || node.Kind == "section" || node.Kind == "part_edit" {
+			t.Fatalf("long-form IL fabricated classic sectional progress: %#v", progress.Nodes)
+		}
+	}
+}
+
+func TestProjectReportProgressLongFormILProjectsDurableSectionFanout(t *testing.T) {
+	base := time.Date(2026, 8, 31, 1, 0, 0, 0, time.UTC)
+	pendingID := "evt_long_form_fanout_pending"
+	plan := map[string]any{"parts": []any{
+		map[string]any{"sections": []any{map[string]any{"title": "Section 1"}, map[string]any{"title": "Section 2"}}},
+		map[string]any{"sections": []any{map[string]any{"title": "Section 3"}}},
+	}}
+	events := []Event{
+		{EventID: pendingID, EventType: "report.draft.pending", CreatedAt: base, Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "pipeline_family": reportpipeline.ExperimentalIL,
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph, "rigor_level": "strict",
+		})},
+		{EventID: "evt_plan_stage_started", EventType: "report.il_long_form_plan.started", CreatedAt: base.Add(time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_plan_created", EventType: "report.il_long_form_plan.created", CreatedAt: base.Add(2 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "plan": plan})},
+		{EventID: "evt_plan_stage_completed", EventType: "report.il_long_form_plan.completed", CreatedAt: base.Add(3 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_sections_started", EventType: "report.il_long_form_sections.started", CreatedAt: base.Add(4 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_section_1_started", EventType: "report.il_long_form_section.started", CreatedAt: base.Add(5 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1, "section_index": 1})},
+		{EventID: "evt_section_2_started", EventType: "report.il_long_form_section.started", CreatedAt: base.Add(5 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1, "section_index": 2})},
+		{EventID: "evt_section_3_started", EventType: "report.il_long_form_section.started", CreatedAt: base.Add(5 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 2, "section_index": 1})},
+		{EventID: "evt_section_1_completed", EventType: "report.il_long_form_section.completed", CreatedAt: base.Add(7 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1, "section_index": 1})},
+		{EventID: "evt_section_2_completed", EventType: "report.il_long_form_section.completed", CreatedAt: base.Add(8 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1, "section_index": 2})},
+		{EventID: "evt_section_3_completed", EventType: "report.il_long_form_section.completed", CreatedAt: base.Add(9 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 2, "section_index": 1})},
+		{EventID: "evt_sections_completed", EventType: "report.il_long_form_sections.completed", CreatedAt: base.Add(10 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_parts_started", EventType: "report.il_long_form_parts.started", CreatedAt: base.Add(11 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_part_1_started", EventType: "report.il_long_form_part.started", CreatedAt: base.Add(12 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1})},
+		{EventID: "evt_part_1_completed", EventType: "report.il_long_form_part.completed", CreatedAt: base.Add(14 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 1})},
+		{EventID: "evt_part_2_started", EventType: "report.il_long_form_part.started", CreatedAt: base.Add(15 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "part_index": 2})},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	for _, id := range []string{"section-1-1", "section-1-2", "section-2-1", "part-edit-1", "part-edit-2"} {
+		if _, ok := nodes[id]; !ok {
+			t.Fatalf("long-form IL detail node %q missing: %#v", id, progress.Nodes)
+		}
+	}
+	if nodes["section-1-1"].State != "completed" || nodes["section-1-2"].State != "completed" || nodes["section-2-1"].State != "completed" ||
+		nodes["part-edit-1"].State != "completed" || nodes["part-edit-2"].State != "running" {
+		t.Fatalf("long-form IL detail states = %#v", nodes)
+	}
+	for _, id := range []string{"section-1-1", "section-1-2", "section-2-1"} {
+		if nodes[id].StartedAt == nil || !nodes[id].StartedAt.Equal(base.Add(5*time.Second)) {
+			t.Fatalf("parallel Section %q timing = %#v", id, nodes[id])
+		}
+	}
+	if nodes["part-edit-1"].StartedAt == nil || nodes["part-edit-1"].DurationMS == nil || *nodes["part-edit-1"].DurationMS != 2_000 ||
+		nodes["part-edit-2"].StartedAt == nil || !nodes["part-edit-2"].StartedAt.Equal(base.Add(15*time.Second)) {
+		t.Fatalf("sequential Part timing = %#v / %#v", nodes["part-edit-1"], nodes["part-edit-2"])
+	}
+}
+
+func TestProjectReportProgressLongFormILRejectsMalformedDetailCoordinates(t *testing.T) {
+	pendingID := "evt_long_form_invalid_detail_pending"
+	plan := map[string]any{"parts": []any{map[string]any{"sections": []any{map[string]any{"title": "Section"}}}}}
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "pipeline_family": reportpipeline.ExperimentalIL,
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph, "rigor_level": "strict",
+		})},
+		{EventID: "evt_plan_created", EventType: "report.il_long_form_plan.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID, "plan": plan,
+		})},
+		{EventID: "evt_unknown_section", EventType: "report.il_long_form_section.started", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID, "part_index": 4, "section_index": 7,
+		})},
+	})
+	if progress.State != "unknown" || progress.Retry.ReasonCode != "invalid_lineage" {
+		t.Fatalf("malformed long-form detail coordinate projection = %#v", progress)
+	}
+}
+
+func TestProjectReportProgressTimesLongFormILStages(t *testing.T) {
+	base := time.Date(2026, 8, 30, 1, 0, 0, 0, time.UTC)
+	pendingID := "evt_long_form_timing_pending"
+	events := []Event{
+		{EventID: pendingID, EventType: "report.draft.pending", CreatedAt: base, Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "pipeline_family": reportpipeline.ExperimentalIL,
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph, "rigor_level": "unverified",
+		})},
+		{EventID: "evt_plan_started", EventType: "report.il_long_form_plan.started", CreatedAt: base.Add(time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_plan_completed", EventType: "report.il_long_form_plan.completed", CreatedAt: base.Add(4 * time.Second), Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+	}
+
+	progress := ProjectReportProgress(events)
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	assertNodeTiming(t, nodes["il_long_form_plan"], base.Add(time.Second), 3_000)
+}
+
+func TestProjectReportProgressLongFormStageFailure(t *testing.T) {
+	pendingID := "evt_long_form_failure_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "long_form", "pipeline_family": reportpipeline.ExperimentalIL,
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph, "rigor_level": "strict",
+		})},
+		{EventID: "evt_part_started", EventType: "report.il_long_form_parts.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_part_failed", EventType: "report.il_long_form_parts.failed", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID, "stage_kind": "il_long_form_parts", "stage_id": "il_long_form_parts",
+		})},
+		{EventID: "evt_terminal", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID, "failed_stage_kind": "il_long_form_parts", "failed_stage_id": "il_long_form_parts",
+		})},
+	})
+	if progress.State != "failed" || reportNodeState(progress.Nodes, "il_long_form_parts") != "failed" {
+		t.Fatalf("long-form failure projection = %#v", progress)
+	}
+}
+
+func TestProjectReportProgressValidationProfileStages(t *testing.T) {
+	for _, tc := range []struct {
+		profile string
+		want    []string
+	}{
+		{profile: "unverified", want: []string{"start", "source_packet", "il_narrative", "il_images", "il_document", "il_render", "il_store", "final", "artifact"}},
+		{profile: "exploratory", want: []string{"start", "source_packet", "il_editorial_memory", "il_narrative", "il_reader", "il_images", "il_document", "il_render", "il_store", "final", "artifact"}},
+		{profile: "strict", want: []string{"start", "source_packet", "il_editorial_memory", "il_narrative", "il_reader", "il_continuity", "il_images", "il_document", "il_render", "il_store", "final", "artifact"}},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			pendingID := "evt_" + tc.profile + "_pending"
+			progress := ProjectReportProgress([]Event{{
+				EventID: pendingID, EventType: "report.draft.pending",
+				Payload: mustReportPayload(t, map[string]any{
+					"report_mode": "planned", "pipeline_family": "report_il_experimental",
+					"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph,
+					"rigor_level":    tc.profile,
+				}),
+			}})
+			if len(progress.Nodes) != len(tc.want) {
+				t.Fatalf("%s node count = %d, want %d: %#v", tc.profile, len(progress.Nodes), len(tc.want), progress.Nodes)
+			}
+			for index, want := range tc.want {
+				if progress.Nodes[index].ID != want {
+					t.Fatalf("%s node %d = %q, want %q: %#v", tc.profile, index, progress.Nodes[index].ID, want, progress.Nodes)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectReportProgressValidationProfilePreservesObservedLegacyStages(t *testing.T) {
+	pendingID := "evt_unverified_legacy_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "planned", "pipeline_family": "report_il_experimental",
+			"pipeline_graph": reportpipeline.ExperimentalILValidationProfilesGraph,
+			"rigor_level":    "unverified",
+		})},
+		{EventID: "evt_memory_started", EventType: "report.il_editorial_memory.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_reader_started", EventType: "report.il_reader.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_continuity_started", EventType: "report.il_continuity.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID})},
+	})
+	for _, stage := range []string{"il_editorial_memory", "il_reader", "il_continuity"} {
+		if reportNodeState(progress.Nodes, stage) != "running" {
+			t.Fatalf("observed legacy stage %q was dropped: %#v", stage, progress.Nodes)
+		}
+	}
+}
+
+func TestProjectReportProgressLegacyExperimentalTerminalWithoutStageEvidenceKeepsFlowGraph(t *testing.T) {
+	pendingID := "evt_legacy_experimental_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "planned", "pipeline_family": "report_il_experimental",
+		})},
+		{EventID: "evt_legacy_artifact", EventType: "report.artifact.created", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID,
+		})},
+	})
+	wantOrder := []string{"start", "source_packet", "il_narrative", "il_document", "il_flow", "il_render", "il_store", "final", "artifact"}
+	if len(progress.Nodes) != len(wantOrder) {
+		t.Fatalf("node count = %d, want %d: %#v", len(progress.Nodes), len(wantOrder), progress.Nodes)
+	}
+	for index, want := range wantOrder {
+		if progress.Nodes[index].ID != want {
+			t.Fatalf("node %d = %q, want %q: %#v", index, progress.Nodes[index].ID, want, progress.Nodes)
+		}
+	}
+}
+
+func TestProjectReportProgressReaderEventOverridesMissingGraphMetadata(t *testing.T) {
+	pendingID := "evt_reader_compat_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{
+			"report_mode": "planned", "pipeline_family": "report_il_experimental",
+		})},
+		{EventID: "evt_reader_started", EventType: "report.il_reader.started", Payload: mustReportPayload(t, map[string]any{
+			"pending_event_id": pendingID,
+		})},
+	})
+	if reportNodeState(progress.Nodes, "il_reader") != "running" || reportNodeState(progress.Nodes, "il_flow") != "" {
+		t.Fatalf("reader evidence did not select reader graph: %#v", progress.Nodes)
+	}
+}
+
+func TestProjectReportProgressExperimentalFailureRequiresCheckpointForResume(t *testing.T) {
+	pendingID := "evt_experimental_retry_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
+		{EventID: "evt_failed", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "failed_stage_kind": "source_packet"})},
+	})
+	if progress.Retry.ResumeFailed || !progress.Retry.Restart || progress.Retry.ReasonCode != "resume_checkpoint_missing" {
+		t.Fatalf("experimental retry capability without a checkpoint = %#v", progress.Retry)
+	}
+}
+
+func TestProjectReportProgressAcceptsPartCheckpointForResume(t *testing.T) {
+	pendingID := "evt_parts_checkpoint_pending"
+	progress := ProjectReportProgress([]Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
+		{EventID: "evt_parts_checkpoint", EventType: "report.il.checkpoint.created", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "checkpoint": map[string]any{"stage": "il_long_form_parts"}})},
+		{EventID: "evt_failed", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "failed_stage_kind": "il_long_form_final"})},
+	})
+	if !progress.Retry.ResumeFailed || !progress.Retry.Restart {
+		t.Fatalf("Part checkpoint did not enable resume: %#v", progress.Retry)
+	}
+}
+
+func TestProjectReportProgressExperimentalFailureCompanionAndDraftTerminal(t *testing.T) {
+	base := time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC)
+	pendingID := "evt_experimental_failure_pending"
+	events := []Event{
+		{EventID: pendingID, EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"origin_pending_event_id": pendingID, "attempt_number": 3, "report_mode": "planned", "pipeline_family": "report_il_experimental", "pipeline_graph": "report_il_editorial_v2"}), CreatedAt: base},
+		{EventID: "evt_source_done", EventType: "report.source_packet.completed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID}), CreatedAt: base.Add(time.Minute)},
+		{EventID: "evt_reader_start", EventType: "report.il_reader.started", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID}), CreatedAt: base.Add(2 * time.Minute)},
+		{EventID: "evt_reader_failed", EventType: "report.il_reader.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "stage_kind": "il_reader", "stage_id": "il_reader", "safe_error_message": "safe reader failure"}), CreatedAt: base.Add(2*time.Minute + 12*time.Second)},
+	}
+	progress := ProjectReportProgress(events)
+	if progress.State != "running" || progress.AttemptID != pendingID || progress.OriginID != pendingID {
+		t.Fatalf("companion unexpectedly closed attempt: %#v", progress)
+	}
+	nodes := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		nodes[node.ID] = node
+	}
+	if nodes["il_reader"].State != "failed" || nodes["il_reader"].Error != "safe reader failure" || nodes["il_reader"].StartedAt == nil || nodes["il_reader"].DurationMS == nil || *nodes["il_reader"].DurationMS != 12_000 {
+		t.Fatalf("reader failure projection = %#v", nodes["il_reader"])
+	}
+	if nodes["il_document"].State != "pending" || nodes["il_render"].State != "pending" || nodes["il_store"].State != "pending" {
+		t.Fatalf("downstream stage states = %#v", progress.Nodes)
+	}
+	terminal := Event{EventID: "evt_draft_failed", EventType: "report.draft.failed", Payload: mustReportPayload(t, map[string]any{"pending_event_id": pendingID, "failed_stage_kind": "il_reader", "failed_stage_id": "il_reader", "safe_error_message": "safe reader failure"}), CreatedAt: base.Add(3 * time.Minute)}
+	progress = ProjectReportProgress(append(events, terminal))
+	if progress.State != "failed" || progress.AttemptID != pendingID {
+		t.Fatalf("draft terminal did not close attempt: %#v", progress)
+	}
+	readerNode := map[string]ReportProgressNode{}
+	for _, node := range progress.Nodes {
+		readerNode[node.ID] = node
+	}
+	if readerNode["il_reader"].State != "failed" || readerNode["il_reader"].Error != "safe reader failure" {
+		t.Fatalf("terminal reader failure node = %#v", readerNode["il_reader"])
+	}
+}
+
+func TestProjectReportProgressClassicPendingDoesNotGainExperimentalNodes(t *testing.T) {
+	progress := ProjectReportProgress([]Event{{EventID: "evt_classic", EventType: "report.draft.pending", Payload: mustReportPayload(t, map[string]any{"report_mode": "planned"})}})
+	for _, node := range progress.Nodes {
+		if node.ID == "source_packet" || node.ID == "il_source_selection" || node.ID == "il_editorial_memory" || node.ID == "il_narrative" || node.ID == "il_continuity" || node.ID == "il_reader" || node.ID == "il_document" || node.ID == "il_flow" || node.ID == "il_render" || node.ID == "il_store" {
+			t.Fatalf("classic pending gained IL node: %#v", progress.Nodes)
+		}
+	}
 }
 
 func TestProjectReportProgressLongFormFailure(t *testing.T) {

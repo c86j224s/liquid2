@@ -2,6 +2,7 @@ package reportworkflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
@@ -47,6 +49,174 @@ func TestFinalStoreAdoptionIgnoresCanceledRequestAfterGatePersistence(t *testing
 	if svc.withoutCancelReads() == 0 {
 		t.Fatal("expected finalstore adoption to read through a non-canceled durable context")
 	}
+}
+
+func TestFinalGateDurableCompletionUsesUnavailableWhenProviderSessionIsUnusable(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		sessionID string
+	}{
+		{name: "missing session"},
+		{name: "mismatched session", sessionID: "provider-other"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			svc := &conditionalBatchObserver{Service: app.NewService(store)}
+			prefix := seedFinalTailPrefix(t, ctx, svc.Service, FinalTailV3, reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, reporting.FinalEditHumanizeDisabled)
+			executor := &completionUsageExecutor{store: svc, gateSessionID: tc.sessionID, overrideGateSession: true}
+
+			if _, err := NewRunner(RunnerConfig{Service: svc, Executor: executor, NewID: workflowSequenceID()}).FinalizeLongFormPrefix(ctx, prefix); err != nil {
+				t.Fatal(err)
+			}
+			if len(svc.batches) != 1 {
+				t.Fatalf("conditional batch count=%d want 1", len(svc.batches))
+			}
+			var completionPayload struct {
+				Recorded    int `json:"usage_recorded_count"`
+				Unavailable int `json:"usage_unavailable_count"`
+			}
+			for _, req := range svc.batches[0] {
+				if req.EventType == reporting.ReportRunCompletedEventType {
+					if err := json.Unmarshal(req.Payload, &completionPayload); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if completionPayload.Recorded != 2 || completionPayload.Unavailable != 1 {
+				t.Fatalf("completion payload=%#v batch=%#v", completionPayload, svc.batches[0])
+			}
+		})
+	}
+}
+
+func TestFinalGateUsageAndCompletionShareConditionalBatchWithoutDuplicate(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	svc := &conditionalBatchObserver{Service: app.NewService(store)}
+	prefix := seedFinalTailPrefix(t, ctx, svc.Service, FinalTailV3, reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3, reporting.FinalEditHumanizeDisabled)
+	executor := &completionUsageExecutor{store: svc}
+
+	out, err := NewRunner(RunnerConfig{Service: svc, Executor: executor, NewID: workflowSequenceID()}).FinalizeLongFormPrefix(ctx, prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(svc.batches) != 1 {
+		t.Fatalf("conditional batch count=%d want 1", len(svc.batches))
+	}
+	batch := svc.batches[0]
+	usageCount, completionCount := 0, 0
+	for _, req := range batch {
+		switch req.EventType {
+		case reporting.ReportAgentUsageRecordedEventType:
+			usageCount++
+			if req.EventID != "evt_report_usage_completion_submit_3" || req.Producer != (app.Producer{Type: "agent_session", ID: "provider-completion-fork-3"}) || req.CausationEventID != "evt_completion_submit_3" || req.CorrelationID != prefix.PendingEventID {
+				t.Fatalf("usage request=%#v", req)
+			}
+		case reporting.ReportRunCompletedEventType:
+			completionCount++
+			if req.EventID != "evt_report_run_completed_final_tail_pending" || req.Producer != (app.Producer{Type: "system", ID: "report-completion"}) || req.CausationEventID != out.Event.EventID || req.CorrelationID != prefix.PendingEventID {
+				t.Fatalf("completion request=%#v", req)
+			}
+			var payload struct {
+				Targets     int `json:"delayed_usage_target_count"`
+				Recorded    int `json:"usage_recorded_count"`
+				Unavailable int `json:"usage_unavailable_count"`
+			}
+			if err := json.Unmarshal(req.Payload, &payload); err != nil || payload.Targets != 3 || payload.Recorded != 3 || payload.Unavailable != 0 {
+				t.Fatalf("completion payload=%s err=%v", req.Payload, err)
+			}
+		}
+	}
+	if usageCount != 1 || completionCount != 1 {
+		t.Fatalf("conditional batch usage=%d completion=%d batch=%#v", usageCount, completionCount, batch)
+	}
+	events, err := svc.ListEvents(ctx, prefix.MissionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usageEvents, completionEvents := 0, 0
+	for _, event := range events {
+		if event.EventType == reporting.ReportAgentUsageRecordedEventType {
+			usageEvents++
+		}
+		if event.EventType == reporting.ReportRunCompletedEventType {
+			completionEvents++
+		}
+	}
+	if usageEvents != 3 || completionEvents != 1 {
+		t.Fatalf("durable usage=%d completion=%d", usageEvents, completionEvents)
+	}
+}
+
+type conditionalBatchObserver struct {
+	*app.Service
+	batches [][]app.AppendEventRequest
+}
+
+func (store *conditionalBatchObserver) AppendEventsConditionally(ctx context.Context, missionID string, build func([]app.LedgerEvent) ([]app.AppendEventRequest, error)) ([]app.LedgerEvent, error) {
+	return store.Service.AppendEventsConditionally(ctx, missionID, func(events []app.LedgerEvent) ([]app.AppendEventRequest, error) {
+		reqs, err := build(events)
+		if err == nil && len(reqs) > 0 {
+			store.batches = append(store.batches, append([]app.AppendEventRequest(nil), reqs...))
+		}
+		return reqs, err
+	})
+}
+
+type completionUsageExecutor struct {
+	store               reporting.FinalEditStageStore
+	gateSessionID       string
+	overrideGateSession bool
+	calls               int
+	forks               int
+}
+
+func (executor *completionUsageExecutor) Run(ctx context.Context, req agentexec.AgentRequest) (agentexec.AgentResult, error) {
+	executor.calls++
+	binding := *req.FinalEditStage
+	if _, _, err := reporting.StartFinalEditStage(ctx, executor.store, fmt.Sprintf("evt_completion_start_%d", executor.calls), binding); err != nil {
+		return agentexec.AgentResult{}, err
+	}
+	usage := agentusage.New("codex", binding.AgentExecutor, binding.AgentModel, binding.AgentReasoningEffort, "prompt").WithProviderUsage(agentusage.ProviderUsage{Scope: agentusage.UsageScopeCall, InputTokens: 3, OutputTokens: 2}, "provider")
+	if binding.Stage == reporting.FinalEditStageEvidenceGate {
+		if req.LongFormFinalize == nil {
+			return agentexec.AgentResult{}, errors.New("evidence gate missing final binding")
+		}
+		if _, err := reporting.SubmitFinalEditEvidenceGate(ctx, executor.store, reporting.FinalEditEvidenceGateSubmitRequest{
+			StageBinding: binding, FinalBinding: *req.LongFormFinalize,
+			StageEventID: fmt.Sprintf("evt_completion_submit_%d", executor.calls), CanonicalEventID: "evt_completion_final",
+		}); err != nil {
+			return agentexec.AgentResult{}, err
+		}
+		sessionID := binding.ProviderSessionID
+		if executor.overrideGateSession {
+			sessionID = executor.gateSessionID
+		}
+		return agentexec.AgentResult{Text: "REPORT_FINALIZED", SessionID: sessionID, Usage: usage}, nil
+	}
+	source, err := executor.store.GetRawArtifact(ctx, binding.SourceArtifactID)
+	if err != nil {
+		return agentexec.AgentResult{}, err
+	}
+	if _, err := reporting.SubmitFinalEditStage(ctx, executor.store, binding, fmt.Sprintf("evt_completion_submit_%d", executor.calls), string(source.Content), 0); err != nil {
+		return agentexec.AgentResult{}, err
+	}
+	return agentexec.AgentResult{Text: "FINAL_EDIT_STAGE_SUBMITTED", SessionID: binding.ProviderSessionID, Usage: usage}, nil
+}
+
+func (executor *completionUsageExecutor) ForkSession(context.Context, string) (agentexec.AgentSessionForkResult, error) {
+	executor.forks++
+	sessionID := fmt.Sprintf("provider-completion-fork-%d", executor.forks)
+	return agentexec.AgentSessionForkResult{SessionID: sessionID, SourceSessionID: "provider-plan"}, nil
 }
 
 func TestLegacyFinalTailH5BoundaryPreservesCanonicalOutput(t *testing.T) {

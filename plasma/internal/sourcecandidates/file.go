@@ -49,6 +49,12 @@ func sourceCandidateFileExtension(mediaType string) string {
 		return ".html"
 	case "application/pdf":
 		return ".pdf"
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/gif":
+		return ".gif"
 	case "application/json", "application/ld+json":
 		return ".json"
 	case "application/xml", "application/rss+xml", "application/atom+xml":

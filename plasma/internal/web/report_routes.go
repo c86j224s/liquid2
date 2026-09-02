@@ -20,8 +20,10 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 )
@@ -929,18 +931,82 @@ func (server *Server) isReportArtifact(ctx context.Context, missionID string, ar
 		return false, err
 	}
 	for _, event := range events {
+		if event.EventType == "report.artifact.reprojected" {
+			var repair struct {
+				SourceEventID string `json:"source_event_id"`
+			}
+			if json.Unmarshal(event.Payload, &repair) != nil || strings.TrimSpace(repair.SourceEventID) == "" {
+				continue
+			}
+			decoded, err := reportilcontract.DecodeTerminalPayload(event.Payload)
+			if err != nil {
+				continue
+			}
+			sourceFound := false
+			for _, candidate := range events {
+				if candidate.EventID == repair.SourceEventID && candidate.EventType == "report.artifact.created" {
+					sourceFound = true
+					break
+				}
+			}
+			if !sourceFound {
+				continue
+			}
+			for _, entry := range decoded.Bundle.Artifacts {
+				if entry.ArtifactID == artifactID {
+					return true, nil
+				}
+			}
+			continue
+		}
 		if event.EventType != "report.artifact.created" && event.EventType != "report.artifact.exported" && event.EventType != app.ReportRedpenSavedEvent {
 			continue
 		}
 		var payload struct {
-			ArtifactID string `json:"artifact_id"`
-			Kind       string `json:"kind"`
+			ArtifactID     string `json:"artifact_id"`
+			Kind           string `json:"kind"`
+			PendingEventID string `json:"pending_event_id"`
+			PipelineFamily string `json:"pipeline_family"`
 		}
 		if err := json.Unmarshal(event.Payload, &payload); err != nil {
 			continue
 		}
 		kind := strings.TrimSpace(payload.Kind)
-		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == "markdown_report_artifact" || kind == reportexecution.ExportKindSelfContainedHTML || kind == reportexecution.ExportKindDesignedHTML || kind == reportexecution.ExportKindHumanizedMarkdown || kind == app.ReportRedpenArtifactKind) {
+		if strings.TrimSpace(payload.ArtifactID) == artifactID && (kind == reportexecution.ExportKindSelfContainedHTML || kind == reportexecution.ExportKindDesignedHTML || kind == reportexecution.ExportKindHumanizedMarkdown || kind == app.ReportRedpenArtifactKind) {
+			return true, nil
+		}
+		if kind == "markdown_report_artifact" && payload.PipelineFamily == reportilcontract.PipelineFamily {
+			var pending app.LedgerEvent
+			found := false
+			for _, candidate := range events {
+				if candidate.EventID == payload.PendingEventID {
+					pending, found = candidate, true
+					break
+				}
+			}
+			if !found || pending.EventType != "report.draft.pending" {
+				continue
+			}
+			var pendingPayload struct {
+				PipelineFamily string `json:"pipeline_family"`
+			}
+			if json.Unmarshal(pending.Payload, &pendingPayload) != nil || pendingPayload.PipelineFamily != reportilcontract.PipelineFamily {
+				continue
+			}
+			decoded, err := reportilcontract.DecodeTerminalPayload(event.Payload)
+			if err != nil || decoded.PendingEventID != pending.EventID {
+				continue
+			}
+			for _, entry := range decoded.Bundle.Artifacts {
+				if entry.ArtifactID == artifactID {
+					return true, nil
+				}
+			}
+		}
+		family := strings.TrimSpace(payload.PipelineFamily)
+		if kind == "markdown_report_artifact" &&
+			(family == "" || family == reportpipeline.Unverified) &&
+			payload.ArtifactID == artifactID {
 			return true, nil
 		}
 	}
@@ -997,29 +1063,69 @@ func (server *Server) hasReportDraftTerminalEvent(ctx context.Context, missionID
 type openAgentPending = conversation.OpenAgentPending
 
 func (server *Server) startReportDraft(ctx context.Context, missionID string, req reportDraftRequest) (map[string]any, error) {
+	pipelineFamily, err := reportexecution.NormalizePipelineFamily(req.PipelineFamily)
+	if err != nil {
+		return nil, err
+	}
+	req.PipelineFamily = pipelineFamily
+	experimental := pipelineFamily == reportilcontract.PipelineFamily
+	unverified := pipelineFamily == reportpipeline.Unverified
+	independent := experimental || unverified
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = "Mission report"
 	}
-	executorName, err := normalizeAgentExecutorName(req.AgentExecutor)
-	if err != nil {
-		return nil, err
-	}
-	mcpMode, err := normalizeMCPMode(req.MCPMode)
-	if err != nil {
-		return nil, err
-	}
-	rigor, err := normalizeReportRigorProfile(req.RigorLevel)
-	if err != nil {
-		return nil, err
-	}
-	reportMode, err := normalizeReportMode(req.ReportMode)
-	if err != nil {
-		return nil, err
-	}
-	executionStrategy, err := normalizeReportExecutionStrategy(req.ExecutionStrategy, reportMode)
-	if err != nil {
-		return nil, err
+	var executorName, mcpMode, reportMode, executionStrategy string
+	var rigor reportRigorProfile
+	var guidanceProfile, guidanceSHA, postReportHumanize string
+	if independent {
+		// Independent families do not use classic model, session, capability, or
+		// authoring resolution. Experimental IL preserves planned versus long-form
+		// authoring while keeping classic section execution unavailable.
+		executorName = "codex"
+		mcpMode = "source_read_only"
+		if experimental && req.ReportMode == reportModeLongForm {
+			reportMode = reportModeLongForm
+		} else {
+			reportMode = reportModePlanned
+		}
+		executionStrategy = ""
+		postReportHumanize = "disabled"
+		if unverified {
+			rigor = reportRigorProfile{level: "unverified", label: "무검증형"}
+		} else {
+			normalized := reportexecution.NormalizeDraftRequest(reportexecution.DraftRequest{
+				PipelineFamily: req.PipelineFamily,
+				RigorLevel:     req.RigorLevel,
+			})
+			rigor = reportRigorProfile{level: normalized.RigorLevel, label: normalized.RigorLabel}
+		}
+	} else {
+		executorName, err = normalizeAgentExecutorName(req.AgentExecutor)
+		if err != nil {
+			return nil, err
+		}
+		mcpMode, err = normalizeMCPMode(req.MCPMode)
+		if err != nil {
+			return nil, err
+		}
+		rigor, err = normalizeReportRigorProfile(req.RigorLevel)
+		if err != nil {
+			return nil, err
+		}
+		reportMode, err = normalizeReportMode(req.ReportMode)
+		if err != nil {
+			return nil, err
+		}
+		executionStrategy, err = normalizeReportExecutionStrategy(req.ExecutionStrategy, reportMode)
+		if err != nil {
+			return nil, err
+		}
+		guidanceProfile, guidanceSHA, err = reportprompt.SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
+		if err != nil {
+			return nil, err
+		}
+		postReportHumanize = reportprompt.NormalizePostReportHumanize(req.PostReportHumanize)
 	}
 	req.Title = title
 	req.AgentExecutor = executorName
@@ -1027,18 +1133,33 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	req.RigorLevel = rigor.level
 	req.ReportMode = reportMode
 	req.ExecutionStrategy = executionStrategy
-	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
-	if err != nil {
-		return nil, err
+	if independent {
+		req.AgentModel = "gpt-5.6-luna"
+		req.AgentReasoningEffort = "xhigh"
+		req.ReportSessionPolicy = reportSessionPolicyFreshSession
+		req.GenerationGuidanceProfile = ""
+		req.GenerationGuidanceSHA256 = ""
+		if unverified {
+			req.AgentSelectionSource = "unverified_fixed"
+			req.ReportSessionPolicySelection = "unverified_fixed"
+		} else {
+			req.AgentSelectionSource = "experimental_fixed"
+			req.ReportSessionPolicySelection = "experimental_fixed"
+		}
+	} else {
+		req.AgentModel = strings.TrimSpace(req.AgentModel)
+		req.AgentReasoningEffort = strings.TrimSpace(req.AgentReasoningEffort)
 	}
-	postReportHumanize := reportprompt.NormalizePostReportHumanize(req.PostReportHumanize)
+	req.PostReportHumanize = postReportHumanize
 
 	unlockReports := server.reports.lock(missionID)
 	defer unlockReports()
 	unlockTurns := server.turns.lock(missionID)
 	defer unlockTurns()
-	if err := server.validateMissionAgentExecutor(ctx, missionID, executorName); err != nil {
-		return nil, err
+	if !independent {
+		if err := server.validateMissionAgentExecutor(ctx, missionID, executorName); err != nil {
+			return nil, err
+		}
 	}
 	if err := server.reconcileStaleAgentTurn(ctx, missionID); err != nil {
 		return nil, err
@@ -1052,20 +1173,26 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 	if active := server.activeWorkflowRun(ctx, missionID); active != nil {
 		return nil, fmt.Errorf("%w: workflow %s is %s for this mission", app.ErrInvalidInput, active.WorkflowRunID, active.Status)
 	}
-	selection, err := server.resolveReportModelSelection(ctx, missionID, req)
-	if err != nil {
-		return nil, err
+	if !independent {
+		selection, err := server.resolveReportModelSelection(ctx, missionID, req)
+		if err != nil {
+			return nil, err
+		}
+		req.AgentModel = selection.Model
+		req.AgentReasoningEffort = selection.ReasoningEffort
+		req.AgentSelectionSource = selection.Source
 	}
-	req.AgentModel = selection.Model
-	req.AgentReasoningEffort = selection.ReasoningEffort
-	req.AgentSelectionSource = selection.Source
 	executor := server.agentExecutor(executorName)
-	reportSessionPolicy, reportSessionPolicySelection, err := server.selectReportSessionPolicy(ctx, missionID, executorName, reportMode, strings.TrimSpace(req.ReportSessionPolicy), executor)
-	if err != nil {
-		return nil, err
+	if independent {
+		req.ReportSessionPolicy = reportSessionPolicyFreshSession
+	} else {
+		reportSessionPolicy, reportSessionPolicySelection, err := server.selectReportSessionPolicy(ctx, missionID, executorName, reportMode, strings.TrimSpace(req.ReportSessionPolicy), executor)
+		if err != nil {
+			return nil, err
+		}
+		req.ReportSessionPolicy = reportSessionPolicy
+		req.ReportSessionPolicySelection = reportSessionPolicySelection
 	}
-	req.ReportSessionPolicy = reportSessionPolicy
-	req.ReportSessionPolicySelection = reportSessionPolicySelection
 	pendingEvent, err := server.reportRunner().StartDraft(ctx, missionID, reportexecution.DraftRequest{
 		Title:                        title,
 		DirectionHint:                req.DirectionHint,
@@ -1078,8 +1205,9 @@ func (server *Server) startReportDraft(ctx context.Context, missionID string, re
 		RigorLevel:                   rigor.level,
 		RigorLabel:                   rigor.label,
 		ReportMode:                   reportMode,
-		ReportSessionPolicy:          reportSessionPolicy,
-		ReportSessionPolicySelection: reportSessionPolicySelection,
+		PipelineFamily:               req.PipelineFamily,
+		ReportSessionPolicy:          req.ReportSessionPolicy,
+		ReportSessionPolicySelection: req.ReportSessionPolicySelection,
 		PostReportHumanize:           postReportHumanize,
 		GenerationGuidanceProfile:    guidanceProfile,
 		GenerationGuidanceSHA256:     guidanceSHA,
@@ -1374,6 +1502,12 @@ func (server *Server) reportRunner() reportexecution.Runner {
 		Service:  server.service,
 		InFlight: &server.runningReports,
 		NewID:    newID,
+		GenerateExperimental: func(ctx context.Context, missionID string, req reportexecution.DraftRequest, pendingEventID string) error {
+			return server.createExperimentalReportDraft(ctx, missionID, req, pendingEventID)
+		},
+		GenerateUnverified: func(ctx context.Context, missionID string, req reportexecution.DraftRequest, pendingEventID string) error {
+			return server.createUnverifiedReportDraft(ctx, missionID, req, pendingEventID)
+		},
 		GenerateDraft: func(ctx context.Context, missionID string, req reportexecution.DraftRequest, pendingEventID string) error {
 			_, err := server.createReportDraft(ctx, missionID, reportDraftRequest{
 				Title:                        req.Title,
@@ -1386,6 +1520,7 @@ func (server *Server) reportRunner() reportexecution.Runner {
 				MCPMode:                      req.MCPMode,
 				RigorLevel:                   req.RigorLevel,
 				ReportMode:                   req.ReportMode,
+				PipelineFamily:               req.PipelineFamily,
 				ReportSessionPolicy:          req.ReportSessionPolicy,
 				ReportSessionPolicySelection: req.ReportSessionPolicySelection,
 				PostReportHumanize:           req.PostReportHumanize,
@@ -1484,6 +1619,11 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	if err != nil {
 		return nil, err
 	}
+	pipelineFamily, err := reportexecution.NormalizePipelineFamily(req.PipelineFamily)
+	if err != nil {
+		return nil, err
+	}
+	req.PipelineFamily = pipelineFamily
 	executionStrategy, err := normalizeReportExecutionStrategy(req.ExecutionStrategy, reportMode)
 	if err != nil {
 		return nil, err
@@ -1507,6 +1647,12 @@ func (server *Server) createReportDraft(ctx context.Context, missionID string, r
 	if err := server.validateReportSessionPolicy(ctx, missionID, executorName, reportMode, reportSessionPolicy, executor, false); err != nil {
 		return nil, err
 	}
+	latestSession := server.latestAgentSession(ctx, missionID, executorName)
+	profile, err := server.agentCapabilityProfileForSession(ctx, missionID, executorName, latestSession.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	executor = agentExecutorWithCapabilityProfile(executor, profile)
 	postReportHumanize := reportprompt.NormalizePostReportHumanize(req.PostReportHumanize)
 	guidanceProfile, guidanceSHA, err := reportprompt.SelectReportGenerationGuidanceForMode(reportMode, req.GenerationGuidanceProfile)
 	if err != nil {
@@ -1559,6 +1705,11 @@ func (server *Server) createReportHumanize(ctx context.Context, missionID string
 	if reportSessionID == "" {
 		return nil, fmt.Errorf("%w: H5 humanize requires a report session", app.ErrInvalidInput)
 	}
+	profile, err := server.agentCapabilityProfileForSession(ctx, missionID, executorName, reportSessionID)
+	if err != nil {
+		return nil, err
+	}
+	executor = agentExecutorWithCapabilityProfile(executor, profile)
 	agentModel := firstNonEmpty(strings.TrimSpace(req.AgentModel), strings.TrimSpace(humanizeReq.AgentModel))
 	agentReasoningEffort := firstNonEmpty(strings.TrimSpace(req.AgentReasoningEffort), strings.TrimSpace(humanizeReq.AgentReasoningEffort))
 	reportMode := firstNonEmpty(strings.TrimSpace(humanizeReq.ReportMode), defaultReportMode)
@@ -1610,6 +1761,11 @@ func (server *Server) createReportPatch(ctx context.Context, missionID string, r
 	if reportSessionID == "" {
 		return nil, fmt.Errorf("%w: report patch requires a report session", app.ErrInvalidInput)
 	}
+	profile, err := server.agentCapabilityProfileForSession(ctx, missionID, executorName, reportSessionID)
+	if err != nil {
+		return nil, err
+	}
+	executor = agentExecutorWithCapabilityProfile(executor, profile)
 	title := firstNonEmpty(req.Title, patchReq.Title, reportArtifactTitle(baseArtifact)+" 수정본")
 	agentModel := strings.TrimSpace(req.AgentModel)
 	if agentModel == "" {

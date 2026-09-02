@@ -8,7 +8,7 @@ import (
 // codexCommandArgs는 요청 설정을 실제로 해석하는 CLI command에 결합한다.
 // resume은 자체 option parser를 가지므로 model과 effort override는 부모 exec가
 // 아니라 resume subcommand 뒤에 위치해야 한다.
-func codexCommandArgs(server CodexMCPServer, req AgentRequest, workDir, lastPath string) []string {
+func codexCommandArgs(server CodexMCPServer, req AgentRequest, workDir, lastPath, outputSchemaPath string) []string {
 	args := []string{"exec"}
 	resumed := strings.TrimSpace(req.PreviousSessionID) != ""
 	if resumed {
@@ -27,6 +27,14 @@ func codexCommandArgs(server CodexMCPServer, req AgentRequest, workDir, lastPath
 		args = append(args, "-c", "model_reasoning_effort="+strconv.Quote(effort))
 	}
 	args = append(args, "--json")
+	if outputSchemaPath != "" {
+		args = append(args, "--output-schema", outputSchemaPath)
+	}
+	for _, override := range req.CodexConfig {
+		if override = strings.TrimSpace(override); override != "" {
+			args = append(args, "-c", override)
+		}
+	}
 	args = append(args, codexMCPConfigArgs(server, req)...)
 
 	if resumed {

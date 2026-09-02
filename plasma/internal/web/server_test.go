@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
@@ -4575,6 +4576,34 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if legacyReq.RigorLevel != legacyPendingReportRigorLevel {
 		t.Fatalf("pre-rigor pending report must recover through legacy balanced rigor, got %#v", legacyReq)
 	}
+
+	experimentalPayload, err := json.Marshal(map[string]any{
+		"title":                           "Recover tampered IL report",
+		"agent_executor":                  "claude",
+		"agent_model":                     "wrong-model",
+		"agent_reasoning_effort":          "low",
+		"agent_selection_source":          "mission",
+		"mcp_mode":                        "auto",
+		"rigor_level":                     "balanced",
+		"rigor_label":                     "균형형",
+		"report_mode":                     reportModeLongForm,
+		"pipeline_family":                 "report_il_experimental",
+		"execution_strategy":              reportExecutionStrategySectionFanout,
+		"report_session_policy":           reportSessionPolicySameSession,
+		"report_session_policy_selection": "default",
+		"post_report_humanize":            "enabled",
+		"humanize_enabled":                true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	experimentalReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: experimentalPayload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if experimentalReq.AgentExecutor != "codex" || experimentalReq.AgentModel != "gpt-5.6-luna" || experimentalReq.AgentReasoningEffort != "xhigh" || experimentalReq.AgentSelectionSource != "experimental_fixed" || experimentalReq.MCPMode != "source_read_only" || experimentalReq.RigorLevel != "strict" || experimentalReq.ReportMode != reportModeLongForm || experimentalReq.PipelineFamily != "report_il_experimental" || experimentalReq.ExecutionStrategy != "" || experimentalReq.ReportSessionPolicy != reportSessionPolicyFreshSession || experimentalReq.ReportSessionPolicySelection != "experimental_fixed" || experimentalReq.PostReportHumanize != "disabled" {
+		t.Fatalf("tampered experimental pending was not canonicalized: %#v", experimentalReq)
+	}
 }
 
 func TestReportRigorDefaultsToStrictWhileBalancedRemainsCompatible(t *testing.T) {
@@ -5224,6 +5253,9 @@ func TestWebWorkflowGoalDraftUsesConfiguredDraftModel(t *testing.T) {
 	if req.Model != "" || req.ReasoningEffort != "low" || req.MissionID != missionID || !strings.Contains(req.Prompt, "Do not research the topic") || !strings.Contains(req.Prompt, "다각도로 조사해줘") {
 		t.Fatalf("unexpected draft agent request: %#v", req)
 	}
+	if req.CapabilityProfile != agentcapability.ProfileGoalDraftV1 || req.ProfileRevision != agentcapability.RevisionV1 {
+		t.Fatalf("unexpected draft capability profile: %#v", req)
+	}
 }
 
 func TestWebSettingsModelDefaultsRoundTrip(t *testing.T) {
@@ -5438,6 +5470,11 @@ func TestWebWorkflowStartQueuesWhileTurnPendingThenDrains(t *testing.T) {
 	}
 	if len(agent.requests) < 2 || agent.requests[1].PreviousSessionID != "agent-session-1" {
 		t.Fatalf("expected workflow to resume same provider session, requests=%#v", agent.requests)
+	}
+	for _, req := range agent.requests {
+		if req.CapabilityProfile != agentcapability.ProfileResearchV1 || req.ProfileRevision != agentcapability.RevisionV1 {
+			t.Fatalf("expected queued Web turn and workflow to preserve research profile, got %#v", agent.requests)
+		}
 	}
 }
 
@@ -8149,6 +8186,11 @@ func TestAgentTurnResumesPreviousCodexSession(t *testing.T) {
 	if agent.requests[1].PreviousSessionID != "codex-session-1" {
 		t.Fatalf("expected resume session id, got %q", agent.requests[1].PreviousSessionID)
 	}
+	for _, req := range agent.requests {
+		if req.CapabilityProfile != agentcapability.ProfileResearchV1 || req.ProfileRevision != agentcapability.RevisionV1 {
+			t.Fatalf("expected Web turns to preserve research profile, got %#v", agent.requests)
+		}
+	}
 	if !strings.Contains(agent.requests[1].Prompt, "Mission reminder") {
 		t.Fatal("expected resumed prompt to contain only a short mission reminder")
 	}
@@ -9392,6 +9434,63 @@ func TestAgentTurnStagesConfluenceSourceCandidateWithMissionAccess(t *testing.T)
 	if len(sources) != 0 {
 		t.Fatalf("candidate staging must not create accepted source snapshots: %#v", sources)
 	}
+
+	var stagedEventID string
+	for _, raw := range detail["events"].([]any) {
+		event := raw.(map[string]any)
+		if event["EventType"] == "source.candidate.staged" {
+			stagedEventID, _ = event["EventID"].(string)
+		}
+	}
+	if stagedEventID == "" {
+		t.Fatal("expected staged event ID")
+	}
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://DOCS.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap#fragment",
+	})
+	approvedEventPayload := lastEventPayload(t, getJSON(t, server.URL+"/api/missions/"+missionID), "source.snapshotted")
+	if approvedEventPayload["source_candidate_proposal_event_id"] != stagedPayload["proposal_event_id"] || approvedEventPayload["url"] != "https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap" {
+		t.Fatalf("approved Confluence event lost candidate provenance: %#v", approvedEventPayload)
+	}
+	approvedArtifactIDs, _ := approvedEventPayload["artifact_ids"].([]any)
+	if len(approvedArtifactIDs) != 1 {
+		t.Fatalf("expected one approved artifact: %#v", approvedEventPayload)
+	}
+	approvedArtifactID, _ := approvedArtifactIDs[0].(string)
+	approvedArtifact, err := store.GetRawArtifact(ctx, approvedArtifactID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approvedArtifact.MediaType != app.ConfluenceSnapshotMediaType || !strings.Contains(string(approvedArtifact.Content), "Stage me before approval") {
+		t.Fatalf("approved artifact should be fresh Confluence representation: type=%q content=%q", approvedArtifact.MediaType, approvedArtifact.Content)
+	}
+	if approvedArtifactID == artifactID || string(approvedArtifact.Content) == string(artifact.Content) {
+		t.Fatalf("approved artifact reused staged bytes: approved=%q staged=%q", approvedArtifactID, artifactID)
+	}
+	sources, err = svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || !strings.Contains(string(sources[0].Locators), `"web_url":"https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap"`) {
+		t.Fatalf("approved Confluence source lost browser URL: %#v", sources)
+	}
+	for _, path := range []string{
+		"/api/missions/" + missionID + "/candidates/sources/" + stagedEventID + "/download?artifact_id=" + artifactID,
+		"/api/missions/" + missionID + "/sources/" + sources[0].SnapshotID + "/download",
+	} {
+		resp, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("Confluence download status=%d body=%q path=%q", resp.StatusCode, body, path)
+		}
+	}
 }
 
 func TestSourceCandidateOpinionRejectsDomainFragments(t *testing.T) {
@@ -9429,6 +9528,77 @@ func TestSourceCandidateExtractsExplicitAcceptanceOpinion(t *testing.T) {
 	}
 	if !strings.Contains(candidates[0].Reason, "제조사 공식 사양") {
 		t.Fatalf("expected explicit source candidate acceptance opinion, got %#v", candidates[0])
+	}
+}
+
+func TestAgentTurnStagesAndURLRouteApprovesExtensionlessImageCandidate(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	imageBytes := testPNGBytes()
+	var fetches atomic.Int64
+	svc := app.NewService(store)
+	agent := &fakeAgentExecutor{responses: []AgentResult{{
+		Text:      "소스 후보: https://example.com/viewimage.php?id=1\n채택 의견: 이 이미지는 게임 화면 구성을 설명하는 데 필요합니다.",
+		SessionID: "codex-session-1",
+	}}}
+	server := httptest.NewServer(NewServer(svc, Options{
+		AgentExecutor: agent,
+		urlFetcher: func(_ context.Context, rawURL string) (fetchedURLSource, error) {
+			fetches.Add(1)
+			if rawURL != "https://example.com/viewimage.php?id=1" {
+				t.Fatalf("unexpected image candidate URL %q", rawURL)
+			}
+			return fetchedURLSource{
+				Content: imageBytes, MediaType: "image/png", MediaKind: app.MediaKindImage,
+				Title: "Game screen", ByteSize: int64(len(imageBytes)), Width: 1, Height: 1,
+			}, nil
+		},
+	}))
+	defer server.Close()
+
+	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Image candidate staging"})
+	missionID := nestedString(t, mission, "projection", "mission_id")
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "find an image"})
+	detail := waitForEventType(t, server.URL, missionID, "source.candidate.staged")
+	stagedPayload := lastEventPayload(t, detail, "source.candidate.staged")
+	if stagedPayload["candidate_kind"] != "media_url" || stagedPayload["media_kind"] != app.MediaKindImage || stagedPayload["media_type"] != "image/png" || stagedPayload["width"] != float64(1) || stagedPayload["height"] != float64(1) {
+		t.Fatalf("staged image metadata = %#v", stagedPayload)
+	}
+	stagedArtifactID, _ := stagedPayload["artifact_id"].(string)
+	if stagedArtifactID == "" || fetches.Load() != 1 {
+		t.Fatalf("staged artifact=%q fetches=%d", stagedArtifactID, fetches.Load())
+	}
+
+	result := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
+		"url": "https://example.com/viewimage.php?id=1",
+	})
+	if reused, _ := result["reused_source_candidate"].(bool); !reused {
+		t.Fatalf("image approval did not reuse staged candidate: %#v", result)
+	}
+	if artifactID := nestedString(t, result, "artifact", "ArtifactID"); artifactID != stagedArtifactID {
+		t.Fatalf("approved artifact=%q staged=%q", artifactID, stagedArtifactID)
+	}
+	if fetches.Load() != 1 {
+		t.Fatalf("image approval refetched candidate: %d", fetches.Load())
+	}
+	if got := nestedString(t, result, "snapshot", "Connector", "ConnectorType"); got != app.SourceConnectorTypeMediaURL {
+		t.Fatalf("approved connector type = %q", got)
+	}
+	approvedPayload := lastEventPayload(t, getJSON(t, server.URL+"/api/missions/"+missionID), "source.snapshotted")
+	if approvedPayload["source_candidate_proposal_event_id"] != stagedPayload["proposal_event_id"] || approvedPayload["source_candidate_artifact_reused"] != true || approvedPayload["media_kind"] != app.MediaKindImage {
+		t.Fatalf("approved image provenance = %#v", approvedPayload)
+	}
+	sources, err := svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != 1 || len(sources[0].ArtifactIDs) != 1 || sources[0].ArtifactIDs[0] != stagedArtifactID || sources[0].Connector.ConnectorType != app.SourceConnectorTypeMediaURL {
+		t.Fatalf("approved image source = %#v", sources)
 	}
 }
 

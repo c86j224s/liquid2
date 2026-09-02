@@ -19,6 +19,7 @@
 
   function nodeLabel(node) {
     const coordinate = node.part_index ? ` ${node.part_index}${node.section_index ? `.${node.section_index}` : ""}` : "";
+    if ((reports.REPORT_IL_STAGE_LABELS || {})[node.kind]) return reports.REPORT_IL_STAGE_LABELS[node.kind];
     if (node.kind === "requirements") return "요구 연결";
     if (node.kind === "part_plan") return `파트 계획${coordinate}`;
     if (node.kind === "section") return `섹션${coordinate}`;
@@ -84,6 +85,7 @@
   }
 
   function stageName(node) {
+    if ((reports.REPORT_IL_STAGE_LABELS || {})[node.kind]) return reports.REPORT_IL_STAGE_LABELS[node.kind];
     if (node.kind === "requirements") return "사용자 요구 연결";
     if (node.kind === "part_plan") return `파트 ${node.part_index} 읽기 흐름 계획`;
     if (node.kind === "section") return `파트 ${node.part_index} 섹션 ${node.section_index} 작성`;

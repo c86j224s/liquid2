@@ -43,9 +43,23 @@ function completedReportDraftPendingEventIDs(events) {
 
 function reportArtifactPayloads() {
   const events = state.detail?.events || [];
+  const repairs = new Map();
+  events.forEach((event) => {
+    if (event.EventType !== "report.artifact.reprojected") return;
+    const sourceEventID = event.Payload?.source_event_id || "";
+    if (sourceEventID) repairs.set(sourceEventID, event);
+  });
   return events
     .filter((event) => event.EventType === "report.artifact.created")
-    .map((event) => ({ ...(event.Payload || {}), event_id: event.EventID, created_at: event.CreatedAt }))
+    .map((event) => {
+      const repair = repairs.get(event.EventID);
+      return {
+        ...(event.Payload || {}),
+        ...((repair && repair.Payload) || {}),
+        event_id: repair?.EventID || event.EventID,
+        created_at: repair?.CreatedAt || event.CreatedAt,
+      };
+    })
     .reverse();
 }
 

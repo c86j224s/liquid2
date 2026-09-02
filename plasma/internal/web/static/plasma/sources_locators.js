@@ -5,6 +5,7 @@
   const state = Plasma.state;
   const formatBytes = Plasma.dom.formatBytes;
   const confluenceDisplayableExternalURI = (...args) => sources.confluenceDisplayableExternalURI(...args);
+  const safeExternalSourceURL = (...args) => sources.safeExternalSourceURL(...args);
 
   function sourceDetailPayload(source, confluence) {
     if (!confluence) return source;
@@ -111,6 +112,54 @@
     return `${parts.join(" · ")}${parts.length && url ? " / " : ""}${url}`;
   }
 
+  function sourceOriginalLink(source, confluence) {
+    const connector = source.Connector || source.connector || {};
+    const connectorID = String(connector.ConnectorID || connector.connector_id || "").toLowerCase();
+    const connectorType = String(connector.ConnectorType || connector.connector_type || "").toLowerCase();
+    if (confluence) {
+      const url = safeExternalSourceURL(confluence.web_url);
+      const siteURL = safeExternalSourceURL(confluence.site_url);
+      if (!url || !siteURL || new URL(url).hostname !== new URL(siteURL).hostname) return null;
+      return { url, label: "Confluence에서 열기" };
+    }
+    if (connectorID === "liquid2" || connectorType === "liquid2") {
+      for (const locator of sourceLocatorList(source)) {
+        const url = safeExternalSourceURL(locator.source_uri || locator.SourceURI || "");
+        if (url) return { url, label: "원문 열기" };
+      }
+      return null;
+    }
+    const url = safeExternalSourceURL(connector.ExternalURI || connector.external_uri || "");
+    return url ? { url, label: "원문 열기" } : null;
+  }
+
+  function sourceDownloadExcluded(source) {
+    const connector = source.Connector || source.connector || {};
+    const connectorID = String(connector.ConnectorID || connector.connector_id || "").toLowerCase();
+    const connectorType = String(connector.ConnectorType || connector.connector_type || "").toLowerCase();
+    return connectorID === "confluence" || connectorType === "confluence_cloud" || connectorID === "liquid2" || connectorType === "liquid2";
+  }
+
+  function sourceRetrievalLabel(source) {
+    for (const locator of sourceLocatorList(source)) {
+      if (String(locator.retrieval_method || locator.RetrievalMethod || "").toLowerCase() === "browser_render") {
+        return "브라우저 렌더링 저장본";
+      }
+    }
+    return "";
+  }
+
+  function sourceLocatorList(source) {
+    const raw = source.Locators || source.locators;
+    if (!raw) return [];
+    try {
+      const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch (err) {
+      return [];
+    }
+  }
+
   Object.assign(sources, {
     sourceDetailPayload,
     localPathLocator,
@@ -121,6 +170,10 @@
     uploadedFileMediaType,
     uploadedFileFilename,
     mediaSourceLabel,
-    mediaSourceText
+    mediaSourceText,
+    sourceOriginalLink,
+    sourceDownloadExcluded,
+    sourceRetrievalLabel,
+    sourceLocatorList
   });
 })(window.Plasma);

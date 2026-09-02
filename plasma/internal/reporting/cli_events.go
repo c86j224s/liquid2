@@ -3,6 +3,7 @@ package reporting
 import (
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -52,6 +53,7 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	ToolSessionID                string
 	MCPMode                      string
 	ReportMode                   string
+	PipelineFamily               string
 	ReportSessionPolicy          string
 	ReportSessionPolicySelection string
 	PostReportHumanize           string
@@ -67,6 +69,10 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	PlanEventID                  string
 	PlanToolSessionID            string
 	DurationMS                   int64
+	AgentUsage                   agentusage.AgentUsage
+	AgentUsageSurface            string
+	AgentUsageDurationMS         int64
+	AgentResumed                 bool
 	Producer                     app.Producer
 }
 
@@ -115,44 +121,49 @@ func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCre
 // BuildCLIMarkdownReportArtifactCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
 func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArtifactCreatedEventRequest) app.AppendEventRequest {
 	artifact := req.Artifact
+	payload := map[string]any{
+		"kind":                            "markdown_report_artifact",
+		"pending_event_id":                strings.TrimSpace(req.PendingEventID),
+		"title":                           strings.TrimSpace(req.Title),
+		"artifact_id":                     artifact.ArtifactID,
+		"media_type":                      artifact.MediaType,
+		"agent_executor":                  strings.TrimSpace(req.AgentExecutor),
+		"agent_model":                     strings.TrimSpace(req.AgentModel),
+		"agent_reasoning_effort":          strings.TrimSpace(req.AgentReasoningEffort),
+		"agent_selection_source":          strings.TrimSpace(req.AgentSelectionSource),
+		"agent_session_id":                strings.TrimSpace(req.AgentSessionID),
+		"previous_agent_session_id":       strings.TrimSpace(req.PreviousAgentSessionID),
+		"tool_session_id":                 strings.TrimSpace(req.ToolSessionID),
+		"mcp_mode":                        strings.TrimSpace(req.MCPMode),
+		"report_mode":                     strings.TrimSpace(req.ReportMode),
+		"report_mode_label":               ModeLabel(req.ReportMode),
+		"pipeline_family":                 strings.TrimSpace(req.PipelineFamily),
+		"report_session_policy":           strings.TrimSpace(req.ReportSessionPolicy),
+		"report_session_policy_selection": strings.TrimSpace(req.ReportSessionPolicySelection),
+		"post_report_humanize":            strings.TrimSpace(req.PostReportHumanize),
+		"humanize_enabled":                req.HumanizeEnabled,
+		"generation_guidance_profile":     strings.TrimSpace(req.GenerationGuidanceProfile),
+		"generation_guidance_sha256":      strings.TrimSpace(req.GenerationGuidanceSHA256),
+		"session_chain_kind":              strings.TrimSpace(req.SessionChainKind),
+		"pre_report_research_session_id":  strings.TrimSpace(req.PreReportResearchSessionID),
+		"report_plan_session_id":          strings.TrimSpace(req.ReportPlanSessionID),
+		"report_session_id":               strings.TrimSpace(req.ReportSessionID),
+		"fork_source_agent_session_id":    strings.TrimSpace(req.ForkSourceAgentSessionID),
+		"post_report_research_session_id": "",
+		"composition_strategy":            strings.TrimSpace(req.CompositionStrategy),
+		"plan_event_id":                   strings.TrimSpace(req.PlanEventID),
+		"plan_tool_session_id":            strings.TrimSpace(req.PlanToolSessionID),
+		"duration_ms":                     req.DurationMS,
+		"text":                            "Markdown 리포트 artifact를 생성했습니다.",
+	}
+	if usage, ok := req.AgentUsage.ForEvent(req.AgentUsageSurface, req.AgentUsageDurationMS, "", req.AgentSessionID, req.AgentResumed, false); ok {
+		payload["agent_usage"] = usage
+	}
 	return app.AppendEventRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.artifact.created",
 		Producer:  req.Producer,
-		Payload: mustJSON(map[string]any{
-			"kind":                            "markdown_report_artifact",
-			"pending_event_id":                strings.TrimSpace(req.PendingEventID),
-			"title":                           strings.TrimSpace(req.Title),
-			"artifact_id":                     artifact.ArtifactID,
-			"media_type":                      artifact.MediaType,
-			"agent_executor":                  strings.TrimSpace(req.AgentExecutor),
-			"agent_model":                     strings.TrimSpace(req.AgentModel),
-			"agent_reasoning_effort":          strings.TrimSpace(req.AgentReasoningEffort),
-			"agent_selection_source":          strings.TrimSpace(req.AgentSelectionSource),
-			"agent_session_id":                strings.TrimSpace(req.AgentSessionID),
-			"previous_agent_session_id":       strings.TrimSpace(req.PreviousAgentSessionID),
-			"tool_session_id":                 strings.TrimSpace(req.ToolSessionID),
-			"mcp_mode":                        strings.TrimSpace(req.MCPMode),
-			"report_mode":                     strings.TrimSpace(req.ReportMode),
-			"report_mode_label":               ModeLabel(req.ReportMode),
-			"report_session_policy":           strings.TrimSpace(req.ReportSessionPolicy),
-			"report_session_policy_selection": strings.TrimSpace(req.ReportSessionPolicySelection),
-			"post_report_humanize":            strings.TrimSpace(req.PostReportHumanize),
-			"humanize_enabled":                req.HumanizeEnabled,
-			"generation_guidance_profile":     strings.TrimSpace(req.GenerationGuidanceProfile),
-			"generation_guidance_sha256":      strings.TrimSpace(req.GenerationGuidanceSHA256),
-			"session_chain_kind":              strings.TrimSpace(req.SessionChainKind),
-			"pre_report_research_session_id":  strings.TrimSpace(req.PreReportResearchSessionID),
-			"report_plan_session_id":          strings.TrimSpace(req.ReportPlanSessionID),
-			"report_session_id":               strings.TrimSpace(req.ReportSessionID),
-			"fork_source_agent_session_id":    strings.TrimSpace(req.ForkSourceAgentSessionID),
-			"post_report_research_session_id": "",
-			"composition_strategy":            strings.TrimSpace(req.CompositionStrategy),
-			"plan_event_id":                   strings.TrimSpace(req.PlanEventID),
-			"plan_tool_session_id":            strings.TrimSpace(req.PlanToolSessionID),
-			"duration_ms":                     req.DurationMS,
-			"text":                            "Markdown 리포트 artifact를 생성했습니다.",
-		}),
+		Payload:   mustJSON(payload),
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 )
 
 // usageRecord is the content-free projection input carried by agent events.
@@ -31,27 +32,14 @@ func usagePayload(raw []byte) (usageRecord, bool) {
 // requiredUsageSession recognizes successful report events whose agent usage
 // may arrive later in a correlated report.agent_usage.recorded event.
 func requiredUsageSession(event ledger.Event) (string, bool) {
-	payload := map[string]any{}
-	if json.Unmarshal(event.Payload, &payload) != nil {
+	target, ok, err := reportusage.TargetForEvent(event)
+	if err != nil {
 		return "", false
 	}
-	key := ""
-	switch strings.TrimSpace(event.EventType) {
-	case "report.requirements.mapped":
-		key = "previous_provider_session_id"
-	case "report.part.edited",
-		"report.final_edit.writer.submitted",
-		"report.final_edit.reader.submitted",
-		"report.final_edit.style.submitted",
-		"report.final_edit.gate.submitted",
-		"report.final_edit.style_semantic_validation.submitted",
-		"report.final_edit.evidence_gate.submitted":
-		key = "provider_session_id"
-	default:
+	if !ok {
 		return "", false
 	}
-	sessionID, _ := payload[key].(string)
-	return strings.TrimSpace(sessionID), true
+	return target.AgentSessionID, true
 }
 
 func rememberCumulativeBaseline(baselines map[string]agentusage.AgentUsage, sessionID string, usage agentusage.AgentUsage) {

@@ -56,6 +56,30 @@ func (observer *workflowObserver) Observe(observation NodeObservation) {
 	observer.observations = append(observer.observations, observation)
 }
 
+func assertWorkflowCompletion(t *testing.T, service *workflowService, targetCount, recorded, unavailable int) {
+	t.Helper()
+	var completions []ledger.Event
+	for _, event := range service.events {
+		if event.EventType == reporting.ReportRunCompletedEventType {
+			completions = append(completions, event)
+		}
+	}
+	if len(completions) != 1 {
+		t.Fatalf("completion count=%d events=%#v", len(completions), service.events)
+	}
+	var payload struct {
+		TargetCount int `json:"delayed_usage_target_count"`
+		Recorded    int `json:"usage_recorded_count"`
+		Unavailable int `json:"usage_unavailable_count"`
+	}
+	if err := json.Unmarshal(completions[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.TargetCount != targetCount || payload.Recorded != recorded || payload.Unavailable != unavailable {
+		t.Fatalf("completion payload=%#v", payload)
+	}
+}
+
 func assertObservedNodes(t *testing.T, observer *workflowObserver, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(observer.observations))
@@ -168,6 +192,34 @@ func (fake *workflowService) AppendReportTerminalIfOpen(_ context.Context, missi
 
 func (fake *workflowService) AppendEventsIfNoActiveAgentWork(_ context.Context, missionID string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {
 	return fake.AppendEvents(context.Background(), missionID, reqs)
+}
+
+func (fake *workflowService) AppendEventsConditionally(_ context.Context, missionID string, build func([]ledger.Event) ([]ledger.AppendRequest, error)) ([]ledger.Event, error) {
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+	reqs, err := build(append([]ledger.Event(nil), fake.events...))
+	if err != nil {
+		return nil, err
+	}
+	if len(reqs) == 0 {
+		return nil, nil
+	}
+	appended := make([]ledger.Event, 0, len(reqs))
+	for _, req := range reqs {
+		if req.MissionID != missionID {
+			return nil, workflowErr("mission mismatch")
+		}
+		if fake.appendErr != nil {
+			return nil, fake.appendErr
+		}
+		appended = append(appended, ledger.Event{
+			EventID: req.EventID, MissionID: req.MissionID, EventType: req.EventType,
+			Producer: req.Producer, CausationEventID: req.CausationEventID,
+			CorrelationID: req.CorrelationID, Payload: req.Payload, CreatedAt: time.Now(),
+		})
+	}
+	fake.events = append(fake.events, appended...)
+	return appended, nil
 }
 
 func (fake *workflowService) AppendEventConditionally(_ context.Context, missionID string, build func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error) {

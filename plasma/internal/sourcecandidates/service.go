@@ -39,6 +39,7 @@ func StartStaging(ctx context.Context, store Store, req SourceCandidateStagingSt
 		"url":                candidate.URL,
 		"title":              candidate.Title,
 		"proposal_event_id":  strings.TrimSpace(req.ProposalEventID),
+		"staging_event_id":   strings.TrimSpace(req.EventID),
 		"approval_state":     "unapproved_candidate",
 		"not_report_default": true,
 	}

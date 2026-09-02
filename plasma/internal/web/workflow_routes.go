@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
@@ -128,15 +129,18 @@ func (server *Server) draftWorkflowGoal(ctx context.Context, missionID string, r
 		return workflowGoalDraftResponse{}, err
 	}
 	prompt := workflowGoalDraftPrompt(projection, userInstructionRaw)
+	profile := agentcapability.GoalDraft()
 	result, err := executor.Run(ctx, AgentRequest{
-		UserText:        userInstructionRaw,
-		Prompt:          prompt,
-		Model:           defaults.WorkflowGoalModel,
-		ReasoningEffort: defaults.WorkflowGoalReasoningEffort,
-		MissionID:       missionID,
-		ToolSessionID:   newID("ses"),
-		AgentExecutor:   executorName,
-		MCPMode:         "explicit",
+		UserText:          userInstructionRaw,
+		Prompt:            prompt,
+		Model:             defaults.WorkflowGoalModel,
+		ReasoningEffort:   defaults.WorkflowGoalReasoningEffort,
+		MissionID:         missionID,
+		ToolSessionID:     newID("ses"),
+		AgentExecutor:     executorName,
+		MCPMode:           "explicit",
+		CapabilityProfile: profile.ID,
+		ProfileRevision:   profile.Revision,
 	})
 	if err != nil {
 		return workflowGoalDraftResponse{}, err
@@ -258,11 +262,14 @@ func (server *Server) startWorkflowRunner(missionID string, workflowRunID string
 }
 
 func (server *Server) drainQueuedWorkflows(ctx context.Context, missionID string) {
-	server.reconcileWorkflowState(ctx, missionID)
+	_ = server.reconcileWorkflowState(ctx, missionID)
 }
 
-func (server *Server) reconcileWorkflowState(ctx context.Context, missionID string) {
-	_ = server.workflowSupervisor.Reconcile(ctx, missionID)
+func (server *Server) reconcileWorkflowState(ctx context.Context, missionID string) error {
+	if server.workflowReconcile != nil {
+		return server.workflowReconcile(ctx, missionID)
+	}
+	return server.workflowSupervisor.Reconcile(ctx, missionID)
 }
 
 type workflowAgentAdapter struct {

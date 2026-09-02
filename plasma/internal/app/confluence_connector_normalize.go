@@ -3,7 +3,9 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
+	"unicode"
 )
 
 func normalizeConfluenceSearchRequest(req ConfluenceSourceSearchRequest) (ConfluenceSourceSearchRequest, error) {
@@ -47,7 +49,7 @@ func normalizeConfluenceCandidate(candidate ConfluenceSourceCandidate, requested
 	candidate.SpaceID = strings.TrimSpace(candidate.SpaceID)
 	candidate.SpaceKey = strings.TrimSpace(candidate.SpaceKey)
 	candidate.Title = strings.TrimSpace(candidate.Title)
-	candidate.SourceURI = strings.TrimSpace(candidate.SourceURI)
+	candidate.SourceURI = safeConfluenceWebURL(candidate.SourceURI, candidate.SiteURL)
 	candidate.Summary = ""
 	candidate.CanSnapshot = true
 	return candidate, nil
@@ -96,6 +98,9 @@ func normalizeConfluencePage(
 		page.Title = page.PageID
 	}
 	page.WebURL = strings.TrimSpace(page.WebURL)
+	if page.WebURL != "" && safeConfluenceWebURL(page.WebURL, page.SiteURL) == "" {
+		return ConfluenceSourcePage{}, fmt.Errorf("%w: confluence web URL must be a credential-free HTTP(S) URL on the source site", ErrInvalidInput)
+	}
 	page.BodyStorage = strings.TrimSpace(page.BodyStorage)
 	page.PlainText = strings.TrimSpace(page.PlainText)
 	if page.BodyStorage == "" || page.PlainText == "" {
@@ -108,6 +113,21 @@ func normalizeConfluencePage(
 		page.Metadata = json.RawMessage(`{}`)
 	}
 	return page, nil
+}
+
+func safeConfluenceWebURL(raw, siteURL string) string {
+	if strings.IndexFunc(raw+siteURL, func(r rune) bool { return unicode.IsControl(r) }) >= 0 {
+		return ""
+	}
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+	site, err := url.Parse(strings.TrimSpace(siteURL))
+	if err != nil || site.Hostname() == "" || site.User != nil || (site.Scheme != "http" && site.Scheme != "https") || !strings.EqualFold(parsed.Hostname(), site.Hostname()) {
+		return ""
+	}
+	return parsed.String()
 }
 
 func normalizeConfluenceConnector(connector ConnectorRef, cloudID string, pageID string) (ConnectorRef, error) {
@@ -148,10 +168,10 @@ func confluenceSnapshotProducer(producer Producer) (Producer, error) {
 func confluenceSnapshotFilename(externalSourceID string) string {
 	externalSourceID = strings.TrimSpace(externalSourceID)
 	if externalSourceID == "" {
-		return "confluence-source.json"
+		return "plasma-confluence-snapshot.json"
 	}
 	replacer := strings.NewReplacer("/", "_", "\\", "_", ":", "_")
-	return "confluence-" + replacer.Replace(externalSourceID) + ".json"
+	return "plasma-confluence-snapshot-" + replacer.Replace(externalSourceID) + ".json"
 }
 
 func normalizeConfluenceBrowseLimit(limit int) int {

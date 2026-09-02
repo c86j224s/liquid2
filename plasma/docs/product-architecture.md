@@ -144,15 +144,29 @@ and run/status rendering. Cross-feature blocking decisions are supplied by
 
 `Plasma.sources` owns source intake, saved-source rendering and locators, source
 candidate rendering and source-candidate bulk actions, local-path source
-controls, Liquid2 source controls, and mission-scoped Confluence source UI. Its
-Confluence files are split by role: actionable error mapping, connection/site
-core, common source controls, URL/search flow, one-click flow, OAuth listener,
-mission access, browse fetch/rendering, review/approval, update checks, and
-result click handling. It uses explicit `Plasma.dom`, `Plasma.state`,
-`Plasma.transport`, `Plasma.mission`, and `Plasma.ui` dependencies plus
-composition callbacks from `app.js`; it does not own cross-feature form blocking,
-mission lifecycle policy, active-work policy, evidence proposal selection, or
-report request-time model overrides.
+controls, Liquid2 source controls, and mission-scoped Confluence source UI.
+Eligible open staged candidates and active, non-superseded snapshot-only sources
+with exactly one attachment expose a stored-representation download. The route
+serves the durable bytes exactly as stored and never performs a connector or
+external refetch. Ordinary HTML, PDF, image, upload, pasted-text, and actually
+stored media bytes remain downloadable; browser-rendered HTML is also
+available for comparison with the live page and carries a browser-rendered
+saved-copy badge. A browser-render candidate's pre-approval raw fetch is labeled
+as an initial saved-copy download. Confluence and Liquid2 generated connector
+snapshots remain durable internal artifacts but are excluded from these download
+routes. Instead, the UI exposes only validated credential-free HTTP(S) original
+links derived from server metadata: Confluence `WebURL`, Liquid2 `SourceURI`, or
+an ordinary source `ExternalURI`. Internal schemes such as `confluence:`,
+`liquid2:`, `file:`, and `file-upload:` are never rendered as external links.
+Live references and local paths remain non-downloadable. Its Confluence files
+are split by role: actionable error mapping, connection/site core, common
+source controls, URL/search flow, one-click flow, OAuth listener, mission
+access, browse fetch/rendering, review/approval, update checks, and result click
+handling. It uses explicit `Plasma.dom`, `Plasma.state`, `Plasma.transport`,
+`Plasma.mission`, and `Plasma.ui` dependencies plus composition callbacks from
+`app.js`; it does not own cross-feature form blocking, mission lifecycle policy,
+active-work policy, evidence proposal selection, or report request-time model
+overrides.
 
 `Plasma.settings` owns global settings UI for persisted model defaults and
 Confluence connection management. Model-default settings remain separate from
@@ -263,6 +277,20 @@ MCP tool calls, and report requests are event producers over the same ledger:
   identities, ownership roles, and a compact usage aggregate. Ledger payloads
   and artifact bodies remain single-source in the mission ledger and raw
   artifact tables.
+- Report pipeline families distinguish the classic workflow from a closed set of
+  independent execution paths. The UI names `report_unverified` explicitly as
+  **Unverified — topic and materials only**. It gives one fresh ephemeral Codex
+  `gpt-5.6-luna` `xhigh` call only the mission title, objective, user direction,
+  and read-only `plasma.sources.list`/`plasma.sources.read` access. It does not run
+  source ranking, an IL schema, claim/terminology/coverage/depth validation, the
+  classic plan/requirements/section-assembly/final-edit path, a final reader,
+  semantic repair, or tone post-processing. The provider-returned Markdown is
+  checked only for an empty response and the 4 MiB storage limit, then stored
+  byte-for-byte. Authentication, mission authorization, source mission binding,
+  user-config and ambient-tool isolation, artifact size, atomic artifact-plus-terminal
+  storage, and idempotent completion recovery remain product safety boundaries.
+  Independent success does not establish the classic executor lock; unknown
+  families and independent retries fail closed.
 - Report attempts use `report.draft.pending` event IDs as durable identities.
   The read model replays pending, plan, section, section evidence-gap, part,
   artifact, and terminal events into discrete pipeline states. A failed retry appends a new pending
@@ -890,3 +918,11 @@ The next design wave should decide:
 ## Report model selection boundary
 
 Web and CLI adapters collect the raw request, latest same-executor mission-session metadata, and configured provider defaults. The reporting package owns precedence and capability validation. A successful start writes the effective model, effort, and `agent_selection_source` to `report.draft.pending`; new-event recovery only deserializes that frozen selection, while source-less legacy pending events retain the legacy resume path. Ledger payloads provide durable state, so this requires no database migration. This does not add an MCP report tool or model-tier allowlist and does not change prompts, report modes, session forks, H5, patch, designed HTML, or experiments.
+
+### Report artifact and accounting boundaries
+
+`report.artifact.created` marks immediate artifact availability and pending closure. Reporting then conditionally records each durable delayed-usage target and emits one deterministic `report.run.completed` event whose ID is derived from the root pending event. Report-completion recovery is DB-only both at startup and during lazy mission detail access; missing provider usage is marked unavailable without estimation. Consumers requiring usage or accounting finality must wait for `report.run.completed`.
+
+### Startup and lazy mission recovery boundary
+
+Startup recovery is DB-only and never resumes provider or executor active work. Full-detail GET is the only read-triggered lazy recovery path; its coordinator runs in this fixed order: `report_completion` (`fail_fast`), `workflow_state` (`best_effort`), then one report-lock scope containing `report_draft` (`fail_fast`) and `designed_report_export` (`fail_fast`). The report lock is acquired exactly once after the two pre-lock steps and released when the report-lock scope ends, including on failure. Existing mutation routes may still perform operation-local stale reconciliation before starting new work; Issue #330 does not move or change those paths. Mission lists, activity reads, server construction, and other read routes do not invoke the lazy coordinator.

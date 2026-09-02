@@ -5,6 +5,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 )
 
 // ReportProgress는 장부에서 보수적으로 도출한 report work view다.
@@ -48,6 +51,9 @@ type reportPayload struct {
 	RetryStrategy      string `json:"retry_strategy"`
 	Attempt            int    `json:"attempt_number"`
 	ReportMode         string `json:"report_mode"`
+	PipelineFamily     string `json:"pipeline_family"`
+	PipelineGraph      string `json:"pipeline_graph"`
+	RigorLevel         string `json:"rigor_level"`
 	Part               int    `json:"part_index"`
 	Section            int    `json:"section_index"`
 	FailedStage        string `json:"failed_stage_kind"`
@@ -99,6 +105,10 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		case "report.draft.pending", "report.design.pending", "report.humanize.pending", "report.patch.pending":
 			pending[e.EventID], payloads[e.EventID] = e, p
 			pendingTypes[e.EventID] = e.EventType
+		case "report.source_packet.started", "report.source_packet.completed", "report.il_source_selection.started", "report.il_source_selection.completed", "report.il_editorial_memory.started", "report.il_editorial_memory.completed", "report.il_narrative.started", "report.il_narrative.completed", "report.il_long_form_plan.started", "report.il_long_form_plan.completed", "report.il_long_form_sections.started", "report.il_long_form_sections.completed", "report.il_long_form_parts.started", "report.il_long_form_parts.completed", "report.il_long_form_final.started", "report.il_long_form_final.completed", "report.il_continuity.started", "report.il_continuity.completed", "report.il_reader.started", "report.il_reader.completed", "report.il_images.started", "report.il_images.completed", "report.il_document.started", "report.il_document.completed", "report.il_flow.started", "report.il_flow.completed", "report.il_render.started", "report.il_render.completed", "report.il_store.started", "report.il_store.completed", "report.il_long_form_plan.created", "report.il_long_form_section.started", "report.il_long_form_section.completed", "report.il_long_form_part.started", "report.il_long_form_part.completed":
+			// Progress is telemetry. Preserve the pending metadata and do not replace it with sparse stage payloads.
+		case "report.source_packet.failed", "report.il_source_selection.failed", "report.il_editorial_memory.failed", "report.il_narrative.failed", "report.il_long_form_plan.failed", "report.il_long_form_sections.failed", "report.il_long_form_parts.failed", "report.il_long_form_final.failed", "report.il_continuity.failed", "report.il_reader.failed", "report.il_images.failed", "report.il_document.failed", "report.il_flow.failed", "report.il_render.failed", "report.il_store.failed", "report.il_long_form_section.failed", "report.il_long_form_part.failed":
+			// Typed IL/source failures are stage telemetry; report.draft.failed closes the attempt.
 		case "report.draft.failed", "report.design.failed", "report.humanize.failed", "report.patch.failed":
 			if p.PendingID != "" {
 				terminal[p.PendingID] = p
@@ -155,6 +165,53 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	}
 	// plan에서 실제 graph shape를 만든 다음, 실제 이벤트만 적용한다.
 	nodes := []ReportProgressNode{{ID: "plan", Kind: "plan", State: "pending"}}
+	if p.PipelineFamily == "report_il_experimental" && pendingTypes[selected] == "report.draft.pending" {
+		stageKinds := []string{"source_packet"}
+		if reportILSelectionStageExists(events, selected, terminal[selected]) {
+			stageKinds = append(stageKinds, "il_source_selection")
+		}
+		editorialMemoryStageExists := reportILStageExists(events, selected, terminal[selected], "il_editorial_memory")
+		if p.PipelineGraph == reportpipeline.ExperimentalILValidationProfilesGraph {
+			if p.RigorLevel != "unverified" || editorialMemoryStageExists {
+				stageKinds = append(stageKinds, "il_editorial_memory")
+			}
+		} else if p.PipelineGraph == reportpipeline.ExperimentalILEditorialMemoryGraph || editorialMemoryStageExists {
+			stageKinds = append(stageKinds, "il_editorial_memory")
+		}
+		if p.ReportMode == "long_form" {
+			stageKinds = append(stageKinds,
+				"il_narrative", "il_long_form_plan", "il_long_form_sections",
+				"il_long_form_parts", "il_long_form_final",
+			)
+		} else {
+			stageKinds = append(stageKinds, "il_narrative")
+		}
+		continuityStageExists := reportILStageExists(events, selected, terminal[selected], "il_continuity")
+		readerStageExists := reportILStageExists(events, selected, terminal[selected], "il_reader")
+		flowStageExists := reportILStageExists(events, selected, terminal[selected], "il_flow")
+		switch {
+		case p.PipelineGraph == reportpipeline.ExperimentalILValidationProfilesGraph:
+			if p.RigorLevel != "unverified" || readerStageExists {
+				stageKinds = append(stageKinds, "il_reader")
+			}
+			if p.RigorLevel == "strict" || continuityStageExists {
+				stageKinds = append(stageKinds, "il_continuity")
+			}
+			stageKinds = append(stageKinds, "il_images", "il_document")
+		case p.PipelineGraph == reportpipeline.ExperimentalILEditorialMemoryGraph || p.PipelineGraph == reportpipeline.ExperimentalILEditorialGraph || continuityStageExists:
+			stageKinds = append(stageKinds, "il_reader", "il_continuity", "il_images", "il_document")
+		case p.PipelineGraph == reportpipeline.ExperimentalILReaderGraph || readerStageExists:
+			stageKinds = append(stageKinds, "il_reader", "il_document")
+		case p.PipelineGraph == "report_il_flow_v1" || flowStageExists || strings.TrimSpace(p.PipelineGraph) == "":
+			stageKinds = append(stageKinds, "il_document", "il_flow")
+		default:
+			stageKinds = append(stageKinds, "il_document")
+		}
+		stageKinds = append(stageKinds, "il_render", "il_store")
+		for _, kind := range stageKinds {
+			nodes = append(nodes, ReportProgressNode{ID: kind, Kind: kind, State: "pending"})
+		}
+	}
 	lineage := map[string]bool{}
 	lineageValid := false
 	for current, depth := selected, 0; current != "" && depth < 64; depth++ {
@@ -203,10 +260,29 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		}
 	}
 	partCount := 0
+	ilLongFormPlanSeen := false
 	for _, e := range events {
 		var q reportPayload
 		_ = json.Unmarshal(e.Payload, &q)
 		if !lineage[q.PendingID] {
+			continue
+		}
+		if e.EventType == "report.il_long_form_plan.created" {
+			if p.PipelineFamily != reportpipeline.ExperimentalIL || p.ReportMode != "long_form" || ilLongFormPlanSeen || len(q.Plan.Parts) == 0 {
+				return unknownReportProgress()
+			}
+			ilLongFormPlanSeen = true
+			for i, part := range q.Plan.Parts {
+				if len(part.Sections) == 0 {
+					return unknownReportProgress()
+				}
+				for j := range part.Sections {
+					nodes = append(nodes, ReportProgressNode{ID: stageID("section", i+1, j+1), Kind: "section", Part: i + 1, Section: j + 1, State: "pending"})
+				}
+			}
+			for i := range q.Plan.Parts {
+				nodes = append(nodes, ReportProgressNode{ID: stageID("part_edit", i+1, 0), Kind: "part_edit", Part: i + 1, State: "pending"})
+			}
 			continue
 		}
 		if e.EventType == "report.plan.created" {
@@ -262,7 +338,8 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			}
 		}
 	}
-	if pendingTypes[selected] != "report.draft.pending" || p.ReportMode != "long_form" {
+	if pendingTypes[selected] != "report.draft.pending" || p.ReportMode != "long_form" ||
+		p.PipelineFamily == reportpipeline.ExperimentalIL {
 		// non-sectional 작업은 preparation 경계 하나 뒤에 finalization/artifact가 이어진다.
 		nodes[0].ID, nodes[0].Kind = "start", "start"
 		nodes[0].State = "completed"
@@ -284,6 +361,36 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		switch e.EventType {
 		case "report.part_plan.created":
 			id = stageID("part_plan", q.Part, 0)
+		case "report.il_long_form_plan.created":
+			continue
+		case "report.il_long_form_section.started":
+			id = stageID("section", q.Part, q.Section)
+			if i, ok := index[id]; ok && nodes[i].State != "completed" && nodes[i].State != "failed" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			} else {
+				return unknownReportProgress()
+			}
+			continue
+		case "report.il_long_form_section.completed":
+			id = stageID("section", q.Part, q.Section)
+			if _, ok := index[id]; !ok {
+				return unknownReportProgress()
+			}
+		case "report.il_long_form_part.started":
+			id = stageID("part_edit", q.Part, 0)
+			if i, ok := index[id]; ok && nodes[i].State != "completed" && nodes[i].State != "failed" {
+				nodes[i].AttemptID = q.PendingID
+				nodes[i].State = "running"
+			} else {
+				return unknownReportProgress()
+			}
+			continue
+		case "report.il_long_form_part.completed":
+			id = stageID("part_edit", q.Part, 0)
+			if _, ok := index[id]; !ok {
+				return unknownReportProgress()
+			}
 		case "report.section.started":
 			id = stageID("section", q.Part, q.Section)
 			if i, ok := index[id]; ok && nodes[i].State != "completed" && nodes[i].AttemptID != q.PendingID {
@@ -367,6 +474,19 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			continue
 		case "report.final_edit.evidence_gate.submitted":
 			id = stageID("evidence_gate", 0, 0)
+		case "report.source_packet.started", "report.il_source_selection.started", "report.il_editorial_memory.started", "report.il_narrative.started", "report.il_long_form_plan.started", "report.il_long_form_sections.started", "report.il_long_form_parts.started", "report.il_long_form_final.started", "report.il_continuity.started", "report.il_reader.started", "report.il_images.started", "report.il_document.started", "report.il_flow.started", "report.il_render.started", "report.il_store.started":
+			id = ilProgressStageID(e.EventType)
+			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+				nodes[i].State = "running"
+				nodes[i].AttemptID = q.PendingID
+			}
+			continue
+		case "report.il_source_selection.reused", "report.il_editorial_memory.reused", "report.il_narrative.reused", "report.il_long_form_plan.reused", "report.il_long_form_sections.reused", "report.il_long_form_parts.reused", "report.il_long_form_final.reused", "report.il_reader.reused", "report.il_continuity.reused":
+			id = ilProgressStageID(e.EventType)
+		case "report.source_packet.completed", "report.il_source_selection.completed", "report.il_editorial_memory.completed", "report.il_narrative.completed", "report.il_long_form_plan.completed", "report.il_long_form_sections.completed", "report.il_long_form_parts.completed", "report.il_long_form_final.completed", "report.il_continuity.completed", "report.il_reader.completed", "report.il_images.completed", "report.il_document.completed", "report.il_flow.completed", "report.il_render.completed", "report.il_store.completed":
+			id = ilProgressStageID(e.EventType)
+		case "report.source_packet.failed", "report.il_source_selection.failed", "report.il_editorial_memory.failed", "report.il_narrative.failed", "report.il_long_form_plan.failed", "report.il_long_form_sections.failed", "report.il_long_form_parts.failed", "report.il_long_form_final.failed", "report.il_continuity.failed", "report.il_reader.failed", "report.il_images.failed", "report.il_document.failed", "report.il_flow.failed", "report.il_render.failed", "report.il_store.failed":
+			id = ilProgressStageID(e.EventType)
 		case "report.artifact.created", "report.artifact.exported":
 			if q.PendingID != selected {
 				continue
@@ -382,6 +502,16 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			}
 		case "report.section.failed":
 			id = stageID("section", q.Part, q.Section)
+		case "report.il_long_form_section.failed":
+			id = stageID("section", q.Part, q.Section)
+			if _, ok := index[id]; !ok {
+				return unknownReportProgress()
+			}
+		case "report.il_long_form_part.failed":
+			id = stageID("part_edit", q.Part, 0)
+			if _, ok := index[id]; !ok {
+				return unknownReportProgress()
+			}
 		case "report.part.failed":
 			id = stageID("part", q.Part, 0)
 		case "report.part_edit.failed":
@@ -440,7 +570,19 @@ func ProjectReportProgress(events []Event) ReportProgress {
 	applyReportNodeTiming(nodes, pending[selected].CreatedAt, terminalEvents[selected], events, lineage)
 	result.Nodes = nodes
 	if result.State == "failed" && pendingTypes[selected] == "report.draft.pending" {
-		if p.ReportMode == "long_form" {
+		if strings.TrimSpace(p.PipelineFamily) == "report_il_experimental" {
+			if p.ReportMode == "long_form" && reportILProgressLineageHasCheckpoint(events, selected) {
+				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true}
+			} else if p.ReportMode == "long_form" && reportILPartsCheckpointEligible(events, selected, terminal[selected]) {
+				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true, ReasonCode: "parts_checkpoint_recoverable", Reason: "완료된 Section과 Part를 검증한 뒤 최종 원고 단계부터 이어서 생성합니다."}
+			} else if p.ReportMode == "long_form" && reportILLegacyCheckpointEligible(events, selected, terminal[selected]) {
+				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true, ReasonCode: "legacy_checkpoint_recoverable", Reason: "기존 완료 원고를 검증한 뒤 실패 지점부터 이어서 생성합니다."}
+			} else if p.ReportMode == "long_form" {
+				result.Retry = ReportRetryCapability{Restart: true, ReasonCode: "resume_checkpoint_missing", Reason: "이어갈 수 있는 검증된 체크포인트가 없어 처음부터 다시 생성할 수 있습니다."}
+			} else {
+				result.Retry = ReportRetryCapability{ReasonCode: "retry_requires_long_form", Reason: "다시 생성은 장문 보고서 실패에만 사용할 수 있습니다."}
+			}
+		} else if p.ReportMode == "long_form" {
 			result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true}
 		} else {
 			result.Retry = ReportRetryCapability{ReasonCode: "retry_requires_long_form", Reason: "다시 생성은 장문 보고서 실패에만 사용할 수 있습니다."}
@@ -453,6 +595,119 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		result.Retry = ReportRetryCapability{ReasonCode: "attempt_not_failed", Reason: "실패한 리포트 시도만 다시 생성할 수 있습니다."}
 	}
 	return result
+}
+
+func reportILPartsCheckpointEligible(events []Event, pendingID string, failure reportPayload) bool {
+	if failure.FailedStage != "il_long_form_final" && failure.FailedStageID != "il_long_form_final" {
+		return false
+	}
+	partsCompleted := false
+	planFinalized, memoryFinalized := false, false
+	partArtifacts, sectionArtifacts := 0, 0
+	for _, event := range events {
+		var payload struct {
+			PendingID string `json:"pending_event_id"`
+			ToolName  string `json:"tool_name"`
+			Success   bool   `json:"success"`
+			IOMetrics struct {
+				Stage      string `json:"report_il_stage"`
+				ArtifactID string `json:"artifact_id"`
+				Finalized  bool   `json:"finalized"`
+			} `json:"io_metrics"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload.PendingID == pendingID && event.EventType == "report.il_long_form_parts.completed" {
+			partsCompleted = true
+		}
+		if event.EventType != "mcp.tool.called" || !payload.Success || payload.IOMetrics.ArtifactID == "" {
+			continue
+		}
+		switch {
+		case payload.ToolName == reportilcontract.EditorialMemoryFinalizeTool && payload.IOMetrics.Stage == "il_editorial_memory" && payload.IOMetrics.Finalized:
+			memoryFinalized = true
+		case payload.ToolName == reportilcontract.LongFormPlanSubmitTool && payload.IOMetrics.Stage == "il_long_form_plan":
+			planFinalized = true
+		case payload.ToolName == reportilcontract.LongFormDocumentFinalizeTool && payload.IOMetrics.Stage == "il_long_form_section" && payload.IOMetrics.Finalized:
+			sectionArtifacts++
+		case payload.ToolName == reportilcontract.LongFormDocumentFinalizeTool && payload.IOMetrics.Stage == "il_long_form_part" && payload.IOMetrics.Finalized:
+			partArtifacts++
+		}
+	}
+	return partsCompleted && planFinalized && memoryFinalized && partArtifacts >= reportilcontract.MinLongFormParts && sectionArtifacts >= reportilcontract.MinLongFormSections
+}
+
+func reportILLegacyCheckpointEligible(events []Event, pendingID string, failure reportPayload) bool {
+	if failure.FailedStage != "il_reader" && failure.FailedStageID != "il_reader" {
+		return false
+	}
+	finalCompleted := false
+	memoryArtifact := false
+	finalArtifact := false
+	for _, event := range events {
+		var payload struct {
+			PendingID string `json:"pending_event_id"`
+			ToolName  string `json:"tool_name"`
+			Success   bool   `json:"success"`
+			IOMetrics struct {
+				Stage      string `json:"report_il_stage"`
+				ArtifactID string `json:"artifact_id"`
+				SHA256     string `json:"sha256"`
+				ByteSize   int    `json:"byte_size"`
+				Revision   int    `json:"revision"`
+				Accounts   int    `json:"accounts"`
+				Finalized  bool   `json:"finalized"`
+			} `json:"io_metrics"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload.PendingID == pendingID && event.EventType == "report.il_long_form_final.completed" {
+			finalCompleted = true
+		}
+		if event.EventType != "mcp.tool.called" || !payload.Success || !payload.IOMetrics.Finalized ||
+			payload.IOMetrics.ArtifactID == "" || len(payload.IOMetrics.SHA256) != 64 ||
+			payload.IOMetrics.ByteSize < 1 || payload.IOMetrics.Revision < 1 {
+			continue
+		}
+		switch {
+		case payload.ToolName == reportilcontract.EditorialMemoryFinalizeTool &&
+			payload.IOMetrics.Stage == "il_editorial_memory" && payload.IOMetrics.Accounts > 0:
+			memoryArtifact = true
+		case payload.ToolName == reportilcontract.LongFormDocumentFinalizeTool &&
+			payload.IOMetrics.Stage == "il_long_form_final":
+			finalArtifact = true
+		}
+	}
+	return finalCompleted && memoryArtifact && finalArtifact
+}
+
+func reportILProgressLineageHasCheckpoint(events []Event, pendingID string) bool {
+	lineage := reportProgressPendingLineage(events, pendingID)
+	for attemptID := range lineage {
+		if reportILProgressHasCheckpoint(events, attemptID) {
+			return true
+		}
+	}
+	return false
+}
+
+func reportILProgressHasCheckpoint(events []Event, pendingID string) bool {
+	for _, event := range events {
+		if event.EventType != "report.il.checkpoint.created" {
+			continue
+		}
+		var payload struct {
+			PendingID  string `json:"pending_event_id"`
+			Checkpoint struct {
+				Stage string `json:"stage"`
+			} `json:"checkpoint"`
+		}
+		if json.Unmarshal(event.Payload, &payload) == nil && payload.PendingID == pendingID {
+			switch payload.Checkpoint.Stage {
+			case "il_long_form_parts", "il_long_form_final", "il_reader", "il_continuity":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // applyReportNodeTiming은 저장된 장부 timestamp만으로 stage boundary를 계산한다.
@@ -468,14 +723,20 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 			continue
 		}
 		switch event.EventType {
-		case "report.section.started":
+		case "report.section.started", "report.il_long_form_section.started":
 			starts[stageID("section", payload.Part, payload.Section)] = event.CreatedAt
+		case "report.il_long_form_plan.created":
+			terminals["il_long_form_plan"] = event.CreatedAt
+		case "report.il_long_form_part.started":
+			starts[stageID("part_edit", payload.Part, 0)] = event.CreatedAt
 		case "report.plan.created":
 			terminals["plan"] = event.CreatedAt
 		case "report.part_plan.created", "report.part_plan.failed":
 			terminals[stageID("part_plan", payload.Part, 0)] = event.CreatedAt
-		case "report.section.created", "report.section.failed":
+		case "report.section.created", "report.section.failed", "report.il_long_form_section.completed", "report.il_long_form_section.failed":
 			terminals[stageID("section", payload.Part, payload.Section)] = event.CreatedAt
+		case "report.il_long_form_part.completed", "report.il_long_form_part.failed":
+			terminals[stageID("part_edit", payload.Part, 0)] = event.CreatedAt
 		case "report.part.created", "report.part.failed":
 			terminals[stageID("part", payload.Part, 0)] = event.CreatedAt
 		case "report.part_edit.started":
@@ -514,6 +775,10 @@ func applyReportNodeTiming(nodes []ReportProgressNode, attemptStartedAt time.Tim
 			} else {
 				terminals["final"] = event.CreatedAt
 			}
+		case "report.source_packet.started", "report.il_source_selection.started", "report.il_editorial_memory.started", "report.il_narrative.started", "report.il_long_form_plan.started", "report.il_long_form_sections.started", "report.il_long_form_parts.started", "report.il_long_form_final.started", "report.il_continuity.started", "report.il_reader.started", "report.il_images.started", "report.il_document.started", "report.il_flow.started", "report.il_render.started", "report.il_store.started":
+			starts[ilProgressStageID(event.EventType)] = event.CreatedAt
+		case "report.source_packet.completed", "report.il_source_selection.completed", "report.il_editorial_memory.completed", "report.il_narrative.completed", "report.il_long_form_plan.completed", "report.il_long_form_sections.completed", "report.il_long_form_parts.completed", "report.il_long_form_final.completed", "report.il_continuity.completed", "report.il_reader.completed", "report.il_images.completed", "report.il_document.completed", "report.il_flow.completed", "report.il_render.completed", "report.il_store.completed", "report.source_packet.failed", "report.il_source_selection.failed", "report.il_editorial_memory.failed", "report.il_narrative.failed", "report.il_long_form_plan.failed", "report.il_long_form_sections.failed", "report.il_long_form_parts.failed", "report.il_long_form_final.failed", "report.il_continuity.failed", "report.il_reader.failed", "report.il_images.failed", "report.il_document.failed", "report.il_flow.failed", "report.il_render.failed", "report.il_store.failed":
+			terminals[ilProgressStageID(event.EventType)] = event.CreatedAt
 		case "report.artifact.created", "report.artifact.exported":
 			terminals["final"] = event.CreatedAt
 			terminals["artifact"] = event.CreatedAt
@@ -572,6 +837,58 @@ func hasRunningReportNode(nodes []ReportProgressNode) bool {
 
 func unknownReportProgress() ReportProgress {
 	return ReportProgress{State: "unknown", Retry: ReportRetryCapability{ReasonCode: "invalid_lineage", Reason: "리포트 계보를 안전하게 확인할 수 없습니다."}}
+}
+
+func reportILSelectionStageExists(events []Event, pendingID string, terminal reportPayload) bool {
+	return reportILStageExists(events, pendingID, terminal, "il_source_selection")
+}
+
+func reportILStageExists(events []Event, pendingID string, terminal reportPayload, stage string) bool {
+	if terminal.FailedStage == stage || terminal.FailedStageID == stage {
+		return true
+	}
+	lineage := reportProgressPendingLineage(events, pendingID)
+	for _, event := range events {
+		var payload reportPayload
+		_ = json.Unmarshal(event.Payload, &payload)
+		if lineage[payload.PendingID] && ilProgressStageID(event.EventType) == stage {
+			return true
+		}
+	}
+	return false
+}
+
+func reportProgressPendingLineage(events []Event, pendingID string) map[string]bool {
+	parents := map[string]string{}
+	for _, event := range events {
+		if event.EventType != "report.draft.pending" {
+			continue
+		}
+		var payload reportPayload
+		_ = json.Unmarshal(event.Payload, &payload)
+		parents[event.EventID] = strings.TrimSpace(payload.RetryOf)
+	}
+	lineage := map[string]bool{}
+	for current, depth := pendingID, 0; current != "" && depth < 64; depth++ {
+		if lineage[current] {
+			return map[string]bool{}
+		}
+		lineage[current] = true
+		current = parents[current]
+	}
+	return lineage
+}
+
+func ilProgressStageID(eventType string) string {
+	parts := strings.Split(eventType, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+	name := strings.TrimPrefix(eventType, "report.")
+	for _, suffix := range []string{".started", ".completed", ".reused", ".failed"} {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return name
 }
 
 func stageID(kind string, part, section int) string {

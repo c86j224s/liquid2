@@ -1,6 +1,10 @@
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+)
 
 var schemaReportPlanSubmit = json.RawMessage(`{
   "type":"object",
@@ -146,10 +150,184 @@ var (
 )
 
 var (
-	schemaMissionGet              = objectSchema([]string{"mission_id"}, baseProperties())
-	schemaMissionUpdate           = missionUpdateSchema()
-	schemaSourcesList             = objectSchema([]string{"mission_id"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "include_removed": map[string]any{"type": "boolean"}, "include_superseded": map[string]any{"type": "boolean"}})
-	schemaSourcesRead             = objectSchema([]string{"mission_id", "snapshot_id"}, sourceReadProperties())
+	schemaMissionGet          = objectSchema([]string{"mission_id"}, baseProperties())
+	schemaMissionUpdate       = missionUpdateSchema()
+	schemaSourcesList         = objectSchema([]string{"mission_id"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "include_removed": map[string]any{"type": "boolean"}, "include_superseded": map[string]any{"type": "boolean"}})
+	schemaSourcesRead         = objectSchema([]string{"mission_id", "snapshot_id"}, sourceReadProperties())
+	schemaReportILSourcesList = objectSchema([]string{}, map[string]any{})
+	schemaReportILSourcesRead = objectSchema([]string{"source_key", "offset", "max_bytes"}, map[string]any{
+		"source_key": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"},
+		"offset":     map[string]any{"type": "integer", "minimum": 0},
+		"max_bytes":  map[string]any{"type": "integer", "minimum": 1, "maximum": reportilcontract.DefaultSourceReadMaxBytes},
+	})
+	schemaReportILSourcesBatchRead = objectSchema([]string{}, map[string]any{})
+	schemaReportILSourceQuote      = objectSchema([]string{"source_key", "quote"}, map[string]any{
+		"source_key": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"},
+		"quote":      map[string]any{"type": "string", "minLength": 1, "maxLength": reportilcontract.MaxSourceQuoteBytes},
+	})
+	schemaReportILEditorialMemoryStart = objectSchema([]string{"language"}, map[string]any{
+		"language": map[string]any{"type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"},
+	})
+	schemaReportILEditorialMemoryAppend = objectSchema([]string{"workspace_id", "importance", "account", "source_keys", "source_anchors"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilm_"),
+		"importance":   enumSchema("essential", "supporting"),
+		"account":      map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"source_keys":  map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"}},
+		"source_anchors": map[string]any{
+			"type": "array", "minItems": 1, "maxItems": reportilcontract.MaxEditorialAnchorsPerAccount,
+			"uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^quote_[a-f0-9]{64}$"},
+		},
+	})
+	schemaReportILEditorialMemoryRead = objectSchema([]string{"offset", "max_bytes"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilm_"),
+		"offset":       map[string]any{"type": "integer", "minimum": 0},
+		"max_bytes":    map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
+	})
+	schemaReportILEditorialMemoryFinalize = objectSchema([]string{"workspace_id"}, map[string]any{"workspace_id": prefixedStringSchema("ilm_")})
+	schemaReportILDocumentStart           = objectSchema([]string{"title", "language"}, map[string]any{
+		"title":    map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"language": map[string]any{"type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"},
+	})
+	schemaReportILDocumentOpen   = objectSchema([]string{}, map[string]any{})
+	schemaReportILDocumentAppend = objectSchema([]string{"workspace_id", "section_title", "kind", "prose", "items", "code", "language", "table", "editorial_account_keys"}, map[string]any{
+		"workspace_id":  prefixedStringSchema("ilw_"),
+		"section_title": map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"kind":          enumSchema("prose", "quote", "callout", "list", "code", "table"),
+		"prose":         stringSchema(),
+		"items":         arraySchema(stringSchema()),
+		"code":          stringSchema(),
+		"language":      map[string]any{"type": []string{"string", "null"}},
+		"table": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"caption", "columns", "rows"}, map[string]any{
+			"caption": map[string]any{"type": []string{"string", "null"}},
+			"columns": arraySchema(stringSchema()),
+			"rows":    arraySchema(objectSchemaValue([]string{"cells"}, map[string]any{"cells": arraySchema(stringSchema())})),
+		})}},
+		"editorial_account_keys": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^account_[0-9]{3}$"}},
+	})
+	schemaReportILDocumentAppendSource = objectSchema([]string{"workspace_id", "section_title", "kind", "prose", "items", "code", "language", "table", "evidence_source_keys"}, map[string]any{
+		"workspace_id":  prefixedStringSchema("ilw_"),
+		"section_title": map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"kind":          enumSchema("prose", "quote", "callout", "list", "code", "table"),
+		"prose":         stringSchema(),
+		"items":         arraySchema(stringSchema()),
+		"code":          stringSchema(),
+		"language":      map[string]any{"type": []string{"string", "null"}},
+		"table": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"caption", "columns", "rows"}, map[string]any{
+			"caption": map[string]any{"type": []string{"string", "null"}},
+			"columns": arraySchema(stringSchema()),
+			"rows":    arraySchema(objectSchemaValue([]string{"cells"}, map[string]any{"cells": arraySchema(stringSchema())})),
+		})}},
+		"evidence_source_keys": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"}},
+	})
+	schemaReportILDocumentRead = objectSchema([]string{"workspace_id", "offset", "max_bytes"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilw_"),
+		"offset":       map[string]any{"type": "integer", "minimum": 0},
+		"max_bytes":    map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
+	})
+	schemaReportILDocumentReplace = objectSchema([]string{"workspace_id", "old_text", "new_text"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilw_"),
+		"old_text":     map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"new_text":     map[string]any{"type": "string", "maxLength": 8192},
+	})
+	schemaReportILDocumentEditText = objectSchema([]string{"workspace_id", "target_kind", "target_key", "old_text", "new_text"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilw_"),
+		"target_kind":  enumSchema("title", "part_title", "section_title", "block_text"),
+		"target_key":   map[string]any{"type": "string", "minLength": 1, "maxLength": 128},
+		"old_text":     map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"new_text":     map[string]any{"type": "string", "maxLength": 8192},
+	})
+	schemaReportILDocumentReviseBlock = objectSchema([]string{"workspace_id", "block_key", "old_text", "new_text", "editorial_account_keys"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilw_"),
+		"block_key":    map[string]any{"type": "string", "pattern": "^(section_[0-9]{3}|part_[0-9]{3}\\.section_[0-9]{3})\\.block_[0-9]{3}$"},
+		"old_text":     map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"new_text":     map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"editorial_account_keys": map[string]any{
+			"type": "array", "minItems": 1, "uniqueItems": true,
+			"items": map[string]any{"type": "string", "pattern": "^account_[0-9]{3}$"},
+		},
+	})
+	schemaReportILDocumentFinalize   = objectSchema([]string{"workspace_id"}, map[string]any{"workspace_id": prefixedStringSchema("ilw_")})
+	schemaReportILLongFormPlanSubmit = mustJSON(objectSchemaValue([]string{"title", "summary", "parts"}, map[string]any{
+		"title":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"summary": map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+		"parts": map[string]any{"type": "array", "minItems": reportilcontract.MinLongFormParts, "maxItems": reportilcontract.MaxLongFormParts, "items": objectSchemaValue([]string{"title", "purpose", "sections"}, map[string]any{
+			"title":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+			"purpose": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
+			"sections": map[string]any{"type": "array", "minItems": 1, "maxItems": 7, "items": objectSchemaValue([]string{"title", "purpose", "representations", "evidence_source_keys"}, map[string]any{
+				"title":   map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+				"purpose": map[string]any{"type": "string", "minLength": 1, "maxLength": 4096},
+				"representations": map[string]any{
+					"type": "array", "uniqueItems": true,
+					"items": enumSchema(
+						reportilcontract.LongFormRepresentationTable,
+						reportilcontract.LongFormRepresentationCode,
+						reportilcontract.LongFormRepresentationEquation,
+						reportilcontract.LongFormRepresentationWorkedExample,
+						reportilcontract.LongFormRepresentationBenchmark,
+						reportilcontract.LongFormRepresentationChecklist,
+						reportilcontract.LongFormRepresentationDiagram,
+					),
+				},
+				"editorial_account_keys": map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^account_[0-9]{3}$"}},
+				"evidence_source_keys":   map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"}},
+			})},
+		})},
+	}))
+	schemaReportILLongFormPlanRead = objectSchema([]string{"offset", "max_bytes"}, map[string]any{
+		"offset":    map[string]any{"type": "integer", "minimum": 0},
+		"max_bytes": map[string]any{"type": "integer", "minimum": 1, "maximum": 65536},
+	})
+	schemaReportILLongFormDocumentStart = objectSchema([]string{"title", "language"}, map[string]any{
+		"title":    map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"language": map[string]any{"type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$"},
+	})
+	schemaReportILLongFormDocumentAppend = objectSchema([]string{"workspace_id", "kind", "prose", "items", "code", "language", "table", "equation", "editorial_account_keys", "evidence_source_keys"}, map[string]any{
+		"workspace_id":  prefixedStringSchema("ilw_"),
+		"section_key":   map[string]any{"type": "string", "pattern": "^part_[0-9]{3}\\.section_[0-9]{3}$"},
+		"section_title": map[string]any{"type": "string", "minLength": 1, "maxLength": 512},
+		"kind":          enumSchema("prose", "quote", "callout", "list", "code", "table", "equation"),
+		"prose":         stringSchema(),
+		"items":         arraySchema(stringSchema()),
+		"code":          stringSchema(),
+		"language":      map[string]any{"type": []string{"string", "null"}},
+		"table": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"caption", "columns", "rows"}, map[string]any{
+			"caption": map[string]any{"type": []string{"string", "null"}},
+			"columns": arraySchema(stringSchema()),
+			"rows":    arraySchema(objectSchemaValue([]string{"cells"}, map[string]any{"cells": arraySchema(stringSchema())})),
+		})}},
+		"equation": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"expression", "notation"}, map[string]any{
+			"expression": map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+			"notation":   map[string]any{"type": "string", "const": "latex"},
+		})}},
+		"editorial_account_keys": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^account_[0-9]{3}$"}},
+		"evidence_source_keys":   map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"}},
+	})
+	schemaReportILLongFormDocumentCorrectBlock = objectSchema([]string{"workspace_id", "block_key", "operation", "replacement"}, map[string]any{
+		"workspace_id": prefixedStringSchema("ilw_"),
+		"block_key":    map[string]any{"type": "string", "pattern": "^part_[0-9]{3}\\.section_[0-9]{3}\\.block_[0-9]{3}$"},
+		"operation":    enumSchema("delete", "replace"),
+		"replacement": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue(
+			[]string{"kind", "prose", "items", "code", "language", "table", "equation", "editorial_account_keys", "evidence_source_keys"},
+			map[string]any{
+				"kind":     enumSchema("prose", "quote", "callout", "list", "code", "table", "equation"),
+				"prose":    stringSchema(),
+				"items":    arraySchema(stringSchema()),
+				"code":     stringSchema(),
+				"language": map[string]any{"type": []string{"string", "null"}},
+				"table": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"caption", "columns", "rows"}, map[string]any{
+					"caption": map[string]any{"type": []string{"string", "null"}},
+					"columns": arraySchema(stringSchema()),
+					"rows":    arraySchema(objectSchemaValue([]string{"cells"}, map[string]any{"cells": arraySchema(stringSchema())})),
+				})}},
+				"equation": map[string]any{"anyOf": []any{map[string]any{"type": "null"}, objectSchemaValue([]string{"expression", "notation"}, map[string]any{
+					"expression": map[string]any{"type": "string", "minLength": 1, "maxLength": 8192},
+					"notation":   map[string]any{"type": "string", "const": "latex"},
+				})}},
+				"editorial_account_keys": map[string]any{"type": "array", "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^account_[0-9]{3}$"}},
+				"evidence_source_keys":   map[string]any{"type": "array", "minItems": 1, "uniqueItems": true, "items": map[string]any{"type": "string", "pattern": "^source_[0-9]{3}$"}},
+			},
+		)}},
+	})
 	schemaSourcesTree             = objectSchema([]string{"mission_id", "snapshot_id"}, sourceTreeProperties())
 	schemaSourcesGrep             = objectSchema([]string{"mission_id", "snapshot_id", "query"}, sourceGrepProperties())
 	schemaSourcesSearch           = objectSchema([]string{"mission_id", "query"}, sourceSearchProperties())

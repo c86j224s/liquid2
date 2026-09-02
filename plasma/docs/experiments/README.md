@@ -263,6 +263,17 @@ large artifacts live outside the repository under `research-artifacts/`.
       a product CLI surface, and writes report, ledger, DB, and compact manifest
       under the local archive root while using the authenticated product Codex
       home for real provider session files.
+65. [`65-agent-capability-profile-plan-2026-08-18.md`](65-agent-capability-profile-plan-2026-08-18.md)
+    - Records issue #349's minimal typed capability-profile implementation after an
+      isolated Luna run established only the mechanism that a smaller actual tool
+      surface can reduce input usage. The product change keeps all 16 Plasma
+      research/control tools, binds `legacy.v1`, `research.v1`, and request-local
+      `workflow_goal_draft.v1` to conversation, workflow, compaction, report, and CLI
+      session lineage, reuses existing report allowlists, and applies supported
+      Claude/Codex ambient reductions. It explicitly does not add operation IDs,
+      Codex app-server inference, or complete runtime catalog assertions. A
+      synchronized Korean counterpart is available in
+      [`65-agent-capability-profile-plan-2026-08-18.ko.md`](65-agent-capability-profile-plan-2026-08-18.ko.md).
 
 ## Controller Experiment Sequence
 

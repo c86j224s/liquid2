@@ -1,10 +1,15 @@
 package sourceretrieval
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	htmlpkg "html"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"mime"
 	"net"
@@ -20,9 +25,12 @@ import (
 
 const (
 	MaxTextSourceBytes            = 20 << 20
+	MaxImageSourceBytes           = 10 << 20
 	MaxPDFSourceBytes             = 100 << 20
 	sourceFetcherUserAgentVersion = "0.1"
 )
+
+const MediaKindImage = "image"
 
 // Fetched는 URL fetch 결과와 저장에 필요한 문서 메타데이터다. Content는 이미
 // 크기와 media type 검증을 통과한 본문이어야 하며, PDF의 TextLengthKnown은
@@ -30,6 +38,7 @@ const (
 type Fetched struct {
 	Content           []byte
 	MediaType         string
+	MediaKind         string
 	Title             string
 	ExternalVersion   string
 	ExternalUpdatedAt time.Time
@@ -37,6 +46,8 @@ type Fetched struct {
 	PageCount         int
 	TextLength        int
 	TextLengthKnown   bool
+	Width             int
+	Height            int
 }
 
 // Fetch는 기본 보안 HTTP client로 URL 원문을 가져온다.
@@ -73,6 +84,11 @@ func FetchWithClient(ctx context.Context, rawURL string, client *http.Client) (F
 	if pdfExpected {
 		limit = MaxPDFSourceBytes
 		limitLabel = "100 MiB"
+	} else if declaredType == "application/octet-stream" ||
+		declaredType == "binary/octet-stream" ||
+		strings.HasPrefix(declaredType, "image/") {
+		limit = MaxImageSourceBytes
+		limitLabel = "10 MiB"
 	}
 	if resp.ContentLength > int64(limit) {
 		return Fetched{}, fmt.Errorf("%w: source URL response is larger than %s", producterror.ErrInvalidInput, limitLabel)
@@ -105,6 +121,26 @@ func FetchWithClient(ctx context.Context, rawURL string, client *http.Client) (F
 			ByteSize:          int64(len(content)),
 			PageCount:         info.PageCount,
 			TextLengthKnown:   false,
+		}, nil
+	}
+	if isPinnedImageMediaType(mediaType) {
+		if len(content) > MaxImageSourceBytes {
+			return Fetched{}, fmt.Errorf("%w: image source response is larger than 10 MiB", producterror.ErrInvalidInput)
+		}
+		config, _, err := image.DecodeConfig(bytes.NewReader(content))
+		if err != nil {
+			return Fetched{}, fmt.Errorf("%w: image source could not be decoded", producterror.ErrInvalidInput)
+		}
+		return Fetched{
+			Content:           content,
+			MediaType:         mediaType,
+			MediaKind:         MediaKindImage,
+			Title:             titleFromURL(resp.Request.URL),
+			ExternalVersion:   responseExternalVersion(resp.Header),
+			ExternalUpdatedAt: responseLastModified(resp.Header),
+			ByteSize:          int64(len(content)),
+			Width:             config.Width,
+			Height:            config.Height,
 		}, nil
 	}
 	if len(content) > MaxTextSourceBytes {
@@ -210,10 +246,32 @@ func responseMediaType(header string, content []byte) string {
 	if err != nil || strings.TrimSpace(mediaType) == "" {
 		return http.DetectContentType(content)
 	}
-	if charset := strings.TrimSpace(params["charset"]); charset != "" {
-		return strings.ToLower(mediaType) + "; charset=" + charset
+	base := strings.ToLower(strings.TrimSpace(mediaType))
+	if base == "application/octet-stream" || base == "binary/octet-stream" {
+		return http.DetectContentType(content)
 	}
-	return strings.ToLower(mediaType)
+	if strings.HasPrefix(base, "image/") {
+		if detected := strings.ToLower(strings.TrimSpace(http.DetectContentType(content))); strings.HasPrefix(detected, "image/") {
+			return detected
+		}
+	}
+	if charset := strings.TrimSpace(params["charset"]); charset != "" {
+		return base + "; charset=" + charset
+	}
+	return base
+}
+
+func isPinnedImageMediaType(mediaType string) bool {
+	base, _, err := mime.ParseMediaType(mediaType)
+	if err != nil {
+		base = mediaType
+	}
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "image/png", "image/jpeg", "image/gif":
+		return true
+	default:
+		return false
+	}
 }
 
 func responseHeaderMediaType(header string) string {

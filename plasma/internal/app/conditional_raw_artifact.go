@@ -54,6 +54,48 @@ func (s *Service) CreateRawArtifactWithEventConditionally(
 	})
 }
 
+// CreateMarkdownReportArtifactIfOpen stores one Markdown artifact and closes an
+// open report pending event in the same transaction.
+func (s *Service) CreateMarkdownReportArtifactIfOpen(
+	ctx context.Context,
+	missionID string,
+	pendingEventID string,
+	artifactReq CreateRawArtifactRequest,
+	eventReqForArtifact func(RawArtifact) AppendEventRequest,
+) (RawArtifact, LedgerEvent, bool, error) {
+	if eventReqForArtifact == nil {
+		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: Markdown report terminal event builder is required", ErrInvalidInput)
+	}
+	if err := validateID("mis_", missionID); err != nil {
+		return RawArtifact{}, LedgerEvent{}, false, err
+	}
+	pendingEventID = strings.TrimSpace(pendingEventID)
+	if pendingEventID == "" {
+		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: pending event is required", ErrInvalidInput)
+	}
+	store, ok := s.store.(conditionalRawArtifactStore)
+	if !ok {
+		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: conditional raw artifact store is required", ErrInvalidInput)
+	}
+	artifact, err := buildRawArtifact(artifactReq)
+	if err != nil {
+		return RawArtifact{}, LedgerEvent{}, false, err
+	}
+	if artifact.MissionID != missionID {
+		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: artifact mission_id must match %s", ErrInvalidInput, missionID)
+	}
+	return store.CommitRawArtifactWithEventConditionally(ctx, artifact, func(events []LedgerEvent) (LedgerEvent, bool, error) {
+		built, open, err := buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, []AppendEventRequest{eventReqForArtifact(artifact)})
+		if err != nil || !open {
+			return LedgerEvent{}, false, err
+		}
+		if len(built) != 1 {
+			return LedgerEvent{}, false, fmt.Errorf("%w: Markdown report closure requires one terminal event", ErrInvalidInput)
+		}
+		return built[0], true, nil
+	})
+}
+
 // CreateDesignedReportHTMLExportIfOpen stores the content model artifact, HTML
 // artifact, and report.artifact.exported terminal event under the same pending
 // open check. It is intentionally narrow to the designed HTML two-artifact

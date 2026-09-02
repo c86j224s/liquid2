@@ -14,9 +14,13 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
 )
 
-// HumanizeMarkdownReport attempts the H5 tone pass through MCP patch tools. It
-// never replaces the source artifact; failures and no-op outcomes close the H5
-// pending event while preserving the original Markdown artifact.
+// HumanizeMarkdownReport attempts the legacy post-canonical H5 tone pass
+// through MCP patch tools. It never replaces the source artifact; failures and
+// no-op outcomes close the H5 pending event while preserving the original
+// Markdown artifact.
+//
+// Deprecated: this is the manual/direct compatibility pass. Current long-form
+// reports use the separate pre-canonical style-edit stage.
 func HumanizeMarkdownReport(ctx context.Context, service Service, idFunc IDFunc, missionID string, input Input, executor agentexec.AgentExecutor) (Result, error) {
 	if executor == nil {
 		return Result{}, nil
