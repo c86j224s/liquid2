@@ -1,15 +1,15 @@
 package web
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 type updateMissionMetadataRequest struct {
-	Title     *string           `json:"title"`
-	Objective *string           `json:"objective"`
-	Scope     *app.MissionScope `json:"scope"`
+	Title     *string        `json:"title"`
+	Objective *string        `json:"objective"`
+	Scope     *mission.Scope `json:"scope"`
 }
 
 func (server *Server) handleMissionMetadataUpdate(w http.ResponseWriter, r *http.Request, missionID string) {
@@ -17,8 +17,8 @@ func (server *Server) handleMissionMetadataUpdate(w http.ResponseWriter, r *http
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := server.service.UpdateMissionMetadata(r.Context(), app.UpdateMissionMetadataRequest{
-		EventID: newID("evt"), MissionID: missionID, Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+	result, err := server.service.UpdateMissionMetadata(r.Context(), mission.UpdateMissionMetadataRequest{
+		EventID: newID("evt"), MissionID: missionID, Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Title: req.Title, Objective: req.Objective, Scope: req.Scope,
 	})
 	if err != nil {

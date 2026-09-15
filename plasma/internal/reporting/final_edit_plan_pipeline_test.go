@@ -5,10 +5,11 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestLongFormPlanPipelineIgnoresMalformedUnrelatedPlan(t *testing.T) {
-	state, ok, err := longFormPlanPipeline([]app.LedgerEvent{
+	state, ok, err := longFormPlanPipeline([]ledger.Event{
 		{EventID: "evt_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Payload: mustJSON(map[string]any{"report_mode": ModeLongForm})},
 		{EventID: "evt_other_plan", MissionID: "mis_plan", EventType: "report.plan.created", Payload: []byte(`{`)},
 		{EventID: "evt_plan", MissionID: "mis_plan", EventType: "report.plan.created", Payload: mustJSON(map[string]any{
@@ -26,7 +27,7 @@ func TestLongFormPlanPipelineIgnoresMalformedUnrelatedPlan(t *testing.T) {
 }
 
 func TestLongFormPlanPipelineRejectsMalformedBoundPlan(t *testing.T) {
-	_, ok, err := longFormPlanPipeline([]app.LedgerEvent{
+	_, ok, err := longFormPlanPipeline([]ledger.Event{
 		{EventID: "evt_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Payload: mustJSON(map[string]any{"report_mode": ModeLongForm})},
 		{EventID: "evt_plan", MissionID: "mis_plan", EventType: "report.plan.created", Payload: []byte(`{`)},
 	}, "evt_pending", "evt_plan")
@@ -36,7 +37,7 @@ func TestLongFormPlanPipelineRejectsMalformedBoundPlan(t *testing.T) {
 }
 
 func TestLongFormPlanPipelineAcceptsAcceptedAncestorPlanForResumeFailed(t *testing.T) {
-	state, ok, err := longFormPlanPipeline([]app.LedgerEvent{
+	state, ok, err := longFormPlanPipeline([]ledger.Event{
 		{EventID: "evt_root_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Payload: mustJSON(map[string]any{
 			"origin_pending_event_id": "evt_root_pending",
 			"retry_strategy":          "initial",
@@ -67,7 +68,7 @@ func TestLongFormPlanPipelineAcceptsAcceptedAncestorPlanForResumeFailed(t *testi
 }
 
 func TestLongFormPlanPipelineRejectsForeignBoundPlanPending(t *testing.T) {
-	_, ok, err := longFormPlanPipeline([]app.LedgerEvent{
+	_, ok, err := longFormPlanPipeline([]ledger.Event{
 		{EventID: "evt_root_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Payload: mustJSON(map[string]any{
 			"origin_pending_event_id": "evt_root_pending",
 			"retry_strategy":          "initial",

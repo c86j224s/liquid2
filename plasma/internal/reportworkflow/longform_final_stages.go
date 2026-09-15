@@ -7,6 +7,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/evidencecheck"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/finalstore"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/finalwrite"
@@ -105,7 +106,7 @@ func (runner Runner) runGateAndAdopt(ctx context.Context, base finaledit.Input, 
 	output := draftOutput(stored)
 	actual := gate.Run.AgentResult
 	if usableGateUsage(actual, gate.Run.Binding) {
-		usage := &reporting.ReportAgentUsageRequest{MissionID: base.MissionID, PendingEventID: base.PendingEventID, CanonicalEventID: gate.Run.Stage.Event.EventID, Surface: "report_" + gate.Run.Binding.Stage, PreviousAgentSessionID: gate.Run.Binding.ProviderSessionID, AgentSessionID: actual.SessionID, DurationMS: gate.Run.DurationMS, Resumed: actual.Resumed, Usage: actual.Usage, ForkSourceAgentSessionID: gate.Run.Binding.ForkSourceAgentSessionID}
+		usage := &reportusage.ReportAgentUsageRequest{MissionID: base.MissionID, PendingEventID: base.PendingEventID, CanonicalEventID: gate.Run.Stage.Event.EventID, Surface: "report_" + gate.Run.Binding.Stage, PreviousAgentSessionID: gate.Run.Binding.ProviderSessionID, AgentSessionID: actual.SessionID, DurationMS: gate.Run.DurationMS, Resumed: actual.Resumed, Usage: actual.Usage, ForkSourceAgentSessionID: gate.Run.Binding.ForkSourceAgentSessionID}
 		if err := runner.complete(context.WithoutCancel(ctx), output, usage); err != nil {
 			return DraftOutput{}, err
 		}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 )
@@ -33,7 +34,7 @@ type finalizationPrefixFixture struct {
 	pendingEventID               string
 	directionHint                string
 	artifactID                   string
-	planEvent                    app.LedgerEvent
+	planEvent                    ledger.Event
 	plan                         agentSectionalReportPlan
 	requirementMap               reporting.ReportRequirementMap
 	parts                        []sectionalReportPartDraft

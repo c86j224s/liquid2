@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"regexp"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ type conversationEventPayload struct {
 	WorkflowStepID string `json:"workflow_step_id"`
 }
 
-func buildConversationExportMarkdown(title string, events []LedgerEvent) ([]byte, int, error) {
+func buildConversationExportMarkdown(title string, events []ledger.Event) ([]byte, int, error) {
 	entries := visibleConversationEntries(events)
 	if len(entries) == 0 {
 		return nil, 0, fmt.Errorf("%w: conversation export requires visible conversation entries", ErrInvalidInput)
@@ -50,7 +51,7 @@ func buildConversationExportMarkdown(title string, events []LedgerEvent) ([]byte
 	return body.Bytes(), len(entries), nil
 }
 
-func visibleConversationEntries(events []LedgerEvent) []conversationExportEntry {
+func visibleConversationEntries(events []ledger.Event) []conversationExportEntry {
 	entries := make([]conversationExportEntry, 0)
 	for _, event := range events {
 		var payload conversationEventPayload

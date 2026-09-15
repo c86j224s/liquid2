@@ -8,15 +8,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	htmlpkg "html"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
-func (server *Server) renderDesignedReportHTML(sourceArtifact app.RawArtifact, model designedReportContentModel, images []reportInlineImage, notes []string) ([]byte, error) {
+func (server *Server) renderDesignedReportHTML(sourceArtifact artifactcontract.Raw, model designedReportContentModel, images []reportInlineImage, notes []string) ([]byte, error) {
 	mathHead, err := selfContainedMathHead()
 	if err != nil {
 		return nil, err
@@ -464,7 +467,7 @@ func renderDesignedMedia(out *bytes.Buffer, images []reportInlineImage, totalIma
 	out.WriteString("</div></section>\n")
 }
 
-func renderDesignedSources(out *bytes.Buffer, model designedReportContentModel, sourceArtifact app.RawArtifact, notes []string) {
+func renderDesignedSources(out *bytes.Buffer, model designedReportContentModel, sourceArtifact artifactcontract.Raw, notes []string) {
 	out.WriteString("<section id=\"sources\" class=\"sources-panel\"><div class=\"section-heading\"><p>Sources</p><h2>출처와 한계</h2></div>")
 	out.WriteString("<div class=\"source-origin\"><span>원본 리포트 artifact</span><code>" + htmlpkg.EscapeString(sourceArtifact.ArtifactID) + "</code></div>")
 	if len(model.Sources) > 0 {
@@ -636,7 +639,7 @@ func designedReportImageSetFingerprint(images []reportInlineImage, notes []strin
 }
 
 func (server *Server) inlineReportImages(ctx context.Context, missionID string) ([]reportInlineImage, []string, error) {
-	sources, err := server.service.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	sources, err := server.service.ListSourceSnapshotsWithState(ctx, source.ListRequest{MissionID: missionID})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -645,7 +648,7 @@ func (server *Server) inlineReportImages(ctx context.Context, missionID string) 
 	var total int64
 	for _, source := range sources {
 		locator, err := mediaLocatorFromJSON(source.Locators)
-		if err != nil || locator.MediaKind != app.MediaKindImage {
+		if err != nil || locator.MediaKind != sourcecontract.MediaKindImage {
 			continue
 		}
 		if len(source.ArtifactIDs) == 0 {
@@ -849,16 +852,16 @@ func designedReportImageInventoryJSON(images []reportInlineImage) string {
 func parseDesignedReportContentModel(text string) (designedReportContentModel, []byte, error) {
 	raw, err := extractAgentJSONObject(text)
 	if err != nil {
-		return designedReportContentModel{}, nil, fmt.Errorf("%w: designed HTML agent did not return JSON content model", app.ErrInvalidInput)
+		return designedReportContentModel{}, nil, fmt.Errorf("%w: designed HTML agent did not return JSON content model", producterror.ErrInvalidInput)
 	}
 	var model designedReportContentModel
 	decoder := json.NewDecoder(strings.NewReader(raw))
 	if err := decoder.Decode(&model); err != nil {
-		return designedReportContentModel{}, nil, fmt.Errorf("%w: invalid designed HTML content model JSON: %v", app.ErrInvalidInput, err)
+		return designedReportContentModel{}, nil, fmt.Errorf("%w: invalid designed HTML content model JSON: %v", producterror.ErrInvalidInput, err)
 	}
 	model = normalizeDesignedReportContentModel(model)
 	if strings.TrimSpace(model.Title) == "" && strings.TrimSpace(model.Thesis) == "" && len(model.Tabs) == 0 && len(model.VisualUnits) == 0 {
-		return designedReportContentModel{}, nil, fmt.Errorf("%w: designed HTML content model is empty", app.ErrInvalidInput)
+		return designedReportContentModel{}, nil, fmt.Errorf("%w: designed HTML content model is empty", producterror.ErrInvalidInput)
 	}
 	modelJSON, err := json.MarshalIndent(model, "", "  ")
 	if err != nil {

@@ -125,15 +125,16 @@
     const bundle = reportILBundle(payload);
     if (!bundle) return "";
     const markdown = bundle.entries.find((entry) => entry.kind === "markdown") || {};
-    const title = payload.title || "IL 보고서";
+    const article = payload.output_kind === "article";
+    const title = payload.title || (article ? "장문 글" : "IL 보고서");
     const actions = bundle.entries.map(reportILArtifactAction).join("");
     const artifactCount = bundle.entries.length;
-    const modeLabel = payload.report_mode === "long_form" ? "장문 IL 보고서" : "IL 보고서";
+    const modeLabel = article ? "장문 글" : payload.report_mode === "long_form" ? "장문 IL 보고서" : "IL 보고서";
     return `<div class="item report-card report-il-card ${isLatest ? "active" : ""} ${key === selectedKey ? "selected" : ""}" data-report-key="${escapeAttr(key)}" data-report-il-bundle-key="${escapeAttr(key)}">
       <div class="item-title report-title-line report-card-toggle"><span>${escapeHTML(title)}</span><span class="chip-row report-chip-row">${isLatest ? `<span class="badge session-new">최신</span>` : `<span class="badge muted">이전</span>`}<span class="badge">${modeLabel}</span><span class="badge muted">출력 ${artifactCount}개</span></span></div>
       <div class="report-card-body">
         <div class="item-meta clamp-line" title="${escapeAttr(markdown.artifact_id || "")}">${escapeHTML(markdown.artifact_id || "")}</div>
-        <div class="item-meta">${escapeHTML(payload.text || "IL 보고서가 생성되었습니다.")}</div>
+        <div class="item-meta">${escapeHTML(payload.text || (article ? "장문 글이 생성되었습니다." : "IL 보고서가 생성되었습니다."))}</div>
         ${reports.reportGenerationSummaryHTML(payload)}
         ${reportILSourceSelectionHTML(bundle.sourceSelection)}
         <div class="report-il-card-note">같은 원고를 Markdown·HTML·PDF로 만들었으며, 포함된 이미지는 관련 소스에서 가져왔습니다.</div>
@@ -149,9 +150,7 @@
   }
 
   function renderILArtifactReportSection(artifactCards, selectedKey) {
-    const cards = artifactCards.map(({ key, isLatest, payload }) => renderILArtifactCard(key, isLatest, payload, selectedKey)).filter(Boolean);
-    return cards.length ? `<div class="list-section-label">IL 보고서 · Markdown / HTML / PDF</div>${cards.join("")}` : "";
+    return artifactCards.map(({ key, isLatest, payload }) => renderILArtifactCard(key, isLatest, payload, selectedKey)).filter(Boolean).join("");
   }
-
   Object.assign(reports, { reportILBundle, renderILArtifactCard, renderILArtifactReportSection });
 })(window);

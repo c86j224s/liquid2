@@ -1,21 +1,21 @@
 package reportrepo
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"database/sql"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateReport stores one report row.
-func (r *Repository) CreateReport(ctx context.Context, report app.Report) error {
+func (r *Repository) CreateReport(ctx context.Context, report reportdocument.Report) error {
 	return InsertReportTx(ctx, r.db, report)
 }
 
 // GetReport reads one report by stable ID.
-func (r *Repository) GetReport(ctx context.Context, reportID string) (app.Report, error) {
-	var report app.Report
+func (r *Repository) GetReport(ctx context.Context, reportID string) (reportdocument.Report, error) {
+	var report reportdocument.Report
 	var createdAt string
 	var updatedAt string
 	err := r.db.QueryRowContext(ctx, `
@@ -33,22 +33,22 @@ WHERE report_id = ?`, reportID).Scan(
 		&createdAt,
 		&updatedAt)
 	if err != nil {
-		return app.Report{}, err
+		return reportdocument.Report{}, err
 	}
 	var parseErr error
 	report.CreatedAt, parseErr = parseRequiredTime(createdAt)
 	if parseErr != nil {
-		return app.Report{}, parseErr
+		return reportdocument.Report{}, parseErr
 	}
 	report.UpdatedAt, parseErr = parseRequiredTime(updatedAt)
 	if parseErr != nil {
-		return app.Report{}, parseErr
+		return reportdocument.Report{}, parseErr
 	}
 	return report, nil
 }
 
 // ListReports reads mission reports ordered by creation time.
-func (r *Repository) ListReports(ctx context.Context, missionID string) ([]app.Report, error) {
+func (r *Repository) ListReports(ctx context.Context, missionID string) ([]reportdocument.Report, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT report_id
 FROM plasma_reports
@@ -59,7 +59,7 @@ ORDER BY created_at DESC, report_id`, missionID)
 	}
 	defer rows.Close()
 
-	var reports []app.Report
+	var reports []reportdocument.Report
 	for rows.Next() {
 		var reportID string
 		if err := rows.Scan(&reportID); err != nil {
@@ -77,7 +77,7 @@ ORDER BY created_at DESC, report_id`, missionID)
 // InsertReportTx inserts a report inside a caller-owned transaction or queryer.
 func InsertReportTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, report app.Report) error {
+}, report reportdocument.Report) error {
 	_, err := tx.ExecContext(ctx, `
 INSERT INTO plasma_reports (
   report_id, schema_version, object_kind, mission_id, title, active_version_id,

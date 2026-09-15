@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // ValidatePartEditBinding는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
@@ -29,26 +29,26 @@ func ValidatePartEditBinding(value PartEditBinding) error {
 		value.SessionChainKind == "" ||
 		value.ReportPlanSessionID == "" ||
 		value.ForkSourceAgentSessionID == "" {
-		return fmt.Errorf("%w: part edit binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit binding is incomplete", producterror.ErrInvalidInput)
 	}
 	if (value.RequirementMapEventID == "") != (value.RequirementMapHash == "") {
-		return fmt.Errorf("%w: part edit requirement map binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit requirement map binding is incomplete", producterror.ErrInvalidInput)
 	}
 	if value.PreviousProviderSessionID != value.ProviderSessionID {
-		return fmt.Errorf("%w: part edit provider session chain differs", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit provider session chain differs", producterror.ErrInvalidInput)
 	}
 	if value.ProviderSessionID == value.ReportPlanSessionID {
-		return fmt.Errorf("%w: part edit provider session must differ from report plan session", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit provider session must differ from report plan session", producterror.ErrInvalidInput)
 	}
 	if value.ForkSourceAgentSessionID != value.ReportPlanSessionID {
-		return fmt.Errorf("%w: part edit fork source must be the report plan session", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit fork source must be the report plan session", producterror.ErrInvalidInput)
 	}
 	if value.EditedArtifactID == value.SourceArtifactID {
-		return fmt.Errorf("%w: part edit target artifact must differ from source", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit target artifact must differ from source", producterror.ErrInvalidInput)
 	}
 	expectedKey := fmt.Sprintf("report-part-edit:%s:%s:%d", value.PendingEventID, value.PlanEventID, value.PartIndex)
 	if value.IdempotencyKey != expectedKey {
-		return fmt.Errorf("%w: part edit idempotency key differs from binding", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit idempotency key differs from binding", producterror.ErrInvalidInput)
 	}
 	return nil
 }

@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"io"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -41,7 +43,7 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 2
 		}
 		missionID := cliNewID("mis")
-		mission, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: missionTitle})
+		createdMission, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: missionTitle})
 		if err != nil {
 			fmt.Fprintf(stderr, "create mission: %v\n", err)
 			return 1
@@ -50,13 +52,13 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		if missionObjective == "" {
 			missionObjective = missionTitle
 		}
-		if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+		if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 			EventID:   cliNewID("evt"),
 			MissionID: missionID,
 			Title:     missionTitle,
 			Objective: missionObjective,
-			Scope:     app.MissionScope{Included: []string{}, Excluded: []string{}},
-			Producer:  app.Producer{Type: "user", ID: "plasma-cli"},
+			Scope:     mission.Scope{Included: []string{}, Excluded: []string{}},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-cli"},
 		})); err != nil {
 			fmt.Fprintf(stderr, "append mission.created: %v\n", err)
 			return 1
@@ -67,10 +69,10 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 1
 		}
 		if *jsonOut {
-			writeCLIJSON(stdout, map[string]any{"mission": mission, "projection": projection, "db": displayDB})
+			writeCLIJSON(stdout, map[string]any{"mission": createdMission, "projection": projection, "db": displayDB})
 			return 0
 		}
-		fmt.Fprintf(stdout, "created mission %s title=%q db=%s\n", mission.MissionID, mission.Title, displayDB)
+		fmt.Fprintf(stdout, "created mission %s title=%q db=%s\n", createdMission.MissionID, createdMission.Title, displayDB)
 		return 0
 	case "list":
 		fs := flag.NewFlagSet("missions list", flag.ContinueOnError)
@@ -87,7 +89,7 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			return 1
 		}
 		defer closeStore()
-		missions, err := svc.ListMissionsWithState(ctx, app.ListMissionsRequest{IncludeArchived: *includeArchived})
+		missions, err := svc.ListMissionsWithState(ctx, mission.ListRequest{IncludeArchived: *includeArchived})
 		if err != nil {
 			fmt.Fprintf(stderr, "list missions: %v\n", err)
 			return 1
@@ -96,12 +98,12 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			writeCLIJSON(stdout, map[string]any{"missions": missions})
 			return 0
 		}
-		for _, mission := range missions {
+		for _, item := range missions {
 			stateSuffix := ""
-			if mission.LifecycleState == app.MissionLifecycleArchived {
+			if item.LifecycleState == mission.LifecycleArchived {
 				stateSuffix = "\tarchived"
 			}
-			fmt.Fprintf(stdout, "%s\t%s%s\n", mission.MissionID, mission.Title, stateSuffix)
+			fmt.Fprintf(stdout, "%s\t%s%s\n", item.MissionID, item.Title, stateSuffix)
 		}
 		return 0
 	case "show":
@@ -140,9 +142,9 @@ func runMissions(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	case "update":
 		return runMissionUpdate(ctx, args[1:], stdout, stderr)
 	case "archive":
-		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, app.MissionLifecycleArchived)
+		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, mission.LifecycleArchived)
 	case "restore":
-		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, app.MissionLifecycleActive)
+		return runMissionLifecycleCommand(ctx, args[1:], stdout, stderr, mission.LifecycleActive)
 	default:
 		fmt.Fprintf(stderr, "unknown missions command %q\n", args[0])
 		return 2
@@ -204,9 +206,9 @@ func runMissionUpdate(ctx context.Context, args []string, stdout, stderr io.Writ
 	if objective.set {
 		objectivePtr = &objective.value
 	}
-	var scope *app.MissionScope
+	var scope *mission.Scope
 	if *clearScope || included.set || excluded.set {
-		scope = &app.MissionScope{Included: included.values, Excluded: excluded.values}
+		scope = &mission.Scope{Included: included.values, Excluded: excluded.values}
 	}
 	svc, closeStore, _, err := openCLIService(ctx, *dbPath)
 	if err != nil {
@@ -214,7 +216,7 @@ func runMissionUpdate(ctx context.Context, args []string, stdout, stderr io.Writ
 		return 1
 	}
 	defer closeStore()
-	result, err := svc.UpdateMissionMetadata(ctx, app.UpdateMissionMetadataRequest{EventID: cliNewID("evt"), MissionID: positionals[0], Producer: app.Producer{Type: "user", ID: "plasma-cli"}, Title: titlePtr, Objective: objectivePtr, Scope: scope})
+	result, err := svc.UpdateMissionMetadata(ctx, mission.UpdateMissionMetadataRequest{EventID: cliNewID("evt"), MissionID: positionals[0], Producer: ledger.Producer{Type: "user", ID: "plasma-cli"}, Title: titlePtr, Objective: objectivePtr, Scope: scope})
 	if err != nil {
 		fmt.Fprintf(stderr, "update mission: %v\n", err)
 		return 1

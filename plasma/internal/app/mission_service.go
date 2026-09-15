@@ -1,5 +1,7 @@
 package app
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+
 import (
 	"context"
 	"encoding/json"
@@ -11,7 +13,6 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
 	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
-	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
@@ -36,7 +37,7 @@ type ConditionalLedgerStore = ledger.ConditionalStore
 
 // AppendReportTerminalIfOpen은 하나의 report pending 이벤트가 아직 열려 있는지
 // 원자적으로 확인하고 닫는다. appended가 false이면 다른 호출자가 이미 닫았다는 뜻이다.
-func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingEventID string, reqs []AppendEventRequest) ([]LedgerEvent, bool, error) {
+func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pendingEventID string, reqs []ledger.AppendRequest) ([]ledger.Event, bool, error) {
 	if _, ok := s.store.(ConditionalLedgerStore); !ok {
 		return nil, false, fmt.Errorf("%w: conditional ledger store is required for report terminal closure", ErrInvalidInput)
 	}
@@ -46,7 +47,7 @@ func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pen
 	if strings.TrimSpace(pendingEventID) == "" || len(reqs) == 0 {
 		return nil, false, fmt.Errorf("%w: pending event and terminal events are required", ErrInvalidInput)
 	}
-	appended, err := s.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	appended, err := s.appendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		built, open, err := buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, reqs)
 		if err != nil || !open {
 			return nil, err
@@ -62,8 +63,8 @@ func (s *Service) AppendReportTerminalIfOpen(ctx context.Context, missionID, pen
 	return appended, true, nil
 }
 
-func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEventID string, reqs []AppendEventRequest) ([]LedgerEvent, bool, error) {
-	pending, found := reportPendingEvent(events, pendingEventID)
+func buildReportTerminalEventsIfOpen(events []ledger.Event, missionID, pendingEventID string, reqs []ledger.AppendRequest) ([]ledger.Event, bool, error) {
+	pending, found := reportexecution.ReportPendingEvent(events, pendingEventID)
 	if !found {
 		return nil, false, fmt.Errorf("%w: report pending event %q does not exist", ErrInvalidInput, pendingEventID)
 	}
@@ -71,7 +72,7 @@ func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEve
 	if _, closed := completed[strings.TrimSpace(pendingEventID)]; closed {
 		return nil, false, nil
 	}
-	built := make([]LedgerEvent, 0, len(reqs))
+	built := make([]ledger.Event, 0, len(reqs))
 	terminalCount := 0
 	terminalID := ""
 	for _, req := range reqs {
@@ -82,11 +83,11 @@ func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEve
 		if err != nil {
 			return nil, false, err
 		}
-		terminal, err := validateReportTerminalAppend(pending, event)
+		terminal, err := reportexecution.ValidateReportTerminalAppend(pending, event)
 		if err != nil {
 			return nil, false, err
 		}
-		if terminal && isIndependentReportILPending(pending) && event.EventType != "report.draft.failed" {
+		if terminal && reportexecution.IsIndependentReportILPending(pending) && event.EventType != "report.draft.failed" {
 			return nil, false, fmt.Errorf("%w: report IL success requires atomic bundle storage", ErrInvalidInput)
 		}
 		if terminal {
@@ -116,116 +117,32 @@ func buildReportTerminalEventsIfOpen(events []LedgerEvent, missionID, pendingEve
 	return built, true, nil
 }
 
-func reportPendingEvent(events []LedgerEvent, pendingID string) (LedgerEvent, bool) {
-	for _, event := range events {
-		if event.EventID != pendingID {
-			continue
-		}
-		switch event.EventType {
-		case "report.draft.pending", "report.design.pending", "report.humanize.pending", "report.patch.pending":
-			return event, true
-		default:
-			return LedgerEvent{}, false
-		}
-	}
-	return LedgerEvent{}, false
-}
-
-func reportPendingPipelineFamily(event LedgerEvent) string {
-	if event.EventType != "report.draft.pending" {
-		return ""
-	}
-	var payload struct {
-		PipelineFamily string `json:"pipeline_family"`
-	}
-	if json.Unmarshal(event.Payload, &payload) != nil {
-		return ""
-	}
-	return strings.TrimSpace(payload.PipelineFamily)
-}
-
-func isIndependentReportILPending(event LedgerEvent) bool {
-	return reportPendingPipelineFamily(event) == reportpipeline.ExperimentalIL
-}
-
-func validateReportTerminalAppend(pending, terminal LedgerEvent) (bool, error) {
-	var payload struct {
-		PendingID      string `json:"pending_event_id"`
-		StageKind      string `json:"stage_kind"`
-		StageID        string `json:"stage_id"`
-		TerminalID     string `json:"terminal_event_id"`
-		PipelineFamily string `json:"pipeline_family"`
-		Generation     struct {
-			PendingID string `json:"pending_event_id"`
-		} `json:"generation"`
-	}
-	if err := json.Unmarshal(terminal.Payload, &payload); err != nil {
-		return false, fmt.Errorf("%w: invalid report event payload", ErrInvalidInput)
-	}
-	if terminal.EventType == "report.drafted" && payload.PendingID == "" {
-		payload.PendingID = payload.Generation.PendingID
-	}
-	if strings.TrimSpace(payload.PendingID) != pending.EventID {
-		return false, fmt.Errorf("%w: report event must correlate to pending event %q", ErrInvalidInput, pending.EventID)
-	}
-	family := strings.TrimSpace(payload.PipelineFamily)
-	pendingFamily := reportPendingPipelineFamily(pending)
-	if pendingFamily != "" && !reportpipeline.Independent(pendingFamily) {
-		return false, fmt.Errorf("%w: unsupported report pending pipeline family", ErrInvalidInput)
-	}
-	if family != "" && (!reportpipeline.Independent(family) || family != pendingFamily) {
-		return false, fmt.Errorf("%w: report terminal family does not match pending event", ErrInvalidInput)
-	}
-	if family == "" && reportpipeline.Independent(pendingFamily) && terminal.EventType == "report.artifact.created" {
-		return false, fmt.Errorf("%w: independent report terminal family is required", ErrInvalidInput)
-	}
-	if strings.HasPrefix(terminal.EventType, "report.") && strings.HasSuffix(terminal.EventType, ".failed") && terminal.EventType != "report.draft.failed" && terminal.EventType != "report.patch.failed" && terminal.EventType != "report.design.failed" && terminal.EventType != "report.humanize.failed" {
-		kind := strings.TrimPrefix(strings.TrimSuffix(terminal.EventType, ".failed"), "report.")
-		validKind := map[string]bool{"plan": true, "requirements": true, "part_plan": true, "section": true, "part": true, "part_edit": true, "final": true, "artifact": true, "il_source_selection": true, "il_editorial_memory": true, "il_narrative": true, "il_long_form_plan": true, "il_long_form_sections": true, "il_long_form_parts": true, "il_long_form_final": true, "il_continuity": true, "il_reader": true, "il_images": true, "il_document": true, "il_flow": true, "il_render": true, "il_store": true, "source_packet": true}[kind]
-		independentKind := map[string]bool{"il_source_selection": true, "il_editorial_memory": true, "il_narrative": true, "il_long_form_plan": true, "il_long_form_sections": true, "il_long_form_parts": true, "il_long_form_final": true, "il_continuity": true, "il_reader": true, "il_images": true, "il_document": true, "il_flow": true, "il_render": true, "il_store": true, "source_packet": true}[kind]
-		if pending.EventType != "report.draft.pending" || !validKind || payload.StageKind != kind || payload.StageID == "" || independentKind && !isIndependentReportILPending(pending) {
-			return false, fmt.Errorf("%w: invalid report stage companion", ErrInvalidInput)
-		}
-		return false, nil
-	}
-	allowed := map[string]map[string]bool{
-		"report.draft.pending":    {"report.draft.failed": true, "report.drafted": true, "report.artifact.created": true},
-		"report.design.pending":   {"report.design.failed": true, "report.artifact.exported": true},
-		"report.humanize.pending": {"report.humanize.failed": true, "report.humanize.skipped": true, "report.artifact.exported": true},
-		"report.patch.pending":    {"report.patch.failed": true, "report.artifact.created": true},
-	}
-	if !allowed[pending.EventType][terminal.EventType] {
-		return false, fmt.Errorf("%w: terminal event %q does not match %q", ErrInvalidInput, terminal.EventType, pending.EventType)
-	}
-	return true, nil
-}
-
 // CreateMission는 새 미션과 최초 장부 이벤트를 저장한다.
-func (s *Service) CreateMission(ctx context.Context, req CreateMissionRequest) (Mission, error) {
+func (s *Service) CreateMission(ctx context.Context, req mission.CreateRequest) (mission.Mission, error) {
 	if err := validateID("mis_", req.MissionID); err != nil {
-		return Mission{}, err
+		return mission.Mission{}, err
 	}
 	if strings.TrimSpace(req.Title) == "" {
-		return Mission{}, fmt.Errorf("%w: title is required", ErrInvalidInput)
+		return mission.Mission{}, fmt.Errorf("%w: title is required", ErrInvalidInput)
 	}
 
 	now := time.Now().UTC()
-	mission := Mission{
+	createdMission := mission.Mission{
 		MissionID:      req.MissionID,
 		Title:          strings.TrimSpace(req.Title),
 		CreatedAt:      now,
 		UpdatedAt:      now,
-		LifecycleState: MissionLifecycleActive,
+		LifecycleState: mission.LifecycleActive,
 	}
-	if err := s.store.CreateMission(ctx, mission); err != nil {
-		return Mission{}, err
+	if err := s.store.CreateMission(ctx, createdMission); err != nil {
+		return mission.Mission{}, err
 	}
-	return mission, nil
+	return createdMission, nil
 }
 
 // BuildMissionCreatedAppendRequest는 애플리케이션 서비스 계층에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMissionCreatedAppendRequest(req MissionCreatedEventRequest) AppendEventRequest {
-	return AppendEventRequest{
+func BuildMissionCreatedAppendRequest(req mission.CreatedEventRequest) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "mission.created",
@@ -239,38 +156,38 @@ func BuildMissionCreatedAppendRequest(req MissionCreatedEventRequest) AppendEven
 }
 
 // AppendEvent는 단일 장부 이벤트를 미션에 추가한다.
-func (s *Service) AppendEvent(ctx context.Context, req AppendEventRequest) (LedgerEvent, error) {
+func (s *Service) AppendEvent(ctx context.Context, req ledger.AppendRequest) (ledger.Event, error) {
 	if req.EventType == "report.artifact.created" {
 		var payload struct {
 			PendingID string `json:"pending_event_id"`
 		}
 		if json.Unmarshal(req.Payload, &payload) == nil && strings.TrimSpace(payload.PendingID) != "" {
-			appended, closed, err := s.AppendReportTerminalIfOpen(ctx, req.MissionID, payload.PendingID, []AppendEventRequest{req})
+			appended, closed, err := s.AppendReportTerminalIfOpen(ctx, req.MissionID, payload.PendingID, []ledger.AppendRequest{req})
 			if err != nil {
-				return LedgerEvent{}, err
+				return ledger.Event{}, err
 			}
 			if !closed {
-				return LedgerEvent{}, fmt.Errorf("%w: report pending %q is already closed", ErrConflict, payload.PendingID)
+				return ledger.Event{}, fmt.Errorf("%w: report pending %q is already closed", ErrConflict, payload.PendingID)
 			}
 			return appended[0], nil
 		}
 	}
 	event, err := buildLedgerEvent(req)
 	if err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if EventLocksAgentExecutor(event.EventType) {
-		appended, err := s.appendLedgerEventsConditionally(ctx, event.MissionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
-			if err := ValidateAgentExecutorAppend(events, []LedgerEvent{event}); err != nil {
+		appended, err := s.appendLedgerEventsConditionally(ctx, event.MissionID, func(events []ledger.Event) ([]ledger.Event, error) {
+			if err := ValidateAgentExecutorAppend(events, []ledger.Event{event}); err != nil {
 				return nil, err
 			}
-			return []LedgerEvent{event}, nil
+			return []ledger.Event{event}, nil
 		})
 		if err != nil {
-			return LedgerEvent{}, err
+			return ledger.Event{}, err
 		}
 		if len(appended) != 1 {
-			return LedgerEvent{}, fmt.Errorf("%w: expected one appended event", ErrInvalidInput)
+			return ledger.Event{}, fmt.Errorf("%w: expected one appended event", ErrInvalidInput)
 		}
 		return appended[0], nil
 	}
@@ -278,15 +195,15 @@ func (s *Service) AppendEvent(ctx context.Context, req AppendEventRequest) (Ledg
 }
 
 // AppendEvents는 여러 장부 이벤트를 한 번의 요청으로 추가한다.
-func (s *Service) AppendEvents(ctx context.Context, missionID string, reqs []AppendEventRequest) ([]LedgerEvent, error) {
+func (s *Service) AppendEvents(ctx context.Context, missionID string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
 	}
 	if len(reqs) == 0 {
 		return nil, fmt.Errorf("%w: at least one event is required", ErrInvalidInput)
 	}
-	return s.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
-		built := make([]LedgerEvent, 0, len(reqs))
+	return s.appendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
+		built := make([]ledger.Event, 0, len(reqs))
 		for _, req := range reqs {
 			if strings.TrimSpace(req.MissionID) != missionID {
 				return nil, fmt.Errorf("%w: event mission_id must match %s", ErrInvalidInput, missionID)
@@ -305,18 +222,18 @@ func (s *Service) AppendEvents(ctx context.Context, missionID string, reqs []App
 }
 
 // AppendEventsIfNoActiveAgentWork는 활성 agent 작업이 없을 때만 이벤트를 추가한다.
-func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID string, reqs []AppendEventRequest) ([]LedgerEvent, error) {
+func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID string, reqs []ledger.AppendRequest) ([]ledger.Event, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
 	}
 	if len(reqs) == 0 {
 		return nil, fmt.Errorf("%w: at least one event is required", ErrInvalidInput)
 	}
-	return s.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	return s.appendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		if err := validateNoActiveAgentWork(events); err != nil {
 			return nil, err
 		}
-		built := make([]LedgerEvent, 0, len(reqs))
+		built := make([]ledger.Event, 0, len(reqs))
 		for _, req := range reqs {
 			if strings.TrimSpace(req.MissionID) != missionID {
 				return nil, fmt.Errorf("%w: event mission_id must match %s", ErrInvalidInput, missionID)
@@ -335,12 +252,12 @@ func (s *Service) AppendEventsIfNoActiveAgentWork(ctx context.Context, missionID
 }
 
 // ListMissions는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListMissions(ctx context.Context) ([]Mission, error) {
-	return s.ListMissionsWithState(ctx, ListMissionsRequest{})
+func (s *Service) ListMissions(ctx context.Context) ([]mission.Mission, error) {
+	return s.ListMissionsWithState(ctx, mission.ListRequest{})
 }
 
 // ListMissionsWithState는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsRequest) ([]Mission, error) {
+func (s *Service) ListMissionsWithState(ctx context.Context, req mission.ListRequest) ([]mission.Mission, error) {
 	store, ok := s.store.(MissionListStore)
 	if !ok {
 		return nil, fmt.Errorf("%w: mission list store is required", ErrInvalidInput)
@@ -362,7 +279,7 @@ func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsReq
 		if err != nil {
 			return nil, err
 		}
-		activityByMissionID := make(map[string]MissionActivitySummary, len(inputs))
+		activityByMissionID := make(map[string]mission.ActivitySummary, len(inputs))
 		for _, input := range inputs {
 			activityByMissionID[input.MissionID] = MissionActivityFromInput(input)
 		}
@@ -384,75 +301,75 @@ func (s *Service) ListMissionsWithState(ctx context.Context, req ListMissionsReq
 	return missions, nil
 }
 
-func filterMissionsByLifecycle(missions []Mission, req ListMissionsRequest) []Mission {
-	result := make([]Mission, 0, len(missions))
-	for _, mission := range missions {
-		mission.LifecycleState = normalizeMissionLifecycleState(mission.LifecycleState)
-		if !req.IncludeArchived && mission.LifecycleState == MissionLifecycleArchived {
+func filterMissionsByLifecycle(missions []mission.Mission, req mission.ListRequest) []mission.Mission {
+	result := make([]mission.Mission, 0, len(missions))
+	for _, item := range missions {
+		item.LifecycleState = mission.NormalizeLifecycleState(item.LifecycleState)
+		if !req.IncludeArchived && item.LifecycleState == mission.LifecycleArchived {
 			continue
 		}
-		result = append(result, mission)
+		result = append(result, item)
 	}
 	return result
 }
 
 // MissionActivity는 detail projection을 읽거나 지속 미션 상태를 바꾸지 않고,
 // 미션 하나의 목록 수준 activity projection만 계산한다.
-func (s *Service) MissionActivity(ctx context.Context, missionID string) (MissionActivitySummary, error) {
+func (s *Service) MissionActivity(ctx context.Context, missionID string) (mission.ActivitySummary, error) {
 	if err := validateID("mis_", missionID); err != nil {
-		return MissionActivitySummary{}, err
+		return mission.ActivitySummary{}, err
 	}
 	if activityStore, ok := s.store.(MissionActivityListStore); ok {
 		inputs, err := activityStore.ListMissionActivityInputs(ctx, []string{missionID})
 		if err != nil {
-			return MissionActivitySummary{}, err
+			return mission.ActivitySummary{}, err
 		}
 		for _, input := range inputs {
 			if input.MissionID == missionID {
 				return MissionActivityFromInput(input), nil
 			}
 		}
-		return MissionActivitySummary{}, nil
+		return mission.ActivitySummary{}, nil
 	}
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
-		return MissionActivitySummary{}, err
+		return mission.ActivitySummary{}, err
 	}
 	return MissionActivityFromEvents(events), nil
 }
 
-func buildLedgerEvent(req AppendEventRequest) (LedgerEvent, error) {
+func buildLedgerEvent(req ledger.AppendRequest) (ledger.Event, error) {
 	if err := validateID("evt_", req.EventID); err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if err := validateID("mis_", req.MissionID); err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if strings.TrimSpace(req.EventType) == "" {
-		return LedgerEvent{}, fmt.Errorf("%w: event type is required", ErrInvalidInput)
+		return ledger.Event{}, fmt.Errorf("%w: event type is required", ErrInvalidInput)
 	}
 	if strings.TrimSpace(req.Producer.Type) == "" || strings.TrimSpace(req.Producer.ID) == "" {
-		return LedgerEvent{}, fmt.Errorf("%w: producer type and id are required", ErrInvalidInput)
+		return ledger.Event{}, fmt.Errorf("%w: producer type and id are required", ErrInvalidInput)
 	}
 	payload := req.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
 	if !json.Valid(payload) {
-		return LedgerEvent{}, fmt.Errorf("%w: payload must be valid JSON", ErrInvalidInput)
+		return ledger.Event{}, fmt.Errorf("%w: payload must be valid JSON", ErrInvalidInput)
 	}
 	if err := validateWorkflowEventPayload(strings.TrimSpace(req.EventType), strings.TrimSpace(req.MissionID), payload); err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if err := validateSourceStateEventPayload(strings.TrimSpace(req.EventType), payload); err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 
-	event := LedgerEvent{
+	event := ledger.Event{
 		EventID:          req.EventID,
 		MissionID:        req.MissionID,
 		EventType:        strings.TrimSpace(req.EventType),
-		Producer:         Producer{Type: strings.TrimSpace(req.Producer.Type), ID: strings.TrimSpace(req.Producer.ID)},
+		Producer:         ledger.Producer{Type: strings.TrimSpace(req.Producer.Type), ID: strings.TrimSpace(req.Producer.ID)},
 		CausationEventID: strings.TrimSpace(req.CausationEventID),
 		CorrelationID:    strings.TrimSpace(req.CorrelationID),
 		Payload:          append(json.RawMessage(nil), payload...),
@@ -462,14 +379,14 @@ func buildLedgerEvent(req AppendEventRequest) (LedgerEvent, error) {
 }
 
 // ListEvents는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListEvents(ctx context.Context, missionID string) ([]LedgerEvent, error) {
+func (s *Service) ListEvents(ctx context.Context, missionID string) ([]ledger.Event, error) {
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
 	}
 	return s.store.ListLedgerEvents(ctx, missionID)
 }
 
-func (s *Service) appendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]LedgerEvent) ([]LedgerEvent, error)) ([]LedgerEvent, error) {
+func (s *Service) appendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]ledger.Event) ([]ledger.Event, error)) ([]ledger.Event, error) {
 	if store, ok := s.store.(ConditionalLedgerStore); ok {
 		return store.AppendLedgerEventsConditionally(ctx, missionID, build)
 	}
@@ -481,7 +398,7 @@ func (s *Service) appendLedgerEventsConditionally(ctx context.Context, missionID
 	if err != nil {
 		return nil, err
 	}
-	appended := make([]LedgerEvent, 0, len(toAppend))
+	appended := make([]ledger.Event, 0, len(toAppend))
 	for _, event := range toAppend {
 		committed, err := s.store.AppendLedgerEvent(ctx, event)
 		if err != nil {
@@ -492,7 +409,7 @@ func (s *Service) appendLedgerEventsConditionally(ctx context.Context, missionID
 	return appended, nil
 }
 
-func validateNoActiveAgentWork(events []LedgerEvent) error {
+func validateNoActiveAgentWork(events []ledger.Event) error {
 	if workflowHasOpenAgentPending(events) {
 		return fmt.Errorf("%w: agent turn is already running for this mission", ErrInvalidInput)
 	}
@@ -507,7 +424,7 @@ func validateNoActiveAgentWork(events []LedgerEvent) error {
 	return nil
 }
 
-func workflowHasOpenReportDraftPending(events []LedgerEvent) bool {
+func workflowHasOpenReportDraftPending(events []ledger.Event) bool {
 	return ledgerstate.HasOpenReportPending(ledgerStateEventsFromApp(events))
 }
 

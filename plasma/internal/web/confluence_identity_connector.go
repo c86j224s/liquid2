@@ -4,25 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/url"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 type webConfluenceIdentityMappingConnector struct {
-	delegate          app.ConfluenceSourceConnector
+	delegate          confluencesource.ConfluenceSourceConnector
 	snapshotCloudID   string
 	snapshotSiteURL   string
 	connectionCloudID string
 }
 
 // SearchConfluenceSources는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (connector *webConfluenceIdentityMappingConnector) SearchConfluenceSources(ctx context.Context, req app.ConfluenceSourceSearchRequest) (app.ConfluenceSourceSearchResult, error) {
+func (connector *webConfluenceIdentityMappingConnector) SearchConfluenceSources(ctx context.Context, req confluencesource.ConfluenceSourceSearchRequest) (confluencesource.ConfluenceSourceSearchResult, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
 	result, err := connector.delegate.SearchConfluenceSources(ctx, req)
 	if err != nil {
-		return app.ConfluenceSourceSearchResult{}, err
+		return confluencesource.ConfluenceSourceSearchResult{}, err
 	}
 	result.CloudID = connector.mapResponseCloudID(result.CloudID)
 	for i := range result.Candidates {
@@ -32,39 +34,39 @@ func (connector *webConfluenceIdentityMappingConnector) SearchConfluenceSources(
 }
 
 // ReadConfluenceSource는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (connector *webConfluenceIdentityMappingConnector) ReadConfluenceSource(ctx context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourcePage, error) {
+func (connector *webConfluenceIdentityMappingConnector) ReadConfluenceSource(ctx context.Context, req confluencesource.ConfluenceSourceReadRequest) (confluencesource.ConfluenceSourcePage, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
 	page, err := connector.delegate.ReadConfluenceSource(ctx, req)
 	if err != nil {
-		return app.ConfluenceSourcePage{}, err
+		return confluencesource.ConfluenceSourcePage{}, err
 	}
 	if err := connector.validateResponseSiteURL(page.SiteURL); err != nil {
-		return app.ConfluenceSourcePage{}, err
+		return confluencesource.ConfluenceSourcePage{}, err
 	}
 	return connector.mapPage(page), nil
 }
 
 // GetConfluenceSourceVersion는 웹 및 에이전트 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (connector *webConfluenceIdentityMappingConnector) GetConfluenceSourceVersion(ctx context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourceVersion, error) {
+func (connector *webConfluenceIdentityMappingConnector) GetConfluenceSourceVersion(ctx context.Context, req confluencesource.ConfluenceSourceReadRequest) (confluencesource.ConfluenceSourceVersion, error) {
 	req.CloudID = connector.mapRequestCloudID(req.CloudID)
-	if versionConnector, ok := connector.delegate.(app.ConfluenceSourceVersionConnector); ok {
+	if versionConnector, ok := connector.delegate.(confluencesource.ConfluenceSourceVersionConnector); ok {
 		version, err := versionConnector.GetConfluenceSourceVersion(ctx, req)
 		if err != nil {
-			return app.ConfluenceSourceVersion{}, err
+			return confluencesource.ConfluenceSourceVersion{}, err
 		}
 		if err := connector.validateResponseSiteURL(version.SiteURL); err != nil {
-			return app.ConfluenceSourceVersion{}, err
+			return confluencesource.ConfluenceSourceVersion{}, err
 		}
 		return connector.mapVersion(version), nil
 	}
 	page, err := connector.delegate.ReadConfluenceSource(ctx, req)
 	if err != nil {
-		return app.ConfluenceSourceVersion{}, err
+		return confluencesource.ConfluenceSourceVersion{}, err
 	}
 	if err := connector.validateResponseSiteURL(page.SiteURL); err != nil {
-		return app.ConfluenceSourceVersion{}, err
+		return confluencesource.ConfluenceSourceVersion{}, err
 	}
-	return connector.mapVersion(app.ConfluenceSourceVersion{
+	return connector.mapVersion(confluencesource.ConfluenceSourceVersion{
 		Connector: page.Connector,
 		CloudID:   page.CloudID,
 		SiteURL:   page.SiteURL,
@@ -84,7 +86,7 @@ func (connector *webConfluenceIdentityMappingConnector) validateResponseSiteURL(
 	if snapshotHost == "" || responseHost == "" || snapshotHost == responseHost {
 		return nil
 	}
-	return fmt.Errorf("%w: confluence response site does not match the snapshot site", app.ErrInvalidInput)
+	return fmt.Errorf("%w: confluence response site does not match the snapshot site", producterror.ErrInvalidInput)
 }
 
 func (connector *webConfluenceIdentityMappingConnector) mapRequestCloudID(cloudID string) string {
@@ -101,36 +103,36 @@ func (connector *webConfluenceIdentityMappingConnector) mapResponseCloudID(cloud
 	return cloudID
 }
 
-func (connector *webConfluenceIdentityMappingConnector) mapCandidate(candidate app.ConfluenceSourceCandidate) app.ConfluenceSourceCandidate {
+func (connector *webConfluenceIdentityMappingConnector) mapCandidate(candidate confluencesource.ConfluenceSourceCandidate) confluencesource.ConfluenceSourceCandidate {
 	candidate.CloudID = connector.mapResponseCloudID(candidate.CloudID)
 	candidate.Connector = connector.mapConnector(candidate.Connector, webConfluenceConnectorPageID(candidate.Connector))
 	return candidate
 }
 
-func (connector *webConfluenceIdentityMappingConnector) mapPage(page app.ConfluenceSourcePage) app.ConfluenceSourcePage {
+func (connector *webConfluenceIdentityMappingConnector) mapPage(page confluencesource.ConfluenceSourcePage) confluencesource.ConfluenceSourcePage {
 	page.CloudID = connector.mapResponseCloudID(page.CloudID)
 	page.Connector = connector.mapConnector(page.Connector, page.PageID)
 	page.Metadata = webConfluenceMapMetadataCloudID(page.Metadata, connector.connectionCloudID, connector.snapshotCloudID)
 	return page
 }
 
-func (connector *webConfluenceIdentityMappingConnector) mapVersion(version app.ConfluenceSourceVersion) app.ConfluenceSourceVersion {
+func (connector *webConfluenceIdentityMappingConnector) mapVersion(version confluencesource.ConfluenceSourceVersion) confluencesource.ConfluenceSourceVersion {
 	version.CloudID = connector.mapResponseCloudID(version.CloudID)
 	version.Connector = connector.mapConnector(version.Connector, version.PageID)
 	return version
 }
 
-func (connector *webConfluenceIdentityMappingConnector) mapConnector(ref app.ConnectorRef, pageID string) app.ConnectorRef {
+func (connector *webConfluenceIdentityMappingConnector) mapConnector(ref sourcecontract.ConnectorRef, pageID string) sourcecontract.ConnectorRef {
 	pageID = strings.TrimSpace(pageID)
 	if pageID == "" {
 		return ref
 	}
-	ref.ExternalSourceID = app.ConfluenceExternalSourceID(connector.snapshotCloudID, pageID)
-	ref.ExternalURI = app.ConfluenceExternalURI(connector.snapshotCloudID, pageID)
+	ref.ExternalSourceID = confluencesource.ConfluenceExternalSourceID(connector.snapshotCloudID, pageID)
+	ref.ExternalURI = confluencesource.ConfluenceExternalURI(connector.snapshotCloudID, pageID)
 	return ref
 }
 
-func webConfluenceConnectorPageID(ref app.ConnectorRef) string {
+func webConfluenceConnectorPageID(ref sourcecontract.ConnectorRef) string {
 	externalID := strings.TrimSpace(ref.ExternalSourceID)
 	if externalID != "" {
 		parts := strings.Split(externalID, ":")

@@ -1,5 +1,7 @@
 package web
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"os"
@@ -10,7 +12,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -214,7 +216,7 @@ func TestAgentReportPromptUsesResearchToolsWithoutRecallPayload(t *testing.T) {
 		Sections: []agentReportSection{{
 			Title:   "Section",
 			Purpose: "Cover evidence.",
-			TargetRefs: app.ReportBlockSourceRefs{
+			TargetRefs: reportdocument.ReportBlockSourceRefs{
 				EvidenceIDs: []string{"evd_1"},
 			},
 		}},
@@ -287,7 +289,7 @@ func TestAgentReportRepairPromptExplainsApprovedRefBoundary(t *testing.T) {
 			Blocks: []agentReportBlock{{
 				Type: "paragraph",
 				Text: "Draft text.",
-				Refs: app.ReportBlockSourceRefs{ClaimIDs: []string{"clm_proposed"}},
+				Refs: reportdocument.ReportBlockSourceRefs{ClaimIDs: []string{"clm_proposed"}},
 			}},
 		},
 		[]string{"clm_approved"},
@@ -1092,7 +1094,7 @@ func TestLongFormGenerationGuidanceAcceptsPartAssemblyEditTools(t *testing.T) {
 		part:                      agentReportPart{Title: "Part", Sections: []agentReportSection{{Title: "Section"}}},
 		partIndex:                 0,
 		generationGuidanceProfile: profile,
-	}, reporting.PartAssemblyBinding{MissionID: "mis_1", ToolSessionID: "ses_1", PartIndex: 1, SectionCount: 1, Producer: app.Producer{Type: "agent_session", ID: "ses_1"}}, "rpa_test")
+	}, reporting.PartAssemblyBinding{MissionID: "mis_1", ToolSessionID: "ses_1", PartIndex: 1, SectionCount: 1, Producer: ledger.Producer{Type: "agent_session", ID: "ses_1"}}, "rpa_test")
 	for _, expected := range []string{"plasma.report.part_assembly.start", "plasma.report.part_assembly.patch", "plasma.report.part_assembly.submit", "Do not include immutable Section bodies", "PART_ASSEMBLY_SUBMITTED"} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("part assembly edit-tools prompt missing %q:\n%s", expected, prompt)

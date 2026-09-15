@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"math"
 	"net/http/httptest"
 	"os/exec"
@@ -63,7 +64,7 @@ func TestMobileConversationKeepsComposerVisibleWhenWorkflowExpands(t *testing.T)
 	}
 	defer store.Close()
 	service := app.NewService(store)
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{
 		MissionID: "mis_mobile_layout",
 		Title:     "Mobile layout",
 	}); err != nil {

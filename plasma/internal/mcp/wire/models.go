@@ -2,8 +2,7 @@ package wire
 
 import (
 	"encoding/json"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
 )
 
 // ToolDefinition is the metadata entry returned by MCP list_tools.
@@ -22,16 +21,16 @@ type ToolCall struct {
 // ToolResult is the stable Plasma MCP response envelope for success and error
 // outcomes. Transport-level tracing may attach TraceEventID or TraceError.
 type ToolResult struct {
-	ToolName             string          `json:"tool_name"`
-	MissionID            string          `json:"mission_id,omitempty"`
-	CreatedEventIDs      []string        `json:"created_event_ids,omitempty"`
-	ProposalID           string          `json:"proposal_id,omitempty"`
-	CreatedRecords       []app.ObjectRef `json:"created_records,omitempty"`
-	RequiresUserApproval bool            `json:"requires_user_approval,omitempty"`
-	Content              any             `json:"content,omitempty"`
-	Error                *ToolError      `json:"error,omitempty"`
-	TraceEventID         string          `json:"trace_event_id,omitempty"`
-	TraceError           string          `json:"trace_error,omitempty"`
+	ToolName             string                      `json:"tool_name"`
+	MissionID            string                      `json:"mission_id,omitempty"`
+	CreatedEventIDs      []string                    `json:"created_event_ids,omitempty"`
+	ProposalID           string                      `json:"proposal_id,omitempty"`
+	CreatedRecords       []researchcatalog.ObjectRef `json:"created_records,omitempty"`
+	RequiresUserApproval bool                        `json:"requires_user_approval,omitempty"`
+	Content              any                         `json:"content,omitempty"`
+	Error                *ToolError                  `json:"error,omitempty"`
+	TraceEventID         string                      `json:"trace_event_id,omitempty"`
+	TraceError           string                      `json:"trace_error,omitempty"`
 }
 
 // ToolError is the safe, user-visible error shape returned by MCP tools.

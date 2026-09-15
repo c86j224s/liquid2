@@ -21,6 +21,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"golang.org/x/sys/unix"
 )
 
@@ -72,125 +73,8 @@ type root struct {
 	canonicalPath string
 }
 
-// RootView는 agent/UI에 보여 줄 allowlisted root의 공개 표현이다.
-type RootView struct {
-	RootID string `json:"root_id"`
-	Alias  string `json:"alias,omitempty"`
-}
-
-// PathMetadata는 local path 관찰 결과의 provenance와 cap 정보를 담는다.
-//
-// 절대 경로는 포함하지 않는다. caller가 source로 저장할 때도 rootID/relative path를
-// stable locator로 사용해야 한다.
-type PathMetadata struct {
-	ObservedAt      string       `json:"observed_at"`
-	RootID          string       `json:"root_id"`
-	RootAlias       string       `json:"root_alias,omitempty"`
-	RelativePath    string       `json:"relative_path"`
-	Subpath         string       `json:"subpath,omitempty"`
-	PathKind        string       `json:"path_kind"`
-	Size            int64        `json:"size,omitempty"`
-	MTime           string       `json:"mtime,omitempty"`
-	SHA256          string       `json:"sha256,omitempty"`
-	Offset          int64        `json:"offset,omitempty"`
-	MaxBytes        int64        `json:"max_bytes,omitempty"`
-	NextOffset      int64        `json:"next_offset,omitempty"`
-	Truncated       bool         `json:"truncated,omitempty"`
-	Binary          bool         `json:"binary,omitempty"`
-	Extraction      string       `json:"extraction,omitempty"`
-	PageCount       int          `json:"page_count,omitempty"`
-	TextLength      int64        `json:"text_length,omitempty"`
-	TextLengthKnown bool         `json:"text_length_known"`
-	Denied          []string     `json:"denied,omitempty"`
-	Cap             string       `json:"cap,omitempty"`
-	Git             *GitMetadata `json:"git,omitempty"`
-}
-
-// GitMetadata는 local path가 git worktree 안에 있을 때의 선택적 관측 정보다.
-type GitMetadata struct {
-	Branch               string `json:"branch,omitempty"`
-	Head                 string `json:"head,omitempty"`
-	Dirty                bool   `json:"dirty"`
-	WorktreeRelativePath string `json:"worktree_relative_path,omitempty"`
-}
-
-// ReadRequest는 allowlist root 내부 파일 또는 source subpath를 읽기 위한 입력이다.
-type ReadRequest struct {
-	RootID       string
-	RelativePath string
-	Subpath      string
-	Offset       int64
-	MaxBytes     int64
-}
-
-// ReadResult는 bounded text content와 그 관찰 metadata를 함께 반환한다.
-type ReadResult struct {
-	Content  string       `json:"content"`
-	Metadata PathMetadata `json:"metadata"`
-}
-
-// TreeRequest는 allowlist root 내부 directory tree 관찰 입력이다.
-type TreeRequest struct {
-	RootID       string
-	RelativePath string
-	Subpath      string
-	Depth        int
-	Limit        int
-}
-
-// TreeEntry는 directory tree 결과의 단일 항목이다.
-type TreeEntry struct {
-	Name         string `json:"name"`
-	RelativePath string `json:"relative_path"`
-	PathKind     string `json:"path_kind"`
-	Size         int64  `json:"size,omitempty"`
-	MTime        string `json:"mtime,omitempty"`
-	Denied       bool   `json:"denied,omitempty"`
-	Reason       string `json:"reason,omitempty"`
-}
-
-// TreeResult는 bounded directory tree와 root-relative metadata를 담는다.
-type TreeResult struct {
-	RootID       string       `json:"root_id"`
-	RootAlias    string       `json:"root_alias,omitempty"`
-	RelativePath string       `json:"relative_path"`
-	Entries      []TreeEntry  `json:"entries"`
-	Truncated    bool         `json:"truncated"`
-	Metadata     PathMetadata `json:"metadata"`
-}
-
-// GrepRequest는 allowlist root 내부에서 bounded snippet 검색을 수행하는 입력이다.
-type GrepRequest struct {
-	RootID       string
-	RelativePath string
-	Subpath      string
-	Query        string
-	MaxSnippets  int
-}
-
-// GrepMatch는 grep 결과의 한 위치와 bounded snippet이다.
-type GrepMatch struct {
-	RelativePath string `json:"relative_path"`
-	Line         int    `json:"line"`
-	Column       int    `json:"column"`
-	Snippet      string `json:"snippet"`
-	SHA256       string `json:"sha256,omitempty"`
-}
-
-// GrepResult는 bounded grep 결과와 truncation 여부를 담는다.
-type GrepResult struct {
-	RootID       string       `json:"root_id"`
-	RootAlias    string       `json:"root_alias,omitempty"`
-	RelativePath string       `json:"relative_path"`
-	Query        string       `json:"query"`
-	Matches      []GrepMatch  `json:"matches"`
-	Truncated    bool         `json:"truncated"`
-	Metadata     PathMetadata `json:"metadata"`
-}
-
-// ErrInvalidInput은 allowlist, path traversal, limit 위반 등 local path 입력 오류의
-// 공통 class다.
-var ErrInvalidInput = errors.New("invalid local path input")
+// ErrInvalidInput preserves the adapter error identity while sharing the source sentinel.
+var ErrInvalidInput = sourcecontract.ErrLocalPathInput
 
 // New는 allowlist root를 canonicalize하고 local path Engine을 만든다.
 //
@@ -248,20 +132,20 @@ func DefaultDenyPatterns() []string {
 }
 
 // Roots는 allowlist된 root의 공개 식별자와 별칭만 반환한다. 실제 파일 경로는 노출하지 않는다.
-func (engine *Engine) Roots() []RootView {
-	roots := make([]RootView, 0, len(engine.roots))
+func (engine *Engine) Roots() []sourcecontract.LocalPathRoot {
+	roots := make([]sourcecontract.LocalPathRoot, 0, len(engine.roots))
 	for _, root := range engine.roots {
-		roots = append(roots, RootView{RootID: root.id, Alias: root.alias})
+		roots = append(roots, sourcecontract.LocalPathRoot{RootID: root.id, Alias: root.alias})
 	}
 	sort.Slice(roots, func(i, j int) bool { return roots[i].RootID < roots[j].RootID })
 	return roots
 }
 
 // Inspect는 root 내부 대상의 metadata만 관찰한다. 파일 본문을 읽거나 artifact를 만들지 않는다.
-func (engine *Engine) Inspect(ctx context.Context, rootID string, relativePath string) (PathMetadata, error) {
+func (engine *Engine) Inspect(ctx context.Context, rootID string, relativePath string) (sourcecontract.LocalPathMetadata, error) {
 	resolved, err := engine.resolve(rootID, relativePath, true)
 	if err != nil {
-		return PathMetadata{}, err
+		return sourcecontract.LocalPathMetadata{}, err
 	}
 	defer resolved.close()
 	return engine.metadata(ctx, resolved, ""), nil
@@ -289,25 +173,25 @@ func (engine *Engine) IsPDF(ctx context.Context, rootID string, relativePath str
 }
 
 // ReadFile는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult, error) {
+func (engine *Engine) ReadFile(ctx context.Context, req sourcecontract.LocalPathReadRequest) (sourcecontract.LocalPathReadResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
-		return ReadResult{}, err
+		return sourcecontract.LocalPathReadResult{}, err
 	}
 	resolved, err := engine.resolve(req.RootID, target, false)
 	if err != nil {
-		return ReadResult{}, err
+		return sourcecontract.LocalPathReadResult{}, err
 	}
 	if resolved.info.IsDir() {
-		return ReadResult{}, fmt.Errorf("%w: read target is a directory", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: read target is a directory", ErrInvalidInput)
 	}
 	if !resolved.info.Mode().IsRegular() {
-		return ReadResult{}, fmt.Errorf("%w: read target is not a regular file", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: read target is not a regular file", ErrInvalidInput)
 	}
 	defer resolved.close()
 	offset := req.Offset
 	if offset < 0 {
-		return ReadResult{}, fmt.Errorf("%w: offset must be non-negative", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: offset must be non-negative", ErrInvalidInput)
 	}
 	maxBytes := req.MaxBytes
 	if maxBytes <= 0 || maxBytes > engine.limits.MaxFileReadBytes {
@@ -315,13 +199,13 @@ func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult
 	}
 	if offset > 0 {
 		if _, err := resolved.file.Seek(offset, io.SeekStart); err != nil {
-			return ReadResult{}, sanitizeError(err)
+			return sourcecontract.LocalPathReadResult{}, sanitizeError(err)
 		}
 	}
 	limited := io.LimitReader(resolved.file, maxBytes+1)
 	bytesRead, err := io.ReadAll(limited)
 	if err != nil {
-		return ReadResult{}, sanitizeError(err)
+		return sourcecontract.LocalPathReadResult{}, sanitizeError(err)
 	}
 	truncated := int64(len(bytesRead)) > maxBytes
 	if truncated {
@@ -338,38 +222,38 @@ func (engine *Engine) ReadFile(ctx context.Context, req ReadRequest) (ReadResult
 	if pdfdocument.IsPDFBytes(bytesRead) {
 		metadata.Binary = true
 		metadata.Cap = "pdf_text"
-		return ReadResult{Metadata: metadata}, nil
+		return sourcecontract.LocalPathReadResult{Metadata: metadata}, nil
 	}
 	if likelyBinary(bytesRead) {
 		metadata.Binary = true
-		return ReadResult{Metadata: metadata}, nil
+		return sourcecontract.LocalPathReadResult{Metadata: metadata}, nil
 	}
-	return ReadResult{Content: string(bytesRead), Metadata: metadata}, nil
+	return sourcecontract.LocalPathReadResult{Content: string(bytesRead), Metadata: metadata}, nil
 }
 
 // ReadPDFText는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (engine *Engine) ReadPDFText(ctx context.Context, req ReadRequest) (ReadResult, error) {
+func (engine *Engine) ReadPDFText(ctx context.Context, req sourcecontract.LocalPathReadRequest) (sourcecontract.LocalPathReadResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
-		return ReadResult{}, err
+		return sourcecontract.LocalPathReadResult{}, err
 	}
 	resolved, err := engine.resolve(req.RootID, target, false)
 	if err != nil {
-		return ReadResult{}, err
+		return sourcecontract.LocalPathReadResult{}, err
 	}
 	if resolved.info.IsDir() {
-		return ReadResult{}, fmt.Errorf("%w: read target is a directory", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: read target is a directory", ErrInvalidInput)
 	}
 	if !resolved.info.Mode().IsRegular() {
-		return ReadResult{}, fmt.Errorf("%w: read target is not a regular file", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: read target is not a regular file", ErrInvalidInput)
 	}
 	defer resolved.close()
 	if resolved.info.Size() > engine.limits.MaxPDFReadBytes {
-		return ReadResult{}, fmt.Errorf("%w: PDF source is larger than the configured read limit", ErrInvalidInput)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: PDF source is larger than the configured read limit", ErrInvalidInput)
 	}
 	chunk, err := pdfdocument.ExtractChunkFromReaderAt(resolved.file, resolved.info.Size(), int(req.Offset), int(req.MaxBytes))
 	if err != nil {
-		return ReadResult{}, fmt.Errorf("%w: PDF text extraction failed: %v", ErrInvalidInput, err)
+		return sourcecontract.LocalPathReadResult{}, fmt.Errorf("%w: PDF text extraction failed: %v", ErrInvalidInput, err)
 	}
 	metadata := engine.metadata(ctx, resolved, subpath)
 	metadata.Offset = int64(chunk.Offset)
@@ -381,22 +265,22 @@ func (engine *Engine) ReadPDFText(ctx context.Context, req ReadRequest) (ReadRes
 	metadata.TextLength = int64(chunk.ContentLength)
 	metadata.TextLengthKnown = chunk.ContentLengthKnown
 	metadata.Cap = "pdf_text"
-	return ReadResult{Content: chunk.Text, Metadata: metadata}, nil
+	return sourcecontract.LocalPathReadResult{Content: chunk.Text, Metadata: metadata}, nil
 }
 
 // Tree는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (engine *Engine) Tree(ctx context.Context, req TreeRequest) (TreeResult, error) {
+func (engine *Engine) Tree(ctx context.Context, req sourcecontract.LocalPathTreeRequest) (sourcecontract.LocalPathTreeResult, error) {
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
-		return TreeResult{}, err
+		return sourcecontract.LocalPathTreeResult{}, err
 	}
 	resolved, err := engine.resolve(req.RootID, target, true)
 	if err != nil {
-		return TreeResult{}, err
+		return sourcecontract.LocalPathTreeResult{}, err
 	}
 	if !resolved.info.IsDir() {
 		resolved.close()
-		return TreeResult{}, fmt.Errorf("%w: tree target is not a directory", ErrInvalidInput)
+		return sourcecontract.LocalPathTreeResult{}, fmt.Errorf("%w: tree target is not a directory", ErrInvalidInput)
 	}
 	defer resolved.close()
 	depth := req.Depth
@@ -407,7 +291,7 @@ func (engine *Engine) Tree(ctx context.Context, req TreeRequest) (TreeResult, er
 	if limit <= 0 || limit > engine.limits.MaxDirectoryEntries {
 		limit = engine.limits.MaxDirectoryEntries
 	}
-	result := TreeResult{
+	result := sourcecontract.LocalPathTreeResult{
 		RootID:       resolved.root.id,
 		RootAlias:    resolved.root.alias,
 		RelativePath: resolved.relativePath,
@@ -415,31 +299,31 @@ func (engine *Engine) Tree(ctx context.Context, req TreeRequest) (TreeResult, er
 	}
 	err = engine.walkTree(resolved, depth, limit, &result)
 	if err != nil {
-		return TreeResult{}, err
+		return sourcecontract.LocalPathTreeResult{}, err
 	}
 	return result, nil
 }
 
 // Grep는 로컬 경로 소스 어댑터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (engine *Engine) Grep(ctx context.Context, req GrepRequest) (GrepResult, error) {
+func (engine *Engine) Grep(ctx context.Context, req sourcecontract.LocalPathGrepRequest) (sourcecontract.LocalPathGrepResult, error) {
 	query := strings.TrimSpace(req.Query)
 	if query == "" {
-		return GrepResult{}, fmt.Errorf("%w: grep query is required", ErrInvalidInput)
+		return sourcecontract.LocalPathGrepResult{}, fmt.Errorf("%w: grep query is required", ErrInvalidInput)
 	}
 	target, subpath, err := TargetRelativePath(req.RelativePath, req.Subpath)
 	if err != nil {
-		return GrepResult{}, err
+		return sourcecontract.LocalPathGrepResult{}, err
 	}
 	resolved, err := engine.resolve(req.RootID, target, true)
 	if err != nil {
-		return GrepResult{}, err
+		return sourcecontract.LocalPathGrepResult{}, err
 	}
 	defer resolved.close()
 	limit := req.MaxSnippets
 	if limit <= 0 || limit > engine.limits.MaxReturnedSnippets {
 		limit = engine.limits.MaxReturnedSnippets
 	}
-	result := GrepResult{
+	result := sourcecontract.LocalPathGrepResult{
 		RootID:       resolved.root.id,
 		RootAlias:    resolved.root.alias,
 		RelativePath: resolved.relativePath,
@@ -489,7 +373,7 @@ func (engine *Engine) Grep(ctx context.Context, req GrepRequest) (GrepResult, er
 		err = visit(resolved)
 	}
 	if err != nil {
-		return GrepResult{}, err
+		return sourcecontract.LocalPathGrepResult{}, err
 	}
 	result.Metadata.Truncated = result.Truncated
 	if len(result.Matches) > 0 {
@@ -602,50 +486,15 @@ func resolvedFromOpened(root root, relative string, absPath string, file *os.Fil
 
 // NormalizeRelativePath는 로컬 경로 소스 어댑터 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeRelativePath(value string) (string, error) {
-	value = strings.TrimSpace(strings.ReplaceAll(value, "\\", "/"))
-	if value == "" {
-		value = "."
-	}
-	if strings.ContainsRune(value, 0) || containsControl(value) {
-		return "", fmt.Errorf("%w: relative path contains control characters", ErrInvalidInput)
-	}
-	if filepath.IsAbs(value) || strings.HasPrefix(value, "/") || strings.HasPrefix(value, `\\`) || looksLikeWindowsAbs(value) {
-		return "", fmt.Errorf("%w: absolute paths are not accepted", ErrInvalidInput)
-	}
-	for _, part := range strings.Split(value, "/") {
-		if part == ".." {
-			return "", fmt.Errorf("%w: path traversal is not accepted", ErrInvalidInput)
-		}
-	}
-	cleaned := path.Clean(value)
-	if cleaned == "/" {
-		cleaned = "."
-	}
-	for _, part := range strings.Split(cleaned, "/") {
-		if part == ".." {
-			return "", fmt.Errorf("%w: path traversal is not accepted", ErrInvalidInput)
-		}
-	}
-	return cleaned, nil
+	return sourcecontract.NormalizeLocalRelativePath(value)
 }
 
 // TargetRelativePath는 base 경로와 선택적 subpath를 traversal 없이 결합한다.
 func TargetRelativePath(relativePath string, subpath string) (string, string, error) {
-	relative, err := NormalizeRelativePath(relativePath)
-	if err != nil {
-		return "", "", err
-	}
-	cleanSubpath, err := NormalizeRelativePath(subpath)
-	if err != nil {
-		return "", "", err
-	}
-	if cleanSubpath == "." {
-		return relative, "", nil
-	}
-	return joinRelative(relative, cleanSubpath), cleanSubpath, nil
+	return sourcecontract.LocalPathTargetRelativePath(relativePath, subpath)
 }
 
-func (engine *Engine) walkTree(resolved resolvedPath, depth int, limit int, result *TreeResult) error {
+func (engine *Engine) walkTree(resolved resolvedPath, depth int, limit int, result *sourcecontract.LocalPathTreeResult) error {
 	if len(result.Entries) >= limit {
 		result.Truncated = true
 		return nil
@@ -662,17 +511,17 @@ func (engine *Engine) walkTree(resolved resolvedPath, depth int, limit int, resu
 		}
 		childRel := joinRelative(resolved.relativePath, entry.Name())
 		if denied, pattern := engine.denied(childRel); denied {
-			result.Entries = append(result.Entries, TreeEntry{Name: entry.Name(), RelativePath: childRel, Denied: true, Reason: "denied by " + pattern})
+			result.Entries = append(result.Entries, sourcecontract.LocalPathTreeEntry{Name: entry.Name(), RelativePath: childRel, Denied: true, Reason: "denied by " + pattern})
 			continue
 		}
 		child, err := openChildResolved(resolved, childRel, entry.Name(), true)
 		if err != nil {
-			result.Entries = append(result.Entries, TreeEntry{Name: entry.Name(), RelativePath: childRel, Denied: true, Reason: "unreadable or escapes root"})
+			result.Entries = append(result.Entries, sourcecontract.LocalPathTreeEntry{Name: entry.Name(), RelativePath: childRel, Denied: true, Reason: "unreadable or escapes root"})
 			continue
 		}
 		info := child.info
 		kind := pathKind(info)
-		result.Entries = append(result.Entries, TreeEntry{Name: entry.Name(), RelativePath: childRel, PathKind: kind, Size: info.Size(), MTime: formatTime(info.ModTime())})
+		result.Entries = append(result.Entries, sourcecontract.LocalPathTreeEntry{Name: entry.Name(), RelativePath: childRel, PathKind: kind, Size: info.Size(), MTime: formatTime(info.ModTime())})
 		if depth > 1 && info.IsDir() {
 			if err := engine.walkTree(child, depth-1, limit, result); err != nil {
 				child.close()
@@ -738,8 +587,8 @@ func (engine *Engine) walkFiles(ctx context.Context, resolved resolvedPath, visi
 	return walk(resolved)
 }
 
-func (engine *Engine) metadata(ctx context.Context, resolved resolvedPath, subpath string) PathMetadata {
-	metadata := PathMetadata{
+func (engine *Engine) metadata(ctx context.Context, resolved resolvedPath, subpath string) sourcecontract.LocalPathMetadata {
+	metadata := sourcecontract.LocalPathMetadata{
 		ObservedAt:   time.Now().UTC().Format(time.RFC3339Nano),
 		RootID:       resolved.root.id,
 		RootAlias:    resolved.root.alias,
@@ -755,7 +604,7 @@ func (engine *Engine) metadata(ctx context.Context, resolved resolvedPath, subpa
 	return metadata
 }
 
-func (engine *Engine) gitMetadata(ctx context.Context, resolved resolvedPath) *GitMetadata {
+func (engine *Engine) gitMetadata(ctx context.Context, resolved resolvedPath) *sourcecontract.LocalPathGitMetadata {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
 	defer cancel()
 	dir := resolved.absPath
@@ -778,7 +627,7 @@ func (engine *Engine) gitMetadata(ctx context.Context, resolved resolvedPath) *G
 	if rel == "" {
 		rel = "."
 	}
-	return &GitMetadata{Branch: branch, Head: head, Dirty: strings.TrimSpace(status) != "", WorktreeRelativePath: rel}
+	return &sourcecontract.LocalPathGitMetadata{Branch: branch, Head: head, Dirty: strings.TrimSpace(status) != "", WorktreeRelativePath: rel}
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
@@ -791,7 +640,7 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 	return strings.TrimSpace(string(output)), nil
 }
 
-func grepFile(resolved resolvedPath, query string, maxBytes int64, maxLineBytes int, limit int) ([]GrepMatch, int64, bool, error) {
+func grepFile(resolved resolvedPath, query string, maxBytes int64, maxLineBytes int, limit int) ([]sourcecontract.LocalPathGrepMatch, int64, bool, error) {
 	if _, err := resolved.file.Seek(0, io.SeekStart); err != nil {
 		return nil, 0, false, sanitizeError(err)
 	}
@@ -811,7 +660,7 @@ func grepFile(resolved resolvedPath, query string, maxBytes int64, maxLineBytes 
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
 	lowerQuery := strings.ToLower(query)
-	var matches []GrepMatch
+	var matches []sourcecontract.LocalPathGrepMatch
 	lineNo := 0
 	for scanner.Scan() {
 		lineNo++
@@ -820,7 +669,7 @@ func grepFile(resolved resolvedPath, query string, maxBytes int64, maxLineBytes 
 		if pos < 0 {
 			continue
 		}
-		matches = append(matches, GrepMatch{RelativePath: resolved.relativePath, Line: lineNo, Column: pos + 1, Snippet: snippet(line, pos, len(query)), SHA256: sum})
+		matches = append(matches, sourcecontract.LocalPathGrepMatch{RelativePath: resolved.relativePath, Line: lineNo, Column: pos + 1, Snippet: snippet(line, pos, len(query)), SHA256: sum})
 		if len(matches) >= limit {
 			truncated = true
 			break

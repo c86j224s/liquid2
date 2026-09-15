@@ -1,8 +1,9 @@
-// Package reportilphase0 implements the archive-local Phase 0 prototype for
-// Plasma's independent IL report pipeline.
+// Package reportilphase0 owns Plasma's independent experimental Report IL
+// authoring, validation, and target-compilation pipeline.
 //
-// It owns experimental Narrative Contract and Semantic Document IL validation,
-// deterministic Markdown and static HTML compilation, optional Chrome-backed
-// PDF output, and build receipts. It deliberately does not integrate with the
-// existing report workflow, product ledger, API, provider, or UI.
+// It keeps Report-specific source, Narrative, authoring, reader, checkpoint,
+// manifest, and rendering policy independent from the classic report authoring
+// graph. Product adapters connect it to report execution, providers, the mission
+// ledger, artifact storage, and Web UI; those integrations must not turn this
+// package into a generic report or Article workflow.
 package reportilphase0

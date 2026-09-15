@@ -64,7 +64,7 @@
   function activeWorkControlElementIDs(control) {
     if (control === "turn_submit") return ["turnText", "sendTurnButton"];
     if (control === "workflow_start") return ["workflowInstruction", "draftWorkflowGoalButton", "workflowRunGoal", "workflowStepInstruction", "startWorkflowButton"];
-    if (control === "report_start") return ["reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "draftQuickReport", "draftLongReport", "draftExperimentalReport", "draftLongExperimentalReport"];
+    if (control === "report_start") return ["articleRigor", "articleAgentModel", "articleAgentReasoningEffort", "articleLongFormExecutionStrategy", "articleDirectionHint", "articleAudience", "articleReaderPromise", "articleEmphasis", "draftLongArticle", "reportRigor", "reportAgentModel", "reportAgentReasoningEffort", "reportLongFormExecutionStrategy", "reportDirectionHint", "draftArticle", "draftQuickReport", "draftLongReport", "draftExperimentalReport", "draftLongExperimentalReport"];
     return [];
   }
 

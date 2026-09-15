@@ -2,12 +2,16 @@
   "use strict";
   const reports = root.Plasma.reports;
   const $ = root.Plasma.dom.$;
-	function currentReportDirectionHint() {
-	  return $("reportDirectionHint").value;
+	function directionControl(kind) {
+	  return $(kind === "article" ? "articleDirectionHint" : "reportDirectionHint");
 	}
 
-	function clearAcceptedReportDirectionHint() {
-	  $("reportDirectionHint").value = "";
+	function currentReportDirectionHint(kind = "report") {
+	  return directionControl(kind).value;
+	}
+
+	function clearAcceptedReportDirectionHint(kind = "report") {
+	  directionControl(kind).value = "";
 	}
 
   reports.direction = { current: currentReportDirectionHint, clear: clearAcceptedReportDirectionHint };

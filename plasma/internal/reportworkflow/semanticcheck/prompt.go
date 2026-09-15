@@ -1,5 +1,7 @@
 package semanticcheck
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"fmt"
 
@@ -25,7 +27,7 @@ Validation responsibilities:
 - Judge only whether the style paragraph preserves the reader paragraph's meaning.
 - Do not submit prose, patches, final paragraph ordinals, repaired_by_gate, manuscript Markdown, or repair instructions.
 - When uncertain, use rejected_revert_to_reader.%s`,
-		input.Title, input.MissionID, finaledit.AgentReportAnyJSON(binding),
+		input.Title, input.MissionID, longformutil.AnyJSON(binding),
 		mcptools.ToolReportLongFormStyleSemanticValidationRead,
 		mcptools.ToolReportLongFormStyleSemanticValidationSubmit,
 		finaledit.StageSubmittedSentinel, finaledit.RetryNote(attempt))

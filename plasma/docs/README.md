@@ -39,6 +39,9 @@ Read these first if you are trying to understand Plasma:
 6. [Product Architecture](product-architecture.md) /
    [Product Architecture Korean](product-architecture.ko.md) - durable product
    behavior and feature-specific boundaries.
+7. [Article IL Design](article-il-design.md) /
+   [Article IL Design Korean](article-il-design.ko.md) - Issue #461's design and
+   productization gate for a separate reading-first writing capability.
 
 ## Current Product Rules
 

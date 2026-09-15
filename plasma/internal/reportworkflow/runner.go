@@ -28,11 +28,10 @@ func NewRunner(config RunnerConfig) Runner {
 		panic("reportworkflow: service is required")
 	}
 	return Runner{
-		service:         config.Service,
-		finalEditStore:  config.Service,
-		humanizeService: config.Service,
-		executor:        config.Executor,
-		newID:           config.NewID,
+		service:        config.Service,
+		finalEditStore: config.Service,
+		executor:       config.Executor,
+		newID:          config.NewID,
 		planRunner: plan.Runner{
 			Service: config.Service, RepairStore: config.Service, Lifecycle: config.Lifecycle, Executor: config.Executor,
 			NewID: config.NewID, LatestSessionID: config.LatestSessionID,
@@ -184,6 +183,7 @@ func directdraftInput(input DraftInput) directdraft.BaseInput {
 		ReportSessionPolicy: input.ReportSessionPolicy, ReportSessionPolicySelection: input.ReportSessionPolicySelection,
 		PostReportHumanize:        input.PostReportHumanize,
 		GenerationGuidanceProfile: input.GenerationGuidanceProfile, GenerationGuidanceSHA256: input.GenerationGuidanceSHA256,
+		OutputKind: input.OutputKind, ArticleIntent: input.ArticleIntent,
 	}
 }
 
@@ -194,7 +194,8 @@ func finalstoreBaseInput(input DraftInput) finalstore.BaseInput {
 		SelectionSource: input.AgentSelectionSource, MCPMode: input.MCPMode, Rigor: input.Rigor,
 		SessionPolicy: input.ReportSessionPolicy, PolicySelection: input.ReportSessionPolicySelection,
 		PostHumanize: input.PostReportHumanize, GuidanceProfile: input.GenerationGuidanceProfile,
-		GuidanceSHA256: input.GenerationGuidanceSHA256,
+		GuidanceSHA256: input.GenerationGuidanceSHA256, OutputKind: input.OutputKind,
+		ArticleAudience: input.ArticleIntent.Audience, ArticleReaderPromise: input.ArticleIntent.ReaderPromise, ArticleEmphasis: input.ArticleIntent.Emphasis,
 	}
 }
 

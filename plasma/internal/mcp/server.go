@@ -2,13 +2,29 @@ package mcp
 
 import (
 	"context"
+	experimenthandler "github.com/c86j224s/liquid2/plasma/internal/mcp/reportexperiment"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportfinaledit"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportil"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportparts"
+	patchhandler "github.com/c86j224s/liquid2/plasma/internal/mcp/reportpatch"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportplan"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportrequirements"
 	"sync"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	missionadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
+	workflowadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/workflow"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 // Service는 MCP tool handler가 호출하는 application/reporting port 모음이다.
@@ -17,37 +33,37 @@ import (
 // 새 tool이 지속 상태를 바꿔야 하면 먼저 app/reporting 계층의 계약을 통해
 // 표현되어야 한다.
 type Service interface {
-	GetProjection(context.Context, string) (app.MissionProjection, error)
-	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
-	ListSourceSnapshots(context.Context, string) ([]app.SourceSnapshot, error)
-	ListSourceSnapshotsWithState(context.Context, app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error)
-	GetSourceSnapshot(context.Context, string) (app.SourceSnapshot, error)
-	GetRawArtifact(context.Context, string) (app.RawArtifact, error)
-	ListRawArtifacts(context.Context, string) ([]app.RawArtifact, error)
-	ListLocalPathRoots(context.Context) ([]localpath.RootView, error)
-	BrowseLocalPathRoot(context.Context, app.BrowseLocalPathRootRequest) (localpath.TreeResult, error)
+	GetProjection(context.Context, string) (mission.Projection, error)
+	ListEvents(context.Context, string) ([]ledger.Event, error)
+	ListSourceSnapshots(context.Context, string) ([]sourcecontract.Snapshot, error)
+	ListSourceSnapshotsWithState(context.Context, sourcecontract.ListRequest) ([]sourcecontract.Snapshot, error)
+	GetSourceSnapshot(context.Context, string) (sourcecontract.Snapshot, error)
+	GetRawArtifact(context.Context, string) (artifactcontract.Raw, error)
+	ListRawArtifacts(context.Context, string) ([]artifactcontract.Raw, error)
+	ListLocalPathRoots(context.Context) ([]sourcecontract.LocalPathRoot, error)
+	BrowseLocalPathRoot(context.Context, app.BrowseLocalPathRootRequest) (sourcecontract.LocalPathTreeResult, error)
 	AttachLocalPathSource(context.Context, app.AttachLocalPathSourceRequest) (app.LocalPathSourceResult, error)
 	ReadLocalPathSource(context.Context, app.ReadLocalPathSourceRequest) (app.ReadLocalPathSourceResult, error)
 	TreeLocalPathSource(context.Context, app.TreeLocalPathSourceRequest) (app.TreeLocalPathSourceResult, error)
 	GrepLocalPathSource(context.Context, app.GrepLocalPathSourceRequest) (app.GrepLocalPathSourceResult, error)
 	RemoveSource(context.Context, app.RemoveSourceRequest) (app.SourceStateChangeResult, error)
 	RestoreSource(context.Context, app.RestoreSourceRequest) (app.SourceStateChangeResult, error)
-	SearchLiquid2Sources(context.Context, app.Liquid2SourceConnector, app.Liquid2SourceSearchRequest) (app.Liquid2SourceSearchResult, error)
-	SearchConfluenceSources(context.Context, app.ConfluenceSourceConnector, app.ConfluenceSourceSearchRequest) (app.ConfluenceSourceSearchResult, error)
+	SearchLiquid2Sources(context.Context, liquid2source.Liquid2SourceConnector, liquid2source.Liquid2SourceSearchRequest) (liquid2source.Liquid2SourceSearchResult, error)
+	SearchConfluenceSources(context.Context, confluencesource.ConfluenceSourceConnector, confluencesource.ConfluenceSourceSearchRequest) (confluencesource.ConfluenceSourceSearchResult, error)
 	GetMissionConnectorAccess(context.Context, string, string) (app.ConnectorAccessProjection, error)
-	GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error)
-	ListEvidenceRecords(context.Context, string) ([]app.EvidenceRecord, error)
-	ListClaimRecords(context.Context, string) ([]app.ClaimRecord, error)
-	ListQuestionRecords(context.Context, string) ([]app.QuestionRecord, error)
-	RequestWorkflowRun(context.Context, app.RequestWorkflowRunRequest) (app.WorkflowRunView, error)
-	GetWorkflowRun(context.Context, string, string) (app.WorkflowRunView, error)
-	ListWorkflowRuns(context.Context, string) ([]app.WorkflowRunView, error)
-	RequestWorkflowStop(context.Context, app.RequestWorkflowStopRequest) (app.WorkflowRunView, error)
-	CreateRawArtifact(context.Context, app.CreateRawArtifactRequest) (app.RawArtifact, error)
-	CreateRawArtifactWithEvent(context.Context, app.CreateRawArtifactRequest, func(app.RawArtifact) app.AppendEventRequest) (app.RawArtifact, app.LedgerEvent, error)
-	CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error)
-	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
-	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
+	GetEvidenceRecord(context.Context, string) (researchrecords.EvidenceRecord, error)
+	ListEvidenceRecords(context.Context, string) ([]researchrecords.EvidenceRecord, error)
+	ListClaimRecords(context.Context, string) ([]researchrecords.ClaimRecord, error)
+	ListQuestionRecords(context.Context, string) ([]researchrecords.QuestionRecord, error)
+	RequestWorkflowRun(context.Context, workflowstate.RequestWorkflowRunRequest) (workflowstate.WorkflowRunView, error)
+	GetWorkflowRun(context.Context, string, string) (workflowstate.WorkflowRunView, error)
+	ListWorkflowRuns(context.Context, string) ([]workflowstate.WorkflowRunView, error)
+	RequestWorkflowStop(context.Context, workflowstate.RequestWorkflowStopRequest) (workflowstate.WorkflowRunView, error)
+	CreateRawArtifact(context.Context, artifactcontract.CreateRequest) (artifactcontract.Raw, error)
+	CreateRawArtifactWithEvent(context.Context, artifactcontract.CreateRequest, func(artifactcontract.Raw) ledger.AppendRequest) (artifactcontract.Raw, ledger.Event, error)
+	CreateRawArtifactWithEventConditionally(context.Context, artifactcontract.CreateRequest, func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error)) (artifactcontract.Raw, ledger.Event, bool, error)
+	AppendEventConditionally(context.Context, string, func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error)
+	AppendEvent(context.Context, ledger.AppendRequest) (ledger.Event, error)
 }
 
 // Server는 Plasma MCP tool registry와 tool 호출 중 필요한 bounded draft 상태를
@@ -57,55 +73,42 @@ type Service interface {
 // 제품 상태의 source of truth가 아니므로, 완료된 결과는 app/reporting service를
 // 통해 장부나 artifact로 기록되어야 한다.
 type Server struct {
-	service                                 Service
-	research                                *research.Handler
-	connectors                              map[string]app.Liquid2SourceConnector
-	confluenceConnectorFactory              ConfluenceConnectorFactory
-	binding                                 Binding
-	legacyResearchLoop                      bool
-	experimentalReportComposition           bool
-	operatorSourceMutation                  bool
-	reportPatch                             bool
-	reportPatchBinding                      ReportPatchBinding
-	reportPlanBinding                       ReportPlanBinding
-	reportRequirementMapBinding             reporting.ReportRequirementMapBinding
-	partAssemblyBinding                     reporting.PartAssemblyBinding
-	partEditBinding                         reporting.PartEditBinding
-	longFormFinalizeBinding                 reporting.LongFormFinalizeBinding
-	longFormFinalizeBindingSet              bool
-	finalEditStageBinding                   reporting.FinalEditStageBinding
-	finalEditStageBindingSet                bool
-	finalEditConfigErr                      error
-	reportILSourceBinding                   reportilcontract.SourceAccessBinding
-	reportILSourceBindingSet                bool
-	reportILSourceReadBytes                 int
-	reportILSourceReadBySource              map[string]int
-	reportILSourceNextOffsets               map[string]int
-	reportILSourceComplete                  map[string]bool
-	reportILSourceQuotes                    map[string]reportilcontract.SourceQuoteReceipt
-	reportILSourceQuoteCount                int
-	reportILEditorialMemoryUsedAnchors      map[string]bool
-	reportILEditorialMemoryReviewNextOffset int
-	reportILEditorialMemoryReviewComplete   bool
-	reportILLongFormPlanReviewNextOffset    int
-	reportILLongFormPlanReviewComplete      bool
-	reportILEditorialMemoryWorkspaces       map[string]*reportILEditorialMemoryWorkspace
-	reportILDocumentWorkspaces              map[string]*reportILDocumentWorkspace
-	enabledTools                            map[string]struct{}
-	enabledToolsSet                         bool
-	sourceCandidateFetcher                  SourceCandidateFetcher
+	reportFinalEditState          *reportfinaledit.State
+	service                       Service
+	research                      *research.Handler
+	mission                       *missionadapter.Handler
+	workflow                      *workflowadapter.Handler
+	connectors                    map[string]liquid2source.Liquid2SourceConnector
+	confluenceConnectorFactory    ConfluenceConnectorFactory
+	binding                       Binding
+	legacyResearchLoop            bool
+	experimentalReportComposition bool
+	operatorSourceMutation        bool
+	reportPatch                   bool
+	reportPatchBinding            ReportPatchBinding
+	reportPlanBinding             ReportPlanBinding
+	reportRequirementMapBinding   reporting.ReportRequirementMapBinding
+	partAssemblyBinding           reporting.PartAssemblyBinding
+	partEditBinding               reporting.PartEditBinding
+	longFormFinalizeBinding       reporting.LongFormFinalizeBinding
+	longFormFinalizeBindingSet    bool
+	finalEditStageBinding         reporting.FinalEditStageBinding
+	finalEditStageBindingSet      bool
+	finalEditConfigErr            error
+	reportILSourceBinding         reportilcontract.SourceAccessBinding
+	reportILSourceBindingSet      bool
+	reportILState                 *reportil.State
+	enabledTools                  map[string]struct{}
+	enabledToolsSet               bool
+	sourceCandidateFetcher        SourceCandidateFetcher
 
-	mu                           sync.Mutex
-	idempotency                  map[string]idempotencyEntry
-	reportDrafts                 map[string]*experimentReportDraft
-	reportPatches                map[string]*reportPatchDraft
-	partAssemblyDrafts           map[string]*partAssemblyDraft
-	partEditDrafts               map[string]*partEditDraft
-	longFormEditDrafts           map[string]*longFormEditDraft
-	longFormStageEditDrafts      map[string]*longFormStageEditDraft
-	readOnlyValidationDrafts     map[string]*readOnlyValidationDraft
-	reportPlanParsedCalls        int
-	reportRequirementParsedCalls int
+	mu                        sync.Mutex
+	idempotency               map[string]idempotencyEntry
+	reportExperimentState     *experimenthandler.State
+	reportPatchState          *patchhandler.State
+	reportPartsState          *reportparts.State
+	reportPlanHandler         *reportplan.Handler
+	reportRequirementsHandler *reportrequirements.Handler
 }
 
 // NewServer는 MCP server를 구성하고 전달된 Option을 적용한다.
@@ -114,23 +117,14 @@ type Server struct {
 // 호출은 각 handler에서 binding과 app/reporting 계약을 다시 확인한다.
 func NewServer(service Service, options ...Option) *Server {
 	server := &Server{
-		service:                            service,
-		connectors:                         map[string]app.Liquid2SourceConnector{},
-		idempotency:                        map[string]idempotencyEntry{},
-		reportDrafts:                       map[string]*experimentReportDraft{},
-		reportPatches:                      map[string]*reportPatchDraft{},
-		partAssemblyDrafts:                 map[string]*partAssemblyDraft{},
-		partEditDrafts:                     map[string]*partEditDraft{},
-		longFormEditDrafts:                 map[string]*longFormEditDraft{},
-		longFormStageEditDrafts:            map[string]*longFormStageEditDraft{},
-		readOnlyValidationDrafts:           map[string]*readOnlyValidationDraft{},
-		reportILSourceReadBySource:         map[string]int{},
-		reportILSourceNextOffsets:          map[string]int{},
-		reportILSourceComplete:             map[string]bool{},
-		reportILSourceQuotes:               map[string]reportilcontract.SourceQuoteReceipt{},
-		reportILEditorialMemoryUsedAnchors: map[string]bool{},
-		reportILEditorialMemoryWorkspaces:  map[string]*reportILEditorialMemoryWorkspace{},
-		reportILDocumentWorkspaces:         map[string]*reportILDocumentWorkspace{},
+		reportFinalEditState:  &reportfinaledit.State{LegacyDrafts: map[string]*reportfinaledit.LongFormEditDraft{}, StageDrafts: map[string]*reportfinaledit.LongFormStageEditDraft{}, ValidationDrafts: map[string]*reportfinaledit.ReadOnlyValidationDraft{}},
+		reportILState:         reportil.NewState(),
+		service:               service,
+		connectors:            map[string]liquid2source.Liquid2SourceConnector{},
+		idempotency:           map[string]idempotencyEntry{},
+		reportExperimentState: &experimenthandler.State{Drafts: map[string]*experimenthandler.Draft{}},
+		reportPatchState:      &patchhandler.State{Drafts: map[string]*patchhandler.Draft{}},
+		reportPartsState:      &reportparts.State{EditDrafts: map[string]*reportparts.PartEditDraft{}, AssemblyDrafts: map[string]*reportparts.PartAssemblyDraft{}},
 	}
 	for _, option := range options {
 		option(server)
@@ -140,6 +134,8 @@ func NewServer(service Service, options ...Option) *Server {
 			server.enabledTools = map[string]struct{}{}
 			server.enabledToolsSet = true
 			server.research = research.NewHandler(service, server.binding.MissionID, server.legacyResearchLoop)
+			server.mission = newMissionHandler(server)
+			server.workflow = newWorkflowHandler(server)
 			server.finalEditConfigErr = server.validateFinalEditConfiguration()
 			return server
 		}
@@ -215,6 +211,8 @@ func NewServer(service Service, options ...Option) *Server {
 		server.enabledToolsSet = true
 	}
 	server.research = research.NewHandler(service, server.binding.MissionID, server.legacyResearchLoop)
+	server.mission = newMissionHandler(server)
+	server.workflow = newWorkflowHandler(server)
 	server.finalEditConfigErr = server.validateFinalEditConfiguration()
 	return server
 }

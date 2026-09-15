@@ -2,10 +2,10 @@ package researchproposal
 
 import (
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"reflect"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func TestBuildProposalProposedAppendRequestsPreservePayloadContracts(t *testing.T) {
@@ -61,8 +61,8 @@ func TestBuildProposalSubmittedPreservesMCPAndManualPayloadContracts(t *testing.
 		EventID:    "evt_proposal",
 		MissionID:  "mis_1",
 		ProposalID: "prp_1",
-		ObjectRefs: []ObjectRef{
-			{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_1"},
+		ObjectRefs: []researchcatalog.ObjectRef{
+			{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_1"},
 		},
 		Producer:                   Producer{Type: "agent_session", ID: "ses_agent"},
 		IncludeObjectRefsInPayload: true,
@@ -72,8 +72,8 @@ func TestBuildProposalSubmittedPreservesMCPAndManualPayloadContracts(t *testing.
 		t.Fatalf("unexpected MCP proposal build: %#v", mcp)
 	}
 	var mcpPayload struct {
-		ProposalID string          `json:"proposal_id"`
-		ObjectRefs []app.ObjectRef `json:"object_refs"`
+		ProposalID string                      `json:"proposal_id"`
+		ObjectRefs []researchcatalog.ObjectRef `json:"object_refs"`
 	}
 	if err := json.Unmarshal(mcp.Event.Payload, &mcpPayload); err != nil {
 		t.Fatalf("unmarshal MCP proposal payload: %v", err)
@@ -87,7 +87,7 @@ func TestBuildProposalSubmittedPreservesMCPAndManualPayloadContracts(t *testing.
 		MissionID:         "mis_1",
 		ProposalID:        "prp_manual",
 		Title:             "Save evidence candidate",
-		ObjectRefs:        []ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_manual"}},
+		ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_manual"}},
 		RequestedDecision: "approve",
 		Producer:          Producer{Type: "user", ID: "plasma-ui"},
 	})
@@ -101,9 +101,9 @@ func TestBuildProposalDecisionAppendRequestPreservesPayloadContract(t *testing.T
 	proposal := ProposalBundle{
 		ProposalID: "prp_1",
 		MissionID:  "mis_1",
-		ObjectRefs: []ObjectRef{
-			{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_1"},
-			{ObjectKind: app.ClaimRecordObjectKind, ObjectID: "clm_1"},
+		ObjectRefs: []researchcatalog.ObjectRef{
+			{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_1"},
+			{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: "clm_1"},
 		},
 	}
 	approved, nextState := BuildProposalDecisionAppendRequest(ProposalDecisionAppendRequest{

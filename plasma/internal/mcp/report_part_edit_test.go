@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -269,7 +270,7 @@ func partEditStartArgs(binding reporting.PartEditBinding, draftID string) map[st
 	}
 }
 
-func countMCPEvents(events []app.LedgerEvent, eventType string) int {
+func countMCPEvents(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -279,8 +280,8 @@ func countMCPEvents(events []app.LedgerEvent, eventType string) int {
 	return count
 }
 
-func lastMCPEvent(events []app.LedgerEvent, eventType string) app.LedgerEvent {
-	var found app.LedgerEvent
+func lastMCPEvent(events []ledger.Event, eventType string) ledger.Event {
+	var found ledger.Event
 	for _, event := range events {
 		if event.EventType == eventType {
 			found = event
@@ -289,7 +290,7 @@ func lastMCPEvent(events []app.LedgerEvent, eventType string) app.LedgerEvent {
 	return found
 }
 
-func lastMCPEventPayload(t *testing.T, events []app.LedgerEvent, eventType string) map[string]any {
+func lastMCPEventPayload(t *testing.T, events []ledger.Event, eventType string) map[string]any {
 	t.Helper()
 	payload := map[string]any{}
 	if err := json.Unmarshal(lastMCPEvent(events, eventType).Payload, &payload); err != nil {
@@ -299,17 +300,17 @@ func lastMCPEventPayload(t *testing.T, events []app.LedgerEvent, eventType strin
 }
 
 func seededPartEditService(binding reporting.PartEditBinding) *fakeMCPService {
-	part := app.RawArtifact{
+	part := artifactcontract.Raw{
 		ArtifactID: binding.SourceArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "part-1.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Content: []byte("# Part 1\n\nSource body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Content: []byte("# Part 1\n\nSource body.\n"),
 	}
 	return &fakeMCPService{
-		artifacts: map[string]app.RawArtifact{part.ArtifactID: part},
-		ledgerEvents: []app.LedgerEvent{
-			{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
-			{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "report_mode": "long_form", "artifact_id": "art_final", "part_edit_enabled": true})},
-			{EventID: binding.SourcePartEventID, MissionID: binding.MissionID, EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SourceArtifactID, "part_index": binding.PartIndex})},
+		artifacts: map[string]artifactcontract.Raw{part.ArtifactID: part},
+		ledgerEvents: []ledger.Event{
+			{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
+			{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "report_mode": "long_form", "artifact_id": "art_final", "part_edit_enabled": true})},
+			{EventID: binding.SourcePartEventID, MissionID: binding.MissionID, EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SourceArtifactID, "part_index": binding.PartIndex})},
 		},
 	}
 }

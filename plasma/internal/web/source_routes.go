@@ -12,7 +12,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
 )
 
@@ -20,7 +22,7 @@ func (server *Server) handleMissionSources(w http.ResponseWriter, r *http.Reques
 	if len(rest) == 0 {
 		switch r.Method {
 		case http.MethodGet:
-			sources, err := server.service.ListSourceSnapshotsWithState(r.Context(), app.ListSourceSnapshotsRequest{
+			sources, err := server.service.ListSourceSnapshotsWithState(r.Context(), sourcecontract.ListRequest{
 				MissionID:         missionID,
 				IncludeRemoved:    queryBool(r, "include_removed"),
 				IncludeSuperseded: queryBool(r, "include_superseded"),
@@ -223,7 +225,7 @@ func (server *Server) handleLocalPathAttach(w http.ResponseWriter, r *http.Reque
 		RelativePath: req.RelativePath,
 		Title:        req.Title,
 		Restore:      req.Restore,
-		Producer:     app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -271,22 +273,22 @@ func (server *Server) handleSourceRead(w http.ResponseWriter, r *http.Request, m
 		writeError(w, http.StatusNotFound, "source not found")
 		return
 	}
-	if snapshot.State.Removed || snapshot.State.State == app.SourceStateRemoved {
+	if snapshot.State.Removed || snapshot.State.State == sourcecontract.StateRemoved {
 		writeAppError(w, fmt.Errorf("%w: source is removed", app.ErrInvalidInput))
 		return
 	}
-	if snapshot.Connector.ConnectorType == app.SourceConnectorTypeMediaURL {
+	if snapshot.Connector.ConnectorType == sourcecontract.ConnectorTypeMediaURL {
 		server.writeMediaSourceRead(w, r, missionID, snapshot)
 		return
 	}
-	if snapshot.Access.RetrievalPolicy == app.SourceRetrievalPolicyLiveReference && snapshot.Connector.ConnectorType == app.SourceConnectorTypeLocalPath {
+	if snapshot.Access.RetrievalPolicy == sourcecontract.RetrievalPolicyLiveReference && snapshot.Connector.ConnectorType == sourcecontract.ConnectorTypeLocalPath {
 		if localPathLocatorKind(snapshot) == "directory" {
 			result, err := server.service.TreeLocalPathSource(r.Context(), app.TreeLocalPathSourceRequest{
 				MissionID:     missionID,
 				SnapshotID:    snapshotID,
 				Depth:         req.Depth,
 				Limit:         req.Limit,
-				Producer:      app.Producer{Type: "user", ID: "plasma-ui"},
+				Producer:      ledger.Producer{Type: "user", ID: "plasma-ui"},
 				ToolSessionID: "plasma-ui",
 			})
 			if err != nil {
@@ -307,7 +309,7 @@ func (server *Server) handleSourceRead(w http.ResponseWriter, r *http.Request, m
 			SnapshotID:    snapshotID,
 			Offset:        req.Offset,
 			MaxBytes:      req.MaxBytes,
-			Producer:      app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:      ledger.Producer{Type: "user", ID: "plasma-ui"},
 			ToolSessionID: "plasma-ui",
 		})
 		if err != nil {
@@ -347,7 +349,7 @@ func (server *Server) handleSourceRead(w http.ResponseWriter, r *http.Request, m
 	writeRawArtifactRead(w, artifact, int(req.Offset), int(req.MaxBytes))
 }
 
-func snapshotHasArtifactID(snapshot app.SourceSnapshot, artifactID string) bool {
+func snapshotHasArtifactID(snapshot sourcecontract.Snapshot, artifactID string) bool {
 	artifactID = strings.TrimSpace(artifactID)
 	if artifactID == "" {
 		return false
@@ -360,7 +362,7 @@ func snapshotHasArtifactID(snapshot app.SourceSnapshot, artifactID string) bool 
 	return false
 }
 
-func (server *Server) writeMediaSourceRead(w http.ResponseWriter, r *http.Request, missionID string, snapshot app.SourceSnapshot) {
+func (server *Server) writeMediaSourceRead(w http.ResponseWriter, r *http.Request, missionID string, snapshot sourcecontract.Snapshot) {
 	locator, err := mediaLocatorFromJSON(snapshot.Locators)
 	if err != nil {
 		writeAppError(w, err)
@@ -403,7 +405,7 @@ func (server *Server) handleSourceGrep(w http.ResponseWriter, r *http.Request, m
 		SnapshotID:    snapshotID,
 		Query:         req.Query,
 		MaxSnippets:   req.MaxSnippets,
-		Producer:      app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:      ledger.Producer{Type: "user", ID: "plasma-ui"},
 		ToolSessionID: "plasma-ui",
 	})
 	if err != nil {
@@ -431,7 +433,7 @@ func (server *Server) handleSourceRemove(w http.ResponseWriter, r *http.Request,
 		MissionID:  missionID,
 		SnapshotID: snapshotID,
 		Reason:     req.Reason,
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -451,7 +453,7 @@ func (server *Server) handleSourceRestore(w http.ResponseWriter, r *http.Request
 	result, err := server.service.RestoreSource(r.Context(), app.RestoreSourceRequest{
 		MissionID:  missionID,
 		SnapshotID: snapshotID,
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -487,7 +489,7 @@ func (server *Server) handleTextSource(w http.ResponseWriter, r *http.Request, m
 		ArtifactID: artifactID,
 		SnapshotID: snapshotID,
 		EventID:    eventID,
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Source: sourceingest.TextSourceContent{
 			Title:       req.Title,
 			Content:     req.Content,
@@ -527,7 +529,7 @@ func (server *Server) handleUploadSource(w http.ResponseWriter, r *http.Request,
 		Title:            upload.Title,
 		OriginalFilename: upload.Filename,
 		Content:          upload.Content,
-		Producer:         app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:         ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -694,11 +696,11 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 			ArtifactID: newID("art"),
 			SnapshotID: newID("src"),
 			EventID:    newID("evt"),
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Fetched: sourceingest.FetchedMediaSource{
 				Content:           fetched.Content,
 				MediaType:         fetched.MediaType,
-				MediaKind:         app.MediaKindImage,
+				MediaKind:         sourcecontract.MediaKindImage,
 				Title:             fetched.Title,
 				ExternalVersion:   fetched.ExternalVersion,
 				ExternalUpdatedAt: fetched.ExternalUpdatedAt,
@@ -744,7 +746,7 @@ func (server *Server) handleURLSource(w http.ResponseWriter, r *http.Request, mi
 		ArtifactID: newID("art"),
 		SnapshotID: newID("src"),
 		EventID:    newID("evt"),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Fetched:    appFetchedURLSource(fetched),
 		FetchedAt:  time.Now().UTC(),
 	})
@@ -795,7 +797,7 @@ func (server *Server) createURLSourceFromStagedCandidate(w http.ResponseWriter, 
 		Title:      requestedTitle,
 		SnapshotID: newID("src"),
 		EventID:    newID("evt"),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Staged:     staged,
 	})
 	if err != nil {
@@ -837,7 +839,7 @@ func (server *Server) createBrowserRenderedURLSourceFromStagedCandidate(w http.R
 		ArtifactID:                     newID("art"),
 		SnapshotID:                     newID("src"),
 		EventID:                        newID("evt"),
-		Producer:                       app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:                       ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Fetched:                        appFetchedURLSource(fetched),
 		FetchedAt:                      time.Now().UTC(),
 		SourceCandidateProposalEventID: staged.ProposalEventID,
@@ -862,7 +864,7 @@ func (server *Server) createImageURLSourceFromStagedCandidate(w http.ResponseWri
 		Title:      requestedTitle,
 		SnapshotID: newID("src"),
 		EventID:    newID("evt"),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Staged:     staged,
 	})
 	if err != nil {
@@ -884,7 +886,7 @@ func (server *Server) createPDFURLSourceFromStagedCandidate(w http.ResponseWrite
 		Title:      requestedTitle,
 		SnapshotID: newID("src"),
 		EventID:    newID("evt"),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Staged:     staged,
 	})
 	if err != nil {
@@ -942,7 +944,7 @@ func (server *Server) handleMediaURLSource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	contentSHA := ""
-	if fetched.MediaKind == app.MediaKindImage {
+	if fetched.MediaKind == sourcecontract.MediaKindImage {
 		contentSHA = sha256Hex(fetched.Content)
 		unlockContent := server.sources.lock(missionID + "\x00media-sha\x00" + contentSHA)
 		defer unlockContent()
@@ -958,7 +960,7 @@ func (server *Server) handleMediaURLSource(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	artifactID := ""
-	if fetched.MediaKind == app.MediaKindImage {
+	if fetched.MediaKind == sourcecontract.MediaKindImage {
 		artifactID = newID("art")
 	}
 	result, err := sourceingest.CreateFetchedMediaURLSourceWithEvent(r.Context(), server.service, sourceingest.CreateFetchedMediaURLSourceRequest{
@@ -970,7 +972,7 @@ func (server *Server) handleMediaURLSource(w http.ResponseWriter, r *http.Reques
 		ArtifactID:  artifactID,
 		SnapshotID:  newID("src"),
 		EventID:     newID("evt"),
-		Producer:    app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:    ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Fetched:     appFetchedMediaSource(fetched),
 	})
 	if err != nil {
@@ -1026,7 +1028,7 @@ func (server *Server) handlePDFURLSource(w http.ResponseWriter, r *http.Request,
 	}
 	fetched, err := server.fetchPDF(r.Context(), normalizedURL)
 	if err != nil {
-		server.recordSourceSnapshotFailure(r.Context(), missionID, app.SourceConnectorTypePDFURL, normalizedURL, err)
+		server.recordSourceSnapshotFailure(r.Context(), missionID, sourcecontract.ConnectorTypePDFURL, normalizedURL, err)
 		writeAppError(w, err)
 		return
 	}
@@ -1050,7 +1052,7 @@ func (server *Server) handlePDFURLSource(w http.ResponseWriter, r *http.Request,
 		ArtifactID: newID("art"),
 		SnapshotID: newID("src"),
 		EventID:    newID("evt"),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Fetched:    appFetchedPDFSource(fetched),
 		FetchedAt:  time.Now().UTC(),
 	})
@@ -1065,21 +1067,21 @@ func (server *Server) handlePDFURLSource(w http.ResponseWriter, r *http.Request,
 	})
 }
 
-func (server *Server) existingSourceSnapshotForContentHash(ctx context.Context, missionID string, sha string) (app.SourceSnapshot, bool, error) {
+func (server *Server) existingSourceSnapshotForContentHash(ctx context.Context, missionID string, sha string) (sourcecontract.Snapshot, bool, error) {
 	sha = strings.ToLower(strings.TrimSpace(sha))
 	if sha == "" {
-		return app.SourceSnapshot{}, false, nil
+		return sourcecontract.Snapshot{}, false, nil
 	}
 	sources, err := server.service.ListSourceSnapshots(ctx, missionID)
 	if err != nil {
-		return app.SourceSnapshot{}, false, err
+		return sourcecontract.Snapshot{}, false, err
 	}
 	for _, source := range sources {
 		if strings.EqualFold(strings.TrimSpace(source.ContentHash.Value), sha) {
 			return source, true, nil
 		}
 	}
-	return app.SourceSnapshot{}, false, nil
+	return sourcecontract.Snapshot{}, false, nil
 }
 
 const confluenceOAuthRefreshSkew = 2 * time.Minute

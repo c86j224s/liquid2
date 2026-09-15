@@ -19,9 +19,15 @@ func (runner Runner) RunOneTake(ctx context.Context, input BaseInput) (OneTakeCa
 	reportSessionPolicy := firstNonEmpty(input.ReportSessionPolicy, reportexecution.SessionPolicySameSession)
 	previousSessionID := latestSession(ctx, runner, input.MissionID, input.AgentExecutor)
 	started := time.Now()
+	userText := "generate quick markdown report artifact"
+	prompt := reportprompt.WithReportDirection(reportprompt.OneTakeMarkdownReportPrompt(input.Title, input.MissionID, toolSessionID, input.Rigor, input.GenerationGuidanceProfile), input.DirectionHint)
+	if input.OutputKind == reportexecution.OutputKindArticle {
+		userText = "generate article artifact"
+		prompt = reportprompt.WithArticleDirection(reportprompt.OneTakeMarkdownReportPrompt(input.Title, input.MissionID, toolSessionID, input.Rigor, input.GenerationGuidanceProfile), input.ArticleIntent, input.DirectionHint)
+	}
 	result, err := runner.Executor.Run(ctx, agentexec.AgentRequest{
-		UserText:          "generate quick markdown report artifact",
-		Prompt:            reportprompt.WithReportDirection(reportprompt.OneTakeMarkdownReportPrompt(input.Title, input.MissionID, toolSessionID, input.Rigor, input.GenerationGuidanceProfile), input.DirectionHint),
+		UserText:          userText,
+		Prompt:            prompt,
 		Model:             input.AgentModel,
 		ReasoningEffort:   input.AgentReasoningEffort,
 		MissionID:         input.MissionID,

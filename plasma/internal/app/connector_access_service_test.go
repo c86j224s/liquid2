@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 	"testing"
 )
@@ -9,7 +12,7 @@ import (
 func TestMissionConnectorAccessDefaultsOffAndReplaysLedger(t *testing.T) {
 	store := newConnectorAccessFakeStore()
 	svc := NewService(store)
-	got, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", ConfluenceConnectorID)
+	got, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", confluencesource.ConfluenceConnectorID)
 	if err != nil {
 		t.Fatalf("GetMissionConnectorAccess returned error: %v", err)
 	}
@@ -20,12 +23,12 @@ func TestMissionConnectorAccessDefaultsOffAndReplaysLedger(t *testing.T) {
 	result, err := svc.SetMissionConnectorAccess(context.Background(), SetConnectorAccessRequest{
 		EventID:      "evt_enable",
 		MissionID:    "mis_access",
-		ConnectorID:  ConfluenceConnectorID,
+		ConnectorID:  confluencesource.ConfluenceConnectorID,
 		Enabled:      true,
 		ConnectionID: "cnf_docs",
 		CloudID:      "cloud_1",
 		SpaceKey:     "ENG",
-		Producer:     Producer{Type: "user", ID: "plasma-ui"},
+		Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("SetMissionConnectorAccess enable returned error: %v", err)
@@ -37,7 +40,7 @@ func TestMissionConnectorAccessDefaultsOffAndReplaysLedger(t *testing.T) {
 		t.Fatalf("unexpected projected grant: %#v", result.Access)
 	}
 
-	replayed, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", ConfluenceConnectorID)
+	replayed, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", confluencesource.ConfluenceConnectorID)
 	if err != nil {
 		t.Fatalf("replay access: %v", err)
 	}
@@ -52,23 +55,23 @@ func TestMissionConnectorAccessUpdateDisableAndNoCredentialPayload(t *testing.T)
 	if _, err := svc.SetMissionConnectorAccess(context.Background(), SetConnectorAccessRequest{
 		EventID:      "evt_enable",
 		MissionID:    "mis_access",
-		ConnectorID:  ConfluenceConnectorID,
+		ConnectorID:  confluencesource.ConfluenceConnectorID,
 		Enabled:      true,
 		ConnectionID: "cnf_docs",
 		CloudID:      "cloud_1",
-		Producer:     Producer{Type: "user", ID: "plasma-ui"},
+		Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 	}); err != nil {
 		t.Fatalf("enable grant: %v", err)
 	}
 	updated, err := svc.SetMissionConnectorAccess(context.Background(), SetConnectorAccessRequest{
 		EventID:      "evt_update",
 		MissionID:    "mis_access",
-		ConnectorID:  ConfluenceConnectorID,
+		ConnectorID:  confluencesource.ConfluenceConnectorID,
 		Enabled:      true,
 		ConnectionID: "cnf_docs",
 		CloudID:      "cloud_1",
 		SpaceKey:     "OPS",
-		Producer:     Producer{Type: "user", ID: "plasma-ui"},
+		Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("update grant: %v", err)
@@ -79,8 +82,8 @@ func TestMissionConnectorAccessUpdateDisableAndNoCredentialPayload(t *testing.T)
 	disabled, err := svc.SetMissionConnectorAccess(context.Background(), SetConnectorAccessRequest{
 		EventID:     "evt_disable",
 		MissionID:   "mis_access",
-		ConnectorID: ConfluenceConnectorID,
-		Producer:    Producer{Type: "user", ID: "plasma-ui"},
+		ConnectorID: confluencesource.ConfluenceConnectorID,
+		Producer:    ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("disable grant: %v", err)
@@ -111,11 +114,11 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 			req: SetConnectorAccessRequest{
 				EventID:      "evt_agent",
 				MissionID:    "mis_access",
-				ConnectorID:  ConfluenceConnectorID,
+				ConnectorID:  confluencesource.ConfluenceConnectorID,
 				Enabled:      true,
 				ConnectionID: "cnf_docs",
 				CloudID:      "cloud_1",
-				Producer:     Producer{Type: "agent_session", ID: "ses_1"},
+				Producer:     ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			},
 			want: "user action",
 		},
@@ -124,11 +127,11 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 			req: SetConnectorAccessRequest{
 				EventID:      "evt_steering",
 				MissionID:    "mis_access",
-				ConnectorID:  ConfluenceConnectorID,
+				ConnectorID:  confluencesource.ConfluenceConnectorID,
 				Enabled:      true,
 				ConnectionID: "cnf_docs",
 				CloudID:      "cloud_1",
-				Producer:     Producer{Type: "steering_chat", ID: "chat_1"},
+				Producer:     ledger.Producer{Type: "steering_chat", ID: "chat_1"},
 			},
 			want: "user action",
 		},
@@ -137,11 +140,11 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 			req: SetConnectorAccessRequest{
 				EventID:      "evt_revoked",
 				MissionID:    "mis_access",
-				ConnectorID:  ConfluenceConnectorID,
+				ConnectorID:  confluencesource.ConfluenceConnectorID,
 				Enabled:      true,
 				ConnectionID: "cnf_revoked",
 				CloudID:      "cloud_1",
-				Producer:     Producer{Type: "user", ID: "plasma-ui"},
+				Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 			},
 			want: "revoked",
 		},
@@ -150,11 +153,11 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 			req: SetConnectorAccessRequest{
 				EventID:      "evt_cloud",
 				MissionID:    "mis_access",
-				ConnectorID:  ConfluenceConnectorID,
+				ConnectorID:  confluencesource.ConfluenceConnectorID,
 				Enabled:      true,
 				ConnectionID: "cnf_docs",
 				CloudID:      "cloud_other",
-				Producer:     Producer{Type: "user", ID: "plasma-ui"},
+				Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 			},
 			want: "cloud_id",
 		},
@@ -171,23 +174,23 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 	if _, err := svc.SetMissionConnectorAccess(context.Background(), SetConnectorAccessRequest{
 		EventID:      "evt_enable",
 		MissionID:    "mis_access",
-		ConnectorID:  ConfluenceConnectorID,
+		ConnectorID:  confluencesource.ConfluenceConnectorID,
 		Enabled:      true,
 		ConnectionID: "cnf_docs",
 		CloudID:      "cloud_1",
-		Producer:     Producer{Type: "user", ID: "plasma-ui"},
+		Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 	}); err != nil {
 		t.Fatalf("enable grant: %v", err)
 	}
-	store.connections["cnf_docs"] = ConfluenceConnection{
+	store.connections["cnf_docs"] = confluenceaccess.Connection{
 		ConnectionID: "cnf_docs",
 		DisplayName:  "Docs",
-		AuthType:     ConfluenceAuthTypeOAuth,
+		AuthType:     confluenceaccess.AuthOAuth,
 		AccessToken:  "secret-oauth-token",
 		Revoked:      true,
-		Sites:        []ConfluenceSite{{CloudID: "cloud_1", URL: "https://docs.atlassian.net"}},
+		Sites:        []confluenceaccess.Site{{CloudID: "cloud_1", URL: "https://docs.atlassian.net"}},
 	}
-	invalid, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", ConfluenceConnectorID)
+	invalid, err := svc.GetMissionConnectorAccess(context.Background(), "mis_access", confluencesource.ConfluenceConnectorID)
 	if err != nil {
 		t.Fatalf("get invalid projection: %v", err)
 	}
@@ -198,39 +201,39 @@ func TestMissionConnectorAccessValidationAndInvalidProjection(t *testing.T) {
 
 type connectorAccessFakeStore struct {
 	fakeStore
-	events      []LedgerEvent
-	connections map[string]ConfluenceConnection
+	events      []ledger.Event
+	connections map[string]confluenceaccess.Connection
 }
 
 func newConnectorAccessFakeStore() *connectorAccessFakeStore {
 	return &connectorAccessFakeStore{
-		connections: map[string]ConfluenceConnection{
+		connections: map[string]confluenceaccess.Connection{
 			"cnf_docs": {
 				ConnectionID: "cnf_docs",
 				DisplayName:  "Docs",
-				AuthType:     ConfluenceAuthTypeOAuth,
+				AuthType:     confluenceaccess.AuthOAuth,
 				AccessToken:  "secret-oauth-token",
-				Sites:        []ConfluenceSite{{CloudID: "cloud_1", Name: "Docs", URL: "https://docs.atlassian.net"}},
+				Sites:        []confluenceaccess.Site{{CloudID: "cloud_1", Name: "Docs", URL: "https://docs.atlassian.net"}},
 			},
 			"cnf_revoked": {
 				ConnectionID: "cnf_revoked",
 				DisplayName:  "Revoked",
-				AuthType:     ConfluenceAuthTypeOAuth,
+				AuthType:     confluenceaccess.AuthOAuth,
 				Revoked:      true,
-				Sites:        []ConfluenceSite{{CloudID: "cloud_1"}},
+				Sites:        []confluenceaccess.Site{{CloudID: "cloud_1"}},
 			},
 		},
 	}
 }
 
-func (f *connectorAccessFakeStore) AppendLedgerEvent(_ context.Context, event LedgerEvent) (LedgerEvent, error) {
+func (f *connectorAccessFakeStore) AppendLedgerEvent(_ context.Context, event ledger.Event) (ledger.Event, error) {
 	event.Sequence = int64(len(f.events) + 1)
 	f.events = append(f.events, event)
 	return event, nil
 }
 
-func (f *connectorAccessFakeStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	events := []LedgerEvent{}
+func (f *connectorAccessFakeStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	events := []ledger.Event{}
 	for _, event := range f.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -239,20 +242,20 @@ func (f *connectorAccessFakeStore) ListLedgerEvents(_ context.Context, missionID
 	return events, nil
 }
 
-func (f *connectorAccessFakeStore) UpsertConfluenceConnection(_ context.Context, connection ConfluenceConnection) error {
+func (f *connectorAccessFakeStore) UpsertConfluenceConnection(_ context.Context, connection confluenceaccess.Connection) error {
 	f.connections[connection.ConnectionID] = connection
 	return nil
 }
 
-func (f *connectorAccessFakeStore) GetConfluenceConnection(_ context.Context, connectionID string) (ConfluenceConnection, error) {
+func (f *connectorAccessFakeStore) GetConfluenceConnection(_ context.Context, connectionID string) (confluenceaccess.Connection, error) {
 	if connection, ok := f.connections[connectionID]; ok {
 		return connection, nil
 	}
-	return ConfluenceConnection{}, ErrInvalidInput
+	return confluenceaccess.Connection{}, ErrInvalidInput
 }
 
-func (f *connectorAccessFakeStore) ListConfluenceConnections(context.Context) ([]ConfluenceConnection, error) {
-	connections := make([]ConfluenceConnection, 0, len(f.connections))
+func (f *connectorAccessFakeStore) ListConfluenceConnections(context.Context) ([]confluenceaccess.Connection, error) {
+	connections := make([]confluenceaccess.Connection, 0, len(f.connections))
 	for _, connection := range f.connections {
 		connections = append(connections, connection)
 	}

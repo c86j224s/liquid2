@@ -22,6 +22,108 @@ type legacySourceBinding struct {
 	Quotes        []legacySourceQuote
 }
 
+// RecoverSourceSelectionCheckpoint verifies the source catalog that an
+// editorial-memory attempt read completely and promotes it to the existing
+// checkpoint format without preserving the failed memory workspace.
+func RecoverSourceSelectionCheckpoint(
+	ctx context.Context,
+	missionID,
+	pendingID string,
+	events []ledger.Event,
+	sources SourceReader,
+) (*reportilcontract.ResumeCheckpoint, error) {
+	attemptEvents := reportILAttemptEvents(events, pendingID)
+	if !legacyStageCompleted(attemptEvents, pendingID, "report.il_source_selection.completed") || !legacyStageFailed(attemptEvents, pendingID, "il_editorial_memory") {
+		return nil, fmt.Errorf("report IL source-selection checkpoint boundary is not recoverable")
+	}
+	candidateBuild, err := BuildSourceCatalogForSelection(ctx, sources, missionID)
+	if err != nil {
+		return nil, err
+	}
+	authorSHA, bindings := legacyEditorialSourceReads(attemptEvents)
+	candidateSHA, candidateCount := legacyCandidateCatalogTrace(attemptEvents)
+	if authorSHA == "" || len(bindings) == 0 || candidateSHA == "" ||
+		!strings.EqualFold(candidateSHA, candidateBuild.Catalog.SHA256) || candidateCount != len(candidateBuild.Catalog.Sources) {
+		return nil, fmt.Errorf("report IL source-selection checkpoint trace is incomplete")
+	}
+	authorCatalog, err := reconstructLegacyAuthorCatalog(candidateBuild, bindings)
+	if err != nil || !strings.EqualFold(authorCatalog.SHA256, authorSHA) {
+		return nil, fmt.Errorf("report IL source-selection checkpoint author catalog changed")
+	}
+	selectedOrdinals := make(map[int]bool, len(authorCatalog.Sources))
+	for _, source := range authorCatalog.Sources {
+		selectedOrdinals[source.AcceptedOrdinal] = true
+	}
+	selection := sourceSelectionReceipt(candidateBuild, candidateBuild.Catalog)
+	for _, disposition := range selection.Dispositions {
+		if disposition.Status == "excluded" {
+			selection.ExcludedUnusableSources++
+		}
+	}
+	selection.SelectedSources = len(authorCatalog.Sources)
+	selection.SelectedReadableBytes = sourceCatalogReadableBytes(authorCatalog)
+	selection.SelectedCatalogSHA256 = authorCatalog.SHA256
+	selection.AuthorCatalogSHA256 = authorCatalog.SHA256
+	for index, disposition := range selection.Dispositions {
+		switch {
+		case disposition.Status == "excluded":
+		case selectedOrdinals[disposition.AcceptedOrdinal]:
+			selection.Dispositions[index].Status = "selected"
+			selection.Dispositions[index].Reason = ""
+		default:
+			selection.Dispositions[index].Status = "excluded"
+			selection.Dispositions[index].Reason = "selection_budget"
+			selection.ExcludedBudgetSources++
+		}
+	}
+	selection.Applied = selection.ExcludedUnusableSources+selection.ExcludedBudgetSources > 0
+	selection.DispositionSHA256 = sourceSelectionDispositionSHA(selection.Dispositions)
+	checkpoint := NewSourceSelectionCheckpoint(ProductConfig{PendingEventID: pendingID}, candidateBuild.Catalog.SHA256, authorCatalog, candidateBuild.ImageCatalog, selection)
+	if err := reportilcontract.ValidateProductCheckpoint(checkpoint, missionID); err != nil {
+		return nil, err
+	}
+	return &reportilcontract.ResumeCheckpoint{ProductCheckpoint: checkpoint}, nil
+}
+
+func legacyEditorialSourceReads(events []ledger.Event) (string, []legacySourceBinding) {
+	catalogSHA := ""
+	bindings := []legacySourceBinding{}
+	seen := map[string]bool{}
+	for _, event := range events {
+		if event.EventType != "mcp.tool.called" {
+			continue
+		}
+		var payload struct {
+			ToolName  string `json:"tool_name"`
+			Success   bool   `json:"success"`
+			IOMetrics struct {
+				Stage         string `json:"report_il_stage"`
+				CatalogSHA256 string `json:"catalog_sha256"`
+				Remaining     int    `json:"remaining_sources"`
+				SourceReads   []struct {
+					SourceKey     string `json:"source_key"`
+					ContentLength int    `json:"content_length"`
+				} `json:"source_reads"`
+			} `json:"io_metrics"`
+		}
+		if json.Unmarshal(event.Payload, &payload) != nil || !payload.Success || payload.ToolName != reportilcontract.SourceReadTool || payload.IOMetrics.Stage != "il_editorial_memory" {
+			continue
+		}
+		if catalogSHA != "" && !strings.EqualFold(catalogSHA, payload.IOMetrics.CatalogSHA256) {
+			return "", nil
+		}
+		catalogSHA = payload.IOMetrics.CatalogSHA256
+		for _, read := range payload.IOMetrics.SourceReads {
+			if seen[read.SourceKey] {
+				continue
+			}
+			seen[read.SourceKey] = true
+			bindings = append(bindings, legacySourceBinding{SourceKey: read.SourceKey, ContentLength: read.ContentLength})
+		}
+	}
+	return catalogSHA, bindings
+}
+
 // RecoverPartsCheckpoint verifies a failed final-author attempt's completed
 // plan, Section, and Part artifacts before promoting them to a checkpoint.
 func RecoverPartsCheckpoint(
@@ -37,7 +139,9 @@ func RecoverPartsCheckpoint(
 	},
 ) (*reportilcontract.ResumeCheckpoint, error) {
 	attemptEvents := reportILAttemptEvents(events, pendingID)
-	if !legacyStageCompleted(attemptEvents, pendingID, "report.il_long_form_parts.completed") || !legacyStageFailed(attemptEvents, pendingID, "il_long_form_final") {
+	partsCompleted := legacyStageCompleted(attemptEvents, pendingID, "report.il_long_form_parts.completed")
+	failedAfterParts := legacyStageFailed(attemptEvents, pendingID, "il_long_form_parts") || legacyStageFailed(attemptEvents, pendingID, "il_long_form_final")
+	if !partsCompleted || !failedAfterParts {
 		return nil, fmt.Errorf("report IL Part checkpoint boundary is not recoverable")
 	}
 	candidateBuild, err := BuildSourceCatalogForSelection(ctx, sources, missionID)
@@ -52,7 +156,7 @@ func RecoverPartsCheckpoint(
 	}
 	authorCatalog, err := reconstructLegacyAuthorCatalog(candidateBuild, bindings)
 	if err != nil || !strings.EqualFold(authorCatalog.SHA256, authorSHA) {
-		return nil, fmt.Errorf("report IL Part checkpoint author catalog changed")
+		return nil, fmt.Errorf("report IL Part checkpoint author catalog changed: expected=%s actual=%s reconstruction=%v", authorSHA, authorCatalog.SHA256, err)
 	}
 	memory, memoryReceipt, err := documents.ReadReportILEditorialMemory(ctx, missionID, memorySession, authorCatalog)
 	if err != nil {
@@ -403,6 +507,13 @@ func reconstructLegacyAuthorCatalog(build SourceCatalogBuild, bindings []legacyS
 			if matched {
 				matches = append(matches, candidate)
 			}
+		}
+		if len(matches) > 1 {
+			// Repeated boilerplate sources can have the same short readable body and no
+			// registered quote. The server-owned author catalog preserves accepted
+			// ordinals in source-key order, so prefer the first still-unused ordinal
+			// that can satisfy this binding rather than making recovery impossible.
+			matches = matches[:1]
 		}
 		if len(matches) != 1 {
 			return reportilcontract.SourceCatalog{}, fmt.Errorf("legacy report IL source binding %s is ambiguous", binding.SourceKey)

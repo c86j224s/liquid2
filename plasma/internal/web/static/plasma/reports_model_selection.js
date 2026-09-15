@@ -11,21 +11,29 @@
     };
   }
 
-  function render(statuses, executor) {
-    const modelSelect = document.getElementById("reportAgentModel");
-    const effortSelect = document.getElementById("reportAgentReasoningEffort");
-    if (!modelSelect || !effortSelect) return;
-    const status = configuredStatus(statuses, executor);
-    const previous = modelSelect.value;
-    modelSelect.innerHTML = '<option value="">미션 설정 상속</option>';
-    (status?.models || []).forEach((model) => modelSelect.add(new Option(model.label || model.name, model.name)));
-    modelSelect.value = Array.from(modelSelect.options).some((option) => option.value === previous) ? previous : "";
-    refreshEfforts(status);
+  function selectionPairs() {
+    return [
+      ["articleAgentModel", "articleAgentReasoningEffort"],
+      ["reportAgentModel", "reportAgentReasoningEffort"]
+    ];
   }
 
-  function refreshEfforts(status) {
-    const modelSelect = document.getElementById("reportAgentModel");
-    const effortSelect = document.getElementById("reportAgentReasoningEffort");
+  function render(statuses, executor) {
+    const status = configuredStatus(statuses, executor);
+    for (const [modelID, effortID] of selectionPairs()) {
+      const modelSelect = document.getElementById(modelID);
+      if (!modelSelect || !document.getElementById(effortID)) continue;
+      const previous = modelSelect.value;
+      modelSelect.innerHTML = '<option value="">미션 설정 상속</option>';
+      (status?.models || []).forEach((model) => modelSelect.add(new Option(model.label || model.name, model.name)));
+      modelSelect.value = Array.from(modelSelect.options).some((option) => option.value === previous) ? previous : "";
+      refreshEfforts(status, modelID, effortID);
+    }
+  }
+
+  function refreshEfforts(status, modelID = "reportAgentModel", effortID = "reportAgentReasoningEffort") {
+    const modelSelect = document.getElementById(modelID);
+    const effortSelect = document.getElementById(effortID);
     if (!modelSelect || !effortSelect) return;
     const previous = effortSelect.value;
     const model = (status?.models || []).find((candidate) => candidate.name === modelSelect.value);

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 )
 
@@ -11,8 +12,8 @@ import (
 func (s *Service) AppendEventsConditionally(
 	ctx context.Context,
 	missionID string,
-	build func([]LedgerEvent) ([]AppendEventRequest, error),
-) ([]LedgerEvent, error) {
+	build func([]ledger.Event) ([]ledger.AppendRequest, error),
+) ([]ledger.Event, error) {
 	missionID = strings.TrimSpace(missionID)
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
@@ -24,12 +25,12 @@ func (s *Service) AppendEventsConditionally(
 	if !ok {
 		return nil, fmt.Errorf("%w: conditional ledger store is required", ErrInvalidInput)
 	}
-	return store.AppendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	return store.AppendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		reqs, err := build(events)
 		if err != nil {
 			return nil, err
 		}
-		built := make([]LedgerEvent, 0, len(reqs))
+		built := make([]ledger.Event, 0, len(reqs))
 		for _, req := range reqs {
 			if strings.TrimSpace(req.MissionID) != missionID {
 				return nil, fmt.Errorf("%w: conditional event mission differs", ErrInvalidInput)
@@ -52,21 +53,21 @@ func (s *Service) AppendEventsConditionally(
 func (s *Service) AppendEventConditionally(
 	ctx context.Context,
 	missionID string,
-	build func([]LedgerEvent) (AppendEventRequest, LedgerEvent, bool, error),
-) (LedgerEvent, bool, error) {
+	build func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error),
+) (ledger.Event, bool, error) {
 	missionID = strings.TrimSpace(missionID)
 	if err := validateID("mis_", missionID); err != nil {
-		return LedgerEvent{}, false, err
+		return ledger.Event{}, false, err
 	}
 	if build == nil {
-		return LedgerEvent{}, false, fmt.Errorf("%w: conditional event builder is required", ErrInvalidInput)
+		return ledger.Event{}, false, fmt.Errorf("%w: conditional event builder is required", ErrInvalidInput)
 	}
 	store, ok := s.store.(ConditionalLedgerStore)
 	if !ok {
-		return LedgerEvent{}, false, fmt.Errorf("%w: conditional ledger store is required", ErrInvalidInput)
+		return ledger.Event{}, false, fmt.Errorf("%w: conditional ledger store is required", ErrInvalidInput)
 	}
-	var replay LedgerEvent
-	appended, err := store.AppendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	var replay ledger.Event
+	appended, err := store.AppendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		req, existing, create, err := build(events)
 		if err != nil {
 			return nil, err
@@ -82,16 +83,16 @@ func (s *Service) AppendEventConditionally(
 		if err != nil {
 			return nil, err
 		}
-		return []LedgerEvent{event}, nil
+		return []ledger.Event{event}, nil
 	})
 	if err != nil {
-		return LedgerEvent{}, false, err
+		return ledger.Event{}, false, err
 	}
 	if replay.EventID != "" {
 		return replay, false, nil
 	}
 	if len(appended) != 1 {
-		return LedgerEvent{}, false, fmt.Errorf("%w: conditional event was not appended", ErrConflict)
+		return ledger.Event{}, false, fmt.Errorf("%w: conditional event was not appended", ErrConflict)
 	}
 	return appended[0], true, nil
 }

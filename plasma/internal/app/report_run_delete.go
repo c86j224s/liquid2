@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 	"time"
 
@@ -32,7 +33,7 @@ type ReportDeleteRequest struct {
 	ExpectedRevision     int64
 	DeleteFactsHash      string
 	ActivePendingEventID string
-	Producer             Producer
+	Producer             ledger.Producer
 }
 
 // ReportDeleteResult is returned after a successful report-run purge.
@@ -144,7 +145,7 @@ func validateReportDeleteTarget(missionID string, artifactID string) (string, st
 	return missionID, artifactID, nil
 }
 
-func appReportRunEvents(events []LedgerEvent) []reportrun.Event {
+func appReportRunEvents(events []ledger.Event) []reportrun.Event {
 	out := make([]reportrun.Event, 0, len(events))
 	for _, event := range events {
 		out = append(out, reportrun.Event{

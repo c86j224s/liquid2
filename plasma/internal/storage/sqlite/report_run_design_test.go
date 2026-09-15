@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 )
 
@@ -39,7 +42,7 @@ func TestDesignedReportHTMLExportConditionalCommitRegistersTwoArtifactsAtomicall
 	if event.EventType != "report.artifact.exported" {
 		t.Fatalf("unexpected terminal event: %#v", event)
 	}
-	for _, artifact := range []app.RawArtifact{model, html} {
+	for _, artifact := range []artifactcontract.Raw{model, html} {
 		if countRows(t, ctx, store, `SELECT COUNT(*) FROM plasma_raw_artifacts WHERE artifact_id = ?`, artifact.ArtifactID) != 1 {
 			t.Fatalf("artifact %s was not committed", artifact.ArtifactID)
 		}
@@ -52,11 +55,11 @@ func TestDesignedReportHTMLExportConditionalCommitLeavesNoArtifactsWhenPendingCl
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_design_closed", "evt_rr_design_closed_root", "evt_rr_design_closed_final", "art_rr_design_closed_final")
 	pendingID := appendDesignPending(t, ctx, store, final.MissionID, final.ArtifactID, "evt_rr_design_closed_pending")
 	svc := app.NewService(store)
-	if _, ok, err := svc.AppendReportTerminalIfOpen(ctx, final.MissionID, pendingID, []app.AppendEventRequest{{
+	if _, ok, err := svc.AppendReportTerminalIfOpen(ctx, final.MissionID, pendingID, []ledger.AppendRequest{{
 		EventID:   "evt_rr_design_closed_failed",
 		MissionID: final.MissionID,
 		EventType: "report.design.failed",
-		Producer:  app.Producer{Type: "agent", ID: "test"},
+		Producer:  ledger.Producer{Type: "agent", ID: "test"},
 		Payload:   []byte(`{"pending_event_id":"` + pendingID + `","kind":"report_design_canceled","canceled":true}`),
 	}}); err != nil || !ok {
 		t.Fatalf("closing design pending failed: ok=%t err=%v", ok, err)
@@ -88,7 +91,7 @@ func TestDesignedReportHTMLExportConditionalCommitRollsBackRegistrationError(t *
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_design_reg_fail", "evt_rr_design_reg_root", "evt_rr_design_reg_final", "art_rr_design_reg_final")
 	pendingID := appendDesignPending(t, ctx, store, final.MissionID, final.ArtifactID, "evt_rr_design_reg_pending")
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_design_reg_other", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_design_reg_other", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission other returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, "mis_rr_design_reg_other", "art_rr_design_reg_foreign", []byte("foreign"))
@@ -104,25 +107,25 @@ func TestReportRunNativeRejectsCrossMissionArtifactReference(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_native_cross", "evt_rr_native_cross_root", "evt_rr_native_cross_final", "art_rr_native_cross_final")
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_native_cross_other", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_native_cross_other", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission other returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, "mis_rr_native_cross_other", "art_rr_native_cross_foreign", []byte("foreign"))
 	svc := app.NewService(store)
 
-	_, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	_, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_native_cross_html",
 		MissionID:  final.MissionID,
 		MediaType:  "text/html",
 		Filename:   "cross.html",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("<html></html>"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_native_cross_export",
 			MissionID: final.MissionID,
 			EventType: "report.artifact.exported",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload:   []byte(`{"pending_event_id":"evt_rr_native_cross_root","source_artifact_id":"art_rr_native_cross_foreign","artifact_id":"` + artifact.ArtifactID + `"}`),
 		}
 	})
@@ -136,10 +139,10 @@ func TestReportRunBackfillCrossMissionArtifactReferenceMarksRunAmbiguous(t *test
 	ctx := context.Background()
 	store := newTestStore(t)
 	missionID := "mis_rr_backfill_cross"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_backfill_cross_other", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_backfill_cross_other", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission other returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, "mis_rr_backfill_cross_other", "art_rr_backfill_cross_foreign", []byte("foreign"))
@@ -176,7 +179,7 @@ func TestReportRunDeleteFactsBlocksExistingMissionInconsistentProjection(t *test
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_projection_mismatch", "evt_rr_projection_root", "evt_rr_projection_final", "art_rr_projection_final")
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_projection_other", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_projection_other", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission other returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, "mis_rr_projection_other", "art_rr_projection_foreign", []byte("foreign"))
@@ -201,39 +204,39 @@ INSERT INTO plasma_report_run_artifacts (
 
 func appendDesignPending(t *testing.T, ctx context.Context, store *Store, missionID string, sourceArtifactID string, pendingID string) string {
 	t.Helper()
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.design.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"kind":"designed_html_report_pending","source_artifact_id":"` + sourceArtifactID + `","target":"designed_html","renderer_version":"test"}`),
 	})
 	return pendingID
 }
 
-func commitDesignedExport(t *testing.T, ctx context.Context, store *Store, missionID string, pendingID string, sourceArtifactID string, modelID string, htmlID string) (app.RawArtifact, app.RawArtifact, app.LedgerEvent, bool, error) {
+func commitDesignedExport(t *testing.T, ctx context.Context, store *Store, missionID string, pendingID string, sourceArtifactID string, modelID string, htmlID string) (artifactcontract.Raw, artifactcontract.Raw, ledger.Event, bool, error) {
 	t.Helper()
 	svc := app.NewService(store)
-	return svc.CreateDesignedReportHTMLExportIfOpen(ctx, missionID, pendingID, app.CreateRawArtifactRequest{
+	return svc.CreateDesignedReportHTMLExportIfOpen(ctx, missionID, pendingID, artifactcontract.CreateRequest{
 		ArtifactID: modelID,
 		MissionID:  missionID,
 		MediaType:  "application/json",
 		Filename:   modelID + ".json",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte(`{"title":"Designed"}`),
-	}, app.CreateRawArtifactRequest{
+	}, artifactcontract.CreateRequest{
 		ArtifactID: htmlID,
 		MissionID:  missionID,
 		MediaType:  "text/html",
 		Filename:   htmlID + ".html",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("<!doctype html><title>Designed</title>"),
-	}, func(model app.RawArtifact, html app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(model artifactcontract.Raw, html artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_design_export_" + pendingID,
 			MissionID: missionID,
 			EventType: "report.artifact.exported",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload: []byte(`{"kind":"designed_html_report_artifact","pending_event_id":"` + pendingID +
 				`","source_artifact_id":"` + sourceArtifactID +
 				`","content_model_artifact_id":"` + model.ArtifactID +

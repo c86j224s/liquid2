@@ -3,11 +3,12 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportil"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 func TestReportILEditorialMemoryWorkspaceRequiresLatestCompleteReread(t *testing.T) {
@@ -72,7 +73,7 @@ func TestReportILEditorialMemoryWorkspaceRequiresLatestCompleteReread(t *testing
 		Arguments: mustArgs(t, map[string]any{
 			"workspace_id": workspaceID,
 			"offset":       0,
-			"max_bytes":    reportILDocumentMaxReadBytes,
+			"max_bytes":    reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if read.Error != nil || read.Content.(reportILEditorialMemoryReadOutput).Truncated {
@@ -91,7 +92,7 @@ func TestReportILEditorialMemoryWorkspaceRequiresLatestCompleteReread(t *testing
 		Arguments: mustArgs(t, map[string]any{
 			"workspace_id": workspaceID,
 			"offset":       1,
-			"max_bytes":    reportILDocumentMaxReadBytes,
+			"max_bytes":    reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if wrongOffset.Error == nil || !strings.Contains(wrongOffset.Error.Message, "start at offset 0") {
@@ -102,7 +103,7 @@ func TestReportILEditorialMemoryWorkspaceRequiresLatestCompleteReread(t *testing
 		Arguments: mustArgs(t, map[string]any{
 			"workspace_id": workspaceID,
 			"offset":       0,
-			"max_bytes":    reportILDocumentMaxReadBytes,
+			"max_bytes":    reportil.ReportILDocumentMaxReadBytes,
 		}),
 	}); reread.Error != nil || reread.Content.(reportILEditorialMemoryReadOutput).Truncated {
 		t.Fatalf("latest memory reread = %#v", reread)
@@ -173,7 +174,7 @@ func TestReportILEditorialMemoryPersistsExactCausativeAnchor(t *testing.T) {
 	read := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILEditorialMemoryRead,
 		Arguments: mustArgs(t, map[string]any{
-			"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+			"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if read.Error != nil || !strings.Contains(read.Content.(reportILEditorialMemoryReadOutput).Content, causative) {
@@ -214,7 +215,7 @@ func TestReportILEditorialMemoryRejectsMissingMismatchedOrConsumedAnchor(t *test
 	binding.Catalog.Sources = append(binding.Catalog.Sources, reportilcontract.SourceCatalogEntry{
 		SourceKey: "source_002", SnapshotID: "src_second",
 		SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_second", secondHash),
-		ContentHash:     secondHash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+		ContentHash:     secondHash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 		Artifacts: []reportilcontract.SourceCatalogArtifact{{
 			ArtifactID: "art_second", SHA256: secondHash, ByteSize: int64(len(secondText)), MediaType: "text/plain",
 		}},
@@ -225,13 +226,13 @@ func TestReportILEditorialMemoryRejectsMissingMismatchedOrConsumedAnchor(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.sources = append(service.sources, app.SourceSnapshot{
+	service.sources = append(service.sources, sourcecontract.Snapshot{
 		SnapshotID: "src_second", MissionID: binding.Catalog.MissionID, ArtifactIDs: []string{"art_second"},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: secondHash},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-		State:       app.SourceState{State: app.SourceStateActive},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: secondHash},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+		State:       sourcecontract.State{State: sourcecontract.StateActive},
 	})
-	service.artifacts["art_second"] = app.RawArtifact{
+	service.artifacts["art_second"] = artifactcontract.Raw{
 		ArtifactID: "art_second", MissionID: binding.Catalog.MissionID, MediaType: "text/plain",
 		ByteSize: int64(len(secondText)), SHA256: secondHash, Content: secondText,
 	}
@@ -278,7 +279,7 @@ func TestReportILEditorialMemoryRejectsMissingMismatchedOrConsumedAnchor(t *test
 	if consumed.Error == nil || consumed.Error.ErrorKind != "validation" {
 		t.Fatalf("consumed anchor reused = %#v", consumed)
 	}
-	if got := len(server.reportILEditorialMemoryWorkspaces[workspaceID].Memory.Accounts); got != 1 {
+	if got := len(server.reportILState.Editorial.Workspaces[workspaceID].Memory.Accounts); got != 1 {
 		t.Fatalf("invalid append mutated account count = %d", got)
 	}
 }
@@ -294,7 +295,7 @@ func TestReportILEditorialMemoryDownstreamReadRequiresBoundHashAndIsReadOnly(t *
 	first := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILEditorialMemoryRead,
 		Arguments: mustArgs(t, map[string]any{
-			"offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+			"offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if first.Error != nil || first.Content.(reportILEditorialMemoryReadOutput).ReportILStage != "il_narrative" {
@@ -321,7 +322,7 @@ func TestReportILEditorialMemoryDownstreamReadRequiresBoundHashAndIsReadOnly(t *
 	read := fresh.Call(context.Background(), ToolCall{
 		Name: ToolReportILEditorialMemoryRead,
 		Arguments: mustArgs(t, map[string]any{
-			"offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+			"offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if read.Error == nil || !strings.Contains(read.Error.Message, "artifact binding is invalid") {
@@ -370,7 +371,7 @@ func TestReportILEditorialMemoryRejectsDuplicateOrUnavailableAccountSources(t *t
 			}
 		})
 	}
-	if len(server.reportILEditorialMemoryWorkspaces[workspaceID].Memory.Accounts) != 0 {
+	if len(server.reportILState.Editorial.Workspaces[workspaceID].Memory.Accounts) != 0 {
 		t.Fatal("invalid memory append mutated workspace")
 	}
 }

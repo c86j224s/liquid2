@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -25,7 +27,7 @@ func TestFinalEditAssemblyCreatesDeterministicArtifactAndReplays(t *testing.T) {
 	}
 	wantMarkdown := reporting.AssembleLongFormFinalMarkdown(binding.Title, "", "", []string{"# Part 1\n\nPreserved body.\n"})
 	if result.Artifact.ArtifactID != assemblyID ||
-		result.Artifact.Producer != (app.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}) ||
+		result.Artifact.Producer != (ledger.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}) ||
 		result.Artifact.MediaType != "text/markdown; charset=utf-8" ||
 		result.Artifact.Filename != binding.Filename ||
 		string(result.Artifact.Content) != wantMarkdown ||
@@ -33,7 +35,7 @@ func TestFinalEditAssemblyCreatesDeterministicArtifactAndReplays(t *testing.T) {
 		t.Fatalf("assembly artifact contract mismatch: %#v", result)
 	}
 	if result.Event.EventType != reporting.FinalEditAssemblyCreatedEventType ||
-		result.Event.Producer != (app.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}) ||
+		result.Event.Producer != (ledger.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}) ||
 		result.Event.CausationEventID != binding.PlanEventID ||
 		result.Event.CorrelationID != reporting.FinalEditAssemblyIdempotencyKey(binding.PlanEventID, binding.PartArtifactIDs) {
 		t.Fatalf("assembly event envelope mismatch: %#v", result.Event)
@@ -75,18 +77,18 @@ func TestFinalEditAssemblyReplayRejectsTamperedSourceWordCount(t *testing.T) {
 	assemblyID := reporting.FinalEditAssemblyArtifactID(binding.PlanEventID, binding.PartArtifactIDs)
 	writer := longFormFinalEditStageBinding(binding, reporting.FinalEditStageWriter, assemblyID, "art_writer_tampered_metric", "")
 	markdown := reporting.AssembleLongFormFinalMarkdown(binding.Title, "", "", []string{"# Part 1\n\nPreserved body.\n"})
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: assemblyID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
-		Producer: app.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}, Content: []byte(markdown),
+		Producer: ledger.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID}, Content: []byte(markdown),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_assembly_tampered_metric", MissionID: binding.MissionID,
 		EventType:        reporting.FinalEditAssemblyCreatedEventType,
-		Producer:         app.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID},
+		Producer:         ledger.Producer{Type: "system", ID: reporting.FinalEditAssemblyProducerID},
 		CausationEventID: binding.PlanEventID,
 		CorrelationID:    reporting.FinalEditAssemblyIdempotencyKey(binding.PlanEventID, binding.PartArtifactIDs),
 		Payload: testJSON(map[string]any{

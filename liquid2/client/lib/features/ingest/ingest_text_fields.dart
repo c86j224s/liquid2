@@ -14,6 +14,7 @@ class IngestUrlField extends StatelessWidget {
         labelText: 'URL',
       ),
       keyboardType: TextInputType.url,
+      autofocus: true,
     );
   }
 }

@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -102,7 +103,7 @@ func TestReportLongFormEditToolsFinalizeEditedBoundManuscript(t *testing.T) {
 	if !strings.Contains(string(artifact.Content), "Edited body.") || strings.Contains(string(artifact.Content), "Preserved body.") {
 		t.Fatalf("final artifact did not preserve exact edit: %q", artifact.Content)
 	}
-	var canonical app.LedgerEvent
+	var canonical ledger.Event
 	for _, event := range service.ledgerEvents {
 		if event.EventType == "report.artifact.created" {
 			canonical = event
@@ -182,11 +183,11 @@ func testNarrativeLongFormFinalizeBinding() reporting.LongFormFinalizeBinding {
 
 func seededLongFormEditService(binding reporting.LongFormFinalizeBinding) *fakeMCPService {
 	producer := binding.Producer
-	part := app.RawArtifact{ArtifactID: binding.PartArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: producer, Content: []byte("# Part 1\n\nPreserved body.\n")}
+	part := artifactcontract.Raw{ArtifactID: binding.PartArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: producer, Content: []byte("# Part 1\n\nPreserved body.\n")}
 	return &fakeMCPService{
-		artifacts: map[string]app.RawArtifact{part.ArtifactID: part},
-		ledgerEvents: []app.LedgerEvent{
-			{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
+		artifacts: map[string]artifactcontract.Raw{part.ArtifactID: part},
+		ledgerEvents: []ledger.Event{
+			{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
 			{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: producer, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "report_mode": "long_form", "artifact_id": binding.ArtifactID})},
 			{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: producer, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
 			{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: producer, Payload: mustJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SectionArtifactIDs[0], "part_index": 1, "section_index": 1})},

@@ -1,5 +1,6 @@
 // Package localpath는 allowlist된 로컬 경로를 bounded source로 관찰하는 engine을
-// 제공한다.
+// 제공한다. source-owned LocalPathReader port와 DTO를 구현하며, filesystem/configuration
+// 및 OS/PDF 세부 동작은 이 adapter가 소유한다.
 //
 // 이 패키지는 root ID와 상대 경로만 받아 read, tree, grep을 수행하고 절대 경로와
 // 파일 본문이 설정 경계 밖으로 나가지 않게 제한한다. 거부 결과에는 적용된 deny

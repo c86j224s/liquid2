@@ -3,9 +3,11 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
@@ -74,7 +76,7 @@ type SourceCandidateFetcher func(context.Context, string) (sourceretrieval.Fetch
 
 // ConfluenceConnectorFactory는 tool 호출 시점의 Confluence connection 정보를
 // connector adapter로 바꾸는 factory다.
-type ConfluenceConnectorFactory func(context.Context, ConfluenceConnectorRequest) (app.ConfluenceSourceConnector, error)
+type ConfluenceConnectorFactory func(context.Context, ConfluenceConnectorRequest) (confluencesource.ConfluenceSourceConnector, error)
 
 // ConfluenceConnectorRequest는 MCP 요청에서 선택된 Confluence connection 범위를
 // factory에 전달하는 값이다.
@@ -85,10 +87,10 @@ type ConfluenceConnectorRequest struct {
 }
 
 // WithLiquid2Connector는 Liquid2 source search/read tool에 사용할 connector를 등록한다.
-func WithLiquid2Connector(connector app.Liquid2SourceConnector) Option {
+func WithLiquid2Connector(connector liquid2source.Liquid2SourceConnector) Option {
 	return func(server *Server) {
 		if connector != nil {
-			server.connectors[app.Liquid2ConnectorID] = connector
+			server.connectors[liquid2source.Liquid2ConnectorID] = connector
 		}
 	}
 }
@@ -270,15 +272,15 @@ func (server *Server) validateFinalEditConfiguration() error {
 	switch strings.TrimSpace(server.finalEditStageBinding.Stage) {
 	case reporting.FinalEditStageWriter:
 		if finalProvided {
-			return fmt.Errorf("%w: final writer final edit stage MCP server must not carry a final binding", app.ErrInvalidInput)
+			return fmt.Errorf("%w: final writer final edit stage MCP server must not carry a final binding", producterror.ErrInvalidInput)
 		}
 	case reporting.FinalEditStageReader, reporting.FinalEditStageStyle, reporting.FinalEditStageStyleSemanticValidation:
 		if finalProvided {
-			return fmt.Errorf("%w: reader/style validation final edit stage MCP servers must not carry a final binding", app.ErrInvalidInput)
+			return fmt.Errorf("%w: reader/style validation final edit stage MCP servers must not carry a final binding", producterror.ErrInvalidInput)
 		}
 	case reporting.FinalEditStageGate, reporting.FinalEditStageEvidenceGate:
 		if !finalProvided {
-			return fmt.Errorf("%w: final edit gate MCP server requires a final binding", app.ErrInvalidInput)
+			return fmt.Errorf("%w: final edit gate MCP server requires a final binding", producterror.ErrInvalidInput)
 		}
 		if err := ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding); err != nil {
 			return err
@@ -287,7 +289,7 @@ func (server *Server) validateFinalEditConfiguration() error {
 			return err
 		}
 	default:
-		return fmt.Errorf("%w: unsupported final edit stage", app.ErrInvalidInput)
+		return fmt.Errorf("%w: unsupported final edit stage", producterror.ErrInvalidInput)
 	}
 	return nil
 }

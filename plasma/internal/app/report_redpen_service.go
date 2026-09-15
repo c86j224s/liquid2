@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // GetReportRedpenWorkcopy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
@@ -48,7 +51,7 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 	if !utf8.Valid(req.Content) {
 		return ReportRedpenWorkcopy{}, fmt.Errorf("%w: redpen content must be UTF-8", ErrInvalidInput)
 	}
-	candidate, err := buildRawArtifact(CreateRawArtifactRequest{
+	candidate, err := artifactcontract.Build(artifactcontract.CreateRequest{
 		ArtifactID: req.ArtifactID,
 		MissionID:  req.MissionID,
 		MediaType:  "text/markdown; charset=utf-8",
@@ -60,23 +63,23 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 		return ReportRedpenWorkcopy{}, err
 	}
 
-	artifact, event, changed, err := store.CommitReportRedpenRevision(ctx, candidate, func(events []LedgerEvent, target RawArtifact, artifactOwnership string) (LedgerEvent, bool, error) {
+	artifact, event, changed, err := store.CommitReportRedpenRevision(ctx, candidate, func(events []ledger.Event, target artifactcontract.Raw, artifactOwnership string) (ledger.Event, bool, error) {
 		currentPayload, currentEvent, exists, err := latestReportRedpenEvent(events, source.ArtifactID)
 		if err != nil {
-			return LedgerEvent{}, false, err
+			return ledger.Event{}, false, err
 		}
 		expected := strings.TrimSpace(req.ExpectedCurrentArtifactID)
 		if !exists && expected != "" {
-			return LedgerEvent{}, false, fmt.Errorf("%w: redpen workcopy does not exist", ErrConflict)
+			return ledger.Event{}, false, fmt.Errorf("%w: redpen workcopy does not exist", ErrConflict)
 		}
 		if exists && expected != currentPayload.ArtifactID {
-			return LedgerEvent{}, false, fmt.Errorf("%w: redpen workcopy changed in another session", ErrConflict)
+			return ledger.Event{}, false, fmt.Errorf("%w: redpen workcopy changed in another session", ErrConflict)
 		}
 		if exists && candidate.SHA256 == currentPayload.SHA256 {
 			return currentEvent, false, nil
 		}
 		if !isMarkdownArtifactMediaType(target.MediaType) {
-			return LedgerEvent{}, false, fmt.Errorf("%w: redpen content matches a non-Markdown artifact", ErrConflict)
+			return ledger.Event{}, false, fmt.Errorf("%w: redpen content matches a non-Markdown artifact", ErrConflict)
 		}
 
 		workcopyID := req.NewWorkcopyID
@@ -101,7 +104,7 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 		}
 		eventReq, err := payload.appendRequest(req, currentEvent)
 		if err != nil {
-			return LedgerEvent{}, false, err
+			return ledger.Event{}, false, err
 		}
 		built, err := buildLedgerEvent(eventReq)
 		return built, err == nil, err
@@ -116,26 +119,26 @@ func (s *Service) SaveReportRedpenWorkcopy(ctx context.Context, req SaveReportRe
 	return reportRedpenWorkcopy(payload, artifact, event, changed), nil
 }
 
-func (s *Service) reportRedpenSource(ctx context.Context, missionID, sourceArtifactID string) (RawArtifact, []LedgerEvent, error) {
+func (s *Service) reportRedpenSource(ctx context.Context, missionID, sourceArtifactID string) (artifactcontract.Raw, []ledger.Event, error) {
 	if err := validateID("mis_", missionID); err != nil {
-		return RawArtifact{}, nil, err
+		return artifactcontract.Raw{}, nil, err
 	}
 	if err := validateID("art_", sourceArtifactID); err != nil {
-		return RawArtifact{}, nil, err
+		return artifactcontract.Raw{}, nil, err
 	}
 	artifact, err := s.GetRawArtifact(ctx, sourceArtifactID)
 	if err != nil {
-		return RawArtifact{}, nil, err
+		return artifactcontract.Raw{}, nil, err
 	}
 	if artifact.MissionID != missionID || !isMarkdownArtifactMediaType(artifact.MediaType) {
-		return RawArtifact{}, nil, fmt.Errorf("%w: redpen source must be a Markdown report artifact in the mission", ErrInvalidInput)
+		return artifactcontract.Raw{}, nil, fmt.Errorf("%w: redpen source must be a Markdown report artifact in the mission", ErrInvalidInput)
 	}
 	events, err := s.ListEvents(ctx, missionID)
 	if err != nil {
-		return RawArtifact{}, nil, err
+		return artifactcontract.Raw{}, nil, err
 	}
 	if !hasReportRedpenSourceEvent(events, artifact.ArtifactID) {
-		return RawArtifact{}, nil, fmt.Errorf("%w: redpen source must be a Markdown report artifact in the mission", ErrInvalidInput)
+		return artifactcontract.Raw{}, nil, fmt.Errorf("%w: redpen source must be a Markdown report artifact in the mission", ErrInvalidInput)
 	}
 	return artifact, events, nil
 }

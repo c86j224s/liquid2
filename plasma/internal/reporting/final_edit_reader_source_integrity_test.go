@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 )
 
 func TestFinalEditReaderStartRejectsPartArtifactSHAMismatch(t *testing.T) {
@@ -34,7 +35,7 @@ type finalEditTamperedArtifactStore struct {
 	artifactID string
 }
 
-func (s finalEditTamperedArtifactStore) GetRawArtifact(ctx context.Context, artifactID string) (app.RawArtifact, error) {
+func (s finalEditTamperedArtifactStore) GetRawArtifact(ctx context.Context, artifactID string) (artifactcontract.Raw, error) {
 	artifact, err := s.FinalEditStageStore.GetRawArtifact(ctx, artifactID)
 	if err == nil && artifactID == s.artifactID {
 		artifact.Content = append([]byte(nil), artifact.Content...)

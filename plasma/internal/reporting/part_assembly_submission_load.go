@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // LoadPartAssemblySubmission는 part assembly 제출 이벤트와 artifact를 장부에서 복원한다.
@@ -39,7 +39,7 @@ func LoadPartAssemblySubmission(ctx context.Context, store PartAssemblySubmissio
 		return PartAssemblySubmission{}, false, nil
 	}
 	if count != 1 {
-		return PartAssemblySubmission{}, false, fmt.Errorf("%w: multiple part assembly submissions match binding", app.ErrConflict)
+		return PartAssemblySubmission{}, false, fmt.Errorf("%w: multiple part assembly submissions match binding", producterror.ErrConflict)
 	}
 	return found, true, nil
 }
@@ -48,10 +48,10 @@ func LoadPartAssemblySubmission(ctx context.Context, store PartAssemblySubmissio
 func ValidatePartAssemblyBinding(value PartAssemblyBinding) error {
 	value = normalizePartAssemblyBinding(value)
 	if value.MissionID == "" || value.PendingEventID == "" || value.PlanEventID == "" || value.ToolSessionID == "" || value.AgentExecutor == "" || value.PartIndex < 1 || value.SectionCount < 1 {
-		return fmt.Errorf("%w: part assembly binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part assembly binding is incomplete", producterror.ErrInvalidInput)
 	}
 	if value.Producer.Type != "agent_session" || value.Producer.ID != value.ToolSessionID {
-		return fmt.Errorf("%w: part assembly producer binding mismatch", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part assembly producer binding mismatch", producterror.ErrInvalidInput)
 	}
 	return nil
 }
@@ -90,7 +90,7 @@ func ValidatePartAssemblySectionReadBinding(value PartAssemblyBinding) error {
 		return err
 	}
 	if len(value.SectionArtifactIDs) != value.SectionCount || duplicateStrings(value.SectionArtifactIDs) {
-		return fmt.Errorf("%w: part assembly Section artifact binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part assembly Section artifact binding is incomplete", producterror.ErrInvalidInput)
 	}
 	return nil
 }

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestAppendStageFailureUsesSafePayload(t *testing.T) {
@@ -21,7 +21,7 @@ func TestAppendStageFailureUsesSafePayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc := &fakeRunnerService{}
 			runner := Runner{Service: svc, NewID: testRunnerID}
-			_, err := runner.AppendStageFailure(context.Background(), StageFailureRequest{MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", StageKind: tc.kind, PartIndex: tc.part, SectionIndex: tc.section, ErrorClass: "agent_failed", Message: "safe failure", Retryable: true, Producer: app.Producer{Type: "agent", ID: "codex"}})
+			_, err := runner.AppendStageFailure(context.Background(), StageFailureRequest{MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", StageKind: tc.kind, PartIndex: tc.part, SectionIndex: tc.section, ErrorClass: "agent_failed", Message: "safe failure", Retryable: true, Producer: ledger.Producer{Type: "agent", ID: "codex"}})
 			if err != nil {
 				t.Fatal(err)
 			}

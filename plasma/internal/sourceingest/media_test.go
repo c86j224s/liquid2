@@ -3,6 +3,7 @@ package sourceingest
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"testing"
 )
 
@@ -140,9 +141,9 @@ func TestCreateFetchedMediaURLSourceWithEventStoresAudioLiveReference(t *testing
 	})
 }
 
-func oneMediaLocator(t *testing.T, raw json.RawMessage) MediaLocator {
+func oneMediaLocator(t *testing.T, raw json.RawMessage) source.MediaLocator {
 	t.Helper()
-	var locators []MediaLocator
+	var locators []source.MediaLocator
 	if err := json.Unmarshal(raw, &locators); err != nil {
 		t.Fatalf("unmarshal locators: %v", err)
 	}

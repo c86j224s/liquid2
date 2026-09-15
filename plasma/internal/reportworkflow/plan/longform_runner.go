@@ -43,11 +43,11 @@ func (runner Runner) RunLongForm(ctx context.Context, input LongFormInput) (Long
 		eventText = "섹션 병렬 장문 Markdown 리포트 생성 계획을 만들었습니다."
 		sessionChainKind = "section_fanout_report"
 	}
-	lifecycle, err := runner.Lifecycle.RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+	lifecycle, err := runner.RunReportPlanLifecycle(ctx, ReportPlanLifecycleRequest{
 		MissionID: input.MissionID, PendingEventID: input.PendingEventID, ReportMode: reportexecution.ModeLongForm,
 		AgentExecutor: input.AgentExecutor, AgentModel: input.AgentModel, AgentReasoningEffort: input.AgentReasoningEffort,
 		PreviousProviderSessionID: reportStartSessionID,
-		Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
+		Invoke: func(ctx context.Context, binding ReportPlanLifecycleBinding) (ReportPlanLifecycleAgentResult, error) {
 			planStarted := time.Now()
 			result, runErr := runner.Executor.Run(ctx, agentexec.AgentRequest{
 				UserText: userText,
@@ -66,19 +66,19 @@ func (runner Runner) RunLongForm(ctx context.Context, input LongFormInput) (Long
 			planDurationMS = time.Since(planStarted).Milliseconds()
 			planResult = result
 			if runErr != nil {
-				return reporting.ReportPlanLifecycleAgentResult{}, longformutil.StageFailure("plan", "", 0, 0,
+				return ReportPlanLifecycleAgentResult{}, longformutil.StageFailure("plan", "", 0, 0,
 					reportAgentFailure(runErr, result, "report_plan", planDurationMS, reportStartSessionID))
 			}
 			returnedPlanSessionID = strings.TrimSpace(result.SessionID)
 			validated, validateErr := validateSameSessionResult(result, reportStartSessionID)
 			if validateErr != nil {
-				return reporting.ReportPlanLifecycleAgentResult{}, longformutil.StageFailure("plan", "", 0, 0,
+				return ReportPlanLifecycleAgentResult{}, longformutil.StageFailure("plan", "", 0, 0,
 					reportAgentFailure(validateErr, result, "report_plan", planDurationMS, reportStartSessionID))
 			}
 			planResult = validated
-			return reporting.ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
+			return ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
 		},
-		BuildCanonical: func(value any, _ reporting.ReportPlanSubmissionSelection, binding reporting.ReportPlanLifecycleBinding) (ledger.AppendRequest, error) {
+		BuildCanonical: func(value any, _ reporting.ReportPlanSubmissionSelection, binding ReportPlanLifecycleBinding) (ledger.AppendRequest, error) {
 			valuePlan, ok := value.(reporting.SectionalReportPlan)
 			if !ok {
 				return ledger.AppendRequest{}, fmt.Errorf("%w: invalid long-form report plan", producterror.ErrInvalidInput)

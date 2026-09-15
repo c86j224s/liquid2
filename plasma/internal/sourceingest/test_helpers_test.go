@@ -3,6 +3,7 @@ package sourceingest
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"reflect"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func (s *sourceCandidateServiceStore) ListSourceSnapshots(_ context.Context, mis
 	return sources, nil
 }
 
-func (s *sourceCandidateServiceStore) CreateSourceSnapshotWithEvent(_ context.Context, req CreateSourceSnapshotWithEventRequest) (SourceSnapshotWithEventResult, error) {
+func (s *sourceCandidateServiceStore) CreateSourceSnapshotWithEvent(_ context.Context, req source.CreateSourceSnapshotWithEventRequest) (source.SourceSnapshotWithEventResult, error) {
 	artifact := rawArtifactFromRequest(req.Artifact)
 	snapshot := sourceSnapshotFromRequest(req.Snapshot)
 	if len(snapshot.ArtifactIDs) == 0 {
@@ -65,23 +66,23 @@ func (s *sourceCandidateServiceStore) CreateSourceSnapshotWithEvent(_ context.Co
 	s.storeArtifact(artifact)
 	s.sources = append(s.sources, snapshot)
 	s.events = append(s.events, event)
-	return SourceSnapshotWithEventResult{Artifact: artifact, Snapshot: snapshot, Event: event}, nil
+	return source.SourceSnapshotWithEventResult{Artifact: artifact, Snapshot: snapshot, Event: event}, nil
 }
 
-func (s *sourceCandidateServiceStore) CreateExistingArtifactSourceSnapshotWithEvent(_ context.Context, req CreateExistingArtifactSourceSnapshotWithEventRequest) (ExistingArtifactSourceSnapshotWithEventResult, error) {
+func (s *sourceCandidateServiceStore) CreateExistingArtifactSourceSnapshotWithEvent(_ context.Context, req source.CreateExistingArtifactSourceSnapshotWithEventRequest) (source.ExistingArtifactSourceSnapshotWithEventResult, error) {
 	snapshot := sourceSnapshotFromRequest(req.Snapshot)
 	event := ledgerEventFromRequest(req.Event, len(s.events)+1)
 	s.sources = append(s.sources, snapshot)
 	s.events = append(s.events, event)
-	return ExistingArtifactSourceSnapshotWithEventResult{Snapshot: snapshot, Event: event}, nil
+	return source.ExistingArtifactSourceSnapshotWithEventResult{Snapshot: snapshot, Event: event}, nil
 }
 
-func (s *sourceCandidateServiceStore) CreateLiveSourceSnapshotWithEvent(_ context.Context, req CreateLiveSourceSnapshotWithEventRequest) (LiveSourceSnapshotWithEventResult, error) {
+func (s *sourceCandidateServiceStore) CreateLiveSourceSnapshotWithEvent(_ context.Context, req source.CreateLiveSourceSnapshotWithEventRequest) (source.LiveSourceSnapshotWithEventResult, error) {
 	snapshot := sourceSnapshotFromRequest(req.Snapshot)
 	event := ledgerEventFromRequest(req.Event, len(s.events)+1)
 	s.sources = append(s.sources, snapshot)
 	s.events = append(s.events, event)
-	return LiveSourceSnapshotWithEventResult{Snapshot: snapshot, Event: event}, nil
+	return source.LiveSourceSnapshotWithEventResult{Snapshot: snapshot, Event: event}, nil
 }
 
 func (s *sourceCandidateServiceStore) AppendEvent(_ context.Context, req AppendEventRequest) (LedgerEvent, error) {

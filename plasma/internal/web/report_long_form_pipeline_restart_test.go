@@ -7,15 +7,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -175,8 +180,8 @@ func TestReaderStyleGateRestartReturnsExistingCanonicalWithoutProvider(t *testin
 	if len(events) != beforeEvents+3 {
 		t.Fatalf("completion recovery appended unexpected event count %d -> %d", beforeEvents, len(events))
 	}
-	assertW4BEventCount(t, events, reporting.ReportAgentUsageRecordedEventType, 2)
-	assertW4BEventCount(t, events, reporting.ReportRunCompletedEventType, 1)
+	assertW4BEventCount(t, events, reportusage.ReportAgentUsageRecordedEventType, 2)
+	assertW4BEventCount(t, events, reportrun.ReportRunCompletedEventType, 1)
 	if artifact, event := w4BResultArtifact(t, result), w4BResultEvent(t, result); artifact.ArtifactID != finalized.Artifact.ArtifactID || event.EventID != finalized.Event.EventID {
 		t.Fatalf("existing canonical replay identity differs artifact=%#v event=%#v want=%#v/%#v", artifact, event, finalized.Artifact, finalized.Event)
 	}
@@ -194,12 +199,12 @@ func TestReaderStyleGateRestartRejectsOpenGateAfterCanonicalWithoutProvider(t *t
 	if _, created, err := reporting.StartFinalEditStage(ctx, svc, "evt_w4b_open_gate_terminal_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: req.artifactID,
 		MissionID:  req.missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "final.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "provider-terminal"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "provider-terminal"},
 		Content:    []byte("# Restart Report\n\nCanonical final report.\n"),
 	}); err != nil {
 		t.Fatal(err)
@@ -601,11 +606,11 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 	partID := "art_w4b_part"
 	sectionID := "art_w4b_section"
 	title := "Restart Report"
-	producer := app.Producer{Type: "agent_session", ID: "provider-plan"}
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: title}); err != nil {
+	producer := ledger.Producer{Type: "agent_session", ID: "provider-plan"}
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: title}); err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []app.CreateRawArtifactRequest{
+	for _, artifact := range []artifactcontract.CreateRequest{
 		{ArtifactID: partID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: producer, Content: []byte("# Part 1\n\n이 작업은 수행되어야 한다.\n")},
 		{ArtifactID: sectionID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "section.md", Producer: producer, Content: []byte("# Section 1\n\n이 작업은 수행되어야 한다.\n")},
 	} {
@@ -613,8 +618,8 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 			t.Fatal(err)
 		}
 	}
-	events := []app.AppendEventRequest{
-		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: w4BJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
+	events := []ledger.AppendRequest{
+		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: w4BJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
 		{EventID: planID, MissionID: missionID, EventType: "report.plan.created", Producer: producer, Payload: w4BJSON(map[string]any{
 			"pending_event_id": pendingID, "report_mode": reportexecution.ModeLongForm, "artifact_id": finalID,
 			"agent_session_id": "provider-plan", "previous_agent_session_id": "provider-plan",
@@ -630,7 +635,7 @@ func seedW4BRestartFixtureWithPipeline(t *testing.T, ctx context.Context, svc *a
 		{EventID: "evt_w4b_part", MissionID: missionID, EventType: "report.part.created", Producer: producer, Payload: w4BJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": partID, "part_index": 1})},
 		{EventID: "evt_w4b_section", MissionID: missionID, EventType: "report.section.created", Producer: producer, Payload: w4BJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": sectionID, "part_index": 1, "section_index": 1})},
 	}
-	var planEvent app.LedgerEvent
+	var planEvent ledger.Event
 	for _, event := range events {
 		appended, err := svc.AppendEvent(ctx, event)
 		if err != nil {
@@ -785,21 +790,21 @@ func w4BReaderBinding(req finalizationPrefixFixture, providerSessionID string) r
 
 func w4BGateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
 	final := req.longFormFinalBinding("ses_gate_"+strings.TrimPrefix(providerSessionID, "provider-corrective-gate-"), providerSessionID, providerSessionID, req.reportPlanSessionID)
-	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
+	final.Producer = ledger.Producer{Type: "agent_session", ID: providerSessionID}
 	gate := req.finalEditStageBinding(reporting.FinalEditStageGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
 	return gate, final
 }
 
 func w4BV2GateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
 	final := req.longFormFinalBinding("ses_gate_"+strings.TrimPrefix(providerSessionID, "provider-corrective-gate-"), providerSessionID, req.reportPlanSessionID, req.reportPlanSessionID)
-	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
+	final.Producer = ledger.Producer{Type: "agent_session", ID: providerSessionID}
 	gate := req.finalEditStageBinding(reporting.FinalEditStageGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
 	return gate, final
 }
 
 func w4BEvidenceGateBinding(req finalizationPrefixFixture, sourceArtifactID string, providerSessionID string) (reporting.FinalEditStageBinding, reporting.LongFormFinalizeBinding) {
 	final := req.longFormFinalBinding("ses_evidence_"+strings.TrimPrefix(providerSessionID, "provider-evidence-gate-"), providerSessionID, req.reportPlanSessionID, req.reportPlanSessionID)
-	final.Producer = app.Producer{Type: "agent_session", ID: providerSessionID}
+	final.Producer = ledger.Producer{Type: "agent_session", ID: providerSessionID}
 	gate := req.finalEditStageBinding(reporting.FinalEditStageEvidenceGate, sourceArtifactID, req.artifactID, final.ToolSessionID, final.ProviderSessionID, final.PreviousProviderSessionID, final.ForkSourceAgentSessionID)
 	return gate, final
 }
@@ -833,7 +838,7 @@ func w4BAppendGateSubmission(t *testing.T, ctx context.Context, svc *app.Service
 		"artifact_sha256": w4BSHA256(source.Content), "changed": false,
 		"text": "장문 리포트 corrective_gate 단계를 durable artifact로 제출했습니다.",
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: strings.TrimSpace(eventID), MissionID: binding.MissionID, EventType: reporting.FinalEditGateSubmittedEventType,
 		Producer: binding.Producer, CausationEventID: binding.PlanEventID, CorrelationID: binding.IdempotencyKey, Payload: w4BJSON(payload),
 	}); err != nil {
@@ -866,7 +871,7 @@ func w4BAppendEvidenceGateSubmission(t *testing.T, ctx context.Context, svc *app
 		"artifact_sha256": w4BSHA256(source.Content), "changed": false,
 		"text": "장문 리포트 evidence_gate 단계를 durable artifact로 제출했습니다.",
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: strings.TrimSpace(eventID), MissionID: binding.MissionID, EventType: reporting.FinalEditEvidenceGateSubmittedEventType,
 		Producer: binding.Producer, CausationEventID: binding.PlanEventID, CorrelationID: binding.IdempotencyKey, Payload: w4BJSON(payload),
 	}); err != nil {
@@ -876,9 +881,9 @@ func w4BAppendEvidenceGateSubmission(t *testing.T, ctx context.Context, svc *app
 
 func w4BAppendTerminalCanonical(t *testing.T, ctx context.Context, svc *app.Service, req finalizationPrefixFixture, eventID string) {
 	t.Helper()
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: strings.TrimSpace(eventID), MissionID: req.missionID, EventType: "report.artifact.created",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-terminal"}, CorrelationID: "terminal-" + req.pendingEventID,
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-terminal"}, CorrelationID: "terminal-" + req.pendingEventID,
 		Payload: w4BJSON(map[string]any{
 			"pending_event_id": req.pendingEventID,
 			"plan_event_id":    req.planEvent.EventID,
@@ -911,7 +916,7 @@ func assertW4BStageRequestSequence(t *testing.T, requests []AgentRequest, stages
 	}
 }
 
-func w4BEvents(t *testing.T, ctx context.Context, svc *app.Service, missionID string) []app.LedgerEvent {
+func w4BEvents(t *testing.T, ctx context.Context, svc *app.Service, missionID string) []ledger.Event {
 	t.Helper()
 	events, err := svc.ListEvents(ctx, missionID)
 	if err != nil {
@@ -920,7 +925,7 @@ func w4BEvents(t *testing.T, ctx context.Context, svc *app.Service, missionID st
 	return events
 }
 
-func assertW4BEventCount(t *testing.T, events []app.LedgerEvent, eventType string, want int) {
+func assertW4BEventCount(t *testing.T, events []ledger.Event, eventType string, want int) {
 	t.Helper()
 	got := 0
 	for _, event := range events {
@@ -933,9 +938,9 @@ func assertW4BEventCount(t *testing.T, events []app.LedgerEvent, eventType strin
 	}
 }
 
-func w4BCanonicalEvent(t *testing.T, events []app.LedgerEvent) app.LedgerEvent {
+func w4BCanonicalEvent(t *testing.T, events []ledger.Event) ledger.Event {
 	t.Helper()
-	var found app.LedgerEvent
+	var found ledger.Event
 	count := 0
 	for _, event := range events {
 		if event.EventType == "report.artifact.created" {
@@ -949,7 +954,7 @@ func w4BCanonicalEvent(t *testing.T, events []app.LedgerEvent) app.LedgerEvent {
 	return found
 }
 
-func w4BPayload(t *testing.T, event app.LedgerEvent) map[string]any {
+func w4BPayload(t *testing.T, event ledger.Event) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -958,18 +963,18 @@ func w4BPayload(t *testing.T, event app.LedgerEvent) map[string]any {
 	return payload
 }
 
-func w4BResultArtifact(t *testing.T, result map[string]any) app.RawArtifact {
+func w4BResultArtifact(t *testing.T, result map[string]any) artifactcontract.Raw {
 	t.Helper()
-	artifact, ok := result["artifact"].(app.RawArtifact)
+	artifact, ok := result["artifact"].(artifactcontract.Raw)
 	if !ok {
 		t.Fatalf("result artifact missing: %#v", result)
 	}
 	return artifact
 }
 
-func w4BResultEvent(t *testing.T, result map[string]any) app.LedgerEvent {
+func w4BResultEvent(t *testing.T, result map[string]any) ledger.Event {
 	t.Helper()
-	event, ok := result["event"].(app.LedgerEvent)
+	event, ok := result["event"].(ledger.Event)
 	if !ok {
 		t.Fatalf("result event missing: %#v", result)
 	}
@@ -997,7 +1002,7 @@ func (req finalizationPrefixFixture) finalEditStageBinding(stage string, sourceA
 		ReportSessionPolicy: req.reportSessionPolicy, ReportSessionPolicySelection: req.reportSessionPolicySelection,
 		PostReportHumanize: req.postReportHumanize, GenerationGuidanceProfile: req.generationGuidanceProfile, GenerationGuidanceSHA256: req.generationGuidanceSHA256,
 		SessionChainKind: req.sessionChainKind, PreReportResearchSessionID: req.preReportResearchSessionID, ReportPlanSessionID: req.reportPlanSessionID,
-		ForkSourceAgentSessionID: forkSourceAgentSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		ForkSourceAgentSessionID: forkSourceAgentSessionID, Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 	state, ok, err := reporting.FinalEditPipelineFromPlanEvent(req.planEvent)
 	if err == nil && ok && (state.Pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleGateV2 || state.Pipeline == reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3) {
@@ -1020,6 +1025,6 @@ func (req finalizationPrefixFixture) longFormFinalBinding(toolSessionID string, 
 		PostReportHumanize: req.postReportHumanize, GenerationGuidanceProfile: req.generationGuidanceProfile, GenerationGuidanceSHA256: req.generationGuidanceSHA256,
 		SessionChainKind: req.sessionChainKind, PreReportResearchSessionID: req.preReportResearchSessionID, ReportPlanSessionID: req.reportPlanSessionID,
 		ForkSourceAgentSessionID: forkSourceAgentSessionID, PlanToolSessionID: reportEventString(req.planEvent, "tool_session_id"), StartedAt: req.started,
-		Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 }

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 const (
@@ -24,12 +27,12 @@ type sourceUpdatedEventPayload struct {
 }
 
 // ListSourceSnapshotsWithState는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListSourceSnapshotsWithState(ctx context.Context, req ListSourceSnapshotsRequest) ([]SourceSnapshot, error) {
+func (s *Service) ListSourceSnapshotsWithState(ctx context.Context, req sourcecontract.ListRequest) ([]sourcecontract.Snapshot, error) {
 	missionID := strings.TrimSpace(req.MissionID)
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
 	}
-	store, ok := s.store.(SourceSnapshotListStore)
+	store, ok := s.store.(sourcecontract.ListStore)
 	if !ok {
 		return nil, fmt.Errorf("%w: source snapshot list store is required", ErrInvalidInput)
 	}
@@ -41,11 +44,11 @@ func (s *Service) ListSourceSnapshotsWithState(ctx context.Context, req ListSour
 	if err != nil {
 		return nil, err
 	}
-	filtered := make([]SourceSnapshot, 0, len(snapshots))
+	filtered := make([]sourcecontract.Snapshot, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		state := states[snapshot.SnapshotID]
 		if state.State == "" {
-			state.State = SourceStateActive
+			state.State = sourcecontract.StateActive
 		}
 		snapshot.State = state
 		if snapshot.State.Removed && !req.IncludeRemoved {
@@ -59,24 +62,24 @@ func (s *Service) ListSourceSnapshotsWithState(ctx context.Context, req ListSour
 	return filtered, nil
 }
 
-func (s *Service) sourceState(ctx context.Context, missionID string, snapshotID string) (SourceState, error) {
+func (s *Service) sourceState(ctx context.Context, missionID string, snapshotID string) (sourcecontract.State, error) {
 	states, err := s.sourceStateMap(ctx, missionID)
 	if err != nil {
-		return SourceState{}, err
+		return sourcecontract.State{}, err
 	}
 	state := states[strings.TrimSpace(snapshotID)]
 	if state.State == "" {
-		state.State = SourceStateActive
+		state.State = sourcecontract.StateActive
 	}
 	return state, nil
 }
 
-func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[string]SourceState, error) {
+func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[string]sourcecontract.State, error) {
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
 		return nil, err
 	}
-	states := map[string]SourceState{}
+	states := map[string]sourcecontract.State{}
 	for _, event := range events {
 		switch event.EventType {
 		case SourceRemovedEvent:
@@ -85,8 +88,8 @@ func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[str
 				continue
 			}
 			previous := states[payload.SnapshotID]
-			states[payload.SnapshotID] = preserveSourceSupersededState(SourceState{
-				State:          SourceStateRemoved,
+			states[payload.SnapshotID] = preserveSourceSupersededState(sourcecontract.State{
+				State:          sourcecontract.StateRemoved,
 				Removed:        true,
 				RemovedAt:      eventTime(event),
 				RemovedEventID: event.EventID,
@@ -98,8 +101,8 @@ func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[str
 				continue
 			}
 			previous := states[payload.SnapshotID]
-			states[payload.SnapshotID] = preserveSourceSupersededState(SourceState{
-				State:           SourceStateActive,
+			states[payload.SnapshotID] = preserveSourceSupersededState(sourcecontract.State{
+				State:           sourcecontract.StateActive,
 				Removed:         false,
 				RestoredAt:      eventTime(event),
 				RestoredEventID: event.EventID,
@@ -114,7 +117,7 @@ func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[str
 			}
 			previous := states[payload.OldSnapshotID]
 			if previous.State == "" {
-				previous.State = SourceStateActive
+				previous.State = sourcecontract.StateActive
 			}
 			previous.Superseded = true
 			previous.SupersededAt = eventTime(event)
@@ -128,7 +131,7 @@ func (s *Service) sourceStateMap(ctx context.Context, missionID string) (map[str
 	return states, nil
 }
 
-func preserveSourceSupersededState(next SourceState, previous SourceState) SourceState {
+func preserveSourceSupersededState(next sourcecontract.State, previous sourcecontract.State) sourcecontract.State {
 	next.Superseded = previous.Superseded
 	next.SupersededAt = previous.SupersededAt
 	next.SupersededBy = previous.SupersededBy
@@ -137,7 +140,7 @@ func preserveSourceSupersededState(next SourceState, previous SourceState) Sourc
 	return next
 }
 
-func decodeSourceStatePayload(event LedgerEvent) (sourceStateEventPayload, bool) {
+func decodeSourceStatePayload(event ledger.Event) (sourceStateEventPayload, bool) {
 	var payload sourceStateEventPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return sourceStateEventPayload{}, false
@@ -146,7 +149,7 @@ func decodeSourceStatePayload(event LedgerEvent) (sourceStateEventPayload, bool)
 	return payload, payload.SnapshotID != ""
 }
 
-func decodeSourceUpdatedPayload(event LedgerEvent) (sourceUpdatedEventPayload, bool) {
+func decodeSourceUpdatedPayload(event ledger.Event) (sourceUpdatedEventPayload, bool) {
 	var payload sourceUpdatedEventPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return sourceUpdatedEventPayload{}, false
@@ -186,7 +189,7 @@ func validateSourceStateEventPayload(eventType string, payload json.RawMessage) 
 	}
 }
 
-func eventTime(event LedgerEvent) time.Time {
+func eventTime(event ledger.Event) time.Time {
 	if event.CreatedAt.IsZero() {
 		return time.Now().UTC()
 	}

@@ -1,8 +1,11 @@
 package app
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
@@ -17,7 +20,7 @@ type reportPlanSubmissionPayload struct {
 	AgentExecutor             string          `json:"agent_executor"`
 	AgentModel                string          `json:"agent_model,omitempty"`
 	AgentReasoningEffort      string          `json:"agent_reasoning_effort,omitempty"`
-	ToolProducer              Producer        `json:"tool_producer"`
+	ToolProducer              ledger.Producer `json:"tool_producer"`
 	IdempotencyKey            string          `json:"idempotency_key"`
 	ArgumentsHash             string          `json:"arguments_hash"`
 	PlanHash                  string          `json:"plan_hash"`
@@ -46,37 +49,37 @@ func validateReportPlanSubmissionRequest(req ReportPlanSubmissionRequest) error 
 	return nil
 }
 
-func openReportPlanPending(events []LedgerEvent, pendingID, mode, agentExecutor string) (LedgerEvent, error) {
-	pending, found := reportPendingEvent(events, pendingID)
+func openReportPlanPending(events []ledger.Event, pendingID, mode, agentExecutor string) (ledger.Event, error) {
+	pending, found := reportexecution.ReportPendingEvent(events, pendingID)
 	if !found || pending.EventType != "report.draft.pending" {
-		return LedgerEvent{}, fmt.Errorf("%w: report pending event does not exist", ErrInvalidInput)
+		return ledger.Event{}, fmt.Errorf("%w: report pending event does not exist", ErrInvalidInput)
 	}
 	var payload struct {
 		ReportMode    string `json:"report_mode"`
 		AgentExecutor string `json:"agent_executor"`
 	}
 	if json.Unmarshal(pending.Payload, &payload) != nil {
-		return LedgerEvent{}, fmt.Errorf("%w: report pending mode mismatch", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report pending mode mismatch", ErrConflict)
 	}
 	if strings.TrimSpace(payload.ReportMode) == "" {
 		payload.ReportMode = "planned"
 	}
 	if payload.ReportMode != mode {
-		return LedgerEvent{}, fmt.Errorf("%w: report pending mode mismatch", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report pending mode mismatch", ErrConflict)
 	}
 	if expected := strings.TrimSpace(payload.AgentExecutor); expected != "" && expected != strings.TrimSpace(agentExecutor) {
-		return LedgerEvent{}, fmt.Errorf("%w: report pending executor mismatch", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report pending executor mismatch", ErrConflict)
 	}
 	if _, closed := ledgerstate.CompletedReportPendingEventIDs(ledgerStateEventsFromApp(events))[pendingID]; closed {
-		return LedgerEvent{}, fmt.Errorf("%w: report pending event is finalized", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report pending event is finalized", ErrConflict)
 	}
 	if canonicalReportPlanEvent(events, pendingID).EventID != "" {
-		return LedgerEvent{}, fmt.Errorf("%w: report plan is already canonical", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report plan is already canonical", ErrConflict)
 	}
 	return pending, nil
 }
 
-func canonicalReportPlanEvent(events []LedgerEvent, pendingID string) LedgerEvent {
+func canonicalReportPlanEvent(events []ledger.Event, pendingID string) ledger.Event {
 	for _, event := range events {
 		if event.EventType != "report.plan.created" {
 			continue
@@ -88,21 +91,21 @@ func canonicalReportPlanEvent(events []LedgerEvent, pendingID string) LedgerEven
 			return event
 		}
 	}
-	return LedgerEvent{}
+	return ledger.Event{}
 }
 
-func matchingReportPlanSubmission(events []LedgerEvent, req PromoteReportPlanRequest) (LedgerEvent, error) {
+func matchingReportPlanSubmission(events []ledger.Event, req PromoteReportPlanRequest) (ledger.Event, error) {
 	for _, event := range events {
 		if event.EventType != "report.plan.submitted" || event.EventID != req.SubmissionEventID {
 			continue
 		}
 		var payload reportPlanSubmissionPayload
 		if json.Unmarshal(event.Payload, &payload) != nil || !sameReportPlanPromotionBinding(payload, req) {
-			return LedgerEvent{}, fmt.Errorf("%w: report plan submission binding mismatch", ErrConflict)
+			return ledger.Event{}, fmt.Errorf("%w: report plan submission binding mismatch", ErrConflict)
 		}
 		return event, nil
 	}
-	return LedgerEvent{}, fmt.Errorf("%w: matching report plan submission is missing", ErrConflict)
+	return ledger.Event{}, fmt.Errorf("%w: matching report plan submission is missing", ErrConflict)
 }
 
 func reqSchema(ReportPlanSubmissionRequest) string { return ReportPlanSubmissionSchemaVersion }

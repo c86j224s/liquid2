@@ -5,11 +5,11 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestLatestAgentSessionIDKeepsResearchSessionForIsolatedReport(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "report.artifact.created", map[string]any{
 			"agent_executor":                 "codex",
 			"agent_session_id":               "report-session",
@@ -24,7 +24,7 @@ func TestLatestAgentSessionIDKeepsResearchSessionForIsolatedReport(t *testing.T)
 }
 
 func TestLatestAgentSessionInheritsResearchProfileForIsolatedReport(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "turn.agent.response", map[string]any{
 			"kind":                        "agent_response",
 			"agent_executor":              "codex",
@@ -53,7 +53,7 @@ func TestLatestAgentSessionInheritsResearchProfileForIsolatedReport(t *testing.T
 }
 
 func TestLatestAgentSessionMapsHistoricalSessionToLegacyProfile(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "turn.agent.response", map[string]any{
 			"kind":             "agent_response",
 			"agent_executor":   "codex",
@@ -68,7 +68,7 @@ func TestLatestAgentSessionMapsHistoricalSessionToLegacyProfile(t *testing.T) {
 }
 
 func TestLatestAgentSessionIDKeepsResearchSessionForFreshReport(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "turn.agent.response", map[string]any{
 			"kind":             "agent_response",
 			"agent_executor":   "codex",
@@ -90,7 +90,7 @@ func TestLatestAgentSessionIDKeepsResearchSessionForFreshReport(t *testing.T) {
 }
 
 func TestLatestAgentSessionIDIgnoresIsolatedReportWithoutPreReportSession(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "report.artifact.created", map[string]any{
 			"agent_executor":        "codex",
 			"agent_session_id":      "report-session",
@@ -111,7 +111,7 @@ func TestLatestAgentSessionIDIgnoresIsolatedReportWithoutPreReportSession(t *tes
 }
 
 func TestLatestAgentSessionIDIgnoresAgentErrorSessionID(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "turn.agent.response", map[string]any{
 			"kind":             "agent_response",
 			"agent_executor":   "codex",
@@ -132,7 +132,7 @@ func TestLatestAgentSessionIDIgnoresAgentErrorSessionID(t *testing.T) {
 }
 
 func TestLatestOpenAgentPendingIgnoresCompletedUserTurns(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		ledgerEvent(t, "turn.agent.pending", map[string]any{"user_event_id": "evt_user_1", "agent_executor": "codex"}),
 		ledgerEvent(t, "turn.agent.response", map[string]any{"user_event_id": "evt_user_1", "kind": "agent_response", "agent_executor": "codex"}),
 		ledgerEvent(t, "turn.agent.pending", map[string]any{"user_event_id": "evt_user_2", "agent_executor": "claude", "workflow_run_id": "wfr_1"}),
@@ -144,11 +144,11 @@ func TestLatestOpenAgentPendingIgnoresCompletedUserTurns(t *testing.T) {
 	}
 }
 
-func ledgerEvent(t *testing.T, eventType string, payloadValue any) app.LedgerEvent {
+func ledgerEvent(t *testing.T, eventType string, payloadValue any) ledger.Event {
 	t.Helper()
 	payload, err := json.Marshal(payloadValue)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	return app.LedgerEvent{EventType: eventType, Payload: payload}
+	return ledger.Event{EventType: eventType, Payload: payload}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -19,13 +20,17 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func TestCLIReportDirectionPromptAllowlist(t *testing.T) {
@@ -223,22 +228,22 @@ func TestRunMCPReportILEditorialMemoryBindingExposesFrozenSourcesAndMemoryWorksp
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "CLI report IL"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "CLI report IL"}); err != nil {
 		t.Fatal(err)
 	}
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_cli_report_il", MissionID: missionID, MediaType: "text/plain",
-		Filename: "private-source.txt", Producer: app.Producer{Type: "user", ID: "test"}, Content: []byte(sourceText),
+		Filename: "private-source.txt", Producer: ledger.Producer{Type: "user", ID: "test"}, Content: []byte(sourceText),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	if _, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_cli_report_il", MissionID: missionID,
-		Connector: app.ConnectorRef{ConnectorID: "manual", ConnectorType: "manual", ExternalSourceID: "private-source.txt"},
+		Connector: sourcecontract.ConnectorRef{ConnectorID: "manual", ConnectorType: "manual", ExternalSourceID: "private-source.txt"},
 		Title:     "Private source", ArtifactIDs: []string{artifact.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +256,7 @@ func TestRunMCPReportILEditorialMemoryBindingExposesFrozenSourcesAndMemoryWorksp
 		Sources: []reportilcontract.SourceCatalogEntry{{
 			SourceKey: "source_001", SnapshotID: "src_cli_report_il",
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_cli_report_il", artifact.SHA256),
-			ContentHash:     artifact.SHA256, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash:     artifact.SHA256, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: artifact.ArtifactID, SHA256: artifact.SHA256, ByteSize: artifact.ByteSize, MediaType: artifact.MediaType,
 			}},
@@ -363,7 +368,7 @@ func testCLIReportILSourceBindingJSON(t *testing.T, missionID string) string {
 		MissionID: missionID,
 		Sources: []reportilcontract.SourceCatalogEntry{{
 			SourceKey: "source_001", SnapshotID: "src_cli_report_il", SnapshotReceipt: strings.Repeat("a", 64),
-			ContentHash: strings.Repeat("b", 64), RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash: strings.Repeat("b", 64), RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: "art_cli_report_il", SHA256: strings.Repeat("b", 64), ByteSize: 5, MediaType: "text/plain",
 			}},
@@ -457,7 +462,7 @@ func testCLIFinalEditFinalBinding(toolSessionID string, providerSessionID string
 		PostReportHumanize: reporting.FinalEditHumanizeDisabled, GenerationGuidanceProfile: "reader-style-gate",
 		GenerationGuidanceSHA256: strings.Repeat("a", 64), SessionChainKind: "report_final_edit",
 		ReportPlanSessionID: "provider-plan", ForkSourceAgentSessionID: "provider-plan",
-		Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 }
 
@@ -639,7 +644,7 @@ func TestRunMissionCommandsCreateListShow(t *testing.T) {
 		t.Fatalf("missions archive returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 	archived := decodeCLIJSON(t, out.String())
-	if got := nestedCLIString(t, archived, "projection", "lifecycle_state"); got != app.MissionLifecycleArchived {
+	if got := nestedCLIString(t, archived, "projection", "lifecycle_state"); got != mission.LifecycleArchived {
 		t.Fatalf("archived lifecycle = %q", got)
 	}
 	out.Reset()
@@ -661,7 +666,7 @@ func TestRunMissionCommandsCreateListShow(t *testing.T) {
 		t.Fatalf("missions restore returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 	restored := decodeCLIJSON(t, out.String())
-	if got := nestedCLIString(t, restored, "projection", "lifecycle_state"); got != app.MissionLifecycleActive {
+	if got := nestedCLIString(t, restored, "projection", "lifecycle_state"); got != mission.LifecycleActive {
 		t.Fatalf("restored lifecycle = %q", got)
 	}
 }
@@ -741,7 +746,7 @@ func TestRunSourcesUploadCreatesReadableSource(t *testing.T) {
 		t.Fatalf("sources upload returned %d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 	uploaded := decodeCLIJSON(t, out.String())
-	if got := nestedCLIString(t, uploaded, "snapshot", "Connector", "ConnectorType"); got != app.SourceConnectorTypeFileUpload {
+	if got := nestedCLIString(t, uploaded, "snapshot", "Connector", "ConnectorType"); got != sourcecontract.ConnectorTypeFileUpload {
 		t.Fatalf("expected file_upload connector, got %q", got)
 	}
 	artifact, ok := uploaded["artifact"].(map[string]any)
@@ -843,7 +848,7 @@ func TestRunSourcesLocalPathWorkflow(t *testing.T) {
 	}
 	attached := decodeCLIJSON(t, out.String())
 	sourceID := nestedCLIString(t, attached, "snapshot", "SnapshotID")
-	if got := nestedCLIString(t, attached, "snapshot", "Access", "RetrievalPolicy"); got != app.SourceRetrievalPolicyLiveReference {
+	if got := nestedCLIString(t, attached, "snapshot", "Access", "RetrievalPolicy"); got != sourcecontract.RetrievalPolicyLiveReference {
 		t.Fatalf("expected live reference, got %q", got)
 	}
 	assertCLINoRootPath(t, rootDir, out.String(), errOut.String())
@@ -880,29 +885,29 @@ func TestRunSourcesLocalPathWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	artifact, err := svc.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_cli_pinned",
 		MissionID:  missionID,
 		MediaType:  "text/plain; charset=utf-8",
 		Filename:   "pinned.txt",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("pinned body"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshot(context.Background(), app.CreateSourceSnapshotRequest{
+	if _, err := svc.CreateSourceSnapshot(context.Background(), sourcecontract.CreateRequest{
 		SnapshotID: "src_cli_pinned",
 		MissionID:  missionID,
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "manual",
 			ConnectorType:    "manual",
 			ExternalSourceID: "pinned.txt",
 		},
 		Title:       "Pinned",
 		ArtifactIDs: []string{artifact.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -974,37 +979,37 @@ func TestRunSourcesLocalPathWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc = app.NewService(store)
-	artifact, err = svc.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err = svc.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_cli_pinned_new",
 		MissionID:  missionID,
 		MediaType:  "text/plain; charset=utf-8",
 		Filename:   "pinned-new.txt",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("new pinned body"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshot(context.Background(), app.CreateSourceSnapshotRequest{
+	if _, err := svc.CreateSourceSnapshot(context.Background(), sourcecontract.CreateRequest{
 		SnapshotID: "src_cli_pinned_new",
 		MissionID:  missionID,
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "manual",
 			ConnectorType:    "manual",
 			ExternalSourceID: "pinned-new.txt",
 		},
 		Title:       "Pinned new",
 		ArtifactIDs: []string{artifact.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(context.Background(), app.AppendEventRequest{
+	if _, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_cli_source_superseded",
 		MissionID: missionID,
 		EventType: app.ConfluenceUpdatedEvent,
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload: cliMustJSON(t, map[string]any{
 			"old_snapshot_id": "src_cli_pinned",
 			"new_snapshot_id": "src_cli_pinned_new",
@@ -1390,7 +1395,7 @@ func TestRunWorkflowStartStatusStopJSON(t *testing.T) {
 	}
 	defer store.Close()
 	svc := app.NewService(store)
-	workflowRun, err := svc.RequestWorkflowRun(context.Background(), app.RequestWorkflowRunRequest{
+	workflowRun, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_cli_status",
 		MissionID:          missionID,
 		RequestedBySurface: app.WorkflowSurfaceCLI,
@@ -1647,7 +1652,7 @@ func TestRunTurnsWaitDrainsWorkflowRequestedByMCPContext(t *testing.T) {
 		if req.UserEventID == "" {
 			t.Fatalf("expected CLI agent request to include user event id: %#v", req)
 		}
-		if _, err := svc.RequestWorkflowRun(context.Background(), app.RequestWorkflowRunRequest{
+		if _, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 			MissionID:                req.MissionID,
 			RequestedBySurface:       app.WorkflowSurfaceMCP,
 			RequestedByToolSessionID: req.ToolSessionID,
@@ -1905,7 +1910,7 @@ func TestRunReportsDraftWaitUsesFreshPlanSessionAndMarkdownArtifact(t *testing.T
 	}
 }
 
-func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
+func TestRunReportsDraftExperimentalGuidanceHasNoRetiredH5(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "plasma.db")
 	missionID := createCLITestMission(t, dbPath)
 	fake := &cliFakeAgent{responses: []agentexec.AgentResult{
@@ -1925,7 +1930,6 @@ func TestRunReportsDraftExperimentalGuidanceCanSkipHumanize(t *testing.T) {
 		"-title", "CLI Report",
 		"-wait",
 		"-json",
-		"-humanize=false",
 		"-experimental-generation-guidance", "g2",
 		"-report-session-policy", "same_session",
 	}, &out, &errOut)
@@ -2459,7 +2463,7 @@ func nestedCLIBool(t *testing.T, value map[string]any, path ...string) bool {
 	return boolean
 }
 
-func cliLatestEventPayload(t *testing.T, events []app.LedgerEvent, eventType string) map[string]any {
+func cliLatestEventPayload(t *testing.T, events []ledger.Event, eventType string) map[string]any {
 	t.Helper()
 	for index := len(events) - 1; index >= 0; index-- {
 		if events[index].EventType != eventType {
@@ -2489,23 +2493,23 @@ func cliHumanizePatchFinalizer(t *testing.T, dbPath string, content string) func
 		}
 		defer store.Close()
 		svc := app.NewService(store)
-		artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 			ArtifactID: cliNewID("art"),
 			MissionID:  req.MissionID,
 			MediaType:  "text/markdown; charset=utf-8",
 			Filename:   "humanized.md",
-			Producer:   app.Producer{Type: "mcp_tool", ID: mcp.ToolReportPatchFinalize},
+			Producer:   ledger.Producer{Type: "mcp_tool", ID: mcp.ToolReportPatchFinalize},
 			Content:    []byte(content),
 		})
 		if err != nil {
 			t.Errorf("create CLI H5 patch artifact: %v", err)
 			return
 		}
-		if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 			EventID:       cliNewID("evt"),
 			MissionID:     req.MissionID,
 			EventType:     "report.patch.finalized",
-			Producer:      app.Producer{Type: "mcp_tool", ID: mcp.ToolReportPatchFinalize},
+			Producer:      ledger.Producer{Type: "mcp_tool", ID: mcp.ToolReportPatchFinalize},
 			CorrelationID: req.ToolSessionID,
 			Payload: cliMustJSON(t, map[string]any{
 				"kind":                            "markdown_report_patch_finalized",
@@ -2640,22 +2644,22 @@ func TestRunReportsPatchExplicitFreshSessionRejectedBeforeProviderWork(t *testin
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_cli_patch_fresh_reject_base",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "base-report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_cli_patch_fresh_reject_base",
 		MissionID: missionID,
 		EventType: "report.artifact.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Payload: cliMustJSON(t, map[string]any{
 			"kind":              "markdown_report_artifact",
 			"title":             "Base Report",
@@ -2803,7 +2807,7 @@ func (agent *cliForkingFakeAgent) CheckForkSession(_ context.Context, sourceSess
 	return nil
 }
 
-func cliCountEventType(events []app.LedgerEvent, eventType string) int {
+func cliCountEventType(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -2822,7 +2826,7 @@ func cliMustJSON(t *testing.T, value any) json.RawMessage {
 	return encoded
 }
 
-func cliEventTypes(events []app.LedgerEvent) []string {
+func cliEventTypes(events []ledger.Event) []string {
 	types := make([]string, 0, len(events))
 	for _, event := range events {
 		types = append(types, event.EventType)
@@ -2842,7 +2846,7 @@ func assertCLIEventTypeOrder(t *testing.T, got []string, want []string) {
 	}
 }
 
-func cliCountWorkflowSteeringTurns(t *testing.T, events []app.LedgerEvent) int {
+func cliCountWorkflowSteeringTurns(t *testing.T, events []ledger.Event) int {
 	t.Helper()
 	count := 0
 	for _, event := range events {

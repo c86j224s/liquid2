@@ -72,7 +72,10 @@ function renderReportDraftStatus(status, wasPending) {
     // New artifact is now the newest card — select it so its preview opens.
     state.selectedReportKey = "";
     state.reportPreview = null;
-    setReportNotice(`Markdown 리포트 artifact 생성이 완료되었습니다.${reportTimingDetails(status.event)}\n\n최신 리포트 카드에서 미리보기를 확인하세요.`);
+    const article = status.event?.Payload?.output_kind === "article" || status.event?.Payload?.kind === "article_artifact";
+    setReportNotice(article
+      ? `글 생성이 완료되었습니다.${reportTimingDetails(status.event)}\n\n최신 글 카드에서 읽어보세요.`
+      : `Markdown 리포트 artifact 생성이 완료되었습니다.${reportTimingDetails(status.event)}\n\n최신 리포트 카드에서 미리보기를 확인하세요.`);
   }
 }
 
@@ -97,6 +100,18 @@ function reportPendingMessage(event) {
     ].join("\n") + title + base + reportTimingDetails(event) + eventID;
   }
   const title = payload.title ? `\n대상: ${payload.title}` : "";
+  if (payload.output_kind === "article") {
+    const intent = payload.article_intent || {};
+    const eventID = event?.EventID ? `\n대기 이벤트: ${event.EventID}` : "";
+    const longForm = payload.report_mode === "long_form";
+    return [
+      longForm ? "단편 책자 분량의 장문 글을 만드는 중입니다." : "독자를 위한 글을 만드는 중입니다.",
+      `독자: ${intent.audience || "지정 없음"}`,
+      `읽고 나서 얻을 것: ${intent.reader_promise || "지정 없음"}`,
+      `특히 살릴 내용: ${intent.emphasis || "지정 없음"}`,
+      longForm ? "기존 장문 IL 단계와 전체 원고 편집·Markdown·HTML·PDF 저장을 재사용합니다." : "기존 소스 읽기·실행·저장 경로를 사용해 한 명의 작성자가 전체 글을 씁니다."
+    ].join("\n") + title + reportTimingDetails(event) + eventID;
+  }
   const experimental = payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY;
   const unverified = payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
   if (experimental) {
@@ -116,7 +131,7 @@ function reportPendingMessage(event) {
         : "일반 작성: 하나의 완성 원고를 작성한 뒤 같은 원고를 모든 형식으로 투영합니다.",
       profileLine,
       "선택한 검증 방식과 관계없이 같은 원고로 Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다.",
-      "모델: gpt-5.6-luna · 추론: xhigh · 새 세션",
+      `모델: ${String(payload.agent_model || "Codex 기본값")} · 추론: ${String(payload.agent_reasoning_effort || "모델 기본값")} · 새 세션`,
       "완료되면 출력 형식별 보기와 받기가 하나의 보고서 카드에 표시됩니다."
     ].join("\n") + title + `\n방향: ${direction || "지정 없음"}` + reportTimingDetails(event) + eventID;
   }

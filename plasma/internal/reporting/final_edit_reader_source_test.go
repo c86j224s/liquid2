@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -30,7 +33,7 @@ func TestFinalEditReaderSourceStartMaterializesDeterministicArtifactAndRecoversO
 	}
 	wantMarkdown := reporting.AssembleLongFormFinalMarkdown(binding.Title, "", "", []string{"# Part 1\n\nPreserved body.\n"})
 	if source.Filename != binding.Filename ||
-		source.Producer != (app.Producer{Type: "system", ID: "reporting_reader_assembly"}) ||
+		source.Producer != (ledger.Producer{Type: "system", ID: "reporting_reader_assembly"}) ||
 		string(source.Content) != wantMarkdown {
 		t.Fatalf("reader source contract mismatch: %#v", source)
 	}
@@ -73,10 +76,10 @@ func TestFinalEditReaderSourceUsesOrderedMultiplePartsAndReplays(t *testing.T) {
 	binding.PartArtifactIDs = []string{"art_reader_multi_part_1", "art_reader_multi_part_2"}
 	binding.SectionArtifactIDs = []string{"art_reader_multi_section_1", "art_reader_multi_section_2"}
 	binding.SectionWordCount = 4
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "reader multi"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "reader multi"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []app.CreateRawArtifactRequest{
+	for _, artifact := range []artifactcontract.CreateRequest{
 		{ArtifactID: binding.PartArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part-1.md", Producer: binding.Producer, Content: []byte("# Part 1\n\nFirst body.\n")},
 		{ArtifactID: binding.PartArtifactIDs[1], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part-2.md", Producer: binding.Producer, Content: []byte("# Part 2\n\nSecond body.\n")},
 		{ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "section-1.md", Producer: binding.Producer, Content: []byte("# Section 1\n\nFirst.\n")},
@@ -86,8 +89,8 @@ func TestFinalEditReaderSourceUsesOrderedMultiplePartsAndReplays(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, event := range []app.AppendEventRequest{
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": reporting.ModeLongForm})},
+	for _, event := range []ledger.AppendRequest{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": reporting.ModeLongForm})},
 		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: binding.Producer, Payload: testJSON(map[string]any{
 			"pending_event_id": binding.PendingEventID, "report_mode": reporting.ModeLongForm, "artifact_id": binding.ArtifactID,
 			"final_edit_pipeline": reporting.FinalEditPipelineReaderStyleGateV1, "post_report_humanize": reporting.FinalEditHumanizeDisabled,
@@ -143,10 +146,10 @@ func TestFinalEditReaderSourceAcceptsResumeFailedAncestorLineageAndPartEdit(t *t
 	rootPendingID := "evt_reader_resume_root"
 	sourcePartID := "art_reader_resume_part"
 	sourcePartEventID := "evt_reader_resume_part"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "reader resume"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "reader resume"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, artifact := range []app.CreateRawArtifactRequest{
+	for _, artifact := range []artifactcontract.CreateRequest{
 		{ArtifactID: sourcePartID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: binding.Producer, Content: []byte("# Part 1\n\nAncestor body.\n")},
 		{ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "section.md", Producer: binding.Producer, Content: []byte("# Section 1\n\nAncestor section.\n")},
 	} {
@@ -154,8 +157,8 @@ func TestFinalEditReaderSourceAcceptsResumeFailedAncestorLineageAndPartEdit(t *t
 			t.Fatal(err)
 		}
 	}
-	for _, event := range []app.AppendEventRequest{
-		{EventID: rootPendingID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"origin_pending_event_id": rootPendingID, "retry_strategy": "initial", "report_mode": reporting.ModeLongForm})},
+	for _, event := range []ledger.AppendRequest{
+		{EventID: rootPendingID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"origin_pending_event_id": rootPendingID, "retry_strategy": "initial", "report_mode": reporting.ModeLongForm})},
 		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: binding.Producer, Payload: testJSON(map[string]any{
 			"pending_event_id": rootPendingID, "report_mode": reporting.ModeLongForm, "artifact_id": binding.ArtifactID,
 			"final_edit_pipeline": reporting.FinalEditPipelineReaderStyleGateV1, "post_report_humanize": reporting.FinalEditHumanizeDisabled,
@@ -188,12 +191,12 @@ func TestFinalEditReaderSourceAcceptsResumeFailedAncestorLineageAndPartEdit(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []app.AppendEventRequest{
+	for _, event := range []ledger.AppendRequest{
 		{EventID: "evt_reader_resume_root_failed", MissionID: binding.MissionID, EventType: "report.draft.failed", Producer: binding.Producer, Payload: testJSON(map[string]any{
 			"pending_event_id": rootPendingID,
 			"kind":             "report_draft_failed",
 		})},
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, CausationEventID: rootPendingID, Payload: testJSON(map[string]any{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, CausationEventID: rootPendingID, Payload: testJSON(map[string]any{
 			"origin_pending_event_id":   rootPendingID,
 			"retry_of_pending_event_id": rootPendingID,
 			"retry_strategy":            "resume_failed",
@@ -237,14 +240,14 @@ func TestFinalEditReaderSourceRejectsForeignBoundPlanPending(t *testing.T) {
 			t.Fatal(err)
 		}
 		payload["pending_event_id"] = "evt_foreign_pending"
-		if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 			ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 			MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 			Producer: binding.Producer, Content: []byte("# Report\n\nSynthetic foreign-bound final.\n"),
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 			EventID: event.EventID + "_foreign", MissionID: binding.MissionID, EventType: event.EventType,
 			Producer: event.Producer, CausationEventID: event.CausationEventID, CorrelationID: event.CorrelationID, Payload: testJSON(payload),
 		}); err != nil {

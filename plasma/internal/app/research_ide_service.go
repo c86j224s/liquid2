@@ -1,24 +1,31 @@
 package app
 
+import uploadsource "github.com/c86j224s/liquid2/plasma/internal/source"
+
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
-	"strconv"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"unicode/utf8"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
 )
 
 const (
 	researchIDEDefaultLimit   = 20
 	researchIDEMaxLimit       = 100
-	researchIDEDefaultBytes   = 4096
-	researchIDEMaxBytes       = 32768
-	researchIDESnippetContext = 48
 	researchIDEMaxSuggestions = 6
 )
 
@@ -26,15 +33,15 @@ const (
 type ResearchIDEReader interface {
 	OutlineMission(context.Context, string) (ResearchIDEOutline, error)
 	ListMissionChanges(context.Context, ResearchIDEChangesRequest) (ResearchIDEChanges, error)
-	ListMissionObjects(context.Context, string, string, int, string) (ResearchIDEPage, error)
-	ReadMissionObject(context.Context, ResearchIDEReadRequest) (ResearchIDEObjectRead, error)
-	GrepMissionObjects(context.Context, string, string, int, string) (ResearchIDEGrepResult, error)
-	ListObjectReferences(context.Context, string, string, string, int, string) (ResearchIDEReferences, error)
+	ListMissionObjects(context.Context, string, string, int, string) (researchcatalog.Page, error)
+	ReadMissionObject(context.Context, researchinspection.ReadRequest) (researchinspection.ObjectRead, error)
+	GrepMissionObjects(context.Context, string, string, int, string) (researchinspection.GrepResult, error)
+	ListObjectReferences(context.Context, string, string, string, int, string) (researchcatalog.References, error)
 }
 
 // RawArtifactListStore는 artifact 목록 조회를 화면 조립에서 분리하는 저장소 포트다.
 type RawArtifactListStore interface {
-	ListRawArtifacts(context.Context, string) ([]RawArtifact, error)
+	ListRawArtifacts(context.Context, string) ([]artifactcontract.Raw, error)
 }
 
 // OutlineMission는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
@@ -48,212 +55,58 @@ func (s *Service) OutlineMissionLegacy(ctx context.Context, missionID string) (R
 }
 
 func (s *Service) outlineMission(ctx context.Context, missionID string, legacy bool) (ResearchIDEOutline, error) {
-	missionID = strings.TrimSpace(missionID)
-	if err := validateID("mis_", missionID); err != nil {
-		return ResearchIDEOutline{}, err
-	}
-	projection, err := s.store.GetMissionProjection(ctx, missionID)
+	outline, err := s.catalogService().Outline(ctx, missionID, legacy)
 	if err != nil {
 		return ResearchIDEOutline{}, err
 	}
-	snapshots, err := s.listSourceSnapshots(ctx, missionID)
-	if err != nil {
-		return ResearchIDEOutline{}, err
-	}
-	artifacts, err := s.listVisibleRawArtifacts(ctx, missionID, legacy)
-	if err != nil {
-		return ResearchIDEOutline{}, err
-	}
-	ledgerEvents, err := s.store.ListLedgerEvents(ctx, missionID)
-	if err != nil {
-		return ResearchIDEOutline{}, err
-	}
-	events := researchIDEVisibleLedgerEvents(ledgerEvents, legacy)
-	var reportArtifacts map[string]struct{}
-	if !legacy {
-		reportArtifacts = researchIDEReportArtifactIDs(ledgerEvents)
-	}
-	counts := map[string]int{
-		ResearchIDEObjectSourceSnapshot: len(snapshots),
-		ResearchIDEObjectRawArtifact:    len(artifacts),
-		ResearchIDEObjectLedgerEvent:    len(events),
-	}
-	if legacy {
-		evidence, claims, questions, options, proposals, err := s.listResearchObjects(ctx, missionID)
-		if err != nil {
-			return ResearchIDEOutline{}, err
-		}
-		reports, versions, err := s.listReportObjects(ctx, missionID)
-		if err != nil {
-			return ResearchIDEOutline{}, err
-		}
-		counts[ResearchIDEObjectEvidenceRecord] = len(evidence)
-		counts[ResearchIDEObjectClaimRecord] = len(claims)
-		counts[ResearchIDEObjectQuestionRecord] = len(questions)
-		counts[ResearchIDEObjectOptionRecord] = len(options)
-		counts[ResearchIDEObjectProposalBundle] = len(proposals)
-		counts[ResearchIDEObjectReport] = len(reports)
-		counts[ResearchIDEObjectReportVersion] = len(versions)
-		for _, record := range evidence {
-			counts["evidence_record."+record.State]++
-		}
-		for _, record := range claims {
-			counts["claim_record."+record.State]++
-		}
-		for _, record := range questions {
-			counts["question_record."+record.State]++
-		}
-	}
-	recent := make([]ResearchIDEObjectSummary, 0, 5)
-	for i := len(events) - 1; i >= 0 && len(recent) < 5; i-- {
-		if events[i].EventType == "mcp.tool.called" {
-			continue
-		}
-		summary := summarizeLedgerEvent(events[i])
-		summary.Refs = researchIDEFilterReportArtifactRefs(summary.Refs, reportArtifacts)
-		recent = append(recent, summary)
-	}
-	next := make([]ResearchIDEObjectRef, 0, researchIDEMaxSuggestions)
-	appendNext := func(ref ResearchIDEObjectRef) {
-		if len(next) < researchIDEMaxSuggestions {
-			next = append(next, ref)
-		}
-	}
-	if legacy {
-		for _, id := range projection.OpenQuestionIDs {
-			appendNext(ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectQuestionRecord, ObjectID: id})
-		}
-		if projection.ActiveReportVersionID != "" {
-			appendNext(ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectReportVersion, ObjectID: projection.ActiveReportVersionID})
-		}
-	}
-	for _, snapshot := range snapshots {
-		if len(next) >= researchIDEMaxSuggestions {
-			break
-		}
-		appendNext(ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectSourceSnapshot, ObjectID: snapshot.SnapshotID})
-	}
-	activeReportVersionID := ""
-	if legacy {
-		activeReportVersionID = projection.ActiveReportVersionID
-	}
-	return ResearchIDEOutline{
-		MissionID:               missionID,
-		LastSequence:            researchIDELastSequence(ledgerEvents),
-		Title:                   projection.Title,
-		Objective:               projection.Objective,
-		Scope:                   projection.Scope,
-		Counts:                  counts,
-		ActiveReportVersionID:   activeReportVersionID,
-		RecentLedgerEvents:      recent,
-		NextSuggestedObjectRefs: next,
-	}, nil
+	return ResearchIDEOutline{MissionID: outline.MissionID, LastSequence: outline.LastSequence, Title: outline.Title, Objective: outline.Objective, Scope: outline.Scope, Counts: outline.Counts, ActiveReportVersionID: outline.ActiveReportVersionID, RecentLedgerEvents: outline.RecentLedgerEvents, NextSuggestedObjectRefs: outline.NextSuggestedObjectRefs}, nil
 }
 
 // ListMissionObjects는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListMissionObjects(ctx context.Context, missionID, objectKind string, limit int, cursor string) (ResearchIDEPage, error) {
+func (s *Service) ListMissionObjects(ctx context.Context, missionID, objectKind string, limit int, cursor string) (researchcatalog.Page, error) {
 	return s.listMissionObjects(ctx, missionID, objectKind, limit, cursor, false)
 }
 
 // ListMissionObjectsLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListMissionObjectsLegacy(ctx context.Context, missionID, objectKind string, limit int, cursor string) (ResearchIDEPage, error) {
+func (s *Service) ListMissionObjectsLegacy(ctx context.Context, missionID, objectKind string, limit int, cursor string) (researchcatalog.Page, error) {
 	return s.listMissionObjects(ctx, missionID, objectKind, limit, cursor, true)
 }
 
-func (s *Service) listMissionObjects(ctx context.Context, missionID, objectKind string, limit int, cursor string, legacy bool) (ResearchIDEPage, error) {
-	missionID = strings.TrimSpace(missionID)
-	if err := validateID("mis_", missionID); err != nil {
-		return ResearchIDEPage{}, err
-	}
-	objectKind = normalizeResearchIDEObjectKind(objectKind)
-	limit = clampResearchIDELimit(limit)
-	offset, err := parseResearchIDECursor(cursor)
-	if err != nil {
-		return ResearchIDEPage{}, err
-	}
-	items, err := s.allObjectSummaries(ctx, missionID, objectKind, legacy)
-	if err != nil {
-		return ResearchIDEPage{}, err
-	}
-	pageItems, next, truncated := paginateSummaries(items, offset, limit)
-	return ResearchIDEPage{
-		MissionID:  missionID,
-		ObjectKind: objectKind,
-		Items:      pageItems,
-		NextCursor: next,
-		Limit:      limit,
-		Truncated:  truncated,
-	}, nil
+func (s *Service) listMissionObjects(ctx context.Context, missionID, objectKind string, limit int, cursor string, legacy bool) (researchcatalog.Page, error) {
+	return s.catalogService().List(ctx, missionID, objectKind, limit, cursor, legacy)
 }
 
-// ReadMissionObject는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ReadMissionObject(ctx context.Context, req ResearchIDEReadRequest) (ResearchIDEObjectRead, error) {
-	missionID := strings.TrimSpace(req.MissionID)
-	if err := validateID("mis_", missionID); err != nil {
-		return ResearchIDEObjectRead{}, err
-	}
-	objectKind := normalizeResearchIDEObjectKind(req.ObjectKind)
-	objectID := strings.TrimSpace(req.ObjectID)
-	if objectID == "" {
-		return ResearchIDEObjectRead{}, fmt.Errorf("%w: object id is required", ErrInvalidInput)
-	}
-	maxBytes := clampResearchIDEBytes(req.MaxBytes)
-	offset := req.Offset
-	if offset < 0 {
-		return ResearchIDEObjectRead{}, fmt.Errorf("%w: offset must be non-negative", ErrInvalidInput)
-	}
-	if read, handled, err := s.readChunkedMissionObject(ctx, missionID, objectKind, objectID, offset, maxBytes); handled || err != nil {
-		return read, err
-	}
-	summary, data, err := s.readObjectPayload(ctx, missionID, objectKind, objectID, req.Legacy)
-	if err != nil {
-		return ResearchIDEObjectRead{}, err
-	}
-	chunk, truncated, nextOffset, err := chunkBytes(data, offset, maxBytes)
-	if err != nil {
-		return ResearchIDEObjectRead{}, err
-	}
-	read := ResearchIDEObjectRead{
-		ObjectKind: objectKind,
-		ObjectID:   objectID,
-		MissionID:  missionID,
-		Summary:    summary.Summary,
-		Refs:       summary.Refs,
-		Data:       string(chunk),
-		Truncated:  truncated,
-		NextOffset: nextOffset,
-	}
-	if objectKind == ResearchIDEObjectReportVersion {
-		children, err := s.reportVersionBlockPage(ctx, missionID, objectID, req.Limit, req.Cursor)
-		if err != nil {
-			return ResearchIDEObjectRead{}, err
-		}
-		read.Children = &children
-	}
-	return read, nil
+// ReadMissionObject delegates bounded read sequencing to researchinspection while
+// retaining app-owned materialization, observation, security, visibility, and report policy.
+func (s *Service) ReadMissionObject(ctx context.Context, req researchinspection.ReadRequest) (researchinspection.ObjectRead, error) {
+	return researchinspection.NewService(researchinspection.Dependencies{
+		ReadChunked:           s.readChunkedMissionObject,
+		ReadPayload:           s.readObjectPayload,
+		ReportVersionChildren: s.reportVersionBlockPage,
+	}).Read(ctx, req)
 }
 
-func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string, objectKind string, objectID string, offset int, maxBytes int) (ResearchIDEObjectRead, bool, error) {
+func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string, objectKind string, objectID string, offset int, maxBytes int) (researchinspection.ObjectRead, bool, error) {
 	switch objectKind {
-	case ResearchIDEObjectSourceSnapshot:
+	case researchcatalog.ObjectSourceSnapshot:
 		record, err := s.store.GetSourceSnapshot(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectRead{}, true, err
+			return researchinspection.ObjectRead{}, true, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectRead{}, true, fmt.Errorf("%w: source_snapshot %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchinspection.ObjectRead{}, true, fmt.Errorf("%w: source_snapshot %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		record.State, _ = s.sourceState(ctx, missionID, record.SnapshotID)
 		if record.State.Removed {
-			return ResearchIDEObjectRead{}, true, fmt.Errorf("%w: source_snapshot %s is removed", ErrInvalidInput, objectID)
+			return researchinspection.ObjectRead{}, true, fmt.Errorf("%w: source_snapshot %s is removed", ErrInvalidInput, objectID)
 		}
-		if record.Access.RetrievalPolicy != SourceRetrievalPolicyLiveReference || record.Connector.ConnectorType != SourceConnectorTypeLocalPath {
+		if record.Access.RetrievalPolicy != sourcecontract.RetrievalPolicyLiveReference || record.Connector.ConnectorType != sourcecontract.ConnectorTypeLocalPath {
 			payload, handled, err := s.readSourceSnapshotPDFPayload(ctx, missionID, record, offset, maxBytes)
 			if err != nil {
-				return ResearchIDEObjectRead{}, true, err
+				return researchinspection.ObjectRead{}, true, err
 			}
 			if handled {
-				return ResearchIDEObjectRead{
+				return researchinspection.ObjectRead{
 					ObjectKind: objectKind,
 					ObjectID:   objectID,
 					MissionID:  missionID,
@@ -264,24 +117,24 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 					NextOffset: payload.nextOffset,
 				}, true, nil
 			}
-			return ResearchIDEObjectRead{}, false, nil
+			return researchinspection.ObjectRead{}, false, nil
 		}
-		locator, err := parseLocalPathLocator(record.Locators)
+		locator, err := source.ParseLocalPathLocator(record.Locators)
 		if err != nil {
-			return ResearchIDEObjectRead{}, true, err
+			return researchinspection.ObjectRead{}, true, err
 		}
 		if locator.PathKind == "directory" {
-			return ResearchIDEObjectRead{}, false, nil
+			return researchinspection.ObjectRead{}, false, nil
 		}
 		result, err := s.ReadLocalPathSource(ctx, ReadLocalPathSourceRequest{
 			MissionID:  missionID,
 			SnapshotID: objectID,
 			Offset:     int64(offset),
 			MaxBytes:   int64(maxBytes),
-			Producer:   Producer{Type: "research_ide", ID: "plasma"},
+			Producer:   ledger.Producer{Type: "research_ide", ID: "plasma"},
 		})
 		if err != nil {
-			return ResearchIDEObjectRead{}, true, err
+			return researchinspection.ObjectRead{}, true, err
 		}
 		data := mustJSON(map[string]any{
 			"snapshot":             result.Snapshot,
@@ -289,33 +142,33 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 			"observation_metadata": result.Read.Metadata,
 			"observation_event_id": observationEventID(result.ObservationEvent),
 		})
-		return ResearchIDEObjectRead{
+		return researchinspection.ObjectRead{
 			ObjectKind: objectKind,
 			ObjectID:   objectID,
 			MissionID:  missionID,
-			Summary:    summarizeSourceSnapshot(result.Snapshot).Summary,
-			Refs:       summarizeSourceSnapshot(result.Snapshot).Refs,
+			Summary:    researchcatalog.SummarizeSourceSnapshot(result.Snapshot).Summary,
+			Refs:       researchcatalog.SummarizeSourceSnapshot(result.Snapshot).Refs,
 			Data:       string(data),
 			Truncated:  result.Read.Metadata.Truncated,
 			NextOffset: int(result.Read.Metadata.NextOffset),
 		}, true, nil
-	case ResearchIDEObjectRawArtifact:
+	case researchcatalog.ObjectRawArtifact:
 		record, err := s.store.GetRawArtifact(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectRead{}, true, err
+			return researchinspection.ObjectRead{}, true, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectRead{}, true, fmt.Errorf("%w: raw_artifact %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchinspection.ObjectRead{}, true, fmt.Errorf("%w: raw_artifact %s belongs to another mission", ErrInvalidInput, objectID)
 		}
-		summary := summarizeRawArtifact(record)
-		if UploadedArtifactReadKind(record) == "metadata" {
-			metadata := UploadedArtifactMetadata(record)
+		summary := researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record))
+		if uploadsource.UploadedArtifactReadKind(record) == "metadata" {
+			metadata := uploadsource.UploadedArtifactMetadata(record)
 			metadata["metadata_only"] = true
 			metadata["note"] = "binary artifact content is not returned through research.read"
-			return ResearchIDEObjectRead{ObjectKind: objectKind, ObjectID: objectID, MissionID: missionID, Summary: summary.Summary, Refs: summary.Refs, Data: string(mustJSON(metadata))}, true, nil
+			return researchinspection.ObjectRead{ObjectKind: objectKind, ObjectID: objectID, MissionID: missionID, Summary: summary.Summary, Refs: summary.Refs, Data: string(mustJSON(metadata))}, true, nil
 		}
 		if !pdfdocument.IsPDFMediaType(record.MediaType) && !pdfdocument.IsPDFBytes(record.Content) {
-			return ResearchIDEObjectRead{}, false, nil
+			return researchinspection.ObjectRead{}, false, nil
 		}
 		chunk, err := pdfdocument.ExtractChunk(record.Content, offset, maxBytes)
 		if err != nil {
@@ -330,7 +183,7 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 				"note":        "PDF text extraction failed",
 				"error":       err.Error(),
 			})
-			return ResearchIDEObjectRead{ObjectKind: objectKind, ObjectID: objectID, MissionID: missionID, Summary: summary.Summary, Refs: summary.Refs, Data: string(data)}, true, nil
+			return researchinspection.ObjectRead{ObjectKind: objectKind, ObjectID: objectID, MissionID: missionID, Summary: summary.Summary, Refs: summary.Refs, Data: string(data)}, true, nil
 		}
 		data := mustJSON(map[string]any{
 			"artifact_id":          record.ArtifactID,
@@ -351,7 +204,7 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 			"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
 			"max_read_bytes":       pdfdocument.MaxChunkBytes,
 		})
-		return ResearchIDEObjectRead{
+		return researchinspection.ObjectRead{
 			ObjectKind: objectKind,
 			ObjectID:   objectID,
 			MissionID:  missionID,
@@ -362,19 +215,19 @@ func (s *Service) readChunkedMissionObject(ctx context.Context, missionID string
 			NextOffset: chunk.NextOffset,
 		}, true, nil
 	default:
-		return ResearchIDEObjectRead{}, false, nil
+		return researchinspection.ObjectRead{}, false, nil
 	}
 }
 
 type researchIDEReadPayload struct {
-	summary    ResearchIDEObjectSummary
+	summary    researchcatalog.ObjectSummary
 	data       []byte
 	truncated  bool
 	nextOffset int
 }
 
-func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID string, snapshot SourceSnapshot, offset int, maxBytes int) (researchIDEReadPayload, bool, error) {
-	if snapshot.Access.RetrievalPolicy == SourceRetrievalPolicyLiveReference {
+func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID string, snapshot sourcecontract.Snapshot, offset int, maxBytes int) (researchIDEReadPayload, bool, error) {
+	if snapshot.Access.RetrievalPolicy == sourcecontract.RetrievalPolicyLiveReference {
 		return researchIDEReadPayload{}, false, nil
 	}
 	if len(snapshot.ArtifactIDs) != 1 {
@@ -394,8 +247,8 @@ func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID st
 	if !pdfdocument.IsPDFMediaType(artifact.MediaType) && !pdfdocument.IsPDFBytes(artifact.Content) {
 		return researchIDEReadPayload{}, false, nil
 	}
-	summary := summarizeSourceSnapshot(snapshot)
-	artifactMetadata := UploadedArtifactMetadata(artifact)
+	summary := researchcatalog.SummarizeSourceSnapshot(snapshot)
+	artifactMetadata := uploadsource.UploadedArtifactMetadata(artifact)
 	sourceMetadata := sourceSnapshotReadMetadata(snapshot, summary)
 	chunk, err := pdfdocument.ExtractChunk(artifact.Content, offset, maxBytes)
 	if err != nil {
@@ -420,7 +273,7 @@ func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID st
 		"extraction_type":      "pdf_text",
 		"page_count":           chunk.PageCount,
 		"suggested_read_bytes": pdfdocument.DefaultChunkMaxBytes,
-		"max_read_bytes":       researchIDEMaxBytes,
+		"max_read_bytes":       researchinspection.MaxBytes,
 		"read_kind":            "source_pdf_text",
 	})
 	return researchIDEReadPayload{
@@ -431,14 +284,14 @@ func (s *Service) readSourceSnapshotPDFPayload(ctx context.Context, missionID st
 	}, true, nil
 }
 
-func sourceSnapshotReadMetadata(snapshot SourceSnapshot, summary ResearchIDEObjectSummary) map[string]any {
+func sourceSnapshotReadMetadata(snapshot sourcecontract.Snapshot, summary researchcatalog.ObjectSummary) map[string]any {
 	metadata := map[string]any{
 		"snapshot_id":      snapshot.SnapshotID,
 		"mission_id":       snapshot.MissionID,
 		"title":            strings.TrimSpace(snapshot.Title),
 		"connector_type":   snapshot.Connector.ConnectorType,
 		"retrieval_policy": snapshot.Access.RetrievalPolicy,
-		"state":            firstNonEmpty(snapshot.State.State, SourceStateActive),
+		"state":            firstNonEmpty(snapshot.State.State, sourcecontract.StateActive),
 		"refs":             summary.Refs,
 	}
 	if externalURI := strings.TrimSpace(snapshot.Connector.ExternalURI); externalURI != "" {
@@ -450,121 +303,29 @@ func sourceSnapshotReadMetadata(snapshot SourceSnapshot, summary ResearchIDEObje
 	return metadata
 }
 
-// GrepMissionObjects는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) GrepMissionObjects(ctx context.Context, missionID, query string, limit int, cursor string) (ResearchIDEGrepResult, error) {
-	return s.grepMissionObjects(ctx, missionID, query, limit, cursor, false)
+// GrepMissionObjects delegates bounded grep sequencing to researchinspection while
+// retaining app-owned materialization, observation, security, and visibility.
+func (s *Service) GrepMissionObjects(ctx context.Context, missionID, query string, limit int, cursor string) (researchinspection.GrepResult, error) {
+	return researchinspection.NewService(researchinspection.Dependencies{GrepCandidates: s.grepCandidates}).Grep(ctx, missionID, query, limit, cursor, false)
 }
 
-// GrepMissionObjectsLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) GrepMissionObjectsLegacy(ctx context.Context, missionID, query string, limit int, cursor string) (ResearchIDEGrepResult, error) {
-	return s.grepMissionObjects(ctx, missionID, query, limit, cursor, true)
-}
-
-func (s *Service) grepMissionObjects(ctx context.Context, missionID, query string, limit int, cursor string, legacy bool) (ResearchIDEGrepResult, error) {
-	missionID = strings.TrimSpace(missionID)
-	if err := validateID("mis_", missionID); err != nil {
-		return ResearchIDEGrepResult{}, err
-	}
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return ResearchIDEGrepResult{}, fmt.Errorf("%w: grep query is required", ErrInvalidInput)
-	}
-	limit = clampResearchIDELimit(limit)
-	offset, err := parseResearchIDECursor(cursor)
-	if err != nil {
-		return ResearchIDEGrepResult{}, err
-	}
-	candidates, err := s.grepCandidates(ctx, missionID, query, legacy)
-	if err != nil {
-		return ResearchIDEGrepResult{}, err
-	}
-	var matches []ResearchIDEGrepMatch
-	lowerQuery := strings.ToLower(query)
-	for _, candidate := range candidates {
-		lowerText := strings.ToLower(candidate.text)
-		for searchStart := 0; searchStart < len(lowerText); {
-			pos := strings.Index(lowerText[searchStart:], lowerQuery)
-			if pos < 0 {
-				break
-			}
-			pos += searchStart
-			matches = append(matches, ResearchIDEGrepMatch{
-				ObjectKind: candidate.summary.ObjectKind,
-				ObjectID:   candidate.summary.ObjectID,
-				MissionID:  missionID,
-				Snippet:    snippet(candidate.text, pos, len(query)),
-				Position:   pos,
-				Refs:       candidate.summary.Refs,
-			})
-			searchStart = pos + len(lowerQuery)
-		}
-	}
-	page, next, truncated := paginateMatches(matches, offset, limit)
-	return ResearchIDEGrepResult{MissionID: missionID, Query: query, Matches: page, NextCursor: next, Limit: limit, Truncated: truncated}, nil
+// GrepMissionObjectsLegacy delegates bounded legacy grep sequencing to researchinspection.
+func (s *Service) GrepMissionObjectsLegacy(ctx context.Context, missionID, query string, limit int, cursor string) (researchinspection.GrepResult, error) {
+	return researchinspection.NewService(researchinspection.Dependencies{GrepCandidates: s.grepCandidates}).Grep(ctx, missionID, query, limit, cursor, true)
 }
 
 // ListObjectReferences는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListObjectReferences(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (ResearchIDEReferences, error) {
+func (s *Service) ListObjectReferences(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (researchcatalog.References, error) {
 	return s.listObjectReferences(ctx, missionID, objectKind, objectID, limit, cursor, false)
 }
 
 // ListObjectReferencesLegacy는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListObjectReferencesLegacy(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (ResearchIDEReferences, error) {
+func (s *Service) ListObjectReferencesLegacy(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (researchcatalog.References, error) {
 	return s.listObjectReferences(ctx, missionID, objectKind, objectID, limit, cursor, true)
 }
 
-func (s *Service) listObjectReferences(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string, legacy bool) (ResearchIDEReferences, error) {
-	missionID = strings.TrimSpace(missionID)
-	if err := validateID("mis_", missionID); err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	limit = clampResearchIDELimit(limit)
-	offset, err := parseResearchIDECursor(cursor)
-	if err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	objectKind = normalizeResearchIDEObjectKind(objectKind)
-	objectID = strings.TrimSpace(objectID)
-	if !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
-		return ResearchIDEReferences{}, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
-	}
-	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
-	if err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	if err := s.ensureResearchReferenceTargetVisible(ctx, missionID, objectKind, objectID, legacy, reportArtifacts); err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	summary, _, err := s.readObjectPayload(ctx, missionID, objectKind, objectID, legacy)
-	if err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	summary.Refs = researchIDEFilterReportArtifactRefs(summary.Refs, reportArtifacts)
-	target := ResearchIDEObjectRef{ObjectKind: objectKind, ObjectID: objectID}
-	all, err := s.allObjectSummaries(ctx, missionID, "", legacy)
-	if err != nil {
-		return ResearchIDEReferences{}, err
-	}
-	var backward []ResearchIDEObjectRef
-	for _, item := range all {
-		if item.ObjectKind == objectKind && item.ObjectID == objectID {
-			continue
-		}
-		if containsResearchIDERef(item.Refs, target) {
-			backward = append(backward, ResearchIDEObjectRef{ObjectKind: item.ObjectKind, ObjectID: item.ObjectID})
-		}
-	}
-	forward, backward, next, truncated := paginateReferenceSets(summary.Refs, backward, offset, limit)
-	return ResearchIDEReferences{
-		MissionID:  missionID,
-		ObjectKind: objectKind,
-		ObjectID:   objectID,
-		Forward:    forward,
-		Backward:   backward,
-		NextCursor: next,
-		Limit:      limit,
-		Truncated:  truncated,
-	}, nil
+func (s *Service) listObjectReferences(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string, legacy bool) (researchcatalog.References, error) {
+	return s.catalogService().References(ctx, missionID, objectKind, objectID, limit, cursor, legacy)
 }
 
 // ensureResearchReferenceTargetVisible keeps references as a discovery surface:
@@ -575,23 +336,23 @@ func (s *Service) ensureResearchReferenceTargetVisible(ctx context.Context, miss
 		return nil
 	}
 	switch objectKind {
-	case ResearchIDEObjectRawArtifact:
+	case researchcatalog.ObjectRawArtifact:
 		if _, ok := reportArtifactIDs[objectID]; ok {
 			return fmt.Errorf("%w: raw_artifact %s is hidden from research references", ErrInvalidInput, objectID)
 		}
-	case ResearchIDEObjectLedgerEvent:
+	case researchcatalog.ObjectLedgerEvent:
 		event, err := s.findLedgerEvent(ctx, missionID, objectID)
 		if err != nil {
 			return err
 		}
-		if researchIDEReportLedgerEvent(event) {
+		if researchcatalog.ReportLedgerEvent(event) {
 			return fmt.Errorf("%w: ledger_event %s is hidden from research references", ErrInvalidInput, objectID)
 		}
 	}
 	return nil
 }
 
-func (s *Service) listResearchObjects(ctx context.Context, missionID string) ([]EvidenceRecord, []ClaimRecord, []QuestionRecord, []OptionRecord, []ProposalBundle, error) {
+func (s *Service) listResearchObjects(ctx context.Context, missionID string) ([]researchrecords.EvidenceRecord, []researchrecords.ClaimRecord, []researchrecords.QuestionRecord, []researchrecords.OptionRecord, []researchproposal.ProposalBundle, error) {
 	store, ok := s.store.(ResearchRecordListStore)
 	if !ok {
 		return nil, nil, nil, nil, nil, fmt.Errorf("%w: research record list store is required", ErrInvalidInput)
@@ -619,11 +380,11 @@ func (s *Service) listResearchObjects(ctx context.Context, missionID string) ([]
 	return evidence, claims, questions, options, proposals, nil
 }
 
-func (s *Service) listSourceSnapshots(ctx context.Context, missionID string) ([]SourceSnapshot, error) {
-	return s.ListSourceSnapshotsWithState(ctx, ListSourceSnapshotsRequest{MissionID: missionID})
+func (s *Service) listSourceSnapshots(ctx context.Context, missionID string) ([]sourcecontract.Snapshot, error) {
+	return s.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{MissionID: missionID})
 }
 
-func (s *Service) listRawArtifacts(ctx context.Context, missionID string) ([]RawArtifact, error) {
+func (s *Service) listRawArtifacts(ctx context.Context, missionID string) ([]artifactcontract.Raw, error) {
 	store, ok := s.store.(RawArtifactListStore)
 	if !ok {
 		return nil, fmt.Errorf("%w: raw artifact list store is required", ErrInvalidInput)
@@ -632,7 +393,7 @@ func (s *Service) listRawArtifacts(ctx context.Context, missionID string) ([]Raw
 }
 
 // ListRawArtifacts는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListRawArtifacts(ctx context.Context, missionID string) ([]RawArtifact, error) {
+func (s *Service) ListRawArtifacts(ctx context.Context, missionID string) ([]artifactcontract.Raw, error) {
 	missionID = strings.TrimSpace(missionID)
 	if err := validateID("mis_", missionID); err != nil {
 		return nil, err
@@ -640,7 +401,7 @@ func (s *Service) ListRawArtifacts(ctx context.Context, missionID string) ([]Raw
 	return s.listRawArtifacts(ctx, missionID)
 }
 
-func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string, legacy bool) ([]RawArtifact, error) {
+func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string, legacy bool) ([]artifactcontract.Raw, error) {
 	artifacts, err := s.listRawArtifacts(ctx, missionID)
 	if err != nil {
 		return nil, err
@@ -676,12 +437,12 @@ func (s *Service) listVisibleRawArtifacts(ctx context.Context, missionID string,
 	return visible, nil
 }
 
-func (s *Service) listVisibleLedgerEvents(ctx context.Context, missionID string, legacy bool) ([]LedgerEvent, error) {
+func (s *Service) listVisibleLedgerEvents(ctx context.Context, missionID string, legacy bool) ([]ledger.Event, error) {
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
 		return nil, err
 	}
-	return researchIDEVisibleLedgerEvents(events, legacy), nil
+	return researchcatalog.VisibleLedgerEvents(events, legacy), nil
 }
 
 func (s *Service) reportArtifactIDsHiddenFromResearchDiscovery(ctx context.Context, missionID string, legacy bool) (map[string]struct{}, error) {
@@ -692,7 +453,7 @@ func (s *Service) reportArtifactIDsHiddenFromResearchDiscovery(ctx context.Conte
 	if err != nil {
 		return nil, err
 	}
-	return researchIDEReportArtifactIDs(events), nil
+	return researchcatalog.ReportArtifactIDs(events), nil
 }
 
 func (s *Service) isRejectedReportPatchArtifact(ctx context.Context, missionID string, artifactID string) (bool, error) {
@@ -748,7 +509,7 @@ func (s *Service) stagedSourceCandidateArtifactIDs(ctx context.Context, missionI
 	return sourcecandidateevents.OpenStagedArtifactIDs(sourceCandidateEventsFromApp(events), sourceCandidateSnapshotsFromApp(snapshots)), nil
 }
 
-func (s *Service) listReportObjects(ctx context.Context, missionID string) ([]Report, []ReportVersion, error) {
+func (s *Service) listReportObjects(ctx context.Context, missionID string) ([]reportdocument.Report, []reportdocument.ReportVersion, error) {
 	store, ok := s.store.(ReportListStore)
 	if !ok {
 		return nil, nil, fmt.Errorf("%w: report list store is required", ErrInvalidInput)
@@ -764,134 +525,31 @@ func (s *Service) listReportObjects(ctx context.Context, missionID string) ([]Re
 	return reports, versions, nil
 }
 
-func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind string, legacy bool) ([]ResearchIDEObjectSummary, error) {
-	if objectKind != "" && !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
-		return nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
-	}
-	var items []ResearchIDEObjectSummary
-	reportArtifacts, err := s.reportArtifactIDsHiddenFromResearchDiscovery(ctx, missionID, legacy)
-	if err != nil {
-		return nil, err
-	}
-	add := func(kind string, summaries []ResearchIDEObjectSummary) {
-		if objectKind == "" || objectKind == kind {
-			summaries = researchIDEFilterReportArtifactSummaryRefs(summaries, reportArtifacts)
-			items = append(items, summaries...)
-		}
-	}
-	if objectKind == "" || objectKind == ResearchIDEObjectSourceSnapshot {
-		snapshots, err := s.listSourceSnapshots(ctx, missionID)
-		if err != nil {
-			return nil, err
-		}
-		var summaries []ResearchIDEObjectSummary
-		for _, snapshot := range snapshots {
-			summaries = append(summaries, summarizeSourceSnapshot(snapshot))
-		}
-		add(ResearchIDEObjectSourceSnapshot, summaries)
-	}
-	if objectKind == "" || objectKind == ResearchIDEObjectRawArtifact {
-		artifacts, err := s.listVisibleRawArtifacts(ctx, missionID, legacy)
-		if err != nil {
-			return nil, err
-		}
-		var summaries []ResearchIDEObjectSummary
-		for _, artifact := range artifacts {
-			summaries = append(summaries, summarizeRawArtifact(artifact))
-		}
-		add(ResearchIDEObjectRawArtifact, summaries)
-	}
-	if legacy && (objectKind == "" || isResearchRecordKind(objectKind)) {
-		evidence, claims, questions, options, proposals, err := s.listResearchObjects(ctx, missionID)
-		if err != nil {
-			return nil, err
-		}
-		var summaries []ResearchIDEObjectSummary
-		for _, record := range evidence {
-			summaries = append(summaries, summarizeEvidence(record))
-		}
-		add(ResearchIDEObjectEvidenceRecord, filterSummaries(summaries, ResearchIDEObjectEvidenceRecord))
-		summaries = summaries[:0]
-		for _, record := range claims {
-			summaries = append(summaries, summarizeClaim(record))
-		}
-		add(ResearchIDEObjectClaimRecord, summaries)
-		summaries = summaries[:0]
-		for _, record := range questions {
-			summaries = append(summaries, summarizeQuestion(record))
-		}
-		add(ResearchIDEObjectQuestionRecord, summaries)
-		summaries = summaries[:0]
-		for _, record := range options {
-			summaries = append(summaries, summarizeOption(record))
-		}
-		add(ResearchIDEObjectOptionRecord, summaries)
-		summaries = summaries[:0]
-		for _, record := range proposals {
-			summaries = append(summaries, summarizeProposal(record))
-		}
-		add(ResearchIDEObjectProposalBundle, summaries)
-	}
-	if legacy && (objectKind == "" || objectKind == ResearchIDEObjectReport || objectKind == ResearchIDEObjectReportVersion || objectKind == ResearchIDEObjectReportBlock) {
-		reports, versions, err := s.listReportObjects(ctx, missionID)
-		if err != nil {
-			return nil, err
-		}
-		var reportSummaries []ResearchIDEObjectSummary
-		for _, report := range reports {
-			reportSummaries = append(reportSummaries, summarizeReport(report))
-		}
-		add(ResearchIDEObjectReport, reportSummaries)
-		var versionSummaries []ResearchIDEObjectSummary
-		var blockSummaries []ResearchIDEObjectSummary
-		for _, version := range versions {
-			versionSummaries = append(versionSummaries, summarizeReportVersion(version))
-			blocks, err := s.store.ListReportBlocks(ctx, version.ReportVersionID)
-			if err != nil {
-				return nil, err
-			}
-			for _, block := range blocks {
-				blockSummaries = append(blockSummaries, summarizeReportBlock(block))
-			}
-		}
-		add(ResearchIDEObjectReportVersion, versionSummaries)
-		add(ResearchIDEObjectReportBlock, blockSummaries)
-	}
-	if objectKind == "" || objectKind == ResearchIDEObjectLedgerEvent {
-		events, err := s.listVisibleLedgerEvents(ctx, missionID, legacy)
-		if err != nil {
-			return nil, err
-		}
-		var summaries []ResearchIDEObjectSummary
-		for _, event := range events {
-			summaries = append(summaries, summarizeLedgerEvent(event))
-		}
-		add(ResearchIDEObjectLedgerEvent, summaries)
-	}
-	return items, nil
+func (s *Service) allObjectSummaries(ctx context.Context, missionID, objectKind string, legacy bool) ([]researchcatalog.ObjectSummary, error) {
+	return s.catalogService().AllObjectSummaries(ctx, missionID, objectKind, legacy)
 }
 
-func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, objectID string, legacy bool) (ResearchIDEObjectSummary, []byte, error) {
-	if !legacyResearchIDEObjectKindAllowed(objectKind, legacy) {
-		return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
+func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, objectID string, legacy bool) (researchcatalog.ObjectSummary, []byte, error) {
+	if !researchcatalog.ObjectKindAllowed(objectKind, legacy) {
+		return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
 	}
 	switch objectKind {
-	case ResearchIDEObjectSourceSnapshot:
+	case researchcatalog.ObjectSourceSnapshot:
 		record, err := s.store.GetSourceSnapshot(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: source_snapshot %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: source_snapshot %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		record.State, _ = s.sourceState(ctx, missionID, record.SnapshotID)
 		if record.State.Removed {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: source_snapshot %s is removed", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: source_snapshot %s is removed", ErrInvalidInput, objectID)
 		}
-		if record.Access.RetrievalPolicy == SourceRetrievalPolicyLiveReference && record.Connector.ConnectorType == SourceConnectorTypeLocalPath {
-			locator, err := parseLocalPathLocator(record.Locators)
+		if record.Access.RetrievalPolicy == sourcecontract.RetrievalPolicyLiveReference && record.Connector.ConnectorType == sourcecontract.ConnectorTypeLocalPath {
+			locator, err := source.ParseLocalPathLocator(record.Locators)
 			if err != nil {
-				return ResearchIDEObjectSummary{}, nil, err
+				return researchcatalog.ObjectSummary{}, nil, err
 			}
 			if locator.PathKind == "directory" {
 				tree, err := s.TreeLocalPathSource(ctx, TreeLocalPathSourceRequest{
@@ -899,12 +557,12 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 					SnapshotID: objectID,
 					Depth:      1,
 					Limit:      researchIDEDefaultLimit,
-					Producer:   Producer{Type: "research_ide", ID: "plasma"},
+					Producer:   ledger.Producer{Type: "research_ide", ID: "plasma"},
 				})
 				if err != nil {
-					return ResearchIDEObjectSummary{}, nil, err
+					return researchcatalog.ObjectSummary{}, nil, err
 				}
-				return summarizeSourceSnapshot(tree.Snapshot), mustJSON(map[string]any{
+				return researchcatalog.SummarizeSourceSnapshot(tree.Snapshot), mustJSON(map[string]any{
 					"snapshot":             tree.Snapshot,
 					"tree":                 tree.Tree,
 					"observation_metadata": tree.Tree.Metadata,
@@ -914,55 +572,55 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 			read, err := s.ReadLocalPathSource(ctx, ReadLocalPathSourceRequest{
 				MissionID:  missionID,
 				SnapshotID: objectID,
-				MaxBytes:   int64(researchIDEDefaultBytes),
-				Producer:   Producer{Type: "research_ide", ID: "plasma"},
+				MaxBytes:   int64(researchinspection.DefaultBytes),
+				Producer:   ledger.Producer{Type: "research_ide", ID: "plasma"},
 			})
 			if err != nil {
-				return ResearchIDEObjectSummary{}, nil, err
+				return researchcatalog.ObjectSummary{}, nil, err
 			}
-			return summarizeSourceSnapshot(read.Snapshot), mustJSON(map[string]any{
+			return researchcatalog.SummarizeSourceSnapshot(read.Snapshot), mustJSON(map[string]any{
 				"snapshot":             read.Snapshot,
 				"content":              read.Read.Content,
 				"observation_metadata": read.Read.Metadata,
 				"observation_event_id": observationEventID(read.ObservationEvent),
 			}), nil
 		}
-		if payload, handled, err := s.readSourceSnapshotPDFPayload(ctx, missionID, record, 0, researchIDEDefaultBytes); handled || err != nil {
+		if payload, handled, err := s.readSourceSnapshotPDFPayload(ctx, missionID, record, 0, researchinspection.DefaultBytes); handled || err != nil {
 			return payload.summary, payload.data, err
 		}
-		return summarizeSourceSnapshot(record), mustJSON(record), nil
-	case ResearchIDEObjectRawArtifact:
+		return researchcatalog.SummarizeSourceSnapshot(record), mustJSON(record), nil
+	case researchcatalog.ObjectRawArtifact:
 		record, err := s.store.GetRawArtifact(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		rejected, err := s.isRejectedReportPatchArtifact(ctx, missionID, record.ArtifactID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if rejected {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s is a rejected report patch artifact", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s is a rejected report patch artifact", ErrInvalidInput, objectID)
 		}
 		stagedCandidate, err := s.isStagedSourceCandidateArtifact(ctx, missionID, record.ArtifactID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if stagedCandidate {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s is an unapproved source candidate artifact; use plasma.sources.candidates.read", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: raw_artifact %s is an unapproved source candidate artifact; use plasma.sources.candidates.read", ErrInvalidInput, objectID)
 		}
-		if UploadedArtifactReadKind(record) == "metadata" {
-			metadata := UploadedArtifactMetadata(record)
+		if uploadsource.UploadedArtifactReadKind(record) == "metadata" {
+			metadata := uploadsource.UploadedArtifactMetadata(record)
 			metadata["metadata_only"] = true
 			metadata["note"] = "binary artifact content is not returned through research.read"
-			return summarizeRawArtifact(record), mustJSON(metadata), nil
+			return researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record)), mustJSON(metadata), nil
 		}
 		if pdfdocument.IsPDFMediaType(record.MediaType) || pdfdocument.IsPDFBytes(record.Content) {
-			chunk, err := pdfdocument.ExtractChunk(record.Content, 0, researchIDEDefaultBytes)
+			chunk, err := pdfdocument.ExtractChunk(record.Content, 0, researchinspection.DefaultBytes)
 			if err != nil {
-				return summarizeRawArtifact(record), mustJSON(map[string]any{
+				return researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record)), mustJSON(map[string]any{
 					"artifact_id": record.ArtifactID,
 					"mission_id":  record.MissionID,
 					"media_type":  record.MediaType,
@@ -974,7 +632,7 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 					"error":       err.Error(),
 				}), nil
 			}
-			return summarizeRawArtifact(record), mustJSON(map[string]any{
+			return researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record)), mustJSON(map[string]any{
 				"artifact_id":          record.ArtifactID,
 				"mission_id":           record.MissionID,
 				"media_type":           record.MediaType,
@@ -994,7 +652,7 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 			}), nil
 		}
 		if !utf8.Valid(record.Content) {
-			return summarizeRawArtifact(record), mustJSON(map[string]any{
+			return researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record)), mustJSON(map[string]any{
 				"artifact_id": record.ArtifactID,
 				"mission_id":  record.MissionID,
 				"media_type":  record.MediaType,
@@ -1005,100 +663,95 @@ func (s *Service) readObjectPayload(ctx context.Context, missionID, objectKind, 
 				"note":        "binary artifact content is not returned through research.read",
 			}), nil
 		}
-		return summarizeRawArtifact(record), record.Content, nil
-	case ResearchIDEObjectEvidenceRecord:
+		return researchcatalog.SummarizeRawArtifact(record, uploadsource.UploadedArtifactReadKind(record)), record.Content, nil
+	case researchcatalog.ObjectEvidenceRecord:
 		record, err := s.store.GetEvidenceRecord(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: evidence_record %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: evidence_record %s belongs to another mission", ErrInvalidInput, objectID)
 		}
-		return summarizeEvidence(record), mustJSON(record), nil
-	case ResearchIDEObjectClaimRecord:
+		return researchcatalog.SummarizeEvidence(record), mustJSON(record), nil
+	case researchcatalog.ObjectClaimRecord:
 		record, err := s.store.GetClaimRecord(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: claim_record %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: claim_record %s belongs to another mission", ErrInvalidInput, objectID)
 		}
-		return summarizeClaim(record), mustJSON(record), nil
-	case ResearchIDEObjectQuestionRecord:
+		return researchcatalog.SummarizeClaim(record), mustJSON(record), nil
+	case researchcatalog.ObjectQuestionRecord:
 		record, err := s.store.GetQuestionRecord(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: question_record %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: question_record %s belongs to another mission", ErrInvalidInput, objectID)
 		}
-		return summarizeQuestion(record), mustJSON(record), nil
-	case ResearchIDEObjectOptionRecord:
+		return researchcatalog.SummarizeQuestion(record), mustJSON(record), nil
+	case researchcatalog.ObjectOptionRecord:
 		record, err := s.store.GetOptionRecord(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: option_record %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: option_record %s belongs to another mission", ErrInvalidInput, objectID)
 		}
-		return summarizeOption(record), mustJSON(record), nil
-	case ResearchIDEObjectProposalBundle:
+		return researchcatalog.SummarizeOption(record), mustJSON(record), nil
+	case researchcatalog.ObjectProposalBundle:
 		record, err := s.store.GetProposalBundle(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: proposal_bundle %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: proposal_bundle %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		return summarizeProposal(record), mustJSON(record), nil
-	case ResearchIDEObjectReport:
+	case researchcatalog.ObjectReport:
 		record, err := s.store.GetReport(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: report %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: report %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		return summarizeReport(record), mustJSON(record), nil
-	case ResearchIDEObjectReportVersion:
+	case researchcatalog.ObjectReportVersion:
 		record, err := s.store.GetReportVersion(ctx, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		if record.MissionID != missionID {
-			return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: report_version %s belongs to another mission", ErrInvalidInput, objectID)
+			return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: report_version %s belongs to another mission", ErrInvalidInput, objectID)
 		}
 		return summarizeReportVersion(record), mustJSON(record), nil
-	case ResearchIDEObjectReportBlock:
+	case researchcatalog.ObjectReportBlock:
 		block, err := s.findReportBlock(ctx, missionID, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
 		return summarizeReportBlock(block), mustJSON(block), nil
-	case ResearchIDEObjectLedgerEvent:
+	case researchcatalog.ObjectLedgerEvent:
 		event, err := s.findLedgerEvent(ctx, missionID, objectID)
 		if err != nil {
-			return ResearchIDEObjectSummary{}, nil, err
+			return researchcatalog.ObjectSummary{}, nil, err
 		}
-		return summarizeLedgerEvent(event), mustJSON(event), nil
+		return researchcatalog.SummarizeLedgerEvent(event), mustJSON(event), nil
 	default:
-		return ResearchIDEObjectSummary{}, nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
+		return researchcatalog.ObjectSummary{}, nil, fmt.Errorf("%w: unsupported object kind", ErrInvalidInput)
 	}
 }
 
-type grepCandidate struct {
-	summary ResearchIDEObjectSummary
-	text    string
-}
-
-func (s *Service) grepCandidates(ctx context.Context, missionID string, query string, legacy bool) ([]grepCandidate, error) {
+func (s *Service) grepCandidates(ctx context.Context, missionID string, query string, legacy bool) ([]researchinspection.GrepCandidate, error) {
 	items, err := s.allObjectSummaries(ctx, missionID, "", legacy)
 	if err != nil {
 		return nil, err
 	}
-	var candidates []grepCandidate
+	var candidates []researchinspection.GrepCandidate
 	for _, item := range items {
-		if item.ObjectKind == ResearchIDEObjectSourceSnapshot {
+		if item.ObjectKind == researchcatalog.ObjectSourceSnapshot {
 			source, err := s.GetSourceSnapshot(ctx, item.ObjectID)
 			if err == nil {
 				source.State, _ = s.sourceState(ctx, missionID, source.SnapshotID)
@@ -1106,16 +759,16 @@ func (s *Service) grepCandidates(ctx context.Context, missionID string, query st
 			if err == nil && source.State.Removed {
 				continue
 			}
-			if err == nil && source.Access.RetrievalPolicy == SourceRetrievalPolicyLiveReference && source.Connector.ConnectorType == SourceConnectorTypeLocalPath {
+			if err == nil && source.Access.RetrievalPolicy == sourcecontract.RetrievalPolicyLiveReference && source.Connector.ConnectorType == sourcecontract.ConnectorTypeLocalPath {
 				grep, err := s.GrepLocalPathSource(ctx, GrepLocalPathSourceRequest{
 					MissionID:  missionID,
 					SnapshotID: item.ObjectID,
 					Query:      query,
-					Producer:   Producer{Type: "research_ide", ID: "plasma"},
+					Producer:   ledger.Producer{Type: "research_ide", ID: "plasma"},
 				})
 				if err == nil {
 					for _, match := range grep.Grep.Matches {
-						candidates = append(candidates, grepCandidate{summary: item, text: match.Snippet})
+						candidates = append(candidates, researchinspection.GrepCandidate{Summary: item, Text: match.Snippet})
 					}
 					continue
 				}
@@ -1126,61 +779,61 @@ func (s *Service) grepCandidates(ctx context.Context, missionID string, query st
 			return nil, err
 		}
 		text := item.Summary + "\n" + string(data)
-		candidates = append(candidates, grepCandidate{summary: item, text: text})
+		candidates = append(candidates, researchinspection.GrepCandidate{Summary: item, Text: text})
 	}
 	return candidates, nil
 }
 
-func (s *Service) findReportBlock(ctx context.Context, missionID, blockID string) (ReportBlock, error) {
+func (s *Service) findReportBlock(ctx context.Context, missionID, blockID string) (reportdocument.ReportBlock, error) {
 	_, versions, err := s.listReportObjects(ctx, missionID)
 	if err != nil {
-		return ReportBlock{}, err
+		return reportdocument.ReportBlock{}, err
 	}
 	for _, version := range versions {
 		blocks, err := s.store.ListReportBlocks(ctx, version.ReportVersionID)
 		if err != nil {
-			return ReportBlock{}, err
+			return reportdocument.ReportBlock{}, err
 		}
 		for _, block := range blocks {
 			if block.BlockID == blockID {
 				if block.MissionID != missionID {
-					return ReportBlock{}, fmt.Errorf("%w: report_block %s belongs to another mission", ErrInvalidInput, blockID)
+					return reportdocument.ReportBlock{}, fmt.Errorf("%w: report_block %s belongs to another mission", ErrInvalidInput, blockID)
 				}
 				return block, nil
 			}
 		}
 	}
-	return ReportBlock{}, fmt.Errorf("%w: report_block %s not found", ErrInvalidInput, blockID)
+	return reportdocument.ReportBlock{}, fmt.Errorf("%w: report_block %s not found", ErrInvalidInput, blockID)
 }
 
-func (s *Service) reportVersionBlockPage(ctx context.Context, missionID, versionID string, limit int, cursor string) (ResearchIDEPage, error) {
-	limit = clampResearchIDELimit(limit)
-	offset, err := parseResearchIDECursor(cursor)
+func (s *Service) reportVersionBlockPage(ctx context.Context, missionID, versionID string, limit int, cursor string) (researchcatalog.Page, error) {
+	limit = researchcatalog.ClampLimit(limit)
+	offset, err := researchcatalog.ParseCursor(cursor)
 	if err != nil {
-		return ResearchIDEPage{}, err
+		return researchcatalog.Page{}, err
 	}
 	version, err := s.store.GetReportVersion(ctx, versionID)
 	if err != nil {
-		return ResearchIDEPage{}, err
+		return researchcatalog.Page{}, err
 	}
 	if version.MissionID != missionID {
-		return ResearchIDEPage{}, fmt.Errorf("%w: report_version %s belongs to another mission", ErrInvalidInput, versionID)
+		return researchcatalog.Page{}, fmt.Errorf("%w: report_version %s belongs to another mission", ErrInvalidInput, versionID)
 	}
 	blocks, err := s.store.ListReportBlocks(ctx, versionID)
 	if err != nil {
-		return ResearchIDEPage{}, err
+		return researchcatalog.Page{}, err
 	}
-	summaries := make([]ResearchIDEObjectSummary, 0, len(blocks))
+	summaries := make([]researchcatalog.ObjectSummary, 0, len(blocks))
 	for _, block := range blocks {
 		if block.MissionID != missionID {
-			return ResearchIDEPage{}, fmt.Errorf("%w: report_block %s belongs to another mission", ErrInvalidInput, block.BlockID)
+			return researchcatalog.Page{}, fmt.Errorf("%w: report_block %s belongs to another mission", ErrInvalidInput, block.BlockID)
 		}
 		summaries = append(summaries, summarizeReportBlock(block))
 	}
-	pageItems, next, truncated := paginateSummaries(summaries, offset, limit)
-	return ResearchIDEPage{
+	pageItems, next, truncated := researchcatalog.PaginateSummaries(summaries, offset, limit)
+	return researchcatalog.Page{
 		MissionID:  missionID,
-		ObjectKind: ResearchIDEObjectReportBlock,
+		ObjectKind: researchcatalog.ObjectReportBlock,
 		Items:      pageItems,
 		NextCursor: next,
 		Limit:      limit,
@@ -1188,475 +841,65 @@ func (s *Service) reportVersionBlockPage(ctx context.Context, missionID, version
 	}, nil
 }
 
-func (s *Service) findLedgerEvent(ctx context.Context, missionID, eventID string) (LedgerEvent, error) {
+func (s *Service) findLedgerEvent(ctx context.Context, missionID, eventID string) (ledger.Event, error) {
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	for _, event := range events {
 		if event.EventID == eventID {
 			return event, nil
 		}
 	}
-	return LedgerEvent{}, fmt.Errorf("%w: ledger_event %s not found", ErrInvalidInput, eventID)
+	return ledger.Event{}, fmt.Errorf("%w: ledger_event %s not found", ErrInvalidInput, eventID)
 }
 
-func summarizeSourceSnapshot(snapshot SourceSnapshot) ResearchIDEObjectSummary {
-	refs := make([]ResearchIDEObjectRef, 0, len(snapshot.ArtifactIDs))
-	for _, id := range snapshot.ArtifactIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: id})
-	}
-	metadata := map[string]any{
-		"connector_type":   snapshot.Connector.ConnectorType,
-		"retrieval_policy": snapshot.Access.RetrievalPolicy,
-		"state":            firstNonEmpty(snapshot.State.State, SourceStateActive),
-		"removed":          snapshot.State.Removed,
-	}
-	if snapshot.Connector.ConnectorType == SourceConnectorTypeLocalPath {
-		if locator, err := parseLocalPathLocator(snapshot.Locators); err == nil {
-			metadata["root_id"] = locator.RootID
-			metadata["relative_path"] = locator.RelativePath
-			metadata["path_kind"] = locator.PathKind
-		}
-	}
-	if snapshot.Connector.ConnectorType == SourceConnectorTypeMediaURL {
-		if locator, err := parseMediaLocator(snapshot.Locators); err == nil {
-			metadata["media_kind"] = locator.MediaKind
-			metadata["mime_type"] = locator.MIMEType
-			metadata["byte_size"] = locator.ByteSize
-			metadata["width"] = locator.Width
-			metadata["height"] = locator.Height
-			metadata["canonical_url"] = locator.CanonicalURL
-			metadata["source_page_url"] = locator.SourcePageURL
-			metadata["direct_media_url"] = locator.DirectMediaURL
-			metadata["license"] = locator.License
-			metadata["attribution"] = locator.Attribution
-			metadata["inspection_support"] = locator.InspectionSupport
-		}
-	}
-	if snapshot.Connector.ConnectorType == SourceConnectorTypeFileUpload {
-		for key, value := range uploadedFileLocatorMetadata(snapshot.Locators) {
-			metadata[key] = value
-		}
-	}
-	if snapshot.Connector.ConnectorType == SourceConnectorTypePDFURL || snapshot.Connector.ConnectorType == SourceConnectorTypeFileUpload {
-		for key, value := range pdfLocatorMetadata(snapshot.Locators) {
-			metadata[key] = value
-		}
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectSourceSnapshot, ObjectID: snapshot.SnapshotID, MissionID: snapshot.MissionID, Summary: firstNonEmpty(snapshot.Title, snapshot.Connector.ExternalURI, snapshot.SnapshotID), Refs: refs, Metadata: metadata}
-}
-
-func pdfLocatorMetadata(raw json.RawMessage) map[string]any {
-	metadata := map[string]any{}
-	if len(raw) == 0 {
-		return metadata
-	}
-	var locators []map[string]any
-	if err := json.Unmarshal(raw, &locators); err != nil {
-		var locator map[string]any
-		if err := json.Unmarshal(raw, &locator); err != nil {
-			return metadata
-		}
-		locators = []map[string]any{locator}
-	}
-	for _, locator := range locators {
-		if !isPDFLocatorMap(locator) {
-			continue
-		}
-		for _, key := range []string{"url", "filename", "original_filename", "sanitized_filename", "mime_type", "media_type", "byte_size", "sha256", "page_count", "text_length", "text_length_known", "extraction_support"} {
-			if value, ok := locator[key]; ok {
-				metadata[key] = value
-			}
-		}
-		return metadata
-	}
-	return metadata
-}
-
-func uploadedFileLocatorMetadata(raw json.RawMessage) map[string]any {
-	metadata := map[string]any{}
-	if len(raw) == 0 {
-		return metadata
-	}
-	var locators []map[string]any
-	if err := json.Unmarshal(raw, &locators); err != nil {
-		var locator map[string]any
-		if err := json.Unmarshal(raw, &locator); err != nil {
-			return metadata
-		}
-		locators = []map[string]any{locator}
-	}
-	for _, locator := range locators {
-		locatorType := uploadedFileLocatorMapType(locator)
-		if locatorType == "" {
-			continue
-		}
-		metadata["locator_type"] = locatorType
-		for _, key := range []string{"original_filename", "sanitized_filename", "filename", "media_kind", "content_kind", "byte_size", "sha256", "uploaded_at"} {
-			if value, ok := locator[key]; ok {
-				metadata[key] = value
-			}
-		}
-		if filename := firstLocatorMapString(locator, "sanitized_filename", "filename", "original_filename"); filename != "" {
-			metadata["filename"] = filename
-		}
-		if mimeType := firstLocatorMapString(locator, "mime_type", "media_type"); mimeType != "" {
-			metadata["mime_type"] = mimeType
-		}
-		return metadata
-	}
-	return metadata
-}
-
-func uploadedFileLocatorMapType(locator map[string]any) string {
-	discriminator := locatorMapDiscriminator(locator)
-	switch discriminator {
-	case SourceLocatorTypeFullDocument, SourceLocatorTypePDFDocument, SourceLocatorTypeMedia:
-		return discriminator
-	case SourceConnectorTypeFileUpload:
-	default:
-		return ""
-	}
-	contentKind := strings.TrimSpace(fmt.Sprint(locator["content_kind"]))
-	mediaType := firstLocatorMapString(locator, "mime_type", "media_type")
-	switch {
-	case contentKind == UploadedContentKindPDF || mediaType == "application/pdf":
-		return SourceLocatorTypePDFDocument
-	case contentKind == UploadedContentKindImage || strings.HasPrefix(mediaType, "image/"):
-		return SourceLocatorTypeMedia
-	default:
-		return SourceLocatorTypeFullDocument
-	}
-}
-
-func isPDFLocatorMap(locator map[string]any) bool {
-	discriminator := locatorMapDiscriminator(locator)
-	if discriminator == SourceLocatorTypePDFDocument {
-		return true
-	}
-	if discriminator != SourceConnectorTypeFileUpload {
-		return false
-	}
-	contentKind := strings.TrimSpace(fmt.Sprint(locator["content_kind"]))
-	mediaType := firstLocatorMapString(locator, "mime_type", "media_type")
-	return contentKind == UploadedContentKindPDF || mediaType == "application/pdf"
-}
-
-func firstLocatorMapString(locator map[string]any, keys ...string) string {
-	for _, key := range keys {
-		value := strings.TrimSpace(fmt.Sprint(locator[key]))
-		if value != "" && value != "<nil>" {
-			return value
-		}
-	}
-	return ""
-}
-
-func locatorMapDiscriminator(locator map[string]any) string {
-	if value := strings.TrimSpace(fmt.Sprint(locator["locator_type"])); value != "" && value != "<nil>" {
-		return value
-	}
-	value := strings.TrimSpace(fmt.Sprint(locator["kind"]))
-	if value == "<nil>" {
-		return ""
-	}
-	return value
-}
-
-func summarizeRawArtifact(artifact RawArtifact) ResearchIDEObjectSummary {
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: artifact.ArtifactID, MissionID: artifact.MissionID, Summary: firstNonEmpty(artifact.Filename, artifact.MediaType, artifact.ArtifactID), Metadata: map[string]any{"byte_size": artifact.ByteSize, "media_type": artifact.MediaType, "read_kind": UploadedArtifactReadKind(artifact)}}
-}
-
-func summarizeEvidence(record EvidenceRecord) ResearchIDEObjectSummary {
-	refs := make([]ResearchIDEObjectRef, 0, len(record.SnapshotRefs)*2)
-	for _, ref := range record.SnapshotRefs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectSourceSnapshot, ObjectID: ref.SnapshotID})
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: ref.ArtifactID})
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: record.EvidenceID, MissionID: record.MissionID, Summary: record.Summary, Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"state": record.State, "evidence_type": record.EvidenceType}}
-}
-
-func summarizeClaim(record ClaimRecord) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
-	for _, id := range record.SupportingEvidenceIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: id})
-	}
-	for _, id := range record.OpposingEvidenceIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: id})
-	}
-	for _, id := range record.DependsOnQuestionIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectQuestionRecord, ObjectID: id})
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectClaimRecord, ObjectID: record.ClaimID, MissionID: record.MissionID, Summary: record.Text, Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"state": record.State, "claim_type": record.ClaimType}}
-}
-
-func summarizeQuestion(record QuestionRecord) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
-	for _, id := range record.RelatedEvidenceIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: id})
-	}
-	for _, id := range record.RelatedClaimIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectClaimRecord, ObjectID: id})
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectQuestionRecord, ObjectID: record.QuestionID, MissionID: record.MissionID, Summary: record.Text, Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"state": record.State, "priority": record.Priority}}
-}
-
-func summarizeOption(record OptionRecord) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
-	for _, id := range record.SupportingClaimIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectClaimRecord, ObjectID: id})
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectOptionRecord, ObjectID: record.OptionID, MissionID: record.MissionID, Summary: firstNonEmpty(record.Title, record.Description, record.OptionID), Refs: refs, Metadata: map[string]any{"state": record.State, "risk_level": record.RiskLevel}}
-}
-
-func summarizeProposal(record ProposalBundle) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
+func summarizeProposal(record researchproposal.ProposalBundle) researchcatalog.ObjectSummary {
+	var refs []researchcatalog.ObjectRef
 	for _, ref := range record.ObjectRefs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: normalizeResearchIDEObjectKind(ref.ObjectKind), ObjectID: ref.ObjectID})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.NormalizeObjectKind(ref.ObjectKind), ObjectID: ref.ObjectID})
 	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectProposalBundle, ObjectID: record.ProposalID, MissionID: record.MissionID, Summary: firstNonEmpty(record.Title, record.RequestedDecision, record.ProposalID), Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"state": record.State}}
+	return researchcatalog.ObjectSummary{ObjectKind: researchcatalog.ObjectProposalBundle, ObjectID: record.ProposalID, MissionID: record.MissionID, Summary: firstNonEmpty(record.Title, record.RequestedDecision, record.ProposalID), Refs: researchcatalog.DedupeRefs(refs), Metadata: map[string]any{"state": record.State}}
 }
 
-func summarizeReport(record Report) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
+func summarizeReport(record reportdocument.Report) researchcatalog.ObjectSummary {
+	var refs []researchcatalog.ObjectRef
 	if record.ActiveVersionID != "" {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectReportVersion, ObjectID: record.ActiveVersionID})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectReportVersion, ObjectID: record.ActiveVersionID})
 	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectReport, ObjectID: record.ReportID, MissionID: record.MissionID, Summary: record.Title, Refs: refs, Metadata: map[string]any{"state": record.State}}
+	return researchcatalog.ObjectSummary{ObjectKind: researchcatalog.ObjectReport, ObjectID: record.ReportID, MissionID: record.MissionID, Summary: record.Title, Refs: refs, Metadata: map[string]any{"state": record.State}}
 }
 
-func summarizeReportVersion(record ReportVersion) ResearchIDEObjectSummary {
-	refs := []ResearchIDEObjectRef{{ObjectKind: ResearchIDEObjectReport, ObjectID: record.ReportID}}
+func summarizeReportVersion(record reportdocument.ReportVersion) researchcatalog.ObjectSummary {
+	refs := []researchcatalog.ObjectRef{{ObjectKind: researchcatalog.ObjectReport, ObjectID: record.ReportID}}
 	for _, id := range record.IncludedEvidenceScope.ClaimIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectClaimRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectClaimRecord, ObjectID: id})
 	}
 	for _, id := range record.IncludedEvidenceScope.EvidenceIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectEvidenceRecord, ObjectID: id})
 	}
 	for _, id := range record.IncludedEvidenceScope.QuestionIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectQuestionRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectQuestionRecord, ObjectID: id})
 	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectReportVersion, ObjectID: record.ReportVersionID, MissionID: record.MissionID, Summary: record.State + " report version", Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"report_id": record.ReportID, "state": record.State}}
+	return researchcatalog.ObjectSummary{ObjectKind: researchcatalog.ObjectReportVersion, ObjectID: record.ReportVersionID, MissionID: record.MissionID, Summary: record.State + " report version", Refs: researchcatalog.DedupeRefs(refs), Metadata: map[string]any{"report_id": record.ReportID, "state": record.State}}
 }
 
-func summarizeReportBlock(block ReportBlock) ResearchIDEObjectSummary {
-	var refs []ResearchIDEObjectRef
-	refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectReportVersion, ObjectID: block.ReportVersionID})
+func summarizeReportBlock(block reportdocument.ReportBlock) researchcatalog.ObjectSummary {
+	var refs []researchcatalog.ObjectRef
+	refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectReportVersion, ObjectID: block.ReportVersionID})
 	for _, id := range block.SourceRefs.ClaimIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectClaimRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectClaimRecord, ObjectID: id})
 	}
 	for _, id := range block.SourceRefs.EvidenceIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectEvidenceRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectEvidenceRecord, ObjectID: id})
 	}
 	for _, id := range block.SourceRefs.SnapshotIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectSourceSnapshot, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectSourceSnapshot, ObjectID: id})
 	}
 	for _, id := range block.SourceRefs.QuestionIDs {
-		refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectQuestionRecord, ObjectID: id})
+		refs = append(refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectQuestionRecord, ObjectID: id})
 	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectReportBlock, ObjectID: block.BlockID, MissionID: block.MissionID, Summary: block.BlockType, Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"report_version_id": block.ReportVersionID, "block_type": block.BlockType}}
-}
-
-func summarizeLedgerEvent(event LedgerEvent) ResearchIDEObjectSummary {
-	refs := []ResearchIDEObjectRef{}
-	var payload struct {
-		SnapshotID  string   `json:"snapshot_id"`
-		ArtifactID  string   `json:"artifact_id"`
-		ArtifactIDs []string `json:"artifact_ids"`
-	}
-	if json.Unmarshal(event.Payload, &payload) == nil {
-		if strings.TrimSpace(payload.SnapshotID) != "" {
-			refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectSourceSnapshot, ObjectID: strings.TrimSpace(payload.SnapshotID)})
-		}
-		if strings.TrimSpace(payload.ArtifactID) != "" {
-			refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: strings.TrimSpace(payload.ArtifactID)})
-		}
-		for _, artifactID := range payload.ArtifactIDs {
-			artifactID = strings.TrimSpace(artifactID)
-			if artifactID != "" {
-				refs = append(refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: artifactID})
-			}
-		}
-	}
-	return ResearchIDEObjectSummary{ObjectKind: ResearchIDEObjectLedgerEvent, ObjectID: event.EventID, MissionID: event.MissionID, Summary: fmt.Sprintf("#%d %s", event.Sequence, event.EventType), Refs: dedupeResearchIDERefs(refs), Metadata: map[string]any{"event_type": event.EventType, "sequence": event.Sequence}}
-}
-
-func normalizeResearchIDEObjectKind(kind string) string {
-	return strings.TrimSpace(kind)
-}
-
-func knownResearchIDEObjectKind(kind string) bool {
-	switch kind {
-	case ResearchIDEObjectSourceSnapshot, ResearchIDEObjectRawArtifact, ResearchIDEObjectEvidenceRecord, ResearchIDEObjectClaimRecord, ResearchIDEObjectQuestionRecord, ResearchIDEObjectOptionRecord, ResearchIDEObjectProposalBundle, ResearchIDEObjectReport, ResearchIDEObjectReportVersion, ResearchIDEObjectReportBlock, ResearchIDEObjectLedgerEvent:
-		return true
-	default:
-		return false
-	}
-}
-
-func defaultResearchIDEObjectKind(kind string) bool {
-	switch kind {
-	case ResearchIDEObjectSourceSnapshot, ResearchIDEObjectRawArtifact, ResearchIDEObjectLedgerEvent:
-		return true
-	default:
-		return false
-	}
-}
-
-func legacyResearchIDEObjectKindAllowed(kind string, legacy bool) bool {
-	if legacy {
-		return knownResearchIDEObjectKind(kind)
-	}
-	return defaultResearchIDEObjectKind(kind)
-}
-
-func isResearchRecordKind(kind string) bool {
-	switch kind {
-	case ResearchIDEObjectEvidenceRecord, ResearchIDEObjectClaimRecord, ResearchIDEObjectQuestionRecord, ResearchIDEObjectOptionRecord, ResearchIDEObjectProposalBundle:
-		return true
-	default:
-		return false
-	}
-}
-
-func clampResearchIDELimit(limit int) int {
-	if limit <= 0 {
-		return researchIDEDefaultLimit
-	}
-	if limit > researchIDEMaxLimit {
-		return researchIDEMaxLimit
-	}
-	return limit
-}
-
-func clampResearchIDEBytes(maxBytes int) int {
-	if maxBytes <= 0 {
-		return researchIDEDefaultBytes
-	}
-	if maxBytes > researchIDEMaxBytes {
-		return researchIDEMaxBytes
-	}
-	return maxBytes
-}
-
-func parseResearchIDECursor(cursor string) (int, error) {
-	cursor = strings.TrimSpace(cursor)
-	if cursor == "" {
-		return 0, nil
-	}
-	offset, err := strconv.Atoi(cursor)
-	if err != nil || offset < 0 {
-		return 0, fmt.Errorf("%w: invalid cursor", ErrInvalidInput)
-	}
-	return offset, nil
-}
-
-func paginateSummaries(items []ResearchIDEObjectSummary, offset, limit int) ([]ResearchIDEObjectSummary, string, bool) {
-	if offset >= len(items) {
-		return nil, "", false
-	}
-	end := offset + limit
-	if end > len(items) {
-		end = len(items)
-	}
-	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
-	}
-	return items[offset:end], next, next != ""
-}
-
-func paginateMatches(items []ResearchIDEGrepMatch, offset, limit int) ([]ResearchIDEGrepMatch, string, bool) {
-	if offset >= len(items) {
-		return nil, "", false
-	}
-	end := offset + limit
-	if end > len(items) {
-		end = len(items)
-	}
-	next := ""
-	if end < len(items) {
-		next = strconv.Itoa(end)
-	}
-	return items[offset:end], next, next != ""
-}
-
-func paginateReferenceSets(forward []ResearchIDEObjectRef, backward []ResearchIDEObjectRef, offset, limit int) ([]ResearchIDEObjectRef, []ResearchIDEObjectRef, string, bool) {
-	type referencedItem struct {
-		direction string
-		ref       ResearchIDEObjectRef
-	}
-	combined := make([]referencedItem, 0, len(forward)+len(backward))
-	for _, ref := range forward {
-		combined = append(combined, referencedItem{direction: "forward", ref: ref})
-	}
-	for _, ref := range backward {
-		combined = append(combined, referencedItem{direction: "backward", ref: ref})
-	}
-	if offset >= len(combined) {
-		return nil, nil, "", false
-	}
-	end := offset + limit
-	if end > len(combined) {
-		end = len(combined)
-	}
-	var pageForward []ResearchIDEObjectRef
-	var pageBackward []ResearchIDEObjectRef
-	for _, item := range combined[offset:end] {
-		if item.direction == "forward" {
-			pageForward = append(pageForward, item.ref)
-		} else {
-			pageBackward = append(pageBackward, item.ref)
-		}
-	}
-	next := ""
-	if end < len(combined) {
-		next = strconv.Itoa(end)
-	}
-	return pageForward, pageBackward, next, next != ""
-}
-
-func chunkBytes(data []byte, offset, maxBytes int) ([]byte, bool, int, error) {
-	if !utf8.Valid(data) {
-		return nil, false, 0, fmt.Errorf("%w: object payload is not UTF-8 text", ErrInvalidInput)
-	}
-	if offset > len(data) {
-		return nil, false, 0, fmt.Errorf("%w: object payload offset is beyond content length", ErrInvalidInput)
-	}
-	if offset < len(data) && !utf8.RuneStart(data[offset]) {
-		return nil, false, 0, fmt.Errorf("%w: object payload offset must align to UTF-8 boundary", ErrInvalidInput)
-	}
-	if offset == len(data) {
-		return []byte{}, false, 0, nil
-	}
-	end := offset + maxBytes
-	if end > len(data) {
-		end = len(data)
-	}
-	for end > offset && !utf8.Valid(data[offset:end]) {
-		end--
-	}
-	if end == offset {
-		return nil, false, 0, fmt.Errorf("%w: object payload could not be sliced as UTF-8", ErrInvalidInput)
-	}
-	chunk := append([]byte(nil), data[offset:end]...)
-	if end < len(data) {
-		return chunk, true, end, nil
-	}
-	return chunk, false, 0, nil
-}
-
-func snippet(text string, pos, queryLen int) string {
-	start := pos - researchIDESnippetContext
-	if start < 0 {
-		start = 0
-	}
-	end := pos + queryLen + researchIDESnippetContext
-	if end > len(text) {
-		end = len(text)
-	}
-	return strings.TrimSpace(text[start:end])
+	return researchcatalog.ObjectSummary{ObjectKind: researchcatalog.ObjectReportBlock, ObjectID: block.BlockID, MissionID: block.MissionID, Summary: block.BlockType, Refs: researchcatalog.DedupeRefs(refs), Metadata: map[string]any{"report_version_id": block.ReportVersionID, "block_type": block.BlockType}}
 }
 
 func mustJSON(value any) []byte {
@@ -1676,36 +919,17 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func dedupeResearchIDERefs(refs []ResearchIDEObjectRef) []ResearchIDEObjectRef {
-	seen := map[ResearchIDEObjectRef]bool{}
-	out := make([]ResearchIDEObjectRef, 0, len(refs))
-	for _, ref := range refs {
-		if ref.ObjectKind == "" || ref.ObjectID == "" || seen[ref] {
-			continue
-		}
-		seen[ref] = true
-		out = append(out, ref)
+func isResearchRecordKind(kind string) bool {
+	switch kind {
+	case researchcatalog.ObjectEvidenceRecord, researchcatalog.ObjectClaimRecord, researchcatalog.ObjectQuestionRecord, researchcatalog.ObjectOptionRecord, researchcatalog.ObjectProposalBundle:
+		return true
+	default:
+		return false
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].ObjectKind == out[j].ObjectKind {
-			return out[i].ObjectID < out[j].ObjectID
-		}
-		return out[i].ObjectKind < out[j].ObjectKind
-	})
-	return out
 }
 
-func containsResearchIDERef(refs []ResearchIDEObjectRef, target ResearchIDEObjectRef) bool {
-	for _, ref := range refs {
-		if ref == target {
-			return true
-		}
-	}
-	return false
-}
-
-func filterSummaries(items []ResearchIDEObjectSummary, kind string) []ResearchIDEObjectSummary {
-	var filtered []ResearchIDEObjectSummary
+func filterSummaries(items []researchcatalog.ObjectSummary, kind string) []researchcatalog.ObjectSummary {
+	var filtered []researchcatalog.ObjectSummary
 	for _, item := range items {
 		if item.ObjectKind == kind {
 			filtered = append(filtered, item)

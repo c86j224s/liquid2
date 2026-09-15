@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // ToolCalledAppendRequest는 MCP tool 호출 한 번을 장부 trace event로 남기기 위한
@@ -24,17 +24,17 @@ type ToolCalledAppendRequest struct {
 	Arguments      map[string]any
 	Result         map[string]any
 	IOMetrics      map[string]any
-	Producer       app.Producer
+	Producer       ledger.Producer
 }
 
 // BuildToolCalledAppendRequest는 mcp.tool.called append request를 만든다.
 //
 // 이 builder는 추적 payload만 만들고 tool 성공 여부나 제품 상태 transition을
 // 판단하지 않는다.
-func BuildToolCalledAppendRequest(req ToolCalledAppendRequest) app.AppendEventRequest {
+func BuildToolCalledAppendRequest(req ToolCalledAppendRequest) ledger.AppendRequest {
 	started := req.StartedAt
 	finished := req.FinishedAt
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:       strings.TrimSpace(req.EventID),
 		MissionID:     strings.TrimSpace(req.MissionID),
 		EventType:     "mcp.tool.called",

@@ -4,18 +4,18 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateOptionRecord stores one option record.
-func (r *Repository) CreateOptionRecord(ctx context.Context, record app.OptionRecord) error {
+func (r *Repository) CreateOptionRecord(ctx context.Context, record researchrecords.OptionRecord) error {
 	return InsertOptionRecordTx(ctx, r.db, record)
 }
 
 // GetOptionRecord reads one option record by stable ID.
-func (r *Repository) GetOptionRecord(ctx context.Context, optionID string) (app.OptionRecord, error) {
-	var record app.OptionRecord
+func (r *Repository) GetOptionRecord(ctx context.Context, optionID string) (researchrecords.OptionRecord, error) {
+	var record researchrecords.OptionRecord
 	var prosJSON string
 	var consJSON string
 	var claimJSON string
@@ -40,26 +40,26 @@ WHERE option_id = ?`, optionID).Scan(
 		&record.CreatedEventID,
 		&createdAt)
 	if err != nil {
-		return app.OptionRecord{}, err
+		return researchrecords.OptionRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(prosJSON, &record.Pros); err != nil {
-		return app.OptionRecord{}, err
+		return researchrecords.OptionRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(consJSON, &record.Cons); err != nil {
-		return app.OptionRecord{}, err
+		return researchrecords.OptionRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(claimJSON, &record.SupportingClaimIDs); err != nil {
-		return app.OptionRecord{}, err
+		return researchrecords.OptionRecord{}, err
 	}
 	record.CreatedAt, err = parseRequiredTime(createdAt)
 	if err != nil {
-		return app.OptionRecord{}, err
+		return researchrecords.OptionRecord{}, err
 	}
 	return record, nil
 }
 
 // ListOptionRecords reads mission option records ordered by creation time.
-func (r *Repository) ListOptionRecords(ctx context.Context, missionID string) ([]app.OptionRecord, error) {
+func (r *Repository) ListOptionRecords(ctx context.Context, missionID string) ([]researchrecords.OptionRecord, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT option_id
 FROM plasma_option_records
@@ -70,7 +70,7 @@ ORDER BY created_at DESC, option_id`, missionID)
 	}
 	defer rows.Close()
 
-	var records []app.OptionRecord
+	var records []researchrecords.OptionRecord
 	for rows.Next() {
 		var optionID string
 		if err := rows.Scan(&optionID); err != nil {
@@ -88,7 +88,7 @@ ORDER BY created_at DESC, option_id`, missionID)
 // InsertOptionRecordTx inserts an option inside a caller-owned transaction or queryer.
 func InsertOptionRecordTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, record app.OptionRecord) error {
+}, record researchrecords.OptionRecord) error {
 	prosJSON, err := sqlitevalue.MarshalJSON(record.Pros)
 	if err != nil {
 		return err

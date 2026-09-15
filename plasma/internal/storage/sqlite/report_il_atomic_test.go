@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
@@ -22,7 +24,7 @@ func TestReportILAtomicBundleCommitsSevenArtifactsAndMemberships(t *testing.T) {
 	store := newTestStore(t)
 	missionID := "mis_il_atomic_success"
 	pendingID := "evt_il_atomic_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL atomic"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL atomic"}); err != nil {
 		t.Fatal(err)
 	}
 	appendReportILPending(t, ctx, store, missionID, pendingID)
@@ -77,14 +79,14 @@ func TestReportILAtomicBundleStoresRepeatedImageBytesWithFreshIdentity(t *testin
 	store := newTestStore(t)
 	missionID := "mis_il_repeated_image"
 	pendingID := "evt_il_repeated_image_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "Repeated image"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "Repeated image"}); err != nil {
 		t.Fatal(err)
 	}
 	imageContent := []byte("same source-backed image")
 	existingCreatedAt := time.Date(2026, time.August, 28, 1, 2, 3, 0, time.UTC)
-	if _, err := app.NewService(store).CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := app.NewService(store).CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_existing_image", MissionID: missionID, MediaType: "image/jpeg",
-		Filename: "source-image.jpg", Producer: app.Producer{Type: "agent", ID: "codex"},
+		Filename: "source-image.jpg", Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Content: imageContent,
 	}); err != nil {
 		t.Fatal(err)
@@ -94,9 +96,9 @@ func TestReportILAtomicBundleStoresRepeatedImageBytesWithFreshIdentity(t *testin
 	req, _ := reportILBundleRequest(t, missionID, pendingID, "evt_il_repeated_image_store", "evt_il_repeated_image_terminal")
 	imageSHA := sha256.Sum256(imageContent)
 	imageHash := hex.EncodeToString(imageSHA[:])
-	req.Artifacts = append(req.Artifacts, app.CreateRawArtifactRequest{
+	req.Artifacts = append(req.Artifacts, artifactcontract.CreateRequest{
 		ArtifactID: "art_report_image", MissionID: missionID, MediaType: "image/jpeg",
-		Filename: "report-image-1.jpg", Producer: app.Producer{Type: "agent", ID: "codex"},
+		Filename: "report-image-1.jpg", Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Content: imageContent, ExpectedSHA256: imageHash,
 	})
 	var payload map[string]any
@@ -164,11 +166,11 @@ func TestReportILAtomicBundleRollsBackOnTerminalEventIDConflict(t *testing.T) {
 	store := newTestStore(t)
 	missionID := "mis_il_atomic_conflict"
 	pendingID := "evt_il_conflict_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL conflict"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL conflict"}); err != nil {
 		t.Fatal(err)
 	}
 	appendReportILPending(t, ctx, store, missionID, pendingID)
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{EventID: "evt_il_conflict_terminal", MissionID: missionID, EventType: "mission.note", Producer: app.Producer{Type: "test", ID: "conflict"}, Payload: []byte(`{}`)}); err != nil {
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{EventID: "evt_il_conflict_terminal", MissionID: missionID, EventType: "mission.note", Producer: ledger.Producer{Type: "test", ID: "conflict"}, Payload: []byte(`{}`)}); err != nil {
 		t.Fatal(err)
 	}
 	req, _ := reportILBundleRequest(t, missionID, pendingID, "evt_il_conflict_store", "evt_il_conflict_terminal")
@@ -192,7 +194,7 @@ func TestReportILAtomicBundleRegistrationFailureRollsBack(t *testing.T) {
 	store := newTestStore(t)
 	missionID := "mis_il_atomic_purged"
 	pendingID := "evt_il_purged_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL purged"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL purged"}); err != nil {
 		t.Fatal(err)
 	}
 	appendReportILPending(t, ctx, store, missionID, pendingID)
@@ -241,7 +243,7 @@ func TestReportILAtomicBundleAlreadyClosedDoesNotWrite(t *testing.T) {
 	store := newTestStore(t)
 	missionID := "mis_il_atomic_closed"
 	pendingID := "evt_il_closed_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL closed"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL closed"}); err != nil {
 		t.Fatal(err)
 	}
 	appendReportILPending(t, ctx, store, missionID, pendingID)
@@ -295,7 +297,7 @@ func TestReportILAtomicBundleRejectsInvalidBindingsBeforeMutation(t *testing.T) 
 			store := newTestStore(t)
 			missionID := "mis_il_invalid_" + strings.ReplaceAll(test.name, " ", "_")
 			pendingID := "evt_il_invalid_pending"
-			if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL invalid"}); err != nil {
+			if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL invalid"}); err != nil {
 				t.Fatal(err)
 			}
 			family := "report_il_experimental"
@@ -326,10 +328,10 @@ func TestReportILAtomicBundleRollsBackDuplicateRawArtifact(t *testing.T) {
 	store := newTestStore(t)
 	missionID := "mis_il_atomic_duplicate_artifact"
 	pendingID := "evt_il_duplicate_pending"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: "IL duplicate"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: "IL duplicate"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.NewService(store).CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_il_atomic_narrative", MissionID: missionID, MediaType: "application/json", Filename: "existing.json", Producer: app.Producer{Type: "agent", ID: "codex"}, Content: []byte("existing")}); err != nil {
+	if _, err := app.NewService(store).CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_il_atomic_narrative", MissionID: missionID, MediaType: "application/json", Filename: "existing.json", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: []byte("existing")}); err != nil {
 		t.Fatal(err)
 	}
 	appendReportILPending(t, ctx, store, missionID, pendingID)
@@ -355,7 +357,7 @@ func appendReportILPending(t *testing.T, ctx context.Context, store *Store, miss
 func appendReportILPendingFamily(t *testing.T, ctx context.Context, store *Store, missionID, pendingID, family string) {
 	t.Helper()
 	payload := fmt.Sprintf(`{"title":"IL","pipeline_family":%q}`, family)
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: []byte(payload)}); err != nil {
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: []byte(payload)}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -378,14 +380,14 @@ func reportILBundleRequest(t *testing.T, missionID, pendingID, storeEventID, ter
 		{"pdf", "art_il_atomic_pdf", "application/pdf", "report.pdf", "derivative"},
 		{"manifest", "art_il_atomic_manifest", "application/json", "manifest.json", "intermediate"},
 	}
-	artifacts := make([]app.CreateRawArtifactRequest, 0, len(types))
+	artifacts := make([]artifactcontract.CreateRequest, 0, len(types))
 	entries := make([]map[string]any, 0, len(types))
 	expected := make([]reportILExpectedArtifact, 0, len(types))
 	for _, item := range types {
 		content := []byte("content-" + item.kind)
 		sum := sha256.Sum256(content)
 		sha := hex.EncodeToString(sum[:])
-		artifacts = append(artifacts, app.CreateRawArtifactRequest{ArtifactID: item.id, MissionID: missionID, MediaType: item.media, Filename: item.filename, Producer: app.Producer{Type: "agent", ID: "codex"}, Content: content, ExpectedSHA256: sha})
+		artifacts = append(artifacts, artifactcontract.CreateRequest{ArtifactID: item.id, MissionID: missionID, MediaType: item.media, Filename: item.filename, Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: content, ExpectedSHA256: sha})
 		entries = append(entries, map[string]any{"artifact_id": item.id, "kind": item.kind, "media_type": item.media, "sha256": sha, "byte_size": len(content), "role": item.role, "filename": item.filename})
 		expected = append(expected, reportILExpectedArtifact{ArtifactID: item.id, Role: item.role})
 	}
@@ -394,10 +396,10 @@ func reportILBundleRequest(t *testing.T, missionID, pendingID, storeEventID, ter
 		t.Fatal(err)
 	}
 	storePayload := []byte(fmt.Sprintf(`{"kind":"report_il_stage_progress","pending_event_id":%q,"pipeline_family":%q,"stage":"il_store","status":"completed"}`, pendingID, reportilcontract.PipelineFamily))
-	return app.ReportILBundleRequest{MissionID: missionID, PendingID: pendingID, Artifacts: artifacts, StoreCompleted: app.AppendEventRequest{EventID: storeEventID, MissionID: missionID, EventType: "report.il_store.completed", CausationEventID: pendingID, CorrelationID: pendingID, Producer: app.Producer{Type: "system", ID: "report-il"}, Payload: storePayload}, Terminal: app.AppendEventRequest{EventID: terminalEventID, MissionID: missionID, EventType: "report.artifact.created", CausationEventID: pendingID, CorrelationID: pendingID, Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: terminalPayload}}, expected
+	return app.ReportILBundleRequest{MissionID: missionID, PendingID: pendingID, Artifacts: artifacts, StoreCompleted: ledger.AppendRequest{EventID: storeEventID, MissionID: missionID, EventType: "report.il_store.completed", CausationEventID: pendingID, CorrelationID: pendingID, Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: storePayload}, Terminal: ledger.AppendRequest{EventID: terminalEventID, MissionID: missionID, EventType: "report.artifact.created", CausationEventID: pendingID, CorrelationID: pendingID, Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: terminalPayload}}, expected
 }
 
-func mustListEvents(t *testing.T, store *Store, missionID string) []app.LedgerEvent {
+func mustListEvents(t *testing.T, store *Store, missionID string) []ledger.Event {
 	t.Helper()
 	events, err := store.ListLedgerEvents(context.Background(), missionID)
 	if err != nil {

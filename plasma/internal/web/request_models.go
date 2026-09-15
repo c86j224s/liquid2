@@ -1,11 +1,14 @@
 package web
 
-import "github.com/c86j224s/liquid2/plasma/internal/app"
+import (
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+)
 
 type createMissionRequest struct {
-	Title     string           `json:"title"`
-	Objective string           `json:"objective"`
-	Scope     app.MissionScope `json:"scope"`
+	Title     string        `json:"title"`
+	Objective string        `json:"objective"`
+	Scope     mission.Scope `json:"scope"`
 }
 
 type missionLifecycleRequest struct {
@@ -101,17 +104,17 @@ type liquid2SnapshotRequest struct {
 }
 
 type confluenceConnectionRequest struct {
-	ConnectionID string               `json:"connection_id"`
-	DisplayName  string               `json:"display_name"`
-	AuthType     string               `json:"auth_type"`
-	AccountID    string               `json:"account_id"`
-	AccountName  string               `json:"account_name"`
-	AccessToken  string               `json:"access_token"`
-	APIToken     string               `json:"api_token"`
-	RefreshToken string               `json:"refresh_token"`
-	ExpiresAt    string               `json:"expires_at"`
-	Scopes       []string             `json:"scopes"`
-	Sites        []app.ConfluenceSite `json:"sites"`
+	ConnectionID string                  `json:"connection_id"`
+	DisplayName  string                  `json:"display_name"`
+	AuthType     string                  `json:"auth_type"`
+	AccountID    string                  `json:"account_id"`
+	AccountName  string                  `json:"account_name"`
+	AccessToken  string                  `json:"access_token"`
+	APIToken     string                  `json:"api_token"`
+	RefreshToken string                  `json:"refresh_token"`
+	ExpiresAt    string                  `json:"expires_at"`
+	Scopes       []string                `json:"scopes"`
+	Sites        []confluenceaccess.Site `json:"sites"`
 }
 
 type confluenceConnectionUpdateRequest struct {

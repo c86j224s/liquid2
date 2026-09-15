@@ -5,13 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func TestClientSearchConfluenceSourcesUsesCQLSearchEndpoint(t *testing.T) {
@@ -52,7 +51,7 @@ func TestClientSearchConfluenceSourcesUsesCQLSearchEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	result, err := client.SearchConfluenceSources(context.Background(), app.ConfluenceSourceSearchRequest{
+	result, err := client.SearchConfluenceSources(context.Background(), confluencesource.ConfluenceSourceSearchRequest{
 		MissionID: "mis_1",
 		CloudID:   "cloud_1",
 		Query:     "roadmap",
@@ -82,7 +81,7 @@ func TestClientSearchConfluenceSourcesUsesCQLSearchEndpoint(t *testing.T) {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	candidate := result.Candidates[0]
-	if candidate.Connector.ExternalSourceID != app.ConfluenceExternalSourceID("cloud_1", "123") ||
+	if candidate.Connector.ExternalSourceID != confluencesource.ConfluenceExternalSourceID("cloud_1", "123") ||
 		candidate.SourceURI != "https://example.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap" ||
 		candidate.Summary != "" ||
 		!candidate.CanSnapshot {
@@ -137,7 +136,7 @@ func TestClientReadConfluenceSourceUsesV2PageEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	page, err := client.ReadConfluenceSource(context.Background(), app.ConfluenceSourceReadRequest{
+	page, err := client.ReadConfluenceSource(context.Background(), confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "123",
 	})
@@ -145,7 +144,7 @@ func TestClientReadConfluenceSourceUsesV2PageEndpoint(t *testing.T) {
 		t.Fatalf("ReadConfluenceSource returned error: %v", err)
 	}
 	if page.Connector.ConnectorVersion != "confluence.test" ||
-		page.Connector.ExternalURI != app.ConfluenceExternalURI("cloud_1", "123") ||
+		page.Connector.ExternalURI != confluencesource.ConfluenceExternalURI("cloud_1", "123") ||
 		page.WebURL != "https://example.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap" {
 		t.Fatalf("unexpected connector metadata: %#v", page)
 	}
@@ -179,7 +178,7 @@ func TestClientGetConfluenceSourceVersionDoesNotRequestBodyFormat(t *testing.T) 
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	version, err := client.GetConfluenceSourceVersion(context.Background(), app.ConfluenceSourceReadRequest{CloudID: "cloud_1", PageID: "123"})
+	version, err := client.GetConfluenceSourceVersion(context.Background(), confluencesource.ConfluenceSourceReadRequest{CloudID: "cloud_1", PageID: "123"})
 	if err != nil {
 		t.Fatalf("GetConfluenceSourceVersion returned error: %v", err)
 	}
@@ -222,15 +221,15 @@ func TestClientBrowseSpacesPagesAndChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	spaces, err := client.ListConfluenceSpaces(context.Background(), app.ConfluenceSpaceListRequest{CloudID: "cloud_1", Limit: 5})
+	spaces, err := client.ListConfluenceSpaces(context.Background(), confluencesource.ConfluenceSpaceListRequest{CloudID: "cloud_1", Limit: 5})
 	if err != nil {
 		t.Fatalf("ListConfluenceSpaces returned error: %v", err)
 	}
-	pages, err := client.ListConfluenceSpacePages(context.Background(), app.ConfluenceSpacePagesRequest{CloudID: "cloud_1", SpaceID: "sp_1", Limit: 5})
+	pages, err := client.ListConfluenceSpacePages(context.Background(), confluencesource.ConfluenceSpacePagesRequest{CloudID: "cloud_1", SpaceID: "sp_1", Limit: 5})
 	if err != nil {
 		t.Fatalf("ListConfluenceSpacePages returned error: %v", err)
 	}
-	children, err := client.ListConfluencePageChildren(context.Background(), app.ConfluencePageChildrenRequest{CloudID: "cloud_1", PageID: "123", Limit: 5})
+	children, err := client.ListConfluencePageChildren(context.Background(), confluencesource.ConfluencePageChildrenRequest{CloudID: "cloud_1", PageID: "123", Limit: 5})
 	if err != nil {
 		t.Fatalf("ListConfluencePageChildren returned error: %v", err)
 	}
@@ -277,12 +276,12 @@ func TestClientTransportErrorIsRedacted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	_, err = client.ReadConfluenceSource(context.Background(), app.ConfluenceSourceReadRequest{
+	_, err = client.ReadConfluenceSource(context.Background(), confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "secret-page",
 	})
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeUpstream {
+	var confluenceErr *confluencesource.ConfluenceError
+	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != confluencesource.ConfluenceErrorCodeUpstream {
 		t.Fatalf("expected redacted Confluence transport error, got %v", err)
 	}
 	if confluenceErr.Operation != "GET /api/v2/pages/{page_id}" {
@@ -293,6 +292,27 @@ func TestClientTransportErrorIsRedacted(t *testing.T) {
 		if strings.Contains(visible, leaked) {
 			t.Fatalf("transport error leaked %q in %q", leaked, visible)
 		}
+	}
+}
+
+func TestClientPreservesAuthorizationProviderError(t *testing.T) {
+	providerErr := errors.New("authorization-provider-sentinel")
+	client, err := NewClient(
+		"https://docs.atlassian.net/wiki",
+		"cloud_1",
+		WithAuthorizationProvider(AuthorizationProviderFunc(func(context.Context) (string, error) {
+			return "", providerErr
+		})),
+	)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+	_, err = client.ReadConfluenceSource(context.Background(), confluencesource.ConfluenceSourceReadRequest{
+		CloudID: "cloud_1",
+		PageID:  "123",
+	})
+	if err != providerErr || !errors.Is(err, providerErr) {
+		t.Fatalf("authorization provider error = %v, want unchanged sentinel", err)
 	}
 }
 
@@ -319,7 +339,7 @@ func TestClientWithBasicAuthUsesAuthorizationHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	if _, err := client.GetConfluenceSourceVersion(context.Background(), app.ConfluenceSourceReadRequest{CloudID: "cloud_1", PageID: "123"}); err != nil {
+	if _, err := client.GetConfluenceSourceVersion(context.Background(), confluencesource.ConfluenceSourceReadRequest{CloudID: "cloud_1", PageID: "123"}); err != nil {
 		t.Fatalf("GetConfluenceSourceVersion returned error: %v", err)
 	}
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("person@example.com:api-token"))
@@ -413,8 +433,8 @@ func TestDiscoveryClientTransportErrorIsRedacted(t *testing.T) {
 		t.Fatalf("NewDiscoveryClient returned error: %v", err)
 	}
 	_, err = client.ListConfluenceSites(context.Background())
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeUpstream {
+	var confluenceErr *confluencesource.ConfluenceError
+	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != confluencesource.ConfluenceErrorCodeUpstream {
 		t.Fatalf("expected redacted discovery transport error, got %v", err)
 	}
 	if confluenceErr.Operation != "GET /oauth/token/accessible-resources" {
@@ -425,192 +445,6 @@ func TestDiscoveryClientTransportErrorIsRedacted(t *testing.T) {
 		if strings.Contains(visible, leaked) {
 			t.Fatalf("discovery transport error leaked %q in %q", leaked, visible)
 		}
-	}
-}
-
-func TestOAuthClientBuildsAuthorizeURLAndExchangesCode(t *testing.T) {
-	var tokenRequest map[string]string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/oauth/token" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&tokenRequest); err != nil {
-			t.Fatalf("decode token request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"access_token": "access-secret",
-			"refresh_token": "refresh-secret",
-			"token_type": "Bearer",
-			"expires_in": 3600,
-			"scope": "read:confluence-content.all offline_access"
-		}`))
-	}))
-	defer server.Close()
-
-	client, err := NewOAuthClient(OAuthConfig{
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		RedirectURI:  "http://127.0.0.1/callback",
-		AuthorizeURL: server.URL + "/authorize",
-		TokenURL:     server.URL + "/oauth/token",
-		Scopes:       []string{"read:confluence-content.all", "offline_access"},
-	})
-	if err != nil {
-		t.Fatalf("NewOAuthClient returned error: %v", err)
-	}
-	authorizeURL, err := client.AuthorizationURL(OAuthAuthorizationRequest{State: "state-1"})
-	if err != nil {
-		t.Fatalf("AuthorizationURL returned error: %v", err)
-	}
-	parsed, err := url.Parse(authorizeURL)
-	if err != nil {
-		t.Fatalf("parse authorize URL: %v", err)
-	}
-	query := parsed.Query()
-	if query.Get("audience") != "api.atlassian.com" ||
-		query.Get("client_id") != "client-id" ||
-		query.Get("redirect_uri") != "http://127.0.0.1/callback" ||
-		query.Get("state") != "state-1" ||
-		query.Get("response_type") != "code" ||
-		query.Get("prompt") != "consent" {
-		t.Fatalf("unexpected authorize query: %s", parsed.RawQuery)
-	}
-	if query.Get("scope") != "read:confluence-content.all offline_access" {
-		t.Fatalf("unexpected scope query: %q", query.Get("scope"))
-	}
-
-	token, err := client.ExchangeCode(context.Background(), OAuthCodeExchangeRequest{Code: "code-1"})
-	if err != nil {
-		t.Fatalf("ExchangeCode returned error: %v", err)
-	}
-	if token.AccessToken != "access-secret" || token.RefreshToken != "refresh-secret" || len(token.Scopes) != 2 {
-		t.Fatalf("unexpected token result: %#v", token)
-	}
-	if tokenRequest["grant_type"] != "authorization_code" ||
-		tokenRequest["client_id"] != "client-id" ||
-		tokenRequest["client_secret"] != "client-secret" ||
-		tokenRequest["code"] != "code-1" ||
-		tokenRequest["redirect_uri"] != "http://127.0.0.1/callback" {
-		t.Fatalf("unexpected token request: %#v", tokenRequest)
-	}
-}
-
-func TestOAuthClientReturnsStatusErrorsWithoutResponseBody(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "sensitive token error", http.StatusUnauthorized)
-	}))
-	defer server.Close()
-
-	client, err := NewOAuthClient(OAuthConfig{
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		RedirectURI:  "http://127.0.0.1/callback",
-		TokenURL:     server.URL,
-	})
-	if err != nil {
-		t.Fatalf("NewOAuthClient returned error: %v", err)
-	}
-	_, err = client.ExchangeCode(context.Background(), OAuthCodeExchangeRequest{Code: "code-1"})
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeUnauthorized {
-		t.Fatalf("expected typed 401 error, got %v", err)
-	}
-	if strings.Contains(err.Error(), "sensitive token error") {
-		t.Fatalf("error leaked provider body: %v", err)
-	}
-}
-
-func TestOAuthClientRejectsSensitiveTokenURL(t *testing.T) {
-	for _, tokenURL := range []string{
-		"https://person:secret@auth.atlassian.com/oauth/token",
-		"https://auth.atlassian.com/oauth/token?code=secret",
-		"https://auth.atlassian.com/oauth/token#secret",
-	} {
-		_, err := NewOAuthClient(OAuthConfig{
-			ClientID:     "client-id",
-			ClientSecret: "client-secret",
-			TokenURL:     tokenURL,
-		})
-		if err == nil {
-			t.Fatalf("expected sensitive OAuth token URL %q to be rejected", tokenURL)
-		}
-	}
-}
-
-func TestOAuthClientTransportErrorIsRedacted(t *testing.T) {
-	client, err := NewOAuthClient(OAuthConfig{
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		RedirectURI:  "http://127.0.0.1/callback",
-		TokenURL:     "https://token-secret.example/oauth/token",
-		HTTPClient:   &http.Client{Transport: failingRoundTripper{}},
-	})
-	if err != nil {
-		t.Fatalf("NewOAuthClient returned error: %v", err)
-	}
-	_, err = client.ExchangeCode(context.Background(), OAuthCodeExchangeRequest{Code: "code-secret"})
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeUpstream {
-		t.Fatalf("expected redacted OAuth transport error, got %v", err)
-	}
-	if confluenceErr.Operation != "POST /oauth/token" {
-		t.Fatalf("unexpected operation: %q", confluenceErr.Operation)
-	}
-	visible := err.Error() + " " + confluenceErr.Operation
-	for _, leaked := range []string{"token-secret.example", "client-secret", "code-secret", "transport-secret"} {
-		if strings.Contains(visible, leaked) {
-			t.Fatalf("OAuth transport error leaked %q in %q", leaked, visible)
-		}
-	}
-}
-
-func TestOAuthClientRefreshesAccessToken(t *testing.T) {
-	var tokenRequest map[string]string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/oauth/token" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
-		}
-		if r.Method != http.MethodPost {
-			t.Fatalf("expected POST, got %s", r.Method)
-		}
-		if err := json.NewDecoder(r.Body).Decode(&tokenRequest); err != nil {
-			t.Fatalf("decode token request: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"access_token": "refreshed-access",
-			"refresh_token": "rotated-refresh",
-			"token_type": "Bearer",
-			"expires_in": 3600,
-			"scope": "read:confluence-content.all offline_access"
-		}`))
-	}))
-	defer server.Close()
-
-	client, err := NewOAuthClient(OAuthConfig{
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		TokenURL:     server.URL + "/oauth/token",
-	})
-	if err != nil {
-		t.Fatalf("NewOAuthClient returned error: %v", err)
-	}
-	token, err := client.RefreshAccessToken(context.Background(), "refresh-secret")
-	if err != nil {
-		t.Fatalf("RefreshAccessToken returned error: %v", err)
-	}
-	if token.AccessToken != "refreshed-access" || token.RefreshToken != "rotated-refresh" || token.TokenExpiresAt.IsZero() {
-		t.Fatalf("unexpected token result: %#v", token)
-	}
-	if tokenRequest["grant_type"] != "refresh_token" ||
-		tokenRequest["client_id"] != "client-id" ||
-		tokenRequest["client_secret"] != "client-secret" ||
-		tokenRequest["refresh_token"] != "refresh-secret" {
-		t.Fatalf("unexpected refresh token request: %#v", tokenRequest)
 	}
 }
 
@@ -625,12 +459,12 @@ func TestClientReturnsHTTPStatusErrorsWithoutResponseBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	_, err = client.ReadConfluenceSource(context.Background(), app.ConfluenceSourceReadRequest{
+	_, err = client.ReadConfluenceSource(context.Background(), confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "123",
 	})
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeUnauthorized {
+	var confluenceErr *confluencesource.ConfluenceError
+	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != confluencesource.ConfluenceErrorCodeUnauthorized {
 		t.Fatalf("expected status error, got %v", err)
 	}
 	if confluenceErr.Operation == "" {
@@ -646,9 +480,9 @@ func TestClientRejectsCloudIDMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	_, err = client.SearchConfluenceSources(context.Background(), app.ConfluenceSourceSearchRequest{CloudID: "cloud_2"})
-	var confluenceErr *app.ConfluenceError
-	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != app.ConfluenceErrorCodeCloudMismatch {
+	_, err = client.SearchConfluenceSources(context.Background(), confluencesource.ConfluenceSourceSearchRequest{CloudID: "cloud_2"})
+	var confluenceErr *confluencesource.ConfluenceError
+	if err == nil || !errors.As(err, &confluenceErr) || confluenceErr.Code != confluencesource.ConfluenceErrorCodeCloudMismatch {
 		t.Fatalf("expected cloud id mismatch, got %v", err)
 	}
 }

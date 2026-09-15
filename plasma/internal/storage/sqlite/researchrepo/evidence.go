@@ -3,19 +3,18 @@ package researchrepo
 import (
 	"context"
 	"database/sql"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateEvidenceRecord stores one evidence record.
-func (r *Repository) CreateEvidenceRecord(ctx context.Context, record app.EvidenceRecord) error {
+func (r *Repository) CreateEvidenceRecord(ctx context.Context, record researchrecords.EvidenceRecord) error {
 	return InsertEvidenceRecordTx(ctx, r.db, record)
 }
 
 // GetEvidenceRecord reads one evidence record by stable ID.
-func (r *Repository) GetEvidenceRecord(ctx context.Context, evidenceID string) (app.EvidenceRecord, error) {
-	var record app.EvidenceRecord
+func (r *Repository) GetEvidenceRecord(ctx context.Context, evidenceID string) (researchrecords.EvidenceRecord, error) {
+	var record researchrecords.EvidenceRecord
 	var snapshotRefsJSON string
 	var confidenceJSON string
 	var createdAt string
@@ -39,23 +38,23 @@ WHERE evidence_id = ?`, evidenceID).Scan(
 		&record.CreatedEventID,
 		&createdAt)
 	if err != nil {
-		return app.EvidenceRecord{}, err
+		return researchrecords.EvidenceRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(snapshotRefsJSON, &record.SnapshotRefs); err != nil {
-		return app.EvidenceRecord{}, err
+		return researchrecords.EvidenceRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(confidenceJSON, &record.Confidence); err != nil {
-		return app.EvidenceRecord{}, err
+		return researchrecords.EvidenceRecord{}, err
 	}
 	record.CreatedAt, err = parseRequiredTime(createdAt)
 	if err != nil {
-		return app.EvidenceRecord{}, err
+		return researchrecords.EvidenceRecord{}, err
 	}
 	return record, nil
 }
 
 // ListEvidenceRecords reads mission evidence records ordered by creation time.
-func (r *Repository) ListEvidenceRecords(ctx context.Context, missionID string) ([]app.EvidenceRecord, error) {
+func (r *Repository) ListEvidenceRecords(ctx context.Context, missionID string) ([]researchrecords.EvidenceRecord, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT evidence_id
 FROM plasma_evidence_records
@@ -66,7 +65,7 @@ ORDER BY created_at DESC, evidence_id`, missionID)
 	}
 	defer rows.Close()
 
-	var records []app.EvidenceRecord
+	var records []researchrecords.EvidenceRecord
 	for rows.Next() {
 		var evidenceID string
 		if err := rows.Scan(&evidenceID); err != nil {
@@ -84,7 +83,7 @@ ORDER BY created_at DESC, evidence_id`, missionID)
 // InsertEvidenceRecordTx inserts evidence inside a caller-owned transaction or queryer.
 func InsertEvidenceRecordTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, record app.EvidenceRecord) error {
+}, record researchrecords.EvidenceRecord) error {
 	snapshotRefsJSON, err := sqlitevalue.MarshalJSON(record.SnapshotRefs)
 	if err != nil {
 		return err

@@ -2,10 +2,12 @@ package web
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -30,7 +32,7 @@ func TestSectionFanoutPartEditorRecoversCrashAfterCurrentStart(t *testing.T) {
 		pendingID = "evt_part_editor_start_pending"
 		planID    = "evt_part_editor_start_plan"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Part editor start recovery"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Part editor start recovery"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := narrativeContractTestPlan()
@@ -116,7 +118,7 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 		planID    = "evt_part_author_start_plan"
 		label     = "author_start"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Part author start recovery"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Part author start recovery"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := narrativeContractTestPlan()
@@ -131,7 +133,7 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: label + "-report-plan-session",
 			ForkSourceAgentSessionID: label + "-report-plan-session",
-			Producer:                 app.Producer{Type: "agent_session", ID: partOwnerSessionID},
+			Producer:                 ledger.Producer{Type: "agent_session", ID: partOwnerSessionID},
 		},
 		PartIndex: 1, SectionCount: 1, WordCount: reportWordCount(string(partArtifact.Content)),
 	})
@@ -195,7 +197,7 @@ func TestSectionFanoutFinalPartAuthorRecoversCrashAfterCurrentStart(t *testing.T
 	}
 }
 
-func eventByID(t *testing.T, ctx context.Context, svc *app.Service, missionID string, eventID string) app.LedgerEvent {
+func eventByID(t *testing.T, ctx context.Context, svc *app.Service, missionID string, eventID string) ledger.Event {
 	t.Helper()
 	events, err := svc.ListEvents(ctx, missionID)
 	if err != nil {
@@ -207,5 +209,5 @@ func eventByID(t *testing.T, ctx context.Context, svc *app.Service, missionID st
 		}
 	}
 	t.Fatalf("event %s is missing", eventID)
-	return app.LedgerEvent{}
+	return ledger.Event{}
 }

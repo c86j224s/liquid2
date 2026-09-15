@@ -3,10 +3,11 @@ package reporting
 import (
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
-func longFormCanonicalRequest(eventID string, binding LongFormFinalizeBinding, artifact app.RawArtifact, finalWords int) app.AppendEventRequest {
+func longFormCanonicalRequest(eventID string, binding LongFormFinalizeBinding, artifact artifactcontract.Raw, finalWords int) ledger.AppendRequest {
 	duration := time.Since(binding.StartedAt).Milliseconds()
 	if binding.StartedAt.IsZero() || duration < 0 {
 		duration = 0

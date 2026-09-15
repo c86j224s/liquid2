@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 )
 
@@ -35,11 +36,11 @@ func (server *Server) handleMissionClaims(w http.ResponseWriter, r *http.Request
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	event, err := server.service.UpdateClaimConfidence(r.Context(), app.UpdateClaimConfidenceRequest{
+	event, err := server.service.UpdateClaimConfidence(r.Context(), researchrecords.UpdateClaimConfidenceRequest{
 		EventID:   newID("evt"),
 		MissionID: missionID,
 		ClaimID:   rest[0],
-		Confidence: app.Confidence{
+		Confidence: researchrecords.Confidence{
 			Level:             req.Level,
 			Rationale:         req.Rationale,
 			OpenRisks:         req.OpenRisks,
@@ -47,7 +48,7 @@ func (server *Server) handleMissionClaims(w http.ResponseWriter, r *http.Request
 		},
 		BasisEvidenceIDs: req.BasisEvidenceIDs,
 		Origin:           "user",
-		Producer:         app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:         ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -116,7 +117,7 @@ func (server *Server) handleMissionCandidates(w http.ResponseWriter, r *http.Req
 		EvidenceType:    evidenceType,
 		SnapshotID:      snapshotID,
 		ArtifactID:      artifactID,
-		Producer:        app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:        ledger.Producer{Type: "user", ID: "plasma-ui"},
 	}))
 	if err != nil {
 		writeAppError(w, err)
@@ -139,7 +140,7 @@ func (server *Server) handleRejectSourceCandidate(w http.ResponseWriter, r *http
 		MissionID: missionID,
 		URL:       req.URL,
 		Reason:    req.Reason,
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -162,7 +163,7 @@ func (server *Server) handleRestoreSourceCandidate(w http.ResponseWriter, r *htt
 		MissionID: missionID,
 		URL:       req.URL,
 		Reason:    req.Reason,
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -210,14 +211,14 @@ func (server *Server) decideProposal(w http.ResponseWriter, r *http.Request, mis
 		EventID:  newID("evt"),
 		Proposal: proposal,
 		Action:   action,
-		Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	event, err := server.service.AppendEvent(r.Context(), eventReq)
 	if err != nil {
 		writeAppError(w, err)
 		return
 	}
-	updated, err := server.service.UpdateProposalBundleState(r.Context(), app.UpdateProposalBundleStateRequest{
+	updated, err := server.service.UpdateProposalBundleState(r.Context(), researchproposal.UpdateProposalBundleStateRequest{
 		ProposalID:      proposal.ProposalID,
 		State:           nextState,
 		DecisionEventID: event.EventID,

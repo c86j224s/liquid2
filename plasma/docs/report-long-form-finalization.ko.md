@@ -241,6 +241,8 @@ terminal event와 최종 canonical artifact/event 생성은 경합할 수 없다
 
 ## 완료와 재시도
 
+Report IL Web 재시도 체크포인트 해석은 Web이 이벤트를 한 번 조회한 뒤 `reportilphase0.ResolveRetryCheckpoint`가 소유한다. 재시도 pending chain을 부모 순서로 탐색하고 최대 64개까지 제한하며 cycle이면 nil resume을 반환하고 일반 report-execution lineage 검증은 적용하지 않는다. 저장된 체크포인트를 처음 찾으면 그 뒤 lineage를 읽지 않으며 `no durable checkpoint`일 때만 계속한다. 저장된 체크포인트가 없으면 source-selection 복구, Parts 복구, legacy 복구 순서로 시도한다. source-selection과 Parts 복구 성공은 재사용 전에 append하지만 legacy 복구 성공은 append하지 않는다. 저장소 계약은 `LoadReportILResumeCheckpoint(ctx, missionID, pendingID)`와 `AppendReportILCheckpoint(ctx, missionID, checkpoint)`이고 문서 계약은 `ReadReportILLongFormPlan`을 사용한다.
+
 Writer/reader/style의 `FINAL_EDIT_STAGE_SUBMITTED`와 gate의 `REPORT_FINALIZED`는
 정상 acknowledgement 문자열이지만 완료 여부의 권위 상태는 아니다. 실행기는 각 provider
 호출 뒤 durable state를 다시 읽는다. Matching writer/reader/style submission이 있으면

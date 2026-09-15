@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 const (
@@ -31,43 +33,43 @@ type FinalEditPipelinePlanState struct {
 
 // FinalEditStageBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type FinalEditStageBinding struct {
-	MissionID                    string       `json:"mission_id"`
-	PendingEventID               string       `json:"pending_event_id"`
-	PlanEventID                  string       `json:"plan_event_id"`
-	FinalEditPipeline            string       `json:"final_edit_pipeline,omitempty"`
-	Title                        string       `json:"title"`
-	Stage                        string       `json:"stage"`
-	SourceArtifactID             string       `json:"source_artifact_id"`
-	EditedArtifactID             string       `json:"edited_artifact_id"`
-	Filename                     string       `json:"filename"`
-	ToolSessionID                string       `json:"tool_session_id"`
-	ProviderSessionID            string       `json:"provider_session_id"`
-	PreviousProviderSessionID    string       `json:"previous_provider_session_id"`
-	IdempotencyKey               string       `json:"idempotency_key"`
-	AgentExecutor                string       `json:"agent_executor"`
-	AgentModel                   string       `json:"agent_model"`
-	AgentReasoningEffort         string       `json:"agent_reasoning_effort"`
-	AgentSelectionSource         string       `json:"agent_selection_source"`
-	MCPMode                      string       `json:"mcp_mode"`
-	RigorLevel                   string       `json:"rigor_level"`
-	RigorLabel                   string       `json:"rigor_label"`
-	ReportSessionPolicy          string       `json:"report_session_policy"`
-	ReportSessionPolicySelection string       `json:"report_session_policy_selection"`
-	PostReportHumanize           string       `json:"post_report_humanize"`
-	GenerationGuidanceProfile    string       `json:"generation_guidance_profile"`
-	GenerationGuidanceSHA256     string       `json:"generation_guidance_sha256"`
-	SessionChainKind             string       `json:"session_chain_kind"`
-	PreReportResearchSessionID   string       `json:"pre_report_research_session_id"`
-	ReportPlanSessionID          string       `json:"report_plan_session_id"`
-	ForkSourceAgentSessionID     string       `json:"fork_source_agent_session_id"`
-	Producer                     app.Producer `json:"producer"`
+	MissionID                    string          `json:"mission_id"`
+	PendingEventID               string          `json:"pending_event_id"`
+	PlanEventID                  string          `json:"plan_event_id"`
+	FinalEditPipeline            string          `json:"final_edit_pipeline,omitempty"`
+	Title                        string          `json:"title"`
+	Stage                        string          `json:"stage"`
+	SourceArtifactID             string          `json:"source_artifact_id"`
+	EditedArtifactID             string          `json:"edited_artifact_id"`
+	Filename                     string          `json:"filename"`
+	ToolSessionID                string          `json:"tool_session_id"`
+	ProviderSessionID            string          `json:"provider_session_id"`
+	PreviousProviderSessionID    string          `json:"previous_provider_session_id"`
+	IdempotencyKey               string          `json:"idempotency_key"`
+	AgentExecutor                string          `json:"agent_executor"`
+	AgentModel                   string          `json:"agent_model"`
+	AgentReasoningEffort         string          `json:"agent_reasoning_effort"`
+	AgentSelectionSource         string          `json:"agent_selection_source"`
+	MCPMode                      string          `json:"mcp_mode"`
+	RigorLevel                   string          `json:"rigor_level"`
+	RigorLabel                   string          `json:"rigor_label"`
+	ReportSessionPolicy          string          `json:"report_session_policy"`
+	ReportSessionPolicySelection string          `json:"report_session_policy_selection"`
+	PostReportHumanize           string          `json:"post_report_humanize"`
+	GenerationGuidanceProfile    string          `json:"generation_guidance_profile"`
+	GenerationGuidanceSHA256     string          `json:"generation_guidance_sha256"`
+	SessionChainKind             string          `json:"session_chain_kind"`
+	PreReportResearchSessionID   string          `json:"pre_report_research_session_id"`
+	ReportPlanSessionID          string          `json:"report_plan_session_id"`
+	ForkSourceAgentSessionID     string          `json:"fork_source_agent_session_id"`
+	Producer                     ledger.Producer `json:"producer"`
 }
 
 // FinalEditStageResult는 final edit stage 제출 이벤트와 artifact를 함께 반환한다.
 type FinalEditStageResult struct {
 	Binding                        FinalEditStageBinding
-	Artifact                       app.RawArtifact
-	Event                          app.LedgerEvent
+	Artifact                       artifactcontract.Raw
+	Event                          ledger.Event
 	Replay                         bool
 	OperationCount                 int
 	Changed                        bool
@@ -124,12 +126,12 @@ type finalEditSubmittedPayload struct {
 	Text                         string                              `json:"text"`
 }
 
-func longFormCanonicalRequestForFinalEdit(eventID string, binding LongFormFinalizeBinding, artifact app.RawArtifact, finalWords int, req LongFormFinalizeRequest) app.AppendEventRequest {
+func longFormCanonicalRequestForFinalEdit(eventID string, binding LongFormFinalizeBinding, artifact artifactcontract.Raw, finalWords int, req LongFormFinalizeRequest) ledger.AppendRequest {
 	request := longFormCanonicalRequest(eventID, binding, artifact, finalWords)
 	if !isSupportedFinalEditPipeline(strings.TrimSpace(req.FinalEditPipeline)) {
 		return request
 	}
-	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+	payload := eventPayload(ledger.Event{Payload: request.Payload})
 	putFinalEditCanonicalFields(payload, binding, artifact, finalEditCanonicalFields{
 		Pipeline:         strings.TrimSpace(req.FinalEditPipeline),
 		GateFindings:     req.GateFindings,
@@ -142,7 +144,7 @@ func longFormCanonicalRequestForFinalEdit(eventID string, binding LongFormFinali
 	return request
 }
 
-func putFinalEditCanonicalFields(payload map[string]any, binding LongFormFinalizeBinding, artifact app.RawArtifact, fields finalEditCanonicalFields) {
+func putFinalEditCanonicalFields(payload map[string]any, binding LongFormFinalizeBinding, artifact artifactcontract.Raw, fields finalEditCanonicalFields) {
 	if strings.TrimSpace(fields.Pipeline) == "" && len(fields.GateFindings) == 0 {
 		return
 	}
@@ -172,7 +174,7 @@ func canonicalArtifactIDForFinalizeRequest(binding LongFormFinalizeBinding, req 
 }
 
 // FinalEditPipelineFromPlanEvent는 plan 이벤트 payload에서 최종 편집 pipeline 선택을 읽는다.
-func FinalEditPipelineFromPlanEvent(event app.LedgerEvent) (FinalEditPipelinePlanState, bool, error) {
+func FinalEditPipelineFromPlanEvent(event ledger.Event) (FinalEditPipelinePlanState, bool, error) {
 	if event.EventType != "report.plan.created" {
 		return FinalEditPipelinePlanState{}, false, nil
 	}
@@ -184,11 +186,11 @@ func FinalEditPipelineFromPlanEvent(event app.LedgerEvent) (FinalEditPipelinePla
 		PostReportHumanize string `json:"post_report_humanize"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return FinalEditPipelinePlanState{}, false, fmt.Errorf("%w: report plan payload is invalid", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, false, fmt.Errorf("%w: report plan payload is invalid", producterror.ErrConflict)
 	}
 	pipeline := strings.TrimSpace(payload.FinalEditPipeline)
 	if pipeline != "" && !isSupportedFinalEditPipeline(pipeline) {
-		return FinalEditPipelinePlanState{}, false, fmt.Errorf("%w: unsupported final edit pipeline", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, false, fmt.Errorf("%w: unsupported final edit pipeline", producterror.ErrConflict)
 	}
 	postReportHumanize := strings.TrimSpace(payload.PostReportHumanize)
 	if isSupportedFinalEditPipeline(pipeline) {
@@ -224,6 +226,6 @@ func normalizeFinalEditHumanize(value string) (string, error) {
 	case FinalEditHumanizeDisabled:
 		return FinalEditHumanizeDisabled, nil
 	default:
-		return "", fmt.Errorf("%w: final edit post_report_humanize must be enabled or disabled", app.ErrConflict)
+		return "", fmt.Errorf("%w: final edit post_report_humanize must be enabled or disabled", producterror.ErrConflict)
 	}
 }

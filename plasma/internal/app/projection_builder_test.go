@@ -3,16 +3,19 @@ package app
 import (
 	"reflect"
 	"testing"
+
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 )
 
 func TestBuildProjectionAppliesUserSteering(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "mission.created",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"title":"Initial","objective":"Draft","scope":{"included":["A"]}}`),
 		},
 		{
@@ -20,7 +23,7 @@ func TestBuildProjectionAppliesUserSteering(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "mission.steered",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"objective":"Updated","scope":{"excluded":["B"]}}`),
 		},
 	})
@@ -39,13 +42,13 @@ func TestBuildProjectionAppliesUserSteering(t *testing.T) {
 }
 
 func TestBuildProjectionRejectsAutopilotSteeringWithoutApproval(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "mission.created",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"objective":"Original"}`),
 		},
 		{
@@ -53,7 +56,7 @@ func TestBuildProjectionRejectsAutopilotSteeringWithoutApproval(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "mission.steered",
-			Producer:  Producer{Type: "autopilot", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "autopilot", ID: "ses_2"},
 			Payload:   []byte(`{"objective":"Hidden mutation"}`),
 		},
 	})
@@ -69,13 +72,13 @@ func TestBuildProjectionRejectsAutopilotSteeringWithoutApproval(t *testing.T) {
 }
 
 func TestBuildProjectionAppliesApprovedObjects(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "session.attached",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"session_id":"ses_1"}`),
 		},
 		{
@@ -83,7 +86,7 @@ func TestBuildProjectionAppliesApprovedObjects(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "claim.approved",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"claim_id":"clm_1"}`),
 		},
 		{
@@ -91,7 +94,7 @@ func TestBuildProjectionAppliesApprovedObjects(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  3,
 			EventType: "question.proposed",
-			Producer:  Producer{Type: "autopilot", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "autopilot", ID: "ses_2"},
 			Payload:   []byte(`{"question_id":"qst_1"}`),
 		},
 		{
@@ -99,7 +102,7 @@ func TestBuildProjectionAppliesApprovedObjects(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  4,
 			EventType: "report.promoted",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"report_version_id":"rvn_1"}`),
 		},
 	})
@@ -121,13 +124,13 @@ func TestBuildProjectionAppliesApprovedObjects(t *testing.T) {
 }
 
 func TestBuildProjectionRejectsUnapprovedAcceptedTransitions(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "question.proposed",
-			Producer:  Producer{Type: "autopilot", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "autopilot", ID: "ses_2"},
 			Payload:   []byte(`{"question_id":"qst_1"}`),
 		},
 		{
@@ -135,7 +138,7 @@ func TestBuildProjectionRejectsUnapprovedAcceptedTransitions(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "claim.approved",
-			Producer:  Producer{Type: "autopilot", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "autopilot", ID: "ses_2"},
 			Payload:   []byte(`{"claim_id":"clm_1"}`),
 		},
 		{
@@ -143,7 +146,7 @@ func TestBuildProjectionRejectsUnapprovedAcceptedTransitions(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  3,
 			EventType: "question.answered",
-			Producer:  Producer{Type: "autopilot", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "autopilot", ID: "ses_2"},
 			Payload:   []byte(`{"question_id":"qst_1"}`),
 		},
 		{
@@ -151,7 +154,7 @@ func TestBuildProjectionRejectsUnapprovedAcceptedTransitions(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  4,
 			EventType: "report.promoted",
-			Producer:  Producer{Type: "system", ID: "worker_1"},
+			Producer:  ledger.Producer{Type: "system", ID: "worker_1"},
 			Payload:   []byte(`{"report_version_id":"rvn_1"}`),
 		},
 	})
@@ -173,13 +176,13 @@ func TestBuildProjectionRejectsUnapprovedAcceptedTransitions(t *testing.T) {
 }
 
 func TestBuildProjectionMarksMalformedProjectionPayloads(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "claim.approved",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"claim_id":`),
 		},
 		{
@@ -187,7 +190,7 @@ func TestBuildProjectionMarksMalformedProjectionPayloads(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "report.promoted",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{}`),
 		},
 	})
@@ -203,13 +206,13 @@ func TestBuildProjectionMarksMalformedProjectionPayloads(t *testing.T) {
 }
 
 func TestBuildProjectionMarksConflictingSteering(t *testing.T) {
-	projection, err := BuildProjection("mis_1", []LedgerEvent{
+	projection, err := BuildProjection("mis_1", []ledger.Event{
 		{
 			EventID:   "evt_1",
 			MissionID: "mis_1",
 			Sequence:  1,
 			EventType: "mission.created",
-			Producer:  Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{"objective":"Original","scope":{"included":["A"]}}`),
 		},
 		{
@@ -217,7 +220,7 @@ func TestBuildProjectionMarksConflictingSteering(t *testing.T) {
 			MissionID: "mis_1",
 			Sequence:  2,
 			EventType: "mission.steered",
-			Producer:  Producer{Type: "user", ID: "ses_2"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_2"},
 			Payload:   []byte(`{"objective":"Conflicting","scope":{"included":["B"]}}`),
 		},
 	})
@@ -236,28 +239,28 @@ func TestBuildProjectionMarksConflictingSteering(t *testing.T) {
 }
 
 func TestBuildProjectionAppliesMetadataFieldsBySequence(t *testing.T) {
-	events := []LedgerEvent{
-		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial","objective":"Initial objective","scope":{"included":["A"]}}`)},
-		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"objective":"Steered"}`)},
-		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"title":"Edited","scope":{"included":[],"excluded":[" X ",""]}}`)},
-		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Final"}`)},
+	events := []ledger.Event{
+		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: ledger.Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial","objective":"Initial objective","scope":{"included":["A"]}}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: ledger.Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"objective":"Steered"}`)},
+		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"title":"Edited","scope":{"included":[],"excluded":[" X ",""]}}`)},
+		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Final"}`)},
 	}
 	projection, err := BuildProjection("mis_1", events)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.Title != "Edited" || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, MissionScope{Included: []string{}, Excluded: []string{"X"}}) {
+	if projection.Title != "Edited" || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, mission.Scope{Included: []string{}, Excluded: []string{"X"}}) {
 		t.Fatalf("unexpected projection: %#v", projection)
 	}
 }
 
 func TestBuildProjectionRejectsInvalidMetadataEvents(t *testing.T) {
-	for _, event := range []LedgerEvent{
-		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "agent", ID: "a"}, Payload: []byte(`{"title":"Hidden"}`)},
-		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{}`)},
-		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":" "}`)},
+	for _, event := range []ledger.Event{
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "agent", ID: "a"}, Payload: []byte(`{"title":"Hidden"}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "user", ID: "u"}, Payload: []byte(`{}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":" "}`)},
 	} {
-		projection, err := BuildProjection("mis_1", []LedgerEvent{{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":"Original"}`)}, event})
+		projection, err := BuildProjection("mis_1", []ledger.Event{{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: ledger.Producer{Type: "user", ID: "u"}, Payload: []byte(`{"title":"Original"}`)}, event})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,17 +271,17 @@ func TestBuildProjectionRejectsInvalidMetadataEvents(t *testing.T) {
 }
 
 func TestBuildProjectionMetadataEditDoesNotReplaceSteeringOwners(t *testing.T) {
-	events := []LedgerEvent{
-		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial"}`)},
-		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"First","scope":{"included":["A"]}}`)},
-		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Edited","scope":{"included":["B"]}}`)},
-		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.steered", Producer: Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"Final","scope":{"included":["C"]}}`)},
+	events := []ledger.Event{
+		{EventID: "evt_1", MissionID: "mis_1", Sequence: 1, EventType: "mission.created", Producer: ledger.Producer{Type: "user", ID: "creator"}, Payload: []byte(`{"title":"Initial"}`)},
+		{EventID: "evt_2", MissionID: "mis_1", Sequence: 2, EventType: "mission.steered", Producer: ledger.Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"First","scope":{"included":["A"]}}`)},
+		{EventID: "evt_3", MissionID: "mis_1", Sequence: 3, EventType: "mission.metadata.updated", Producer: ledger.Producer{Type: "user", ID: "editor"}, Payload: []byte(`{"objective":"Edited","scope":{"included":["B"]}}`)},
+		{EventID: "evt_4", MissionID: "mis_1", Sequence: 4, EventType: "mission.steered", Producer: ledger.Producer{Type: "user", ID: "owner"}, Payload: []byte(`{"objective":"Final","scope":{"included":["C"]}}`)},
 	}
 	projection, err := BuildProjection("mis_1", events)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if projection.NeedsReview || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, MissionScope{Included: []string{"C"}}) {
+	if projection.NeedsReview || projection.Objective != "Final" || !reflect.DeepEqual(projection.Scope, mission.Scope{Included: []string{"C"}}) {
 		t.Fatalf("metadata edit changed steering ownership: %#v", projection)
 	}
 }

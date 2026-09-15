@@ -3,6 +3,7 @@ package sourceingest
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"mime"
 	"strings"
 
@@ -75,7 +76,7 @@ func CreateStagedImageMediaURLSourceWithEvent(ctx context.Context, store Store, 
 	if err != nil {
 		return MediaSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, CreateExistingArtifactSourceSnapshotWithEventRequest{
+	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, source.CreateExistingArtifactSourceSnapshotWithEventRequest{
 		Snapshot: CreateSourceSnapshotRequest{
 			SnapshotID: req.SnapshotID,
 			MissionID:  req.MissionID,
@@ -123,7 +124,7 @@ func createFetchedImageMediaURLSource(ctx context.Context, store Store, req Crea
 	if err != nil {
 		return MediaSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateSourceSnapshotWithEvent(ctx, CreateSourceSnapshotWithEventRequest{
+	result, err := store.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
 		Artifact: CreateRawArtifactRequest{
 			ArtifactID:     req.ArtifactID,
 			MissionID:      req.MissionID,
@@ -178,7 +179,7 @@ func createFetchedLiveMediaURLSource(ctx context.Context, store Store, req Creat
 	if err != nil {
 		return MediaSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateLiveSourceSnapshotWithEvent(ctx, CreateLiveSourceSnapshotWithEventRequest{
+	result, err := store.CreateLiveSourceSnapshotWithEvent(ctx, source.CreateLiveSourceSnapshotWithEventRequest{
 		Snapshot: CreateSourceSnapshotRequest{
 			SnapshotID: req.SnapshotID,
 			MissionID:  req.MissionID,

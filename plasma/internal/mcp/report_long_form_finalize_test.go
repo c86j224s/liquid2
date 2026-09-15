@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -67,6 +67,6 @@ func testLongFormFinalizeBinding() reporting.LongFormFinalizeBinding {
 	return reporting.LongFormFinalizeBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ArtifactID: "art_final", Filename: "report.md", Title: "Report",
 		ToolSessionID: "ses_1", IdempotencyKey: "key", ProviderSessionID: "provider-1", PartArtifactIDs: []string{"art_part"},
-		AgentExecutor: "codex", Producer: app.Producer{Type: "agent_session", ID: "provider-1"},
+		AgentExecutor: "codex", Producer: ledger.Producer{Type: "agent_session", ID: "provider-1"},
 	}
 }

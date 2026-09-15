@@ -3,6 +3,8 @@ package research
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -18,7 +20,7 @@ func validateProposalInputs(proposalID, eventID, proposalEventID string) error {
 	return validateID("evt_", proposalEventID)
 }
 
-func validateSnapshotRefs(refs []app.SnapshotRef) error {
+func validateSnapshotRefs(refs []researchrecords.SnapshotRef) error {
 	for _, ref := range refs {
 		if err := validateID("src_", ref.SnapshotID); err != nil {
 			return err
@@ -51,7 +53,7 @@ func validateIDList(prefix string, ids []string) error {
 	return nil
 }
 
-func validateConfidence(confidence app.Confidence) error {
+func validateConfidence(confidence researchrecords.Confidence) error {
 	level := strings.TrimSpace(confidence.Level)
 	if level == "" {
 		return nil
@@ -62,15 +64,15 @@ func validateConfidence(confidence app.Confidence) error {
 	return nil
 }
 
-func validateObjectRef(ref app.ObjectRef) error {
+func validateObjectRef(ref researchcatalog.ObjectRef) error {
 	switch strings.TrimSpace(ref.ObjectKind) {
-	case app.EvidenceRecordObjectKind:
+	case researchrecords.EvidenceRecordObjectKind:
 		return validateID("evd_", ref.ObjectID)
-	case app.ClaimRecordObjectKind:
+	case researchrecords.ClaimRecordObjectKind:
 		return validateID("clm_", ref.ObjectID)
-	case app.QuestionRecordObjectKind:
+	case researchrecords.QuestionRecordObjectKind:
 		return validateID("qst_", ref.ObjectID)
-	case app.OptionRecordObjectKind:
+	case researchrecords.OptionRecordObjectKind:
 		return validateID("opt_", ref.ObjectID)
 	default:
 		return fmt.Errorf("%w: unsupported proposal object kind", app.ErrInvalidInput)

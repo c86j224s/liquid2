@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // SourceCandidateProposalInput는 소스 후보 스테이징 경계에 전달되는 요청 값이다.
@@ -63,7 +63,7 @@ type SourceCandidateProposalEventRequest struct {
 	MCPMode       string
 	ToolSessionID string
 	StrategyID    string
-	Producer      app.Producer
+	Producer      ledger.Producer
 	Candidates    []SourceCandidateProposal
 }
 
@@ -74,7 +74,7 @@ type SourceCandidateMCPProposalEventRequest struct {
 	SessionID          string
 	CurrentUserEventID string
 	AgentExecutor      string
-	Producer           app.Producer
+	Producer           ledger.Producer
 	Candidates         []SourceCandidateProposal
 }
 
@@ -86,7 +86,7 @@ type WorkflowSourceCandidateProposalEventRequest struct {
 	WorkflowStepID string
 	UserEventID    string
 	AgentEventID   string
-	Producer       app.Producer
+	Producer       ledger.Producer
 	Candidates     []WorkflowSourceCandidateProposal
 }
 
@@ -99,7 +99,7 @@ type SourceCandidateStagingStartRequest struct {
 	CausationEventID string
 	CandidateKind    string
 	Candidate        SourceCandidateProposal
-	Producer         app.Producer
+	Producer         ledger.Producer
 	AgentExecutor    string
 }
 
@@ -114,7 +114,7 @@ type SourceCandidateStagingOutput struct {
 
 // SourceCandidateStagingStartResult는 staging 시작 이벤트와 tool 응답 payload를 함께 반환한다.
 type SourceCandidateStagingStartResult struct {
-	Event  app.LedgerEvent
+	Event  ledger.Event
 	Output SourceCandidateStagingOutput
 }
 
@@ -125,7 +125,7 @@ type SourceCandidateStagingJob struct {
 	ProposalEventID                   string
 	CandidateKind                     string
 	Candidate                         SourceCandidateProposal
-	Producer                          app.Producer
+	Producer                          ledger.Producer
 	StartedEventID                    string
 	AgentExecutor                     string
 	EmitAgentExecutorInTerminalEvents bool
@@ -146,5 +146,5 @@ type SourceCandidateDecisionRequest struct {
 	MissionID string
 	URL       string
 	Reason    string
-	Producer  app.Producer
+	Producer  ledger.Producer
 }

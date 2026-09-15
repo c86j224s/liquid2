@@ -67,7 +67,7 @@ func TestPendingRecoversCanonicalExperimentalValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.PipelineFamily != "report_il_experimental" || req.PipelineGraph != reportpipeline.ExperimentalILValidationProfilesGraph || req.ReportMode != ModeLongForm || req.AgentExecutor != "codex" || req.AgentModel != "gpt-5.6-luna" || req.AgentReasoningEffort != "xhigh" || req.AgentSelectionSource != "experimental_fixed" || req.MCPMode != "source_read_only" || req.RigorLevel != "strict" || req.RigorLabel != "검증형" || req.ReportSessionPolicy != SessionPolicyFreshSession || req.ReportSessionPolicySelection != "experimental_fixed" || req.PostReportHumanize != "disabled" || req.ExecutionStrategy != "" {
+	if req.PipelineFamily != "report_il_experimental" || req.PipelineGraph != reportpipeline.ExperimentalILValidationProfilesGraph || req.ReportMode != ModeLongForm || req.AgentExecutor != "codex" || req.AgentModel != "wrong" || req.AgentReasoningEffort != "low" || req.AgentSelectionSource != "mission" || req.MCPMode != "source_read_only" || req.RigorLevel != "strict" || req.RigorLabel != "검증형" || req.ReportSessionPolicy != SessionPolicyFreshSession || req.ReportSessionPolicySelection != "experimental_fixed" || req.PostReportHumanize != "disabled" || req.ExecutionStrategy != "" {
 		t.Fatalf("experimental pending was not canonicalized: %#v", req)
 	}
 }
@@ -121,6 +121,44 @@ func TestPendingRecoversCanonicalUnverifiedValues(t *testing.T) {
 	}
 	if req.PipelineFamily != reportpipeline.Unverified || req.ReportMode != ModePlanned || req.AgentExecutor != "codex" || req.AgentModel != "gpt-5.6-luna" || req.AgentReasoningEffort != "xhigh" || req.AgentSelectionSource != "unverified_fixed" || req.MCPMode != "source_read_only" || req.RigorLevel != "unverified" || req.RigorLabel != "무검증형" || req.ReportSessionPolicy != SessionPolicyFreshSession || req.ReportSessionPolicySelection != "unverified_fixed" || req.PostReportHumanize != "disabled" || req.ExecutionStrategy != "" || req.GenerationGuidanceProfile != "" {
 		t.Fatalf("unverified pending was not canonicalized: %#v", req)
+	}
+}
+
+func TestArticlePendingPreservesReaderIntent(t *testing.T) {
+	event := ledger.Event{EventID: "evt_pending", Payload: []byte(`{"title":"글","report_mode":"one_take","output_kind":"article","article_intent":{"audience":"개발자","reader_promise":"실행 순서를 이해한다","emphasis":"첫 실제 결과"}}`)}
+	req, err := DraftRequestFromPendingEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.OutputKind != OutputKindArticle || req.ArticleIntent.Audience != "개발자" || req.ArticleIntent.ReaderPromise != "실행 순서를 이해한다" || req.ArticleIntent.Emphasis != "첫 실제 결과" {
+		t.Fatalf("article pending lost reader intent: %#v", req)
+	}
+}
+
+func TestLongFormArticlePendingPreservesExistingILPath(t *testing.T) {
+	event := ledger.Event{EventID: "evt_pending", Payload: []byte(`{"title":"책자","report_mode":"long_form","pipeline_family":"report_il_experimental","output_kind":"article","article_intent":{"audience":"개발자","reader_promise":"전체 흐름을 이해한다","emphasis":"실전 방법"},"rigor_level":"strict"}`)}
+	req, err := DraftRequestFromPendingEvent(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.OutputKind != OutputKindArticle || req.ReportMode != ModeLongForm || req.PipelineFamily != reportpipeline.ExperimentalIL || req.ArticleIntent.Audience != "개발자" {
+		t.Fatalf("long-form article pending lost existing IL binding: %#v", req)
+	}
+	if err := validateArticleRequest(req); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLongFormArticlePendingPreservesExecutionStrategy(t *testing.T) {
+	for _, strategy := range []string{"serial", "section_fanout"} {
+		event := ledger.Event{EventID: "evt_pending", Payload: []byte(`{"report_mode":"long_form","pipeline_family":"report_il_experimental","output_kind":"article","execution_strategy":"` + strategy + `","article_intent":{"audience":"Reader","reader_promise":"Promise"}}`)}
+		req, err := DraftRequestFromPendingEvent(event)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if req.ExecutionStrategy != strategy {
+			t.Fatalf("strategy = %q, want %q", req.ExecutionStrategy, strategy)
+		}
 	}
 }
 

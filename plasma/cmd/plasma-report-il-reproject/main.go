@@ -12,8 +12,11 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilpdf"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilphase0"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -58,7 +61,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	pdf, err := reportilphase0.RenderPDF(ctx, htmlContent, chromePath)
+	pdf, err := (reportilpdf.Chrome{ChromePath: chromePath}).RenderPDF(ctx, htmlContent)
 	if err != nil {
 		fatal(err)
 	}
@@ -66,16 +69,16 @@ func main() {
 		fmt.Printf("verified %s html=%d pdf=%d renderer=%s revision=%s\n", documentArtifactID, len(htmlContent), len(pdf.Content), pdf.RendererProduct, pdf.RendererRevision)
 		return
 	}
-	htmlArtifact, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	htmlArtifact, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: newID("art"), MissionID: missionID, MediaType: "text/html; charset=utf-8", Filename: "report.html",
-		Producer: app.Producer{Type: "system", ID: "report-il-reproject"}, Content: htmlContent,
+		Producer: ledger.Producer{Type: "system", ID: "report-il-reproject"}, Content: htmlContent,
 	})
 	if err != nil {
 		fatal(err)
 	}
-	pdfArtifact, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	pdfArtifact, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: newID("art"), MissionID: missionID, MediaType: pdfdocument.MediaType, Filename: "report.pdf",
-		Producer: app.Producer{Type: "system", ID: "report-il-reproject"}, Content: pdf.Content,
+		Producer: ledger.Producer{Type: "system", ID: "report-il-reproject"}, Content: pdf.Content,
 	})
 	if err != nil {
 		fatal(err)
@@ -84,7 +87,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	var original app.LedgerEvent
+	var original ledger.Event
 	var payload map[string]any
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
@@ -143,8 +146,8 @@ func main() {
 		fatal(fmt.Errorf("corrected terminal lineage lost Markdown binding"))
 	}
 	eventID := newID("evt")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: eventID, MissionID: missionID, EventType: "report.artifact.reprojected", Producer: app.Producer{Type: "system", ID: "report-il-reproject"},
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: eventID, MissionID: missionID, EventType: "report.artifact.reprojected", Producer: ledger.Producer{Type: "system", ID: "report-il-reproject"},
 		CausationEventID: original.EventID, CorrelationID: original.CorrelationID, Payload: payloadBytes,
 	}); err != nil {
 		fatal(err)

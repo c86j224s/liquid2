@@ -10,6 +10,7 @@ import '../../shared/action_feedback.dart';
 import '../../shared/star_rating.dart';
 import 'document_move_folder_dialog.dart';
 import 'document_rescrape_button.dart';
+import 'document_source_qr_dialog.dart';
 
 class DocumentActionsBar extends ConsumerWidget {
   const DocumentActionsBar({required this.document, super.key});
@@ -37,6 +38,12 @@ class DocumentActionsBar extends ConsumerWidget {
                     runUiAction(context, () => _openSource(sourceURL)),
                 icon: const Icon(Icons.open_in_new, size: 16),
                 label: const Text('Open source'),
+              ),
+            if (sourceURL != null)
+              OutlinedButton.icon(
+                onPressed: () => showDocumentSourceQrDialog(context, sourceURL),
+                icon: const Icon(Icons.qr_code, size: 16),
+                label: const Text('Show QR code'),
               ),
             DocumentRescrapeButton(document: document),
             if (document.kind != 'rss_item')
@@ -163,7 +170,10 @@ Uri? _parseHTTPURL(String? rawURL) {
   final value = rawURL?.trim();
   if (value == null || value.isEmpty) return null;
   final uri = Uri.tryParse(value);
-  if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+  if (uri == null ||
+      !uri.hasAuthority ||
+      uri.host.isEmpty ||
+      (uri.scheme != 'http' && uri.scheme != 'https')) {
     return null;
   }
   return uri;

@@ -1,5 +1,7 @@
 package styleedit
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"fmt"
 
@@ -39,7 +41,7 @@ Use exactly this workflow:
 13. Submit with %s. After submit succeeds, make no further tool calls and return exactly %s.
 
 Do not summarize, add facts, call research/source tools, or expose IDs in the manuscript.%s`,
-		input.Title, input.MissionID, finaledit.AgentReportAnyJSON(binding),
+		input.Title, input.MissionID, longformutil.AnyJSON(binding),
 		mcptools.ToolReportLongFormStyleEditStart, draftID,
 		mcptools.ToolReportLongFormStyleEditRead, mcptools.ToolReportLongFormStyleEditPatch,
 		mcptools.ToolReportLongFormStyleEditSubmit, finaledit.StageSubmittedSentinel, finaledit.RetryNote(attempt))

@@ -1,15 +1,15 @@
 package reportrepo
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"database/sql"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateReportVersion stores a version and its blocks in one transaction.
-func (r *Repository) CreateReportVersion(ctx context.Context, version app.ReportVersion, blocks []app.ReportBlock) error {
+func (r *Repository) CreateReportVersion(ctx context.Context, version reportdocument.ReportVersion, blocks []reportdocument.ReportBlock) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -27,8 +27,8 @@ func (r *Repository) CreateReportVersion(ctx context.Context, version app.Report
 }
 
 // GetReportVersion reads one report version by stable ID.
-func (r *Repository) GetReportVersion(ctx context.Context, versionID string) (app.ReportVersion, error) {
-	var version app.ReportVersion
+func (r *Repository) GetReportVersion(ctx context.Context, versionID string) (reportdocument.ReportVersion, error) {
+	var version reportdocument.ReportVersion
 	var blockIDsJSON string
 	var scopeJSON string
 	var createdAt string
@@ -51,24 +51,24 @@ WHERE report_version_id = ?`, versionID).Scan(
 		&version.CreatedEventID,
 		&createdAt)
 	if err != nil {
-		return app.ReportVersion{}, err
+		return reportdocument.ReportVersion{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(blockIDsJSON, &version.BlockIDs); err != nil {
-		return app.ReportVersion{}, err
+		return reportdocument.ReportVersion{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(scopeJSON, &version.IncludedEvidenceScope); err != nil {
-		return app.ReportVersion{}, err
+		return reportdocument.ReportVersion{}, err
 	}
 	var parseErr error
 	version.CreatedAt, parseErr = parseRequiredTime(createdAt)
 	if parseErr != nil {
-		return app.ReportVersion{}, parseErr
+		return reportdocument.ReportVersion{}, parseErr
 	}
 	return version, nil
 }
 
 // ListReportVersions reads mission report versions ordered by creation time.
-func (r *Repository) ListReportVersions(ctx context.Context, missionID string) ([]app.ReportVersion, error) {
+func (r *Repository) ListReportVersions(ctx context.Context, missionID string) ([]reportdocument.ReportVersion, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT report_version_id
 FROM plasma_report_versions
@@ -79,7 +79,7 @@ ORDER BY created_at DESC, report_version_id`, missionID)
 	}
 	defer rows.Close()
 
-	var versions []app.ReportVersion
+	var versions []reportdocument.ReportVersion
 	for rows.Next() {
 		var versionID string
 		if err := rows.Scan(&versionID); err != nil {
@@ -97,7 +97,7 @@ ORDER BY created_at DESC, report_version_id`, missionID)
 // InsertReportVersionTx inserts a report version inside a caller-owned transaction or queryer.
 func InsertReportVersionTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, version app.ReportVersion) error {
+}, version reportdocument.ReportVersion) error {
 	blockIDsJSON, err := sqlitevalue.MarshalJSON(version.BlockIDs)
 	if err != nil {
 		return err

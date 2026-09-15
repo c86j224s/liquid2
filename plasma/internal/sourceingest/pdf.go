@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
@@ -35,7 +36,7 @@ func CreateFetchedPDFURLSourceWithEvent(ctx context.Context, store Store, req Cr
 	if err != nil {
 		return URLSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateSourceSnapshotWithEvent(ctx, CreateSourceSnapshotWithEventRequest{
+	result, err := store.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
 		Artifact: CreateRawArtifactRequest{
 			ArtifactID:     req.ArtifactID,
 			MissionID:      req.MissionID,
@@ -117,7 +118,7 @@ func CreateStagedPDFURLSourceWithEvent(ctx context.Context, store Store, req Cre
 	if err != nil {
 		return URLSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, CreateExistingArtifactSourceSnapshotWithEventRequest{
+	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, source.CreateExistingArtifactSourceSnapshotWithEventRequest{
 		Snapshot: CreateSourceSnapshotRequest{
 			SnapshotID: req.SnapshotID,
 			MissionID:  req.MissionID,

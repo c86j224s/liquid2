@@ -3,7 +3,7 @@ package conversation
 import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // TurnAgentResponseEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -37,7 +37,7 @@ type TurnAgentResponseEventRequest struct {
 	UsageSurface           string
 	UsagePreviousSessionID string
 	UsageCompaction        bool
-	Producer               app.Producer
+	Producer               ledger.Producer
 }
 
 // TurnAgentCompactedEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -66,11 +66,11 @@ type TurnAgentCompactedEventRequest struct {
 	ContextThresholdPercent int
 	Usage                   agentusage.AgentUsage
 	Resumed                 bool
-	Producer                app.Producer
+	Producer                ledger.Producer
 }
 
 // BuildTurnAgentResponseAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.AppendEventRequest {
+func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) ledger.AppendRequest {
 	payload := map[string]any{
 		"kind":           req.Kind,
 		"agent_executor": req.AgentExecutor,
@@ -95,7 +95,7 @@ func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.
 		payload[key] = value
 	}
 	addUsagePayload(payload, req.Usage, req.UsageSurface, req.DurationMS, req.UsagePreviousSessionID, req.AgentSessionID, req.Resumed, req.UsageCompaction)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "turn.agent.response",
@@ -105,7 +105,7 @@ func BuildTurnAgentResponseAppendRequest(req TurnAgentResponseEventRequest) app.
 }
 
 // BuildTurnAgentCompactedAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) app.AppendEventRequest {
+func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) ledger.AppendRequest {
 	payload := map[string]any{
 		"kind":                        "agent_session_compacted",
 		"agent_executor":              req.AgentExecutor,
@@ -136,7 +136,7 @@ func BuildTurnAgentCompactedAppendRequest(req TurnAgentCompactedEventRequest) ap
 		payload["context_threshold_percent"] = req.ContextThresholdPercent
 	}
 	addUsagePayload(payload, req.Usage, "compaction", req.DurationMS, req.PreviousAgentSessionID, req.AgentSessionID, req.Resumed, true)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "turn.agent.compacted",

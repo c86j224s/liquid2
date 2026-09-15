@@ -484,42 +484,104 @@
               </div>
 			  <div class="report-request-panel">
                     <div class="report-request-actions">
-                      <div class="report-generation-settings" aria-label="리포트 생성 설정">
-                        <label class="inline-control segmented-select-control report-select-rigor" for="reportRigor">
-                          <span class="segmented-select-label">검증</span>
-                          <select id="reportRigor" aria-describedby="reportValidationHelp">
-                            <option value="unverified">무검증</option>
-                            <option value="exploratory">탐색형</option>
-                            <option value="strict" selected>검증형</option>
-                          </select>
-                        </label>
-                        <div class="report-model-controls" aria-label="보고서와 장문 보고서 모델 설정">
-                          <label class="inline-control segmented-select-control report-select-model" for="reportAgentModel"><span class="segmented-select-label">모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
-                          <label class="inline-control segmented-select-control report-select-effort" for="reportAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
+                      <div class="source-tabstrip report-creation-tabstrip" role="tablist" aria-label="산출물 생성 방식">
+                        <button id="articleCreationTab" type="button" class="source-tab report-creation-tab active" role="tab" aria-selected="true" aria-controls="articleCreationPanel" data-report-creation-tab="articleCreationPanel">글 만들기</button>
+                        <button id="reportCreationTab" type="button" class="source-tab report-creation-tab" role="tab" aria-selected="false" aria-controls="reportCreationPanel" data-report-creation-tab="reportCreationPanel">보고서 만들기</button>
+                      </div>
+                      <section id="articleCreationPanel" class="report-creation-panel" role="tabpanel" aria-labelledby="articleCreationTab">
+                        <div class="report-config-heading">
+                          <strong>글 만들기</strong>
+                          <span>독자와 읽은 뒤 얻을 것을 중심으로 한 편의 글을 씁니다.</span>
                         </div>
-                        <label class="inline-control segmented-select-control report-select-execution" for="reportLongFormExecutionStrategy">
-                          <span class="segmented-select-label">장문 작성</span>
-                          <select id="reportLongFormExecutionStrategy" title="장문 보고서 생성에만 적용됩니다">
-                            <option value="serial" selected>순차</option>
-                            <option value="section_fanout">빠른 병렬</option>
-                          </select>
-                        </label>
-                      </div>
-                      <p id="reportValidationHelp" class="report-validation-help">검증형은 근거를 확인하고 원고를 교정합니다. IL 보고서는 Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다.</p>
-                      <details class="report-direction-details">
-                        <summary>방향 추가 <span class="badge muted">선택</span></summary>
-                        <label class="report-direction-field" for="reportDirectionHint">
-                          <span>이번 요청에만 적용할 약한 편집 방향</span>
-                          <textarea id="reportDirectionHint" rows="2" placeholder="예: 구현 세부보다 운영 위험과 의사결정 근거를 중심으로 정리"></textarea>
-                        </label>
-                      </details>
-                      <div class="report-mode-actions" aria-label="리포트 생성 방식">
-                        <button id="draftQuickReport" title="계획과 자료 확인을 거쳐 Markdown 보고서 생성">보고서</button>
-                        <button id="draftLongReport" class="secondary" title="섹션별 작성, 파트 조립, 최종 편집 방식의 장문 보고서 생성">장문 보고서</button>
-                        <button id="draftExperimentalReport" class="secondary" type="button" title="선택한 검증 방식으로 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">IL 보고서</button>
-                        <button id="draftLongExperimentalReport" class="secondary" type="button" title="긴 원고를 작성한 뒤 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">장문 IL 보고서</button>
-                        <button id="cancelReportButton" class="secondary hidden" type="button">생성 취소</button>
-                      </div>
+                        <div class="report-generation-settings" aria-label="글 생성 설정">
+                          <label class="inline-control segmented-select-control report-select-rigor" for="articleRigor">
+                            <span class="segmented-select-label">검증</span>
+                            <select id="articleRigor" aria-describedby="articleValidationHelp">
+                              <option value="exploratory">탐색형</option>
+                              <option value="strict" selected>검증형</option>
+                            </select>
+                          </label>
+                          <div class="report-model-controls" aria-label="글 모델 설정">
+                            <label class="inline-control segmented-select-control report-select-model" for="articleAgentModel"><span class="segmented-select-label">모델</span><select id="articleAgentModel"><option value="">미션 설정 상속</option></select></label>
+                            <label class="inline-control segmented-select-control report-select-effort" for="articleAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="articleAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
+                          </div>
+                          <label class="inline-control segmented-select-control report-select-execution" for="articleLongFormExecutionStrategy">
+                            <span class="segmented-select-label">장문 작성</span>
+                            <select id="articleLongFormExecutionStrategy" title="장문 글 생성에만 적용됩니다">
+                              <option value="serial" selected>순차</option>
+                              <option value="section_fanout">빠른 병렬</option>
+                            </select>
+                          </label>
+                        </div>
+                        <p id="articleValidationHelp" class="report-validation-help">글은 탐색형 또는 검증형으로 만들며, 무검증 생성은 지원하지 않습니다.</p>
+                        <details class="report-direction-details">
+                          <summary>방향 추가 <span class="badge muted">선택</span></summary>
+                          <label class="report-direction-field" for="articleDirectionHint">
+                            <span>이번 글에만 적용할 약한 편집 방향</span>
+                            <textarea id="articleDirectionHint" rows="2" placeholder="예: 초보자가 바로 적용할 수 있는 방법을 중심으로 설명"></textarea>
+                          </label>
+                        </details>
+                        <div class="article-inputs">
+                          <label class="report-direction-field" for="articleAudience">
+                            <span>누가 읽는 글인가요?</span>
+                            <input id="articleAudience" maxlength="500" placeholder="예: 에이전트 개발을 처음 제품에 적용하는 엔지니어">
+                          </label>
+                          <label class="report-direction-field" for="articleReaderPromise">
+                            <span>읽고 나서 무엇을 얻어가면 좋을까요?</span>
+                            <textarea id="articleReaderPromise" rows="2" maxlength="500" placeholder="예: 실패를 줄이는 실행 순서를 이해하고 바로 적용할 수 있다"></textarea>
+                          </label>
+                          <label class="report-direction-field" for="articleEmphasis">
+                            <span>특히 살리고 싶은 발견·관점·방법 <span class="badge muted">선택</span></span>
+                            <textarea id="articleEmphasis" rows="2" maxlength="500" placeholder="예: 복잡한 자동화보다 첫 실제 결과를 먼저 확인하는 접근"></textarea>
+                          </label>
+                        </div>
+                        <div class="article-mode-actions">
+                          <div><button id="draftArticle" type="button">일반 글</button><span>선택한 모델·추론으로 한 번에 작성</span></div>
+                          <div><button id="draftLongArticle" class="secondary" type="button">장문 글</button><span>기존 장문 IL · 선택한 모델/추론 · Markdown/HTML/PDF</span></div>
+                        </div>
+                      </section>
+                      <section id="reportCreationPanel" class="report-creation-panel" role="tabpanel" aria-labelledby="reportCreationTab" hidden>
+                        <div class="report-config-heading">
+                          <strong>보고서 만들기</strong>
+                          <span>검증 수준과 길이에 맞는 보고서 방식을 선택합니다.</span>
+                        </div>
+                        <div class="report-generation-settings" aria-label="보고서 생성 설정">
+                          <label class="inline-control segmented-select-control report-select-rigor" for="reportRigor">
+                            <span class="segmented-select-label">검증</span>
+                            <select id="reportRigor" aria-describedby="reportValidationHelp">
+                              <option value="unverified">무검증</option>
+                              <option value="exploratory">탐색형</option>
+                              <option value="strict" selected>검증형</option>
+                            </select>
+                          </label>
+                          <div class="report-model-controls" aria-label="보고서와 장문 보고서 모델 설정">
+                            <label class="inline-control segmented-select-control report-select-model" for="reportAgentModel"><span class="segmented-select-label">모델</span><select id="reportAgentModel"><option value="">미션 설정 상속</option></select></label>
+                            <label class="inline-control segmented-select-control report-select-effort" for="reportAgentReasoningEffort"><span class="segmented-select-label">추론</span><select id="reportAgentReasoningEffort"><option value="">상속 / 모델 기본값</option></select></label>
+                          </div>
+                          <label class="inline-control segmented-select-control report-select-execution" for="reportLongFormExecutionStrategy">
+                            <span class="segmented-select-label">장문 작성</span>
+                            <select id="reportLongFormExecutionStrategy" title="장문 보고서 생성에만 적용됩니다">
+                              <option value="serial" selected>순차</option>
+                              <option value="section_fanout">빠른 병렬</option>
+                            </select>
+                          </label>
+                        </div>
+                        <p id="reportValidationHelp" class="report-validation-help">검증형은 근거를 확인하고 원고를 교정합니다. IL 보고서는 Markdown·HTML·PDF와 관련 이미지를 함께 만듭니다.</p>
+                        <details class="report-direction-details">
+                          <summary>방향 추가 <span class="badge muted">선택</span></summary>
+                          <label class="report-direction-field" for="reportDirectionHint">
+                            <span>이번 보고서에만 적용할 약한 편집 방향</span>
+                            <textarea id="reportDirectionHint" rows="2" placeholder="예: 구현 세부보다 운영 위험과 의사결정 근거를 중심으로 정리"></textarea>
+                          </label>
+                        </details>
+                        <div class="report-mode-actions" aria-label="리포트 생성 방식">
+                          <button id="draftQuickReport" title="계획과 자료 확인을 거쳐 Markdown 보고서 생성">보고서</button>
+                          <button id="draftLongReport" class="secondary" title="섹션별 작성, 파트 조립, 최종 편집 방식의 장문 보고서 생성">장문 보고서</button>
+                          <button id="draftExperimentalReport" class="secondary" type="button" title="선택한 검증 방식으로 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">IL 보고서</button>
+                          <button id="draftLongExperimentalReport" class="secondary" type="button" title="긴 원고를 작성한 뒤 같은 원고의 Markdown·HTML·PDF와 관련 이미지를 함께 생성">장문 IL 보고서</button>
+                        </div>
+                      </section>
+                      <div class="report-cancel-actions"><button id="cancelReportButton" class="secondary hidden" type="button">생성 취소</button></div>
                     </div>
                   </div>
                   <div id="reportActiveWork" class="active-work-notice hidden" role="status" aria-live="polite"></div>
@@ -599,6 +661,16 @@
                   <div id="missionUsageContent" class="mission-usage-content" aria-live="polite">
                     <p class="source-helper">미션을 선택하면 사용량을 확인할 수 있습니다.</p>
                   </div>
+                </div>
+              </details>
+              <details id="conversationExportSettingsDetails" class="source-add conversation-export-settings-card" open>
+                <summary>대화내역 내보내기 <span id="conversationExportSettingsCount" class="count-chip"></span></summary>
+                <div class="stack">
+                  <p class="source-helper">사용자 요청과 에이전트 응답을 보고서로 다시 쓰지 않고 Markdown으로 보관합니다.</p>
+                  <div class="inline-actions">
+                    <button type="button" data-conversation-export-create>새 export 생성</button>
+                  </div>
+                  <div id="conversationExportSettingsList" class="list compact"></div>
                 </div>
               </details>
               <details id="modelDefaultsDetails" class="source-add model-defaults-card" open>

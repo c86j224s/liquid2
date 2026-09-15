@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 )
 
 const (
@@ -49,7 +52,7 @@ type MissionHardDeletePreview struct {
 type MissionHardDeleteRequest struct {
 	MissionID        string
 	ConfirmMissionID string
-	Producer         Producer
+	Producer         ledger.Producer
 }
 
 // MissionHardDeleteResult는 hard delete 실행 결과와 삭제된 범위를 반환한다.
@@ -62,7 +65,7 @@ type MissionHardDeleteResult struct {
 // MissionHardDeleteStore는 hard delete preview와 실제 삭제를 제공하는 저장소 port다.
 type MissionHardDeleteStore interface {
 	PreviewMissionHardDelete(context.Context, string) (MissionHardDeleteImpact, error)
-	HardDeleteMission(context.Context, string, func([]LedgerEvent) error) (MissionHardDeleteImpact, error)
+	HardDeleteMission(context.Context, string, func([]ledger.Event) error) (MissionHardDeleteImpact, error)
 }
 
 // PreviewMissionHardDelete는 archived 상태와 active work 여부를 확인해 삭제 가능 여부를
@@ -92,7 +95,7 @@ func (s *Service) PreviewMissionHardDelete(ctx context.Context, missionID string
 	return MissionHardDeletePreview{
 		MissionID:       trimmed,
 		Title:           projection.Title,
-		LifecycleState:  normalizeMissionLifecycleState(projection.LifecycleState),
+		LifecycleState:  mission.NormalizeLifecycleState(projection.LifecycleState),
 		Eligible:        len(blockers) == 0,
 		BlockingReasons: blockers,
 		Impact:          impact,
@@ -122,7 +125,7 @@ func (s *Service) HardDeleteMission(ctx context.Context, req MissionHardDeleteRe
 	if !preview.Eligible {
 		return MissionHardDeleteResult{}, fmt.Errorf("%w: mission is not eligible for hard delete", ErrConflict)
 	}
-	impact, err := store.HardDeleteMission(ctx, missionID, func(events []LedgerEvent) error {
+	impact, err := store.HardDeleteMission(ctx, missionID, func(events []ledger.Event) error {
 		if len(events) == 0 {
 			return fmt.Errorf("%w: mission does not exist", ErrInvalidInput)
 		}
@@ -141,9 +144,9 @@ func (s *Service) HardDeleteMission(ctx context.Context, req MissionHardDeleteRe
 	return MissionHardDeleteResult{MissionID: missionID, Deleted: true, Impact: impact}, nil
 }
 
-func missionHardDeleteBlockers(projection MissionProjection, events []LedgerEvent) []MissionHardDeleteBlocker {
+func missionHardDeleteBlockers(projection mission.Projection, events []ledger.Event) []MissionHardDeleteBlocker {
 	blockers := []MissionHardDeleteBlocker{}
-	if normalizeMissionLifecycleState(projection.LifecycleState) != MissionLifecycleArchived {
+	if mission.NormalizeLifecycleState(projection.LifecycleState) != mission.LifecycleArchived {
 		blockers = append(blockers, MissionHardDeleteBlocker{
 			ReasonCode: MissionHardDeleteBlockerNotArchived,
 			Message:    "미션을 먼저 보관해야 완전 삭제할 수 있습니다.",

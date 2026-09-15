@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,9 +14,13 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
+	source "github.com/c86j224s/liquid2/plasma/internal/source"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -90,7 +95,7 @@ func TestUnverifiedReportUsesOneSourceOnlyCallAndStoresExactProviderBytes(t *tes
 		countLedgerEvents(events, "report.run.completed") != 1 {
 		t.Fatalf("unexpected unverified report event sequence: %#v", events)
 	}
-	var terminal app.LedgerEvent
+	var terminal ledger.Event
 	for _, event := range events {
 		if event.EventType == "report.artifact.created" {
 			terminal = event
@@ -167,17 +172,17 @@ func TestUnverifiedReportReplayCompletesStoredTerminalWithoutProviderCall(t *tes
 		ctx,
 		missionID,
 		pendingID,
-		app.CreateRawArtifactRequest{
+		artifactcontract.CreateRequest{
 			ArtifactID: artifactID, MissionID: missionID,
 			MediaType: "text/markdown; charset=utf-8", Filename: "report.md",
-			Producer: app.Producer{Type: "agent_session", ID: "ses_unverified_replay"},
+			Producer: ledger.Producer{Type: "agent_session", ID: "ses_unverified_replay"},
 			Content:  []byte("# stored before completion receipt\n"),
 		},
-		func(artifact app.RawArtifact) app.AppendEventRequest {
-			return app.AppendEventRequest{
+		func(artifact artifactcontract.Raw) ledger.AppendRequest {
+			return ledger.AppendRequest{
 				EventID: "evt_unverified_completion_replay_terminal", MissionID: missionID,
 				EventType: "report.artifact.created",
-				Producer:  app.Producer{Type: "agent_session", ID: "ses_unverified_replay"},
+				Producer:  ledger.Producer{Type: "agent_session", ID: "ses_unverified_replay"},
 				Payload: mustJSON(map[string]any{
 					"kind": "markdown_report_artifact", "pending_event_id": pendingID,
 					"pipeline_family": reportpipeline.Unverified, "artifact_id": artifact.ArtifactID,
@@ -224,9 +229,9 @@ func TestUnverifiedReportAcceptsCancellationThatWinsWhileProviderRuns(t *testing
 	executor := &fakeAgentExecutor{
 		responses: []AgentResult{{Text: "# provider finished\n", SessionID: "ses_unverified_cancel"}},
 		onRun: func(_ context.Context, _ AgentRequest) {
-			_, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []app.AppendEventRequest{{
+			_, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []ledger.AppendRequest{{
 				EventID: "evt_unverified_cancel_race_terminal", MissionID: missionID,
-				EventType: "report.draft.failed", Producer: app.Producer{Type: "user", ID: "test"},
+				EventType: "report.draft.failed", Producer: ledger.Producer{Type: "user", ID: "test"},
 				Payload: mustJSON(map[string]any{
 					"kind": "report_draft_canceled", "pending_event_id": pendingID,
 					"canceled": true,
@@ -311,45 +316,45 @@ func createUnverifiedMissionFixture(
 	sourceBody string,
 ) {
 	t.Helper()
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{
 		MissionID: missionID, Title: "무검증형 fixture",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID: "evt_created_" + strings.TrimPrefix(missionID, "mis_"), MissionID: missionID,
-		Title: "무검증형 fixture", Objective: "제품 목표 원문", Producer: app.Producer{Type: "user", ID: "test"},
+		Title: "무검증형 fixture", Objective: "제품 목표 원문", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.RebuildProjection(ctx, missionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_source_" + strings.TrimPrefix(missionID, "mis_"), MissionID: missionID,
 			MediaType: "text/plain; charset=utf-8", Filename: "source.txt",
-			Producer: app.Producer{Type: "user", ID: "test"}, Content: []byte(sourceBody),
+			Producer: ledger.Producer{Type: "user", ID: "test"}, Content: []byte(sourceBody),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID: "src_" + strings.TrimPrefix(missionID, "mis_"), MissionID: missionID,
-			Connector: app.ConnectorRef{
-				ConnectorID: "fixture", ConnectorType: app.SourceConnectorTypeFileUpload,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID: "fixture", ConnectorType: sourcecontract.ConnectorTypeFileUpload,
 				ExternalSourceID: "source.txt",
 			},
 			Title: "fixture source", Locators: json.RawMessage(`[{"locator_type":"full_text"}]`),
-			Access: app.SourceAccess{Visibility: "private", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+			Access: sourcecontract.Access{Visibility: "private", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID: "evt_source_" + strings.TrimPrefix(missionID, "mis_"), MissionID: missionID,
-			EventType: "source.snapshotted", Producer: app.Producer{Type: "user", ID: "test"},
+			EventType: "source.snapshotted", Producer: ledger.Producer{Type: "user", ID: "test"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
 			"title": "자료 기반 자유 보고서", "pipeline_family": reportpipeline.Unverified,
 			"agent_executor": "codex", "agent_model": "gpt-5.6-luna",
 			"agent_reasoning_effort": "xhigh", "mcp_mode": "source_read_only",

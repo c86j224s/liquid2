@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,9 +15,13 @@ import (
 	"unicode"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
+	source "github.com/c86j224s/liquid2/plasma/internal/source"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
@@ -54,13 +59,13 @@ func prepareFinalWriterV2FrozenReviewedManifest(ctx context.Context, cfg finalWr
 	fragment := finalWriterV2IDFragment("prep_" + pair.PairID)
 	missionID := "mis_exp55_" + fragment
 	pendingID := "evt_exp55_" + fragment + "_pending"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
-	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID: "evt_exp55_" + fragment + "_mission", MissionID: missionID, Title: pair.TopicTitle,
 		Objective: "Prepare product-reviewed Korean Parts for the final-writer v2 fixed-input experiment.",
-		Producer:  app.Producer{Type: "user", ID: "experiment"},
+		Producer:  ledger.Producer{Type: "user", ID: "experiment"},
 	})); err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
@@ -76,8 +81,8 @@ func prepareFinalWriterV2FrozenReviewedManifest(ctx context.Context, cfg finalWr
 	if err != nil {
 		return finalWriterV2FrozenManifest{}, "", err
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "experiment"},
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "experiment"},
 		Payload: finalWriterV2MustJSON(map[string]any{
 			"kind": "markdown_report_artifact_pending", "origin_pending_event_id": pendingID, "retry_strategy": "initial",
 			"title": pair.TopicTitle, "direction_hint": finalWriterV2PrepDirectionHint(pair), "report_mode": reportModeLongForm,
@@ -148,24 +153,24 @@ func createFinalWriterV2PrepSources(ctx context.Context, svc *app.Service, archi
 		artifactID := fmt.Sprintf("art_exp55_%s_source_%02d", fragment, index+1)
 		snapshotID := fmt.Sprintf("src_exp55_%s_source_%02d", fragment, index+1)
 		eventID := fmt.Sprintf("evt_exp55_%s_source_%02d", fragment, index+1)
-		connector := app.ConnectorRef{
-			ConnectorID: "experiment-archive", ConnectorType: app.SourceConnectorTypeFileUpload,
+		connector := sourcecontract.ConnectorRef{
+			ConnectorID: "experiment-archive", ConnectorType: sourcecontract.ConnectorTypeFileUpload,
 			ExternalSourceID: pair.TopicID + "/" + filepath.Base(path), ExternalURI: "archive://" + pair.TopicID + "/" + filepath.Base(path),
 			ConnectorVersion: finalWriterV2ExperimentRunNamespace,
 		}
-		result, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-			Artifact: app.CreateRawArtifactRequest{
+		result, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+			Artifact: artifactcontract.CreateRequest{
 				ArtifactID: artifactID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
-				Filename: filepath.Base(path), Producer: app.Producer{Type: "user", ID: "experiment"}, Content: content,
+				Filename: filepath.Base(path), Producer: ledger.Producer{Type: "user", ID: "experiment"}, Content: content,
 			},
-			Snapshot: app.CreateSourceSnapshotRequest{
+			Snapshot: sourcecontract.CreateRequest{
 				SnapshotID: snapshotID, MissionID: missionID, Connector: connector, Title: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)),
 				Locators: json.RawMessage(`[{"locator_type":"full_text"}]`),
-				Access:   app.SourceAccess{Visibility: "private", License: "experiment-corpus", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+				Access:   sourcecontract.Access{Visibility: "private", License: "experiment-corpus", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 			},
-			Event: app.AppendEventRequest{
+			Event: ledger.AppendRequest{
 				EventID: eventID, MissionID: missionID, EventType: sourceevents.SourceSnapshottedEventType,
-				Producer: app.Producer{Type: "user", ID: "experiment"},
+				Producer: ledger.Producer{Type: "user", ID: "experiment"},
 			},
 		})
 		if err != nil {
@@ -278,13 +283,13 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 	pendingID := "evt_exp55_" + fragment + "_pending"
 	planID := "evt_exp55_" + fragment + "_plan"
 	finalArtifactID := "art_exp55_" + fragment + "_final"
-	producer := app.Producer{Type: "agent_session", ID: planSessionID}
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
+	producer := ledger.Producer{Type: "agent_session", ID: planSessionID}
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
 		return finalizationPrefixFixture{}, err
 	}
-	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID: "evt_exp55_" + fragment + "_mission", MissionID: missionID, Title: pair.TopicTitle,
-		Objective: "Run fixed reviewed Part final-edit experiment", Producer: app.Producer{Type: "user", ID: "experiment"},
+		Objective: "Run fixed reviewed Part final-edit experiment", Producer: ledger.Producer{Type: "user", ID: "experiment"},
 	})); err != nil {
 		return finalizationPrefixFixture{}, err
 	}
@@ -293,8 +298,8 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 		return finalizationPrefixFixture{}, err
 	}
 	plan := finalWriterV2PlanForPair(pair, manifest)
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "experiment"},
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "experiment"},
 		Payload: finalWriterV2MustJSON(map[string]any{
 			"kind": "markdown_report_artifact_pending", "origin_pending_event_id": pendingID, "retry_strategy": "initial",
 			"title": pair.TopicTitle, "report_mode": reportModeLongForm, "rigor_level": pair.Rigor, "agent_executor": cfg.ExecutorName,
@@ -336,7 +341,7 @@ func seedFinalWriterV2ExperimentTerminalPipeline(ctx context.Context, svc *app.S
 		partID := fmt.Sprintf("art_exp55_%s_part_%02d", fragment, part.PartIndex)
 		sectionID := partID
 		partEventID := fmt.Sprintf("evt_exp55_%s_part_%02d", fragment, part.PartIndex)
-		artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 			ArtifactID: partID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
 			Filename: fmt.Sprintf("part-%02d.md", part.PartIndex), Producer: producer, Content: content,
 		})
@@ -528,19 +533,19 @@ func finalWriterV2PrepProvenanceValid(ctx context.Context, archive string, manif
 	return nil
 }
 
-func finalWriterV2ReadExportedLedgerEvents(path string) ([]app.LedgerEvent, error) {
+func finalWriterV2ReadExportedLedgerEvents(path string) ([]ledger.Event, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	var events []app.LedgerEvent
+	var events []ledger.Event
 	if err := json.Unmarshal(content, &events); err != nil {
 		return nil, err
 	}
 	return events, nil
 }
 
-func finalWriterV2ValidatePrepLedgerReplay(dbEvents []app.LedgerEvent, exported []app.LedgerEvent, manifest finalWriterV2FrozenManifest) error {
+func finalWriterV2ValidatePrepLedgerReplay(dbEvents []ledger.Event, exported []ledger.Event, manifest finalWriterV2FrozenManifest) error {
 	if len(dbEvents) == 0 || len(dbEvents) != len(exported) {
 		return fmt.Errorf("prep DB and exported ledger event counts differ")
 	}
@@ -622,7 +627,7 @@ func finalWriterV2ValidatePrepSources(ctx context.Context, svc *app.Service, arc
 	return nil
 }
 
-func finalWriterV2ValidatePrepParts(ctx context.Context, svc *app.Service, events []app.LedgerEvent, manifest finalWriterV2FrozenManifest) error {
+func finalWriterV2ValidatePrepParts(ctx context.Context, svc *app.Service, events []ledger.Event, manifest finalWriterV2FrozenManifest) error {
 	for _, part := range manifest.Parts {
 		artifact, err := svc.GetRawArtifact(ctx, part.ArtifactID)
 		if err != nil {
@@ -646,7 +651,7 @@ func finalWriterV2ValidatePrepParts(ctx context.Context, svc *app.Service, event
 	return nil
 }
 
-func finalWriterV2HasEvent(events []app.LedgerEvent, eventID string, eventType string) bool {
+func finalWriterV2HasEvent(events []ledger.Event, eventID string, eventType string) bool {
 	for _, event := range events {
 		if event.EventID == eventID && event.EventType == eventType {
 			return true

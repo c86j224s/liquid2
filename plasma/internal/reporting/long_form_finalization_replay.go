@@ -1,10 +1,10 @@
 package reporting
 
 import (
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
-func canonicalMatchesBinding(event app.LedgerEvent, payload map[string]any, binding LongFormFinalizeBinding) bool {
+func canonicalMatchesBinding(event ledger.Event, payload map[string]any, binding LongFormFinalizeBinding) bool {
 	return event.Producer == binding.Producer &&
 		payload["pending_event_id"] == binding.PendingEventID && payload["plan_event_id"] == binding.PlanEventID &&
 		payload["artifact_id"] == binding.ArtifactID && payload["title"] == binding.Title &&
@@ -33,8 +33,8 @@ func longFormAssemblyStrategy(composition string) string {
 	return "c4_normalized_section_headings"
 }
 
-func longFormCanonical(events []app.LedgerEvent, pendingID string) (app.LedgerEvent, int) {
-	var found app.LedgerEvent
+func longFormCanonical(events []ledger.Event, pendingID string) (ledger.Event, int) {
+	var found ledger.Event
 	count := 0
 	for _, event := range events {
 		if event.EventType == "report.artifact.created" && eventPayload(event)["pending_event_id"] == pendingID {

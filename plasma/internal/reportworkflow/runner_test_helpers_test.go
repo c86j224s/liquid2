@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"sync"
 	"testing"
 	"time"
@@ -60,7 +62,7 @@ func assertWorkflowCompletion(t *testing.T, service *workflowService, targetCoun
 	t.Helper()
 	var completions []ledger.Event
 	for _, event := range service.events {
-		if event.EventType == reporting.ReportRunCompletedEventType {
+		if event.EventType == reportrun.ReportRunCompletedEventType {
 			completions = append(completions, event)
 		}
 	}
@@ -253,8 +255,8 @@ func (fake *workflowService) GetRawArtifact(_ context.Context, artifactID string
 	return artifact.Raw{}, workflowErr("artifact missing")
 }
 
-func (fake *workflowService) GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error) {
-	return app.EvidenceRecord{}, workflowErr("evidence missing")
+func (fake *workflowService) GetEvidenceRecord(context.Context, string) (researchrecords.EvidenceRecord, error) {
+	return researchrecords.EvidenceRecord{}, workflowErr("evidence missing")
 }
 
 func (fake *workflowService) CreateRawArtifact(_ context.Context, req artifact.CreateRequest) (artifact.Raw, error) {

@@ -8,20 +8,22 @@ import (
 	"strings"
 	"testing"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 type reportILDocumentStore struct {
 	fakeStore
-	events   []LedgerEvent
-	artifact RawArtifact
+	events   []ledger.Event
+	artifact artifactcontract.Raw
 }
 
-func (store reportILDocumentStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
-	return append([]LedgerEvent(nil), store.events...), nil
+func (store reportILDocumentStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
+	return append([]ledger.Event(nil), store.events...), nil
 }
 
-func (store reportILDocumentStore) GetRawArtifact(context.Context, string) (RawArtifact, error) {
+func (store reportILDocumentStore) GetRawArtifact(context.Context, string) (artifactcontract.Raw, error) {
 	return store.artifact, nil
 }
 
@@ -42,17 +44,17 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 	content = append(content, '\n')
 	sum := sha256.Sum256(content)
 	hash := hex.EncodeToString(sum[:])
-	artifact := RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: "art_publication", MissionID: catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType,
-		Producer:  Producer{Type: "mcp_tool", ID: reportilcontract.AuthorDocumentFinalizeTool},
+		Producer:  ledger.Producer{Type: "mcp_tool", ID: reportilcontract.AuthorDocumentFinalizeTool},
 		SHA256:    hash, ByteSize: int64(len(content)), Content: content,
 	}
 	finalize := reportILDocumentFinalizeEvent(
 		"evt_finalize", "ses_publication", "il_reader", artifact,
 		"ilw_publication", 3, 1,
 	)
-	service := NewService(reportILDocumentStore{events: []LedgerEvent{finalize}, artifact: artifact})
+	service := NewService(reportILDocumentStore{events: []ledger.Event{finalize}, artifact: artifact})
 
 	got, receipt, err := service.ReadReportILPublicationDocument(
 		context.Background(), catalog.MissionID, "ses_publication", catalog,
@@ -65,7 +67,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 		t.Fatalf("publication document = %#v / %#v", got, receipt)
 	}
 
-	authorOnly := NewService(reportILDocumentStore{events: []LedgerEvent{finalize}, artifact: artifact})
+	authorOnly := NewService(reportILDocumentStore{events: []ledger.Event{finalize}, artifact: artifact})
 	if _, _, err := authorOnly.ReadReportILAuthorDocument(context.Background(), catalog.MissionID, "ses_publication", catalog); err == nil {
 		t.Fatal("author reader accepted a publication-stage finalize trace")
 	}
@@ -77,7 +79,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 	reusedLongForm.ArtifactID = "art_long_form_final"
 	reusedLongForm.Producer.ID = reportilcontract.LongFormDocumentFinalizeTool
 	reusedLongFormService := NewService(reportILDocumentStore{
-		events: []LedgerEvent{reportILDocumentFinalizeEvent(
+		events: []ledger.Event{reportILDocumentFinalizeEvent(
 			"evt_reader_noop", "ses_reader_noop", "il_reader", reusedLongForm,
 			"ilw_reader_noop", 1, 0,
 		)},
@@ -89,7 +91,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 		t.Fatalf("reused long-form publication document = %#v / %v", receipt, err)
 	}
 	replacedLongFormService := NewService(reportILDocumentStore{
-		events: []LedgerEvent{reportILDocumentFinalizeEvent(
+		events: []ledger.Event{reportILDocumentFinalizeEvent(
 			"evt_reader_replaced", "ses_reader_replaced", "il_reader", reusedLongForm,
 			"ilw_reader_replaced", 2, 1,
 		)},
@@ -105,7 +107,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 		"evt_continuity", "ses_continuity", "il_continuity", artifact,
 		"ilw_continuity", 2, 1,
 	)
-	continuityService := NewService(reportILDocumentStore{events: []LedgerEvent{continuityFinalize}, artifact: artifact})
+	continuityService := NewService(reportILDocumentStore{events: []ledger.Event{continuityFinalize}, artifact: artifact})
 	if _, receipt, err := continuityService.ReadReportILContinuityDocument(context.Background(), catalog.MissionID, "ses_continuity", catalog); err != nil || receipt.Stage != "il_continuity" || receipt.Replacements != 1 {
 		t.Fatalf("continuity document = %#v / %v", receipt, err)
 	}
@@ -113,7 +115,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 		t.Fatal("publication reader accepted a continuity-stage finalize trace")
 	}
 
-	duplicate := NewService(reportILDocumentStore{events: []LedgerEvent{finalize, reportILDocumentFinalizeEvent(
+	duplicate := NewService(reportILDocumentStore{events: []ledger.Event{finalize, reportILDocumentFinalizeEvent(
 		"evt_finalize_2", "ses_publication", "il_reader", artifact, "ilw_publication_2", 3, 0,
 	)}, artifact: artifact})
 	if _, _, err := duplicate.ReadReportILPublicationDocument(context.Background(), catalog.MissionID, "ses_publication", catalog); err == nil {
@@ -123,7 +125,7 @@ func TestReadReportILDocumentBindsStageTraceAndStrictArtifact(t *testing.T) {
 	tampered := artifact
 	tampered.Content = append([]byte(nil), artifact.Content...)
 	tampered.Content[len(tampered.Content)-2] ^= 1
-	tamperedService := NewService(reportILDocumentStore{events: []LedgerEvent{finalize}, artifact: tampered})
+	tamperedService := NewService(reportILDocumentStore{events: []ledger.Event{finalize}, artifact: tampered})
 	if _, _, err := tamperedService.ReadReportILPublicationDocument(context.Background(), catalog.MissionID, "ses_publication", catalog); err == nil || !strings.Contains(err.Error(), "artifact binding is invalid") {
 		t.Fatalf("tampered publication document error = %v", err)
 	}
@@ -133,14 +135,14 @@ func TestReadReportILDocumentRejectsUnknownArtifactFields(t *testing.T) {
 	catalog := reportILSourceVerifierCatalog(t, 5)
 	content := []byte(`{"schema_version":"plasma.report_il.author_document.experimental.v1","title":"Report","language":"en","sections":[],"private":"must-not-persist"}`)
 	sum := sha256.Sum256(content)
-	artifact := RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: "art_author", MissionID: catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType,
-		Producer:  Producer{Type: "mcp_tool", ID: reportilcontract.AuthorDocumentFinalizeTool},
+		Producer:  ledger.Producer{Type: "mcp_tool", ID: reportilcontract.AuthorDocumentFinalizeTool},
 		SHA256:    hex.EncodeToString(sum[:]), ByteSize: int64(len(content)), Content: content,
 	}
 	service := NewService(reportILDocumentStore{
-		events:   []LedgerEvent{reportILDocumentFinalizeEvent("evt_finalize", "ses_author", "il_narrative", artifact, "ilw_author", 1, 0)},
+		events:   []ledger.Event{reportILDocumentFinalizeEvent("evt_finalize", "ses_author", "il_narrative", artifact, "ilw_author", 1, 0)},
 		artifact: artifact,
 	})
 	if _, _, err := service.ReadReportILAuthorDocument(context.Background(), catalog.MissionID, "ses_author", catalog); err == nil || !strings.Contains(err.Error(), "decode failed") {
@@ -148,7 +150,7 @@ func TestReadReportILDocumentRejectsUnknownArtifactFields(t *testing.T) {
 	}
 }
 
-func reportILDocumentFinalizeEvent(eventID, sessionID, stage string, artifact RawArtifact, workspaceID string, revision, replacements int) LedgerEvent {
+func reportILDocumentFinalizeEvent(eventID, sessionID, stage string, artifact artifactcontract.Raw, workspaceID string, revision, replacements int) ledger.Event {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":       reportilcontract.AuthorDocumentFinalizeTool,
 		"tool_session_id": sessionID,
@@ -160,7 +162,7 @@ func reportILDocumentFinalizeEvent(eventID, sessionID, stage string, artifact Ra
 			"replacements": replacements, "finalized": true,
 		},
 	})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: artifact.MissionID, EventType: "mcp.tool.called",
 		CorrelationID: sessionID, Payload: payload,
 	}

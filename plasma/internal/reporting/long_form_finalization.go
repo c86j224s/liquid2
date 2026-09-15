@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // LoadLongFormFinalization는 장문 보고서 최종화 입력 artifact들을 장부에서 복원한다.
@@ -20,7 +22,7 @@ func LoadLongFormFinalization(ctx context.Context, store LongFormFinalizationSto
 		return LongFormFinalizeResult{}, false, nil
 	}
 	if count != 1 {
-		return LongFormFinalizeResult{}, false, fmt.Errorf("%w: multiple canonical long-form finalizations", app.ErrConflict)
+		return LongFormFinalizeResult{}, false, fmt.Errorf("%w: multiple canonical long-form finalizations", producterror.ErrConflict)
 	}
 	result, err := loadLongFormCanonicalResult(ctx, store, binding, event)
 	if err != nil {
@@ -40,7 +42,7 @@ func finalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 		return LongFormFinalizeResult{}, err
 	}
 	if strings.TrimSpace(req.FinalEditPipeline) != "" && (!allowReaderStyleGate || !isSupportedFinalEditPipeline(strings.TrimSpace(req.FinalEditPipeline))) {
-		return LongFormFinalizeResult{}, fmt.Errorf("%w: final edit pipeline can only be set by corrective gate finalization", app.ErrInvalidInput)
+		return LongFormFinalizeResult{}, fmt.Errorf("%w: final edit pipeline can only be set by corrective gate finalization", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, binding.MissionID)
 	if err != nil {
@@ -59,7 +61,7 @@ func finalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 		return LongFormFinalizeResult{}, err
 	}
 	if strings.TrimSpace(markdown) == "" {
-		return LongFormFinalizeResult{}, fmt.Errorf("%w: assembled long-form report is empty", app.ErrInvalidInput)
+		return LongFormFinalizeResult{}, fmt.Errorf("%w: assembled long-form report is empty", producterror.ErrInvalidInput)
 	}
 	actualArtifactID := canonicalArtifactIDForFinalizeRequest(binding, req)
 	if actualArtifactID != binding.ArtifactID {
@@ -72,32 +74,32 @@ func finalizeLongForm(ctx context.Context, store LongFormFinalizationStore, req 
 	if existingArtifact, err := store.GetRawArtifact(ctx, binding.ArtifactID); err == nil {
 		return appendLongFormCanonicalForExistingArtifact(ctx, store, req, binding, existingArtifact, markdown, allowReaderStyleGate)
 	}
-	artifactReq := app.CreateRawArtifactRequest{
+	artifactReq := artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte(markdown),
 	}
-	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []app.LedgerEvent, artifact app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []ledger.Event, artifact artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error) {
 		existing, count := longFormCanonical(events, binding.PendingEventID)
 		if count > 1 {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: multiple canonical long-form finalizations", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: multiple canonical long-form finalizations", producterror.ErrConflict)
 		}
 		if count == 1 {
 			if existing.CorrelationID != binding.IdempotencyKey || !canonicalMatchesBinding(existing, eventPayload(existing), binding) {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: canonical long-form finalization binding differs", app.ErrConflict)
+				return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: canonical long-form finalization binding differs", producterror.ErrConflict)
 			}
 			if err := validateLongFormCanonicalReplayRequest(ctx, store, events, binding, existing, req); err != nil {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+				return ledger.AppendRequest{}, ledger.Event{}, false, err
 			}
-			return app.AppendEventRequest{}, existing, false, nil
+			return ledger.AppendRequest{}, existing, false, nil
 		}
 		if err := validateLongFormLineage(ctx, store, events, binding); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		if err := validateLongFormFinalPipeline(events, binding, allowReaderStyleGate); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
-		return longFormCanonicalRequestForFinalEdit(strings.TrimSpace(req.EventID), binding, artifact, len(strings.Fields(markdown)), req), app.LedgerEvent{}, true, nil
+		return longFormCanonicalRequestForFinalEdit(strings.TrimSpace(req.EventID), binding, artifact, len(strings.Fields(markdown)), req), ledger.Event{}, true, nil
 	})
 	if err != nil {
 		return LongFormFinalizeResult{}, err
@@ -115,7 +117,7 @@ func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalization
 		return "", err
 	}
 	if binding.CompositionStrategy != LongFormCompositionNarrativeEdit {
-		return "", fmt.Errorf("%w: long-form editing draft requires narrative edit strategy", app.ErrInvalidInput)
+		return "", fmt.Errorf("%w: long-form editing draft requires narrative edit strategy", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, binding.MissionID)
 	if err != nil {
@@ -134,15 +136,15 @@ func PrepareLongFormEditingDraft(ctx context.Context, store LongFormFinalization
 func longFormMarkdownForRequest(ctx context.Context, store LongFormFinalizationStore, binding LongFormFinalizeBinding, req LongFormFinalizeRequest) (string, error) {
 	if binding.CompositionStrategy == LongFormCompositionNarrativeEdit {
 		if strings.TrimSpace(req.OpeningMarkdown) != "" || strings.TrimSpace(req.ClosingMarkdown) != "" {
-			return "", fmt.Errorf("%w: narrative edit finalization accepts only manuscript Markdown", app.ErrInvalidInput)
+			return "", fmt.Errorf("%w: narrative edit finalization accepts only manuscript Markdown", producterror.ErrInvalidInput)
 		}
 		if strings.TrimSpace(req.ManuscriptMarkdown) == "" {
-			return "", fmt.Errorf("%w: edited long-form manuscript is empty", app.ErrInvalidInput)
+			return "", fmt.Errorf("%w: edited long-form manuscript is empty", producterror.ErrInvalidInput)
 		}
 		return req.ManuscriptMarkdown, nil
 	}
 	if strings.TrimSpace(req.ManuscriptMarkdown) != "" {
-		return "", fmt.Errorf("%w: preserved long-form finalization cannot accept edited manuscript", app.ErrInvalidInput)
+		return "", fmt.Errorf("%w: preserved long-form finalization cannot accept edited manuscript", producterror.ErrInvalidInput)
 	}
 	parts, err := loadLongFormParts(ctx, store, binding)
 	if err != nil {
@@ -173,16 +175,16 @@ func normalizeLongFormFinalizeBinding(value LongFormFinalizeBinding) LongFormFin
 
 func validateLongFormFinalizeBinding(value LongFormFinalizeBinding) error {
 	if value.MissionID == "" || value.PendingEventID == "" || value.PlanEventID == "" || value.ArtifactID == "" || value.Filename == "" || value.Title == "" || value.ToolSessionID == "" || value.IdempotencyKey == "" || value.ProviderSessionID == "" || value.AgentExecutor == "" || len(value.PartArtifactIDs) == 0 {
-		return fmt.Errorf("%w: long-form finalization binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: long-form finalization binding is incomplete", producterror.ErrInvalidInput)
 	}
 	if value.Producer.Type != "agent_session" || value.Producer.ID != value.ProviderSessionID {
-		return fmt.Errorf("%w: final artifact producer must be the bound provider session", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final artifact producer must be the bound provider session", producterror.ErrInvalidInput)
 	}
 	if duplicateStrings(value.PartArtifactIDs) || duplicateStrings(value.SectionArtifactIDs) {
-		return fmt.Errorf("%w: finalization artifact order contains duplicates", app.ErrConflict)
+		return fmt.Errorf("%w: finalization artifact order contains duplicates", producterror.ErrConflict)
 	}
 	if value.CompositionStrategy != LongFormCompositionPreserveMarkdown && value.CompositionStrategy != LongFormCompositionNarrativeEdit {
-		return fmt.Errorf("%w: unsupported long-form composition strategy", app.ErrInvalidInput)
+		return fmt.Errorf("%w: unsupported long-form composition strategy", producterror.ErrInvalidInput)
 	}
 	return nil
 }

@@ -3,11 +3,14 @@ package reporting
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -237,33 +240,33 @@ func newFinalEditStageStoreV2FixtureAt(t *testing.T, ctx context.Context, path s
 	}
 	svc := app.NewService(store)
 	binding := finalEditStageStoreFinalBinding(humanize)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "final edit"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "final edit"}); err != nil {
 		t.Fatal(err)
 	}
-	part, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	part, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_part", MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "part.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Part 1\n\nPreserved body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Part 1\n\nPreserved body.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "section.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Section 1\n\nPreserved body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Section 1\n\nPreserved body.\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events := []app.AppendEventRequest{
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"report_mode": ModeLongForm})},
-		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{
+	events := []ledger.AppendRequest{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"report_mode": ModeLongForm})},
+		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{
 			"pending_event_id": binding.PendingEventID, "report_mode": ModeLongForm, "artifact_id": binding.ArtifactID,
 			"final_edit_pipeline": FinalEditPipelineAssemblyWriterReaderStyleGateV2, "post_report_humanize": humanize,
 			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"section 1"}}}},
 		})},
-		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
-		{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": "art_section", "part_index": 1, "section_index": 1})},
+		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
+		{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": "art_section", "part_index": 1, "section_index": 1})},
 	}
 	for _, event := range events {
 		if _, err := svc.AppendEvent(ctx, event); err != nil {

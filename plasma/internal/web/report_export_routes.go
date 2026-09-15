@@ -1,5 +1,9 @@
 package web
 
+import uploadsource "github.com/c86j224s/liquid2/plasma/internal/source"
+
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"encoding/json"
@@ -11,6 +15,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 )
 
@@ -38,7 +44,7 @@ func (server *Server) exportReportVersion(w http.ResponseWriter, r *http.Request
 	}
 	target := strings.TrimSpace(req.Target)
 	if target == "" {
-		target = app.ReportExportTargetMarkdown
+		target = reportdocument.ReportExportTargetMarkdown
 	}
 	if !allowedReportExportTarget(target) {
 		writeAppError(w, fmt.Errorf("%w: unsupported report export target", app.ErrInvalidInput))
@@ -56,17 +62,17 @@ func (server *Server) exportReportVersion(w http.ResponseWriter, r *http.Request
 		writeReportExportResponse(w, http.StatusOK, cached)
 		return
 	}
-	approvalEvent, err := server.service.AppendEvent(r.Context(), app.BuildReportPromotionAppendRequest(app.ReportPromotionAppendRequest{
+	approvalEvent, err := server.service.AppendEvent(r.Context(), app.BuildReportPromotionAppendRequest(reportdocument.ReportPromotionAppendRequest{
 		EventID:  newID("evt"),
 		Version:  version,
-		Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 	}))
 	if err != nil {
 		writeAppError(w, err)
 		return
 	}
 	if version.State != "export_candidate" {
-		if _, err := server.service.PromoteReportVersion(r.Context(), app.PromoteReportVersionRequest{
+		if _, err := server.service.PromoteReportVersion(r.Context(), reportdocument.PromoteReportVersionRequest{
 			ReportVersionID: version.ReportVersionID,
 			ApprovalEventID: approvalEvent.EventID,
 		}); err != nil {
@@ -74,14 +80,14 @@ func (server *Server) exportReportVersion(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	result, err := server.service.ExportReportVersion(r.Context(), app.ExportReportVersionRequest{
+	result, err := server.service.ExportReportVersion(r.Context(), reportdocument.ExportReportVersionRequest{
 		ExportID:        newID("exp"),
 		ReportVersionID: version.ReportVersionID,
 		Target:          target,
 		ArtifactID:      newID("art"),
 		EventID:         newID("evt"),
 		ApprovalEventID: approvalEvent.EventID,
-		Producer:        app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:        ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)
@@ -90,10 +96,10 @@ func (server *Server) exportReportVersion(w http.ResponseWriter, r *http.Request
 	writeReportExportResponse(w, http.StatusCreated, result)
 }
 
-func (server *Server) existingReportExport(ctx context.Context, missionID string, versionID string, target string) (app.ReportExportResult, bool, error) {
+func (server *Server) existingReportExport(ctx context.Context, missionID string, versionID string, target string) (reportdocument.ReportExportResult, bool, error) {
 	events, err := server.service.ListEvents(ctx, missionID)
 	if err != nil {
-		return app.ReportExportResult{}, false, err
+		return reportdocument.ReportExportResult{}, false, err
 	}
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -117,14 +123,14 @@ func (server *Server) existingReportExport(ctx context.Context, missionID string
 		}
 		artifact, err := server.service.GetRawArtifact(ctx, artifactID)
 		if err != nil {
-			return app.ReportExportResult{}, false, err
+			return reportdocument.ReportExportResult{}, false, err
 		}
-		return app.ReportExportResult{Artifact: artifact, Event: event}, true, nil
+		return reportdocument.ReportExportResult{Artifact: artifact, Event: event}, true, nil
 	}
-	return app.ReportExportResult{}, false, nil
+	return reportdocument.ReportExportResult{}, false, nil
 }
 
-func writeReportExportResponse(w http.ResponseWriter, status int, result app.ReportExportResult) {
+func writeReportExportResponse(w http.ResponseWriter, status int, result reportdocument.ReportExportResult) {
 	writeJSON(w, status, map[string]any{
 		"artifact": result.Artifact,
 		"event":    result.Event,
@@ -132,7 +138,7 @@ func writeReportExportResponse(w http.ResponseWriter, status int, result app.Rep
 	})
 }
 
-func writeRawArtifactFullPreview(w http.ResponseWriter, artifact app.RawArtifact) {
+func writeRawArtifactFullPreview(w http.ResponseWriter, artifact artifactcontract.Raw) {
 	if !utf8.Valid(artifact.Content) {
 		writeAppError(w, fmt.Errorf("%w: artifact preview is not UTF-8 text", app.ErrInvalidInput))
 		return
@@ -146,9 +152,9 @@ func writeRawArtifactFullPreview(w http.ResponseWriter, artifact app.RawArtifact
 	})
 }
 
-func writeRawArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offset int, maxBytes int) {
-	switch app.UploadedArtifactReadKind(artifact) {
-	case app.UploadedContentKindText:
+func writeRawArtifactRead(w http.ResponseWriter, artifact artifactcontract.Raw, offset int, maxBytes int) {
+	switch uploadsource.UploadedArtifactReadKind(artifact) {
+	case uploadsource.UploadedContentKindText:
 		content, normalizedOffset, nextOffset, truncated, err := boundedUTF8Content(artifact.Content, offset, maxBytes)
 		if err != nil {
 			writeAppError(w, err)
@@ -179,7 +185,7 @@ func writeRawArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offse
 	writeAppError(w, fmt.Errorf("%w: source artifact is not readable text", app.ErrInvalidInput))
 }
 
-func writePDFArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offset int, maxBytes int) {
+func writePDFArtifactRead(w http.ResponseWriter, artifact artifactcontract.Raw, offset int, maxBytes int) {
 	chunk, err := pdfdocument.ExtractChunk(artifact.Content, offset, maxBytes)
 	if err != nil {
 		writeAppError(w, fmt.Errorf("%w: PDF text extraction failed: %v", app.ErrInvalidInput, err))
@@ -204,7 +210,7 @@ func writePDFArtifactRead(w http.ResponseWriter, artifact app.RawArtifact, offse
 	})
 }
 
-func writeRawArtifactDownload(w http.ResponseWriter, artifact app.RawArtifact) {
+func writeRawArtifactDownload(w http.ResponseWriter, artifact artifactcontract.Raw) {
 	mediaType := strings.TrimSpace(artifact.MediaType)
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
@@ -220,7 +226,7 @@ func writeRawArtifactDownload(w http.ResponseWriter, artifact app.RawArtifact) {
 	_, _ = w.Write(artifact.Content)
 }
 
-func writeRawArtifactHTMLPreview(w http.ResponseWriter, artifact app.RawArtifact) {
+func writeRawArtifactHTMLPreview(w http.ResponseWriter, artifact artifactcontract.Raw) {
 	if !isHTMLMediaType(artifact.MediaType) {
 		writeError(w, http.StatusUnsupportedMediaType, "artifact is not previewable as HTML")
 		return
@@ -247,8 +253,8 @@ func isHTMLMediaType(mediaType string) bool {
 	return strings.EqualFold(strings.TrimSpace(base), "text/html")
 }
 
-func rawArtifactMetadata(artifact app.RawArtifact) map[string]any {
-	return app.UploadedArtifactMetadata(artifact)
+func rawArtifactMetadata(artifact artifactcontract.Raw) map[string]any {
+	return uploadsource.UploadedArtifactMetadata(artifact)
 }
 
 type rawArtifactAPIResponse struct {
@@ -259,11 +265,11 @@ type rawArtifactAPIResponse struct {
 	SHA256     string
 	StorageURI string
 	Filename   string
-	Producer   app.Producer
+	Producer   ledger.Producer
 	CreatedAt  time.Time
 }
 
-func rawArtifactResponse(artifact app.RawArtifact) rawArtifactAPIResponse {
+func rawArtifactResponse(artifact artifactcontract.Raw) rawArtifactAPIResponse {
 	return rawArtifactAPIResponse{
 		ArtifactID: artifact.ArtifactID,
 		MissionID:  artifact.MissionID,
@@ -309,7 +315,7 @@ func boundedUTF8Content(content []byte, offset int, maxBytes int) (string, int, 
 
 func allowedReportExportTarget(target string) bool {
 	switch target {
-	case app.ReportExportTargetMarkdown, app.ReportExportTargetJSONAST, app.ReportExportTargetHTML:
+	case reportdocument.ReportExportTargetMarkdown, reportdocument.ReportExportTargetJSONAST, reportdocument.ReportExportTargetHTML:
 		return true
 	default:
 		return false

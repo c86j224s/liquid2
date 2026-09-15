@@ -11,6 +11,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
 )
 
@@ -59,7 +60,7 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 	if agentSessionID == "" {
 		agentSessionID = binding.ProviderSessionID
 	}
-	if _, _, usageErr := reporting.RecordReportAgentUsage(context.WithoutCancel(ctx), runner.Service, reporting.ReportAgentUsageRequest{
+	if _, _, usageErr := reportusage.RecordReportAgentUsage(context.WithoutCancel(ctx), runner.Service, reportusage.ReportAgentUsageRequest{
 		MissionID: input.Base.MissionID, PendingEventID: input.Base.PendingEventID, CanonicalEventID: edited.Event.EventID,
 		ForkSourceAgentSessionID: binding.ForkSourceAgentSessionID, Surface: "report_part_edit",
 		PreviousAgentSessionID: input.PreviousSessionID, AgentSessionID: agentSessionID,

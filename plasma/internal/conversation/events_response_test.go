@@ -5,7 +5,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestBuildTurnAgentResponseAppendRequestPreservesPayloadOptions(t *testing.T) {
@@ -32,7 +32,7 @@ func TestBuildTurnAgentResponseAppendRequestPreservesPayloadOptions(t *testing.T
 		Usage:                  usage,
 		UsageSurface:           "turn",
 		UsagePreviousSessionID: "ses_prev",
-		Producer:               app.Producer{Type: "agent", ID: "codex"},
+		Producer:               ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	payload := appPayload(t, req)
 	if payload["kind"] != "agent_response" ||
@@ -65,7 +65,7 @@ func TestBuildTurnAgentResponseAppendRequestCanOmitMCPModeAndResumed(t *testing.
 		DurationMS:            34,
 		IncludeDuration:       true,
 		UserEventID:           "evt_user",
-		Producer:              app.Producer{Type: "agent", ID: "codex"},
+		Producer:              ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	payload := appPayload(t, req)
 	if _, ok := payload["mcp_mode"]; ok {
@@ -98,7 +98,7 @@ func TestBuildTurnAgentResponseAppendRequestPreservesCanceledPayloadShape(t *tes
 			"workflow_run_id":  "wfr_1",
 			"workflow_step_id": "wfs_1",
 		},
-		Producer: app.Producer{Type: "agent", ID: "codex"},
+		Producer: ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	payload := appPayload(t, req)
 	if payload["kind"] != "agent_canceled" ||
@@ -139,7 +139,7 @@ func TestBuildTurnAgentCompactedAppendRequestPreservesPayloadContract(t *testing
 		ContextUsedTokens:       143000,
 		ContextWindowTokens:     258400,
 		ContextThresholdPercent: 55,
-		Producer:                app.Producer{Type: "agent", ID: "codex"},
+		Producer:                ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	payload := appPayload(t, req)
 	if payload["kind"] != "agent_session_compacted" ||

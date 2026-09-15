@@ -288,6 +288,32 @@ func TestLongFormPromptsBindLanguageConclusionAndFactOwnership(t *testing.T) {
 	}
 }
 
+func TestLongFormArticleContractReusesEveryWritingStage(t *testing.T) {
+	config := ProductConfig{
+		MissionObjective: "복잡한 기능을 작은 결과부터 만드는 방법을 설명한다.",
+		TargetLanguage:   "ko",
+		ArticleContract:  "Audience: 제품 엔지니어\nReader promise: 실행 순서를 적용한다\nTarget length: booklet-length",
+	}
+	catalog := testSourceCatalogWithCount(t, "mis_long_form_article_prompt", 6)
+	plan := reportilcontract.LongFormPlan{Title: "작은 결과부터", Language: "ko"}
+	part := reportilcontract.LongFormPart{Title: "전환", Purpose: "독자의 이해를 전환한다."}
+	section := reportilcontract.LongFormSection{SectionKey: "part_001.section_001", Title: "첫 결과", Purpose: "첫 결과를 설명한다.", Role: reportilcontract.LongFormSectionRoleBody, Representations: []string{}}
+	for name, prompt := range map[string]string{
+		"plan":       longFormPlanPrompt(config, catalog, reportilcontract.EditorialMemory{}, false),
+		"section":    longFormSectionPrompt(config, plan, part, section, reportilcontract.EditorialMemory{}),
+		"part":       longFormPartEditPrompt(config, part),
+		"final":      longFormFinalEditPrompt(config),
+		"reader":     publicationReaderPrompt(config, catalog),
+		"continuity": continuityEditorPrompt(config, catalog),
+	} {
+		for _, expected := range []string{"ARTICLE CONTRACT", "booklet-length", "one continuous reader journey", "not a report"} {
+			if !strings.Contains(prompt, expected) {
+				t.Fatalf("%s prompt missing Article contract %q", name, expected)
+			}
+		}
+	}
+}
+
 func TestPublicationReaderPromptOwnsBrokenNamesAndAdjacentRecaps(t *testing.T) {
 	config := ProductConfig{MissionObjective: "일본 다케다성", TargetLanguage: "ko"}
 	catalog := testSourceCatalogWithCount(t, "mis_long_form_reader_prompt", 6)

@@ -3,8 +3,141 @@ package architecturecheck
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestConversationBoundaryAllowsOnlyAgentExecAndProductPrimitives(t *testing.T) {
+	root := moduleRoot(t)
+	edges, err := scanGoImports(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{
+		moduleImportPath + "/internal/agentcapability": true,
+		moduleImportPath + "/internal/agentexec":       true,
+		moduleImportPath + "/internal/agentusage":      true,
+		moduleImportPath + "/internal/ledger":          true,
+		moduleImportPath + "/internal/producterror":    true,
+	}
+	for _, edge := range edges {
+		if !pathWithin(edge.file, "internal/conversation") || !strings.HasPrefix(edge.importPath, moduleImportPath+"/internal/") {
+			continue
+		}
+		if !allowed[edge.importPath] {
+			t.Fatalf("conversation import %s from %s is outside its canonical allowlist", edge.importPath, edge.file)
+		}
+	}
+}
+
+func TestReportUsageBoundaryRejectsAppReportingTransportAndSQLite(t *testing.T) {
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/app",
+		moduleImportPath + "/internal/reporting",
+		moduleImportPath + "/internal/web",
+		moduleImportPath + "/internal/mcp",
+		moduleImportPath + "/internal/storage/sqlite",
+	} {
+		rule, ok := classifyViolation(importEdge{file: "internal/reportusage/record.go", importPath: importPath})
+		if !ok || rule != "reportusage-boundary" {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want reportusage-boundary", importPath, rule, ok)
+		}
+	}
+}
+
+func TestReportRunBoundaryRejectsAppReportingTransportAndStorage(t *testing.T) {
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/app",
+		moduleImportPath + "/internal/reporting",
+		moduleImportPath + "/internal/web",
+		moduleImportPath + "/internal/mcp",
+		moduleImportPath + "/internal/storage/sqlite",
+	} {
+		for _, file := range []string{"internal/reportrun/completion.go", "internal/reportrun/completion_test.go"} {
+			rule, ok := classifyViolation(importEdge{file: file, importPath: importPath})
+			if !ok || rule != "reportrun-boundary" {
+				t.Fatalf("classifyViolation(%q from %s) = %q, %v; want reportrun-boundary", importPath, file, rule, ok)
+			}
+		}
+	}
+}
+
+func TestReportRunBoundaryAllowsCanonicalCompletionDependencies(t *testing.T) {
+	root := moduleRoot(t)
+	edges, err := scanGoImports(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{
+		moduleImportPath + "/internal/agentusage":       true,
+		moduleImportPath + "/internal/ledger":           true,
+		moduleImportPath + "/internal/mission":          true,
+		moduleImportPath + "/internal/reportusage":      true,
+		moduleImportPath + "/internal/reportilcontract": true,
+	}
+	for _, edge := range edges {
+		if !pathWithin(edge.file, "internal/reportrun") || !strings.HasPrefix(edge.importPath, moduleImportPath+"/internal/") {
+			continue
+		}
+		if !allowed[edge.importPath] {
+			t.Fatalf("reportrun import %s from %s is outside its canonical allowlist", edge.importPath, edge.file)
+		}
+	}
+}
+
+func TestReportUsageBoundaryAllowsOnlyCanonicalInternalImports(t *testing.T) {
+	root := moduleRoot(t)
+	edges, err := scanGoImports(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{
+		moduleImportPath + "/internal/agentusage":   true,
+		moduleImportPath + "/internal/ledger":       true,
+		moduleImportPath + "/internal/producterror": true,
+	}
+	for _, edge := range edges {
+		if !pathWithin(edge.file, "internal/reportusage") || !strings.HasPrefix(edge.importPath, moduleImportPath+"/internal/") {
+			continue
+		}
+		if !allowed[edge.importPath] {
+			t.Fatalf("reportusage import %s from %s is outside its canonical allowlist", edge.importPath, edge.file)
+		}
+	}
+}
+
+func TestConfluenceSourceBoundaryRejectsNonCanonicalImports(t *testing.T) {
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/app",
+		moduleImportPath + "/internal/source/hidden",
+		moduleImportPath + "/internal/connectors/confluence",
+		moduleImportPath + "/internal/web",
+		moduleImportPath + "/internal/mcp",
+	} {
+		rule, ok := classifyViolation(importEdge{file: "internal/source/confluencesource/errors.go", importPath: importPath})
+		if !ok || rule != "confluence-source-boundary" {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want confluence-source-boundary", importPath, rule, ok)
+		}
+	}
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/source",
+		moduleImportPath + "/internal/producterror",
+	} {
+		if rule, ok := classifyViolation(importEdge{file: "internal/source/confluencesource/errors.go", importPath: importPath}); ok || rule != "" {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want allowed", importPath, rule, ok)
+		}
+	}
+}
+
+func TestSourceParentRejectsConfluenceSourceChild(t *testing.T) {
+	rule, ok := classifyViolation(importEdge{
+		file:       "internal/source/models.go",
+		importPath: moduleImportPath + "/internal/source/confluencesource",
+	})
+	if !ok || rule != "source-boundary" {
+		t.Fatalf("classifyViolation(source child) = %q, %v; want source-boundary", rule, ok)
+	}
+}
 
 func TestScanGoImportsReadsProductionFilesOnly(t *testing.T) {
 	root := t.TempDir()
@@ -37,6 +170,66 @@ func TestCompareLinesReportsResolvedAndAddedDebt(t *testing.T) {
 	}
 }
 
+func TestMissionMCPBoundaryRejectsNonRootInboundAndNonCanonicalOutbound(t *testing.T) {
+	for _, file := range []string{"internal/mcp/research/read.go", "cmd/plasma/research.go"} {
+		rule, ok := classifyViolation(importEdge{file: file, importPath: moduleImportPath + "/internal/mcp/mission"})
+		if !ok || rule != "mission-mcp-inbound" {
+			t.Fatalf("classifyViolation(%s) = %q, %v; want mission-mcp-inbound", file, rule, ok)
+		}
+	}
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/app",
+		moduleImportPath + "/internal/mcp",
+		moduleImportPath + "/internal/storage/sqlite",
+		moduleImportPath + "/internal/ledger/hidden",
+	} {
+		rule, ok := classifyViolation(importEdge{file: "internal/mcp/mission/handler.go", importPath: importPath})
+		if !ok || rule != "mission-mcp-boundary" {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want mission-mcp-boundary", importPath, rule, ok)
+		}
+	}
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/mcp/wire",
+		moduleImportPath + "/internal/ledger",
+		moduleImportPath + "/internal/mission",
+		moduleImportPath + "/internal/source",
+		moduleImportPath + "/internal/researchrecords",
+		moduleImportPath + "/internal/producterror",
+		moduleImportPath + "/internal/mcptools",
+	} {
+		if rule, ok := classifyViolation(importEdge{file: "internal/mcp/mission/handler.go", importPath: importPath}); ok || rule != "" {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want allowed", importPath, rule, ok)
+		}
+	}
+}
+
+func TestResearchRecordsBoundaryRejectsInternalChildren(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		rule string
+		want bool
+	}{
+		{name: "exact app", path: moduleImportPath + "/internal/app", rule: "research-records-boundary", want: true},
+		{name: "app child", path: moduleImportPath + "/internal/app/hidden", rule: "research-records-boundary", want: true},
+		{name: "transport", path: moduleImportPath + "/internal/mcp", rule: "research-records-boundary", want: true},
+		{name: "transport child", path: moduleImportPath + "/internal/mcp/research", rule: "research-records-boundary", want: true},
+		{name: "sqlite", path: moduleImportPath + "/internal/storage/sqlite", rule: "research-records-boundary", want: true},
+		{name: "sqlite child", path: moduleImportPath + "/internal/storage/sqlite/researchrepo", rule: "research-records-boundary", want: true},
+		{name: "ledger exact", path: moduleImportPath + "/internal/ledger", want: false},
+		{name: "product error exact", path: moduleImportPath + "/internal/producterror", want: false},
+		{name: "source exact", path: moduleImportPath + "/internal/source", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rule, got := classifyViolation(importEdge{file: "internal/researchrecords/builder.go", importPath: test.path})
+			if got != test.want || (test.want && rule != test.rule) {
+				t.Fatalf("classifyViolation(%q) = (%q, %t), want (%q, %t)", test.path, rule, got, test.rule, test.want)
+			}
+		})
+	}
+}
+
 func TestClassifyViolation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -44,6 +237,29 @@ func TestClassifyViolation(t *testing.T) {
 		rule string
 		want bool
 	}{
+		{
+			name: "article experiment uses product error",
+			edge: importEdge{file: "internal/articleexperiment/run.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "article experiment cannot import product error child",
+			edge: importEdge{file: "internal/articleexperiment/run.go", importPath: moduleImportPath + "/internal/producterror/hidden"},
+			rule: "article-experiment-boundary",
+			want: true,
+		},
+		{
+			name: "article experiment cannot import report policy",
+			edge: importEdge{file: "internal/articleexperiment/run.go", importPath: moduleImportPath + "/internal/reportilphase0"},
+			rule: "article-experiment-boundary",
+			want: true,
+		},
+		{
+			name: "article experiment cannot import adapter",
+			edge: importEdge{file: "internal/articleexperiment/run.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "article-experiment-boundary",
+			want: true,
+		},
 		{
 			name: "app hub",
 			edge: importEdge{file: "internal/reporting/runner.go", importPath: moduleImportPath + "/internal/app"},
@@ -78,6 +294,12 @@ func TestClassifyViolation(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "research mcp cannot import catalog hidden package",
+			edge: importEdge{file: "internal/mcp/research/read.go", importPath: moduleImportPath + "/internal/researchcatalog/hidden"},
+			rule: "research-mcp-boundary",
+			want: true,
+		},
+		{
 			name: "root mcp can import research mcp",
 			edge: importEdge{file: "internal/mcp/server.go", importPath: moduleImportPath + "/internal/mcp/research"},
 			want: false,
@@ -98,6 +320,17 @@ func TestClassifyViolation(t *testing.T) {
 			name: "nested mcp subpackage cannot import research mcp",
 			edge: importEdge{file: "internal/mcp/wire/models.go", importPath: moduleImportPath + "/internal/mcp/research"},
 			rule: "research-mcp-inbound",
+			want: true,
+		},
+		{
+			name: "research mcp can import inspection root",
+			edge: importEdge{file: "internal/mcp/research/read.go", importPath: moduleImportPath + "/internal/researchinspection"},
+			want: false,
+		},
+		{
+			name: "research mcp cannot import inspection child",
+			edge: importEdge{file: "internal/mcp/research/read.go", importPath: moduleImportPath + "/internal/researchinspection/hidden"},
+			rule: "research-mcp-boundary",
 			want: true,
 		},
 		{
@@ -135,6 +368,28 @@ func TestClassifyViolation(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "research mcp can import evidence records",
+			edge: importEdge{file: "internal/mcp/research/read.go", importPath: moduleImportPath + "/internal/researchrecords"},
+			want: false,
+		},
+		{
+			name: "research mcp cannot import evidence records child",
+			edge: importEdge{file: "internal/mcp/research/read.go", importPath: moduleImportPath + "/internal/researchrecords/hidden"},
+			rule: "research-mcp-boundary",
+			want: true,
+		},
+		{
+			name: "mcp wire uses ledger producer contract",
+			edge: importEdge{file: "internal/mcp/wire/mutating.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "mcp wire cannot import ledger implementation children",
+			edge: importEdge{file: "internal/mcp/wire/mutating.go", importPath: moduleImportPath + "/internal/ledger/hidden"},
+			rule: "mcp-wire-boundary",
+			want: true,
+		},
+		{
 			name: "mcp wire uses app object refs",
 			edge: importEdge{file: "internal/mcp/wire/models.go", importPath: moduleImportPath + "/internal/app"},
 			want: false,
@@ -142,6 +397,12 @@ func TestClassifyViolation(t *testing.T) {
 		{
 			name: "mcp wire cannot import app subpackage",
 			edge: importEdge{file: "internal/mcp/wire/models.go", importPath: moduleImportPath + "/internal/app/hidden"},
+			rule: "mcp-wire-boundary",
+			want: true,
+		},
+		{
+			name: "mcp wire cannot import catalog hidden package",
+			edge: importEdge{file: "internal/mcp/wire/models.go", importPath: moduleImportPath + "/internal/researchcatalog/hidden"},
 			rule: "mcp-wire-boundary",
 			want: true,
 		},
@@ -203,6 +464,228 @@ func TestClassifyViolation(t *testing.T) {
 			edge: importEdge{file: "internal/workflow/runner.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
 			rule: "capability-to-adapter",
 			want: true,
+		},
+		{
+			name: "mission cannot import app hub",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "app-hub",
+			want: true,
+		},
+		{
+			name: "mission cannot import web transport",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/web"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "mission cannot import mcp transport",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/mcp"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "mission cannot import sqlite adapter",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "capability-to-adapter",
+			want: true,
+		},
+		{
+			name: "mission can import ledger contract",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "research catalog cannot import app",
+			edge: importEdge{file: "internal/researchcatalog/models.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "research-catalog-boundary",
+			want: true,
+		},
+		{
+			name: "research catalog can import artifact contract",
+			edge: importEdge{file: "internal/researchcatalog/summaries.go", importPath: moduleImportPath + "/internal/artifact"},
+			want: false,
+		},
+		{
+			name: "research catalog can import ledger contract",
+			edge: importEdge{file: "internal/researchcatalog/summaries.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "research catalog can import source contract",
+			edge: importEdge{file: "internal/researchcatalog/summaries.go", importPath: moduleImportPath + "/internal/source"},
+			want: false,
+		},
+		{
+			name: "research catalog cannot import source adapter child",
+			edge: importEdge{file: "internal/researchcatalog/summaries.go", importPath: moduleImportPath + "/internal/source/adapter"},
+			rule: "research-catalog-boundary",
+			want: true,
+		},
+		{
+			name: "research catalog can import product errors",
+			edge: importEdge{file: "internal/researchcatalog/algorithms.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "research proposal can import ledger",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "research proposal can import catalog",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/researchcatalog"},
+			want: false,
+		},
+		{
+			name: "research proposal can import records",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/researchrecords"},
+			want: false,
+		},
+		{
+			name: "research proposal can import product errors",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "research proposal cannot import app",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "research-proposal-boundary",
+			want: true,
+		},
+		{
+			name: "research proposal cannot import transport",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/mcp"},
+			rule: "research-proposal-boundary",
+			want: true,
+		},
+		{
+			name: "research proposal cannot import sql",
+			edge: importEdge{file: "internal/researchproposal/policy.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "research-proposal-boundary",
+			want: true,
+		},
+		{
+			name: "research records can import ledger",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "research records can import product errors",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "research records can import source",
+			edge: importEdge{file: "internal/researchrecords/models.go", importPath: moduleImportPath + "/internal/source"},
+			want: false,
+		},
+		{
+			name: "research records cannot import app",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "research-records-boundary",
+			want: true,
+		},
+		{
+			name: "research records cannot import app child",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/app/hidden"},
+			rule: "research-records-boundary",
+			want: true,
+		},
+		{
+			name: "research records cannot import transport",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/mcp"},
+			rule: "research-records-boundary",
+			want: true,
+		},
+		{
+			name: "research records cannot import sqlite",
+			edge: importEdge{file: "internal/researchrecords/builder.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "research-records-boundary",
+			want: true,
+		},
+		{
+			name: "mission can import product errors",
+			edge: importEdge{file: "internal/mission/change_contracts.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "source creation cannot import app hub",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "app-hub",
+			want: true,
+		},
+		{
+			name: "source creation cannot import web transport",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/web"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "source creation cannot import mcp transport",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/mcp"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "source creation cannot import sqlite adapter",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "capability-to-adapter",
+			want: true,
+		},
+		{
+			name: "source creation cannot import local path adapter",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/sources/localpath"},
+			rule: "capability-to-adapter",
+			want: true,
+		},
+		{
+			name: "source creation can import artifact contract",
+			edge: importEdge{file: "internal/source/creation_builder.go", importPath: moduleImportPath + "/internal/artifact"},
+			want: false,
+		},
+		{
+			name: "source creation can import ledger contract",
+			edge: importEdge{file: "internal/source/creation_contracts.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "source creation can import product errors",
+			edge: importEdge{file: "internal/source/creation_policy.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
+		},
+		{
+			name: "artifact cannot import app hub",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/app"},
+			rule: "app-hub",
+			want: true,
+		},
+		{
+			name: "artifact cannot import web transport",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/web"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "artifact cannot import mcp transport",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/mcp"},
+			rule: "capability-to-transport",
+			want: true,
+		},
+		{
+			name: "artifact cannot import sqlite adapter",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/storage/sqlite"},
+			rule: "capability-to-adapter",
+			want: true,
+		},
+		{
+			name: "artifact can import ledger contract",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/ledger"},
+			want: false,
+		},
+		{
+			name: "artifact can import product errors",
+			edge: importEdge{file: "internal/artifact/build.go", importPath: moduleImportPath + "/internal/producterror"},
+			want: false,
 		},
 		{
 			name: "adapter owns its implementation",

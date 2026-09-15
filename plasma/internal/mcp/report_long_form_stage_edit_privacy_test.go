@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -20,7 +20,7 @@ func TestReportLongFormGateRejectsMissingAndRawFindingsWithoutTraceLeak(t *testi
 	finalBinding.ToolSessionID = "ses_gate"
 	finalBinding.ProviderSessionID = "provider-gate"
 	finalBinding.PreviousProviderSessionID = "provider-reader"
-	finalBinding.Producer = app.Producer{Type: "agent_session", ID: "provider-gate"}
+	finalBinding.Producer = ledger.Producer{Type: "agent_session", ID: "provider-gate"}
 	gate := testFinalEditStageBinding(finalBinding, reporting.FinalEditStageGate, "art_reader_edit", finalBinding.ArtifactID, "ses_gate", "provider-gate", "provider-reader", "provider-plan")
 	server := NewServer(service,
 		WithBinding(stageMCPBinding(gate)),
@@ -210,7 +210,7 @@ func TestReadOnlyValidationStagesRequireCompleteContiguousReadBeforeSubmit(t *te
 	finalBinding.ToolSessionID = "ses_evidence_gate"
 	finalBinding.ProviderSessionID = "provider-evidence-gate"
 	finalBinding.PreviousProviderSessionID = styleValidation.ProviderSessionID
-	finalBinding.Producer = app.Producer{Type: "agent_session", ID: finalBinding.ProviderSessionID}
+	finalBinding.Producer = ledger.Producer{Type: "agent_session", ID: finalBinding.ProviderSessionID}
 	evidenceGate := testFinalEditStageBinding(finalBinding, reporting.FinalEditStageEvidenceGate, evidenceSourceID, finalBinding.ArtifactID, "ses_evidence_gate", "provider-evidence-gate", styleValidation.ProviderSessionID, finalBinding.ReportPlanSessionID)
 	evidenceGate.FinalEditPipeline = reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
 	evidenceServer := NewServer(service,
@@ -251,8 +251,8 @@ func TestReadOnlyValidationStagesRequireCompleteContiguousReadBeforeSubmit(t *te
 	} else {
 		assertReadOnlyValidationContinuation(t, result, "rfe_read_only_evidence", evidenceGate.ToolSessionID, nextEvidenceOffset, "read")
 	}
-	if len(evidenceServer.readOnlyValidationDrafts) != 1 {
-		t.Fatalf("evidence gate created multiple read-only drafts: %#v", evidenceServer.readOnlyValidationDrafts)
+	if len(evidenceServer.reportFinalEditState.ValidationDrafts) != 1 {
+		t.Fatalf("evidence gate created multiple read-only drafts: %#v", evidenceServer.reportFinalEditState.ValidationDrafts)
 	}
 	wrongSessionRead := map[string]any{"mission_id": evidenceGate.MissionID, "session_id": "ses_other_evidence", "draft_id": "rfe_read_only_evidence", "offset": nextEvidenceOffset, "max_bytes": 32}
 	if result := evidenceServer.Call(ctx, ToolCall{Name: ToolReportLongFormEvidenceGateRead, Arguments: mustArgs(t, wrongSessionRead)}); result.Error == nil {
@@ -316,7 +316,7 @@ func TestReadOnlyValidationSubmitRejectsForbiddenKeyPresence(t *testing.T) {
 	finalBinding.ToolSessionID = "ses_evidence_forbidden"
 	finalBinding.ProviderSessionID = "provider-evidence-forbidden"
 	finalBinding.PreviousProviderSessionID = styleValidation.ProviderSessionID
-	finalBinding.Producer = app.Producer{Type: "agent_session", ID: finalBinding.ProviderSessionID}
+	finalBinding.Producer = ledger.Producer{Type: "agent_session", ID: finalBinding.ProviderSessionID}
 	evidenceGate := testFinalEditStageBinding(finalBinding, reporting.FinalEditStageEvidenceGate, styleValidation.SourceArtifactID, finalBinding.ArtifactID, finalBinding.ToolSessionID, finalBinding.ProviderSessionID, styleValidation.ProviderSessionID, finalBinding.ReportPlanSessionID)
 	evidenceGate.FinalEditPipeline = reporting.FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3
 	base := func(binding reporting.FinalEditStageBinding) map[string]any {

@@ -4,7 +4,8 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // HumanizeEventBase는 H5 보정 이벤트들이 공유하는 artifact와 agent 실행 metadata다.
@@ -27,7 +28,7 @@ type HumanizeEventBase struct {
 	Target                 string
 	Profile                string
 	HumanizeTransport      string
-	Producer               app.Producer
+	Producer               ledger.Producer
 }
 
 // HumanizePendingEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -57,7 +58,7 @@ type HumanizeFailedEventRequest struct {
 type HumanizePatchRejectedEventRequest struct {
 	HumanizeEventBase
 	PatchEventID string
-	Artifact     app.RawArtifact
+	Artifact     artifactcontract.Raw
 	Reason       string
 }
 
@@ -65,7 +66,7 @@ type HumanizePatchRejectedEventRequest struct {
 type HumanizedMarkdownExportEventRequest struct {
 	HumanizeEventBase
 	PatchEventID           string
-	Artifact               app.RawArtifact
+	Artifact               artifactcontract.Raw
 	AgentSessionID         string
 	ReturnedAgentSessionID string
 	SourceWordCount        int
@@ -78,14 +79,14 @@ type HumanizedMarkdownExportEventRequest struct {
 }
 
 // BuildHumanizePendingAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildHumanizePendingAppendRequest(req HumanizePendingEventRequest) app.AppendEventRequest {
+func BuildHumanizePendingAppendRequest(req HumanizePendingEventRequest) ledger.AppendRequest {
 	base := req.HumanizeEventBase
 	pendingEventID := strings.TrimSpace(base.EventID)
 	payload := humanizeBasePayload(base, pendingEventID)
 	payload["kind"] = "humanized_markdown_report_pending"
 	payload["text"] = "H5 말투 보정 Markdown artifact를 생성하는 중입니다."
 	payload["relationship"] = "pending_post_report_tone_pass_of_source_artifact"
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.humanize.pending",
@@ -95,14 +96,14 @@ func BuildHumanizePendingAppendRequest(req HumanizePendingEventRequest) app.Appe
 }
 
 // BuildHumanizeSkippedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildHumanizeSkippedAppendRequest(req HumanizeSkippedEventRequest) app.AppendEventRequest {
+func BuildHumanizeSkippedAppendRequest(req HumanizeSkippedEventRequest) ledger.AppendRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	payload["kind"] = "humanized_markdown_report_skipped"
 	payload["duration_ms"] = req.DurationMS
 	payload["text"] = "H5 말투 보정 결과가 원본과 같아 별도 artifact를 만들지 않았습니다."
 	payload["relationship"] = "no_change_post_report_tone_pass_of_source_artifact"
 	payload["preserved_original_markdown"] = true
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.humanize.skipped",
@@ -112,7 +113,7 @@ func BuildHumanizeSkippedAppendRequest(req HumanizeSkippedEventRequest) app.Appe
 }
 
 // BuildHumanizeFailedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) app.AppendEventRequest {
+func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) ledger.AppendRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	kind := strings.TrimSpace(req.Kind)
 	if kind == "" {
@@ -133,7 +134,7 @@ func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) app.Append
 	if failedAt := strings.TrimSpace(req.FailedAt); failedAt != "" {
 		payload["failed_at"] = failedAt
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.humanize.failed",
@@ -143,7 +144,7 @@ func BuildHumanizeFailedAppendRequest(req HumanizeFailedEventRequest) app.Append
 }
 
 // BuildHumanizePatchRejectedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventRequest) app.AppendEventRequest {
+func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventRequest) ledger.AppendRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	payload["kind"] = "markdown_report_patch_rejected"
 	payload["patch_event_id"] = req.PatchEventID
@@ -152,7 +153,7 @@ func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventReque
 	payload["reason"] = req.Reason
 	payload["text"] = "H5 말투 보정 패치 artifact가 검증을 통과하지 못해 기본 연구 조회면에서 제외되었습니다."
 	payload["relationship"] = "rejected_post_report_tone_pass_patch_artifact"
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.patch.rejected",
@@ -162,7 +163,7 @@ func BuildHumanizePatchRejectedAppendRequest(req HumanizePatchRejectedEventReque
 }
 
 // BuildHumanizedMarkdownExportAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildHumanizedMarkdownExportAppendRequest(req HumanizedMarkdownExportEventRequest) app.AppendEventRequest {
+func BuildHumanizedMarkdownExportAppendRequest(req HumanizedMarkdownExportEventRequest) ledger.AppendRequest {
 	payload := humanizeBasePayload(req.HumanizeEventBase, req.PendingEventID)
 	agentSessionID := req.AgentSessionID
 	payload["kind"] = ExportKindHumanizedMarkdown
@@ -187,7 +188,7 @@ func BuildHumanizedMarkdownExportAppendRequest(req HumanizedMarkdownExportEventR
 	if eventUsage, ok := req.AgentUsage.ForEvent("report_humanize_h5", req.DurationMS, req.PreviousAgentSessionID, agentSessionID, req.AgentResumed, false); ok {
 		payload["agent_usage"] = eventUsage
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.artifact.exported",

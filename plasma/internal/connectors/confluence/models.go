@@ -2,18 +2,19 @@ package confluence
 
 import (
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func (client *Client) candidate(
 	item confluenceSearchResult,
 	baseURL string,
-) app.ConfluenceSourceCandidate {
+) confluencesource.ConfluenceSourceCandidate {
 	content := item.Content
 	pageID := strings.TrimSpace(content.ID)
 	space := content.Space
@@ -24,12 +25,12 @@ func (client *Client) candidate(
 	if updatedAt.IsZero() {
 		updatedAt = parseConfluenceTime(item.LastModified)
 	}
-	return app.ConfluenceSourceCandidate{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ConnectorType:    app.ConfluenceConnectorType,
-			ExternalSourceID: app.ConfluenceExternalSourceID(client.cloudID, pageID),
-			ExternalURI:      app.ConfluenceExternalURI(client.cloudID, pageID),
+	return confluencesource.ConfluenceSourceCandidate{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(client.cloudID, pageID),
+			ExternalURI:      confluencesource.ConfluenceExternalURI(client.cloudID, pageID),
 			ExternalVersion:  confluenceExternalVersion(content.Version.Number, content.Version.When),
 			ConnectorVersion: client.connectorVersion,
 		},

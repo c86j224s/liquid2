@@ -1,22 +1,25 @@
 package reporting
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"context"
 	"errors"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestFinalEditStageReplayRejectsArtifactFilenameMismatch(t *testing.T) {
 	ctx := context.Background()
 	binding := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageReader, "art_source", "art_reader")
-	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, app.Producer{Type: "system", ID: "source"}, "source")
+	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, ledger.Producer{Type: "system", ID: "source"}, "source")
 	artifact := finalEditStageReplayArtifact(binding.EditedArtifactID, binding.MissionID, binding.Filename, binding.Producer, "edited")
 
-	for name, mutate := range map[string]func(*app.RawArtifact){
-		"source": func(value *app.RawArtifact) { value.Filename = "wrong-source.md" },
-		"result": func(value *app.RawArtifact) { value.Filename = "wrong-result.md" },
+	for name, mutate := range map[string]func(*artifactcontract.Raw){
+		"source": func(value *artifactcontract.Raw) { value.Filename = "wrong-source.md" },
+		"result": func(value *artifactcontract.Raw) { value.Filename = "wrong-result.md" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			source, artifact := source, artifact
@@ -26,7 +29,7 @@ func TestFinalEditStageReplayRejectsArtifactFilenameMismatch(t *testing.T) {
 				mutate(&artifact)
 			}
 			event := finalEditStageReplaySubmittedEvent(binding, source, artifact, true, nil)
-			_, err := finalEditStageResultFromEvent(ctx, finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{
+			_, err := finalEditStageResultFromEvent(ctx, finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{
 				source.ArtifactID:   source,
 				artifact.ArtifactID: artifact,
 			}}, binding, event, true)
@@ -40,11 +43,11 @@ func TestFinalEditStageReplayRejectsArtifactFilenameMismatch(t *testing.T) {
 func TestFinalEditStageReplayRejectsChangedArtifactWithSameContentAndSHA(t *testing.T) {
 	ctx := context.Background()
 	binding := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageReader, "art_source", "art_reader")
-	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, app.Producer{Type: "system", ID: "source"}, "same")
+	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, ledger.Producer{Type: "system", ID: "source"}, "same")
 	artifact := finalEditStageReplayArtifact(binding.EditedArtifactID, binding.MissionID, binding.Filename, binding.Producer, "same")
 	event := finalEditStageReplaySubmittedEvent(binding, source, artifact, true, nil)
 
-	_, err := finalEditStageResultFromEvent(ctx, finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{
+	_, err := finalEditStageResultFromEvent(ctx, finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{
 		source.ArtifactID:   source,
 		artifact.ArtifactID: artifact,
 	}}, binding, event, true)
@@ -56,7 +59,7 @@ func TestFinalEditStageReplayRejectsChangedArtifactWithSameContentAndSHA(t *test
 func TestFinalEditStageReplayRequiresStoredApprovedEvidence(t *testing.T) {
 	ctx := context.Background()
 	binding := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageGate, "art_source", "art_final")
-	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, app.Producer{Type: "system", ID: "source"}, "source")
+	source := finalEditStageReplayArtifact(binding.SourceArtifactID, binding.MissionID, binding.Filename, ledger.Producer{Type: "system", ID: "source"}, "source")
 	finding := StoredFinalEditGateFinding{
 		StatementSHA256: contentSHA256([]byte("Stored unsupported claim.")),
 		Classification:  FinalEditGateClassUnverifiedExternalFact,
@@ -66,20 +69,20 @@ func TestFinalEditStageReplayRequiresStoredApprovedEvidence(t *testing.T) {
 	event := finalEditStageReplaySubmittedEvent(binding, source, source, false, []StoredFinalEditGateFinding{finding})
 
 	for name, store := range map[string]LongFormFinalizationStore{
-		"missing_validator": finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{source.ArtifactID: source}},
+		"missing_validator": finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source}},
 		"lookup_error": finalEditStageReplayEvidenceStore{
-			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{source.ArtifactID: source}},
+			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source}},
 			err:                           errors.New("lookup failed"),
 		},
 		"foreign_mission": finalEditStageReplayEvidenceStore{
-			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{source.ArtifactID: source}},
-			evidence: map[string]app.EvidenceRecord{
+			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source}},
+			evidence: map[string]researchrecords.EvidenceRecord{
 				"evd_gate": {EvidenceID: "evd_gate", MissionID: "mis_other", State: "approved"},
 			},
 		},
 		"proposed": finalEditStageReplayEvidenceStore{
-			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{source.ArtifactID: source}},
-			evidence: map[string]app.EvidenceRecord{
+			finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source}},
+			evidence: map[string]researchrecords.EvidenceRecord{
 				"evd_gate": {EvidenceID: "evd_gate", MissionID: binding.MissionID, State: "proposed"},
 			},
 		},
@@ -93,8 +96,8 @@ func TestFinalEditStageReplayRequiresStoredApprovedEvidence(t *testing.T) {
 	}
 
 	okStore := finalEditStageReplayEvidenceStore{
-		finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]app.RawArtifact{source.ArtifactID: source}},
-		evidence: map[string]app.EvidenceRecord{
+		finalEditStageReplayBaseStore: finalEditStageReplayBaseStore{artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source}},
+		evidence: map[string]researchrecords.EvidenceRecord{
 			"evd_gate": {EvidenceID: "evd_gate", MissionID: binding.MissionID, State: "approved"},
 		},
 	}
@@ -105,7 +108,7 @@ func TestFinalEditStageReplayRequiresStoredApprovedEvidence(t *testing.T) {
 
 func TestFinalEditStageEventDecodePreservesStoredPipelineOwnership(t *testing.T) {
 	legacy := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageReader, "art_source", "art_reader")
-	legacySource := finalEditStageReplayArtifact(legacy.SourceArtifactID, legacy.MissionID, legacy.Filename, app.Producer{Type: "system", ID: "source"}, "source")
+	legacySource := finalEditStageReplayArtifact(legacy.SourceArtifactID, legacy.MissionID, legacy.Filename, ledger.Producer{Type: "system", ID: "source"}, "source")
 	legacyEvent := finalEditStageReplaySubmittedEvent(legacy, legacySource, legacySource, false, nil)
 	decodedLegacy, ok := finalEditStageBindingFromSubmittedEventForPipeline(legacyEvent, FinalEditPipelineReaderStyleGateV1)
 	if !ok || decodedLegacy.FinalEditPipeline != "" || decodedLegacy.Stage != FinalEditStageReader {
@@ -116,7 +119,7 @@ func TestFinalEditStageEventDecodePreservesStoredPipelineOwnership(t *testing.T)
 	writer.FinalEditPipeline = FinalEditPipelineAssemblyWriterReaderStyleGateV2
 	writer.PreviousProviderSessionID = writer.ReportPlanSessionID
 	writer.ForkSourceAgentSessionID = writer.ReportPlanSessionID
-	writerSource := finalEditStageReplayArtifact(writer.SourceArtifactID, writer.MissionID, writer.Filename, app.Producer{Type: "system", ID: FinalEditAssemblyProducerID}, "assembled")
+	writerSource := finalEditStageReplayArtifact(writer.SourceArtifactID, writer.MissionID, writer.Filename, ledger.Producer{Type: "system", ID: FinalEditAssemblyProducerID}, "assembled")
 	writerArtifact := finalEditStageReplayArtifact(writer.EditedArtifactID, writer.MissionID, writer.Filename, writer.Producer, "written")
 	writerEvent := finalEditStageReplaySubmittedEvent(writer, writerSource, writerArtifact, true, nil)
 	decodedWriter, ok := finalEditStageBindingFromSubmittedEventForPipeline(writerEvent, FinalEditPipelineAssemblyWriterReaderStyleGateV2)
@@ -129,48 +132,48 @@ func TestFinalEditStageEventDecodePreservesStoredPipelineOwnership(t *testing.T)
 }
 
 type finalEditStageReplayBaseStore struct {
-	artifacts map[string]app.RawArtifact
+	artifacts map[string]artifactcontract.Raw
 }
 
-func (s finalEditStageReplayBaseStore) ListEvents(context.Context, string) ([]app.LedgerEvent, error) {
+func (s finalEditStageReplayBaseStore) ListEvents(context.Context, string) ([]ledger.Event, error) {
 	return nil, nil
 }
 
-func (s finalEditStageReplayBaseStore) GetRawArtifact(_ context.Context, artifactID string) (app.RawArtifact, error) {
+func (s finalEditStageReplayBaseStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	artifact, ok := s.artifacts[artifactID]
 	if !ok {
-		return app.RawArtifact{}, errors.New("missing artifact")
+		return artifactcontract.Raw{}, errors.New("missing artifact")
 	}
 	return artifact, nil
 }
 
-func (s finalEditStageReplayBaseStore) AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error) {
-	return app.LedgerEvent{}, false, errors.New("unused")
+func (s finalEditStageReplayBaseStore) AppendEventConditionally(context.Context, string, func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error) {
+	return ledger.Event{}, false, errors.New("unused")
 }
 
-func (s finalEditStageReplayBaseStore) CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error) {
-	return app.RawArtifact{}, app.LedgerEvent{}, false, errors.New("unused")
+func (s finalEditStageReplayBaseStore) CreateRawArtifactWithEventConditionally(context.Context, artifactcontract.CreateRequest, func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error)) (artifactcontract.Raw, ledger.Event, bool, error) {
+	return artifactcontract.Raw{}, ledger.Event{}, false, errors.New("unused")
 }
 
 type finalEditStageReplayEvidenceStore struct {
 	finalEditStageReplayBaseStore
-	evidence map[string]app.EvidenceRecord
+	evidence map[string]researchrecords.EvidenceRecord
 	err      error
 }
 
-func (s finalEditStageReplayEvidenceStore) GetEvidenceRecord(_ context.Context, evidenceID string) (app.EvidenceRecord, error) {
+func (s finalEditStageReplayEvidenceStore) GetEvidenceRecord(_ context.Context, evidenceID string) (researchrecords.EvidenceRecord, error) {
 	if s.err != nil {
-		return app.EvidenceRecord{}, s.err
+		return researchrecords.EvidenceRecord{}, s.err
 	}
 	record, ok := s.evidence[evidenceID]
 	if !ok {
-		return app.EvidenceRecord{}, errors.New("missing evidence")
+		return researchrecords.EvidenceRecord{}, errors.New("missing evidence")
 	}
 	return record, nil
 }
 
-func finalEditStageReplayArtifact(artifactID, missionID, filename string, producer app.Producer, content string) app.RawArtifact {
-	return app.RawArtifact{
+func finalEditStageReplayArtifact(artifactID, missionID, filename string, producer ledger.Producer, content string) artifactcontract.Raw {
+	return artifactcontract.Raw{
 		ArtifactID: artifactID,
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
@@ -181,9 +184,9 @@ func finalEditStageReplayArtifact(artifactID, missionID, filename string, produc
 	}
 }
 
-func finalEditStageReplaySubmittedEvent(binding FinalEditStageBinding, source, artifact app.RawArtifact, changed bool, findings []StoredFinalEditGateFinding) app.LedgerEvent {
+func finalEditStageReplaySubmittedEvent(binding FinalEditStageBinding, source, artifact artifactcontract.Raw, changed bool, findings []StoredFinalEditGateFinding) ledger.Event {
 	request := buildFinalEditSubmittedAppendRequest("evt_stage_replay_submit", binding, source, artifact, 1, changed, findings, FinalEditSemanticAttestation{})
-	return app.LedgerEvent{
+	return ledger.Event{
 		EventID:          request.EventID,
 		MissionID:        request.MissionID,
 		EventType:        request.EventType,

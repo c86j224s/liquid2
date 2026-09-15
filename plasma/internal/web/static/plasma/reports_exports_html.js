@@ -120,34 +120,5 @@ async function exportReportArtifactDesignedHTML(artifactID, options = {}) {
   }
 }
 
-async function exportReportArtifactHumanizedMarkdown(artifactID) {
-  // Deprecated UI boundary: new artifact cards no longer initiate manual H5
-  // exports. Keep this for historical events and direct API compatibility.
-  if (!state.missionId || !artifactID) return;
-  if (state.reportPending) return;
-  const owner = captureMissionSelection();
-  const key = `artifact:${artifactID}`;
-  reports.setReportBusy(true);
-  reports.setReportNotice("H5 말투 보정 Markdown artifact를 생성하는 중입니다. 원본 Markdown 리포트는 그대로 유지됩니다.");
-  if (state.reportPreview && state.reportPreview.key === key) reports.clearReportPreview();
-  try {
-    const result = await missionApi(owner, `/artifacts/${artifactID}/humanized_markdown_export`, {
-      method: "POST",
-      body: { mcp_mode: $("mcpMode")?.value || "auto" }
-    });
-    if (!ownsMissionSelection(owner)) return;
-    reports.setReportNotice(result.pending_event
-      ? reports.reportPendingMessage(result.pending_event)
-      : "H5 말투 보정 Markdown artifact를 생성하는 중입니다.");
-    await reloadMission(owner.missionId);
-  } catch (err) {
-    if (!ownsMissionSelection(owner)) return;
-    reports.setReportNotice(`H5 말투 보정 시작 실패\n\n${err.userMessage || err.message || String(err)}`, "error");
-    reports.setReportBusy(false);
-    showError(err);
-  }
-}
-
-
-  Object.assign(reports, { exportReportArtifactHTML, openReportHTMLPreviewWindow, navigateReportHTMLPreviewWindow, closeReportHTMLPreviewWindow, viewStoredReportHTMLArtifact, exportReportArtifactDesignedHTML, exportReportArtifactHumanizedMarkdown });
+  Object.assign(reports, { exportReportArtifactHTML, openReportHTMLPreviewWindow, navigateReportHTMLPreviewWindow, closeReportHTMLPreviewWindow, viewStoredReportHTMLArtifact, exportReportArtifactDesignedHTML });
 })(window);

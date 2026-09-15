@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 func validateSourcesSnapshotInput(input sourcesSnapshotInput) error {
@@ -18,14 +18,14 @@ func validateSourcesSnapshotInput(input sourcesSnapshotInput) error {
 		return err
 	}
 	if strings.TrimSpace(input.Connector.ExternalSourceID) == "" {
-		return fmt.Errorf("%w: connector external_source_id is required", app.ErrInvalidInput)
+		return fmt.Errorf("%w: connector external_source_id is required", producterror.ErrInvalidInput)
 	}
 	for _, contentRange := range input.Ranges {
 		if strings.TrimSpace(contentRange.ContentID) == "" {
-			return fmt.Errorf("%w: range content_id is required", app.ErrInvalidInput)
+			return fmt.Errorf("%w: range content_id is required", producterror.ErrInvalidInput)
 		}
 		if contentRange.Start < 0 || contentRange.End < 0 || contentRange.End < contentRange.Start {
-			return fmt.Errorf("%w: invalid source range", app.ErrInvalidInput)
+			return fmt.Errorf("%w: invalid source range", producterror.ErrInvalidInput)
 		}
 	}
 	return nil

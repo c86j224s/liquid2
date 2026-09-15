@@ -3,7 +3,7 @@ package web
 import (
 	"context"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -29,7 +29,7 @@ type sectionFanoutLongFormRequest struct {
 type sectionFanoutPlanState struct {
 	artifactID                   string
 	plan                         agentSectionalReportPlan
-	planEvent                    app.LedgerEvent
+	planEvent                    ledger.Event
 	reportPlanSessionID          string
 	agentExecutor                string
 	agentModel                   string
@@ -43,7 +43,7 @@ type sectionFanoutPlanState struct {
 	generationGuidanceProfile    string
 	generationGuidanceSHA256     string
 	requirementMap               reporting.ReportRequirementMap
-	requirementMapEvent          app.LedgerEvent
+	requirementMapEvent          ledger.Event
 	partEditEnabled              bool
 	partPlanningEnabled          bool
 	partPlans                    map[int]sectionFanoutPartPlan
@@ -52,7 +52,7 @@ type sectionFanoutPlanState struct {
 type sectionFanoutPartPlan struct {
 	brief             string
 	providerSessionID string
-	event             app.LedgerEvent
+	event             ledger.Event
 }
 
 func (server *Server) createSectionFanoutLongFormReportDraft(ctx context.Context, missionID string, title string, directionHint string, executorName string, agentModel string, agentReasoningEffort string, agentSelectionSource string, mcpMode string, rigor reportRigorProfile, reportSessionPolicy string, reportSessionPolicySelection string, postReportHumanize string, generationGuidanceProfile string, generationGuidanceSHA256 string, pendingEventID string, executor AgentExecutor) (map[string]any, error) {

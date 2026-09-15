@@ -1,14 +1,18 @@
 package reporting
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -145,7 +149,7 @@ func TestFinalEditCanonicalReplayRejectsGateFindingMismatch(t *testing.T) {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
 	manuscript := "# Report\n\nCorrected final manuscript.\n"
-	finalArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	finalArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte(manuscript),
@@ -334,7 +338,7 @@ func TestFinalEditEvidenceGateReplayRejectsDurableRepairActionAndForeignHash(t *
 
 type finalEditStageStoreReaderResult struct {
 	Binding  FinalEditStageBinding
-	Artifact app.RawArtifact
+	Artifact artifactcontract.Raw
 }
 
 type finalEditStageDuplicateReadGuardStore struct {
@@ -343,7 +347,7 @@ type finalEditStageDuplicateReadGuardStore struct {
 	failAfterEventLists int
 }
 
-func (s *finalEditStageDuplicateReadGuardStore) ListEvents(ctx context.Context, missionID string) ([]app.LedgerEvent, error) {
+func (s *finalEditStageDuplicateReadGuardStore) ListEvents(ctx context.Context, missionID string) ([]ledger.Event, error) {
 	s.eventLists++
 	if s.failAfterEventLists > 0 && s.eventLists > s.failAfterEventLists {
 		return nil, errors.New("unexpected duplicate lineage event read")
@@ -369,33 +373,33 @@ func newFinalEditStageStoreFixtureWithPipeline(t *testing.T, ctx context.Context
 	}
 	svc := app.NewService(store)
 	binding := finalEditStageStoreFinalBinding(humanize)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "final edit"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "final edit"}); err != nil {
 		t.Fatal(err)
 	}
-	part, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	part, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_part", MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "part.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Part 1\n\nPreserved body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Part 1\n\nPreserved body.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "section.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Section 1\n\nPreserved body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Content: []byte("# Section 1\n\nPreserved body.\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events := []app.AppendEventRequest{
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"report_mode": ModeLongForm})},
-		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{
+	events := []ledger.AppendRequest{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"report_mode": ModeLongForm})},
+		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{
 			"pending_event_id": binding.PendingEventID, "report_mode": ModeLongForm, "artifact_id": binding.ArtifactID,
 			"final_edit_pipeline": pipeline, "post_report_humanize": humanize,
 			"plan": map[string]any{"parts": []any{map[string]any{"sections": []any{"section 1"}}}},
 		})},
-		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
-		{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": "art_section", "part_index": 1, "section_index": 1})},
+		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
+		{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: finalEditStageStoreJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": "art_section", "part_index": 1, "section_index": 1})},
 	}
 	for _, event := range events {
 		if _, err := svc.AppendEvent(ctx, event); err != nil {
@@ -416,18 +420,18 @@ func newFinalEditStageStoreFixtureFromExistingDB(t *testing.T, ctx context.Conte
 
 type finalEditApprovedEvidenceStore struct {
 	*app.Service
-	evidence map[string]app.EvidenceRecord
+	evidence map[string]researchrecords.EvidenceRecord
 }
 
 func finalEditApprovedEvidenceStoreForFinalEditTest(svc *app.Service, missionID string, evidenceIDs ...string) finalEditApprovedEvidenceStore {
-	evidence := make(map[string]app.EvidenceRecord, len(evidenceIDs))
+	evidence := make(map[string]researchrecords.EvidenceRecord, len(evidenceIDs))
 	for _, evidenceID := range evidenceIDs {
-		evidence[evidenceID] = app.EvidenceRecord{EvidenceID: evidenceID, MissionID: missionID, State: "approved"}
+		evidence[evidenceID] = researchrecords.EvidenceRecord{EvidenceID: evidenceID, MissionID: missionID, State: "approved"}
 	}
 	return finalEditApprovedEvidenceStore{Service: svc, evidence: evidence}
 }
 
-func (s finalEditApprovedEvidenceStore) GetEvidenceRecord(ctx context.Context, evidenceID string) (app.EvidenceRecord, error) {
+func (s finalEditApprovedEvidenceStore) GetEvidenceRecord(ctx context.Context, evidenceID string) (researchrecords.EvidenceRecord, error) {
 	if record, ok := s.evidence[evidenceID]; ok {
 		return record, nil
 	}
@@ -487,7 +491,7 @@ func finalEditStageStoreFinalBinding(humanize string) LongFormFinalizeBinding {
 		RigorLevel: "standard", RigorLabel: "Standard", ReportSessionPolicy: "same_session", ReportSessionPolicySelection: "default",
 		PostReportHumanize: humanize, GenerationGuidanceProfile: "default", GenerationGuidanceSHA256: "guidance-sha",
 		SessionChainKind: "same_session_report", PreReportResearchSessionID: "provider-research", ReportPlanSessionID: "provider-plan",
-		ForkSourceAgentSessionID: "provider-plan", PlanToolSessionID: "ses_plan", Producer: app.Producer{Type: "agent_session", ID: "provider-corrective-gate"},
+		ForkSourceAgentSessionID: "provider-plan", PlanToolSessionID: "ses_plan", Producer: ledger.Producer{Type: "agent_session", ID: "provider-corrective-gate"},
 	}
 }
 
@@ -507,7 +511,7 @@ func finalEditStageStoreStageBinding(binding LongFormFinalizeBinding, stage stri
 		ReportSessionPolicy: binding.ReportSessionPolicy, ReportSessionPolicySelection: binding.ReportSessionPolicySelection,
 		PostReportHumanize: binding.PostReportHumanize, GenerationGuidanceProfile: binding.GenerationGuidanceProfile, GenerationGuidanceSHA256: binding.GenerationGuidanceSHA256,
 		SessionChainKind: binding.SessionChainKind, PreReportResearchSessionID: binding.PreReportResearchSessionID, ReportPlanSessionID: binding.ReportPlanSessionID,
-		ForkSourceAgentSessionID: binding.ReportPlanSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		ForkSourceAgentSessionID: binding.ReportPlanSessionID, Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 }
 

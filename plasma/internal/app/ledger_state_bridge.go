@@ -1,8 +1,11 @@
 package app
 
-import "github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
+import (
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
+)
 
-func ledgerStateEventsFromApp(events []LedgerEvent) []ledgerstate.Event {
+func ledgerStateEventsFromApp(events []ledger.Event) []ledgerstate.Event {
 	converted := make([]ledgerstate.Event, 0, len(events))
 	for _, event := range events {
 		converted = append(converted, ledgerstate.Event{

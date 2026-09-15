@@ -1,6 +1,15 @@
 package source
 
-import "context"
+import (
+	"context"
+
+	"github.com/c86j224s/liquid2/plasma/internal/artifact"
+)
+
+// ArtifactReader is the narrow source-side read port used while building snapshots.
+type ArtifactReader interface {
+	GetRawArtifact(context.Context, string) (artifact.Raw, error)
+}
 
 // Store is the consumer-side persistence port for source snapshots.
 type Store interface {

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestSubmitFinalEditStyleStageStoresOperationDiagnoses(t *testing.T) {
@@ -86,7 +88,7 @@ func TestFinalEditStyleDiagnosisReplayAllowsHistoricalMissingField(t *testing.T)
 	_, reader, styleBinding := startStyleDiagnosisTestStage(t, ctx, svc, "legacy_missing")
 	source, artifact := styleDiagnosisChangedArtifacts(t, reader.Artifact, styleBinding)
 	request := buildFinalEditSubmittedAppendRequestWithStyleDiagnoses("evt_style_legacy_missing_submit", styleBinding, source, artifact, 1, true, finalEditStyleDiagnosesForTest(1), nil, FinalEditSemanticAttestation{})
-	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+	payload := eventPayload(ledger.Event{Payload: request.Payload})
 	delete(payload, FinalEditStyleOperationDiagnosesField)
 	delete(payload, FinalEditStyleOperationDiagnosesVersionField)
 	request.Payload = finalEditStageStoreJSON(payload)
@@ -105,7 +107,7 @@ func TestFinalEditStyleDiagnosisReplayAllowsLegacyTwoFieldRecords(t *testing.T) 
 	_, reader, styleBinding := startStyleDiagnosisTestStage(t, ctx, svc, "legacy_two_field")
 	source, artifact := styleDiagnosisChangedArtifacts(t, reader.Artifact, styleBinding)
 	request := buildFinalEditSubmittedAppendRequestWithStyleDiagnoses("evt_style_legacy_two_field_submit", styleBinding, source, artifact, 1, true, finalEditStyleDiagnosesForTest(1), nil, FinalEditSemanticAttestation{})
-	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+	payload := eventPayload(ledger.Event{Payload: request.Payload})
 	delete(payload, FinalEditStyleOperationDiagnosesVersionField)
 	payload[FinalEditStyleOperationDiagnosesField] = []any{map[string]any{
 		"operation_ordinal": float64(1),
@@ -133,7 +135,7 @@ func TestFinalEditStyleDiagnosisReplayComparesLegacyRetryByOrdinalAndCategory(t 
 	source, artifact := styleDiagnosisChangedArtifacts(t, reader.Artifact, styleBinding)
 	markdown := string(artifact.Content)
 	request := buildFinalEditSubmittedAppendRequestWithStyleDiagnoses("evt_style_legacy_retry_submit", styleBinding, source, artifact, 1, true, finalEditStyleDiagnosesForTest(1), nil, FinalEditSemanticAttestation{})
-	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+	payload := eventPayload(ledger.Event{Payload: request.Payload})
 	delete(payload, FinalEditStyleOperationDiagnosesVersionField)
 	payload[FinalEditStyleOperationDiagnosesField] = []any{map[string]any{
 		"operation_ordinal": float64(1),
@@ -198,7 +200,7 @@ func TestFinalEditNonStyleDiagnosisFieldConflicts(t *testing.T) {
 				t.Fatal(err)
 			}
 			request := buildFinalEditSubmittedAppendRequest("evt_reader_diagnosis_"+name+"_submit", readerBinding, source, source, 0, false, nil, FinalEditSemanticAttestation{})
-			payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+			payload := eventPayload(ledger.Event{Payload: request.Payload})
 			mutate(payload)
 			request.Payload = finalEditStageStoreJSON(payload)
 			if _, err := svc.AppendEvent(ctx, request); err != nil {
@@ -243,7 +245,7 @@ func TestFinalEditStyleDiagnosisReplayStrictWhenPresent(t *testing.T) {
 			_, reader, styleBinding := startStyleDiagnosisTestStage(t, ctx, svc, "style_strict_"+name)
 			source, artifact := styleDiagnosisChangedArtifacts(t, reader.Artifact, styleBinding)
 			request := buildFinalEditSubmittedAppendRequestWithStyleDiagnoses("evt_style_strict_"+name+"_submit", styleBinding, source, artifact, tc.operationCount, true, tc.diagnoses, nil, FinalEditSemanticAttestation{})
-			payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+			payload := eventPayload(ledger.Event{Payload: request.Payload})
 			tc.mutate(payload)
 			request.Payload = finalEditStageStoreJSON(payload)
 			appendStyleDiagnosisArtifactAndEvent(t, ctx, svc, artifact, request)
@@ -266,20 +268,20 @@ func startStyleDiagnosisTestStage(t *testing.T, ctx context.Context, svc *app.Se
 	return binding, reader, styleBinding
 }
 
-func styleDiagnosisChangedArtifacts(t *testing.T, source app.RawArtifact, styleBinding FinalEditStageBinding) (app.RawArtifact, app.RawArtifact) {
+func styleDiagnosisChangedArtifacts(t *testing.T, source artifactcontract.Raw, styleBinding FinalEditStageBinding) (artifactcontract.Raw, artifactcontract.Raw) {
 	t.Helper()
-	artifact := app.RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: styleBinding.EditedArtifactID, MissionID: styleBinding.MissionID, MediaType: "text/markdown; charset=utf-8",
-		Filename: styleBinding.Filename, Producer: app.Producer{Type: "agent_session", ID: styleBinding.ProviderSessionID},
+		Filename: styleBinding.Filename, Producer: ledger.Producer{Type: "agent_session", ID: styleBinding.ProviderSessionID},
 		Content: []byte(strings.Replace(string(source.Content), "Preserved body.", "Preserved body!", 1)),
 	}
 	artifact.SHA256 = contentSHA256(artifact.Content)
 	return source, artifact
 }
 
-func appendStyleDiagnosisArtifactAndEvent(t *testing.T, ctx context.Context, svc *app.Service, artifact app.RawArtifact, request app.AppendEventRequest) {
+func appendStyleDiagnosisArtifactAndEvent(t *testing.T, ctx context.Context, svc *app.Service, artifact artifactcontract.Raw, request ledger.AppendRequest) {
 	t.Helper()
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: artifact.ArtifactID, MissionID: artifact.MissionID, MediaType: artifact.MediaType,
 		Filename: artifact.Filename, Producer: artifact.Producer, Content: artifact.Content,
 	}); err != nil {

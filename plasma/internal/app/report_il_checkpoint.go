@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
@@ -22,10 +24,10 @@ func (s *Service) AppendReportILCheckpoint(
 	if err := reportilcontract.ValidateProductCheckpoint(checkpoint, missionID); err != nil {
 		return fmt.Errorf("validate report IL checkpoint: %w", err)
 	}
-	_, err := s.AppendEvent(ctx, AppendEventRequest{
+	_, err := s.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: newAppID("evt"), MissionID: missionID,
 		EventType:        reportILCheckpointEventType,
-		Producer:         Producer{Type: "system", ID: "report-il"},
+		Producer:         ledger.Producer{Type: "system", ID: "report-il"},
 		CausationEventID: checkpoint.PendingEventID,
 		CorrelationID:    checkpoint.PendingEventID,
 		Payload: mustMarshalJSON(map[string]any{
@@ -80,11 +82,15 @@ func (s *Service) LoadReportILResumeCheckpoint(
 	if selected == nil {
 		return nil, fmt.Errorf("report IL retry has no durable checkpoint")
 	}
+	resume := &reportilcontract.ResumeCheckpoint{ProductCheckpoint: *selected}
+	if selected.Stage == "il_source_selection" {
+		return resume, nil
+	}
 	memory, err := s.readCheckpointEditorialMemory(ctx, missionID, selected.EditorialMemory, selected.AuthorCatalog)
 	if err != nil {
 		return nil, err
 	}
-	resume := &reportilcontract.ResumeCheckpoint{ProductCheckpoint: *selected, EditorialMemory: memory}
+	resume.EditorialMemory = memory
 	if selected.Stage == "il_long_form_parts" {
 		plan, err := s.readCheckpointLongFormPlan(ctx, missionID, selected.LongFormAuthoring.Plan, selected.AuthorCatalog, memory, selected.LongFormAuthoring.Parts, selected.LongFormAuthoring.Sections)
 		if err != nil {
@@ -117,14 +123,16 @@ func (s *Service) LoadReportILResumeCheckpoint(
 
 func reportILResumeStageOrder(stage string) int {
 	switch stage {
-	case "il_long_form_parts":
+	case "il_source_selection":
 		return 1
-	case "il_long_form_final":
+	case "il_long_form_parts":
 		return 2
-	case "il_reader":
+	case "il_long_form_final":
 		return 3
-	case "il_continuity":
+	case "il_reader":
 		return 4
+	case "il_continuity":
+		return 5
 	default:
 		return 0
 	}
@@ -226,7 +234,7 @@ func (s *Service) readCheckpointAuthorDocument(
 }
 
 func validateCheckpointArtifact(
-	artifact RawArtifact,
+	artifact artifactcontract.Raw,
 	missionID,
 	mediaType,
 	expectedSHA string,

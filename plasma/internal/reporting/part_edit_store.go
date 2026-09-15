@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // LoadPartEdit는 part edit 제출 이벤트와 artifact를 장부에서 복원한다.
@@ -21,14 +23,14 @@ func LoadPartEdit(ctx context.Context, store PartEditStore, binding PartEditBind
 	if err := validatePartEditLineage(events, binding); err != nil {
 		return PartEditResult{}, false, err
 	}
-	var found app.LedgerEvent
+	var found ledger.Event
 	count := 0
 	for _, event := range events {
 		if event.EventType != PartEditedEventType || event.CorrelationID != binding.IdempotencyKey {
 			continue
 		}
 		if !partEditEventMatches(event, binding) {
-			return PartEditResult{}, false, fmt.Errorf("%w: part edit replay binding differs", app.ErrConflict)
+			return PartEditResult{}, false, fmt.Errorf("%w: part edit replay binding differs", producterror.ErrConflict)
 		}
 		found, count = event, count+1
 	}
@@ -36,12 +38,12 @@ func LoadPartEdit(ctx context.Context, store PartEditStore, binding PartEditBind
 		return PartEditResult{}, false, nil
 	}
 	if count != 1 {
-		return PartEditResult{}, false, fmt.Errorf("%w: multiple part edits match binding", app.ErrConflict)
+		return PartEditResult{}, false, fmt.Errorf("%w: multiple part edits match binding", producterror.ErrConflict)
 	}
 	if _, ok, err := canonicalPartEditStartEvent(events, binding); err != nil {
 		return PartEditResult{}, false, err
 	} else if !ok {
-		return PartEditResult{}, false, fmt.Errorf("%w: matching Part edit start is missing", app.ErrConflict)
+		return PartEditResult{}, false, fmt.Errorf("%w: matching Part edit start is missing", producterror.ErrConflict)
 	}
 	if err := validatePartEditRequirementMap(events, binding); err != nil {
 		return PartEditResult{}, false, err
@@ -62,7 +64,7 @@ func FinalizePartEdit(ctx context.Context, store PartEditStore, binding PartEdit
 		return existing, nil
 	}
 	if strings.TrimSpace(markdown) == "" || operationCount < 0 {
-		return PartEditResult{}, fmt.Errorf("%w: edited part Markdown is invalid", app.ErrInvalidInput)
+		return PartEditResult{}, fmt.Errorf("%w: edited part Markdown is invalid", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, binding.MissionID)
 	if err != nil {
@@ -74,7 +76,7 @@ func FinalizePartEdit(ctx context.Context, store PartEditStore, binding PartEdit
 	if _, ok, err := canonicalPartEditStartEvent(events, binding); err != nil {
 		return PartEditResult{}, err
 	} else if !ok {
-		return PartEditResult{}, fmt.Errorf("%w: matching Part edit start is missing", app.ErrConflict)
+		return PartEditResult{}, fmt.Errorf("%w: matching Part edit start is missing", producterror.ErrConflict)
 	}
 	if err := validatePartEditRequirementMap(events, binding); err != nil {
 		return PartEditResult{}, err
@@ -84,53 +86,53 @@ func FinalizePartEdit(ctx context.Context, store PartEditStore, binding PartEdit
 		return PartEditResult{}, err
 	}
 	if source.MissionID != binding.MissionID || source.MediaType != "text/markdown; charset=utf-8" {
-		return PartEditResult{}, fmt.Errorf("%w: source part artifact is foreign or not Markdown", app.ErrConflict)
+		return PartEditResult{}, fmt.Errorf("%w: source part artifact is foreign or not Markdown", producterror.ErrConflict)
 	}
 	if string(source.Content) == markdown {
-		event, created, err := store.AppendEventConditionally(ctx, binding.MissionID, func(events []app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+		event, created, err := store.AppendEventConditionally(ctx, binding.MissionID, func(events []ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error) {
 			if err := validatePartEditLineage(events, binding); err != nil {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+				return ledger.AppendRequest{}, ledger.Event{}, false, err
 			}
 			if _, ok, err := canonicalPartEditStartEvent(events, binding); err != nil {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+				return ledger.AppendRequest{}, ledger.Event{}, false, err
 			} else if !ok {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: matching Part edit start is missing", app.ErrConflict)
+				return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: matching Part edit start is missing", producterror.ErrConflict)
 			}
 			if err := validatePartEditRequirementMap(events, binding); err != nil {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+				return ledger.AppendRequest{}, ledger.Event{}, false, err
 			}
 			if existing, ok, err := canonicalPartEditEvent(events, binding); ok || err != nil {
-				return app.AppendEventRequest{}, existing, false, err
+				return ledger.AppendRequest{}, existing, false, err
 			}
-			return buildPartEditedAppendRequest(eventID, binding, source, source, operationCount, false), app.LedgerEvent{}, true, nil
+			return buildPartEditedAppendRequest(eventID, binding, source, source, operationCount, false), ledger.Event{}, true, nil
 		})
 		if err != nil {
 			return PartEditResult{}, err
 		}
 		return partEditResultFromEvent(ctx, store, binding, event, !created)
 	}
-	producer := app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
-	artifactReq := app.CreateRawArtifactRequest{
+	producer := ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
+	artifactReq := artifactcontract.CreateRequest{
 		ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: producer, Content: []byte(markdown),
 	}
-	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []app.LedgerEvent, artifact app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []ledger.Event, artifact artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error) {
 		if err := validatePartEditLineage(events, binding); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		if _, ok, err := canonicalPartEditStartEvent(events, binding); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		} else if !ok {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: matching Part edit start is missing", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: matching Part edit start is missing", producterror.ErrConflict)
 		}
 		if err := validatePartEditRequirementMap(events, binding); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		if existing, ok, err := canonicalPartEditEvent(events, binding); ok || err != nil {
-			return app.AppendEventRequest{}, existing, false, err
+			return ledger.AppendRequest{}, existing, false, err
 		}
-		return buildPartEditedAppendRequest(eventID, binding, source, artifact, operationCount, true), app.LedgerEvent{}, true, nil
+		return buildPartEditedAppendRequest(eventID, binding, source, artifact, operationCount, true), ledger.Event{}, true, nil
 	})
 	if err != nil {
 		if existing, ok, loadErr := LoadPartEdit(ctx, store, binding); ok && loadErr == nil {

@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
 	"strings"
 )
 
@@ -17,7 +19,7 @@ func (s *Service) ListMissionChanges(ctx context.Context, req ResearchIDEChanges
 	if req.AfterSequence < 0 {
 		return ResearchIDEChanges{}, fmt.Errorf("%w: after sequence must be non-negative", ErrInvalidInput)
 	}
-	limit := clampResearchIDELimit(req.Limit)
+	limit := researchcatalog.ClampLimit(req.Limit)
 	events, err := s.store.ListLedgerEvents(ctx, missionID)
 	if err != nil {
 		return ResearchIDEChanges{}, err
@@ -27,7 +29,7 @@ func (s *Service) ListMissionChanges(ctx context.Context, req ResearchIDEChanges
 		MissionID:         missionID,
 		AfterSequence:     req.AfterSequence,
 		CurrentSequence:   currentSequence,
-		Items:             []ResearchIDEObjectSummary{},
+		Items:             []researchcatalog.ObjectSummary{},
 		NextAfterSequence: currentSequence,
 		Limit:             limit,
 	}
@@ -37,9 +39,9 @@ func (s *Service) ListMissionChanges(ctx context.Context, req ResearchIDEChanges
 		return result, nil
 	}
 
-	changes := make([]ResearchIDEObjectSummary, 0, limit)
+	changes := make([]researchcatalog.ObjectSummary, 0, limit)
 	var lastIncludedSequence int64
-	for _, event := range researchIDEVisibleLedgerEvents(events, false) {
+	for _, event := range researchcatalog.VisibleLedgerEvents(events, false) {
 		if event.Sequence <= req.AfterSequence || !researchIDEMeaningfulChange(event) {
 			continue
 		}
@@ -49,14 +51,14 @@ func (s *Service) ListMissionChanges(ctx context.Context, req ResearchIDEChanges
 			result.Truncated = true
 			return result, nil
 		}
-		changes = append(changes, summarizeLedgerEvent(event))
+		changes = append(changes, researchcatalog.SummarizeLedgerEvent(event))
 		lastIncludedSequence = event.Sequence
 	}
 	result.Items = changes
 	return result, nil
 }
 
-func researchIDELastSequence(events []LedgerEvent) int64 {
+func researchIDELastSequence(events []ledger.Event) int64 {
 	var last int64
 	for _, event := range events {
 		if event.Sequence > last {
@@ -69,7 +71,7 @@ func researchIDELastSequence(events []LedgerEvent) int64 {
 // researchIDEMeaningfulChange excludes execution mechanics that a resumed
 // provider session already knows. All other non-report domain events remain
 // visible so new capabilities enter the feed without another allowlist change.
-func researchIDEMeaningfulChange(event LedgerEvent) bool {
+func researchIDEMeaningfulChange(event ledger.Event) bool {
 	eventType := strings.TrimSpace(event.EventType)
 	if eventType == "turn.user" {
 		return strings.TrimSpace(event.Producer.Type) == "user"

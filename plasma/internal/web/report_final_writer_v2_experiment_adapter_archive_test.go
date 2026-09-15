@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -233,7 +234,7 @@ func finalWriterV2ArchiveRootFromRunPath(reportPath string) string {
 	return root
 }
 
-func finalWriterV2ValidateLedgerLineage(events []app.LedgerEvent, run finalWriterV2ExperimentRun, manifest finalWriterV2FrozenManifest) error {
+func finalWriterV2ValidateLedgerLineage(events []ledger.Event, run finalWriterV2ExperimentRun, manifest finalWriterV2FrozenManifest) error {
 	foundPending, foundPlan := false, false
 	for _, event := range events {
 		switch event.EventID {
@@ -278,7 +279,7 @@ func finalWriterV2ValidateFrozenPartArtifacts(ctx context.Context, svc *app.Serv
 	return nil
 }
 
-func finalWriterV2ValidateFinalArtifact(ctx context.Context, svc *app.Service, events []app.LedgerEvent, run finalWriterV2ExperimentRun, report string) error {
+func finalWriterV2ValidateFinalArtifact(ctx context.Context, svc *app.Service, events []ledger.Event, run finalWriterV2ExperimentRun, report string) error {
 	for _, event := range events {
 		if event.EventType != "report.artifact.created" || finalWriterV2EventString(event, "pending_event_id") != run.PendingEventID {
 			continue
@@ -657,7 +658,7 @@ func finalWriterV2StagePayloadContractOK(trace []map[string]any, arm string) boo
 	return true
 }
 
-func finalWriterV2EventString(event app.LedgerEvent, key string) string {
+func finalWriterV2EventString(event ledger.Event, key string) string {
 	var payload map[string]any
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return ""
@@ -666,7 +667,7 @@ func finalWriterV2EventString(event app.LedgerEvent, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func finalWriterV2EventInt(event app.LedgerEvent, key string) int {
+func finalWriterV2EventInt(event ledger.Event, key string) int {
 	var payload map[string]any
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return 0

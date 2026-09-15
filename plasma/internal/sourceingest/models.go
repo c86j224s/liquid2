@@ -2,81 +2,85 @@ package sourceingest
 
 import (
 	"context"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 // Store는 소스 수집이 필요로 하는 저장소 포트다. 구현체는 artifact,
 // snapshot, event를 하나의 제품 상태 전이로 기록해야 하며, 이 패키지는 SQL
 // 형태나 트랜잭션 세부 구현을 직접 알지 않는다.
 type Store interface {
-	ListSourceSnapshots(context.Context, string) ([]app.SourceSnapshot, error)
-	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
-	GetRawArtifact(context.Context, string) (app.RawArtifact, error)
-	CreateSourceSnapshotWithEvent(context.Context, app.CreateSourceSnapshotWithEventRequest) (app.SourceSnapshotWithEventResult, error)
-	CreateExistingArtifactSourceSnapshotWithEvent(context.Context, app.CreateExistingArtifactSourceSnapshotWithEventRequest) (app.ExistingArtifactSourceSnapshotWithEventResult, error)
-	CreateLiveSourceSnapshotWithEvent(context.Context, app.CreateLiveSourceSnapshotWithEventRequest) (app.LiveSourceSnapshotWithEventResult, error)
-	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
+	ListSourceSnapshots(context.Context, string) ([]sourcecontract.Snapshot, error)
+	ListEvents(context.Context, string) ([]ledger.Event, error)
+	GetRawArtifact(context.Context, string) (artifactcontract.Raw, error)
+	CreateSourceSnapshotWithEvent(context.Context, source.CreateSourceSnapshotWithEventRequest) (source.SourceSnapshotWithEventResult, error)
+	CreateExistingArtifactSourceSnapshotWithEvent(context.Context, source.CreateExistingArtifactSourceSnapshotWithEventRequest) (source.ExistingArtifactSourceSnapshotWithEventResult, error)
+	CreateLiveSourceSnapshotWithEvent(context.Context, source.CreateLiveSourceSnapshotWithEventRequest) (source.LiveSourceSnapshotWithEventResult, error)
+	AppendEvent(context.Context, ledger.AppendRequest) (ledger.Event, error)
 }
 
 // Producer는 소스 수집 이벤트에 기록할 생산자 정보를 app 계층과 같은 형태로 공유한다.
-type Producer = app.Producer
+type Producer = ledger.Producer
 
 // RawArtifact는 수집된 원문 본문과 저장 식별자를 함께 전달하는 artifact 계약이다.
-type RawArtifact = app.RawArtifact
+type RawArtifact = artifactcontract.Raw
 
 // SourceSnapshot는 수집 결과가 승인된 source 상태로 남았음을 나타내는 snapshot 계약이다.
-type SourceSnapshot = app.SourceSnapshot
+type SourceSnapshot = sourcecontract.Snapshot
 
 // LedgerEvent는 artifact와 snapshot 저장을 설명하는 장부 이벤트 계약이다.
-type LedgerEvent = app.LedgerEvent
+type LedgerEvent = ledger.Event
 
 // SourceSnapshotWithEventResult는 새 artifact로 만든 source snapshot과 기록 이벤트를 함께 반환한다.
-type SourceSnapshotWithEventResult = app.SourceSnapshotWithEventResult
+type SourceSnapshotWithEventResult = source.SourceSnapshotWithEventResult
 
 // ExistingArtifactSourceSnapshotWithEventResult는 기존 artifact를 재사용한 snapshot 결과와 이벤트를 반환한다.
-type ExistingArtifactSourceSnapshotWithEventResult = app.ExistingArtifactSourceSnapshotWithEventResult
+type ExistingArtifactSourceSnapshotWithEventResult = source.ExistingArtifactSourceSnapshotWithEventResult
 
 // LiveSourceSnapshotWithEventResult는 원문 artifact 없이 live reference snapshot과 이벤트를 반환한다.
-type LiveSourceSnapshotWithEventResult = app.LiveSourceSnapshotWithEventResult
+type LiveSourceSnapshotWithEventResult = source.LiveSourceSnapshotWithEventResult
 
 // AppendEventRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type AppendEventRequest = app.AppendEventRequest
+type AppendEventRequest = ledger.AppendRequest
 
 // CreateRawArtifactRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type CreateRawArtifactRequest = app.CreateRawArtifactRequest
+type CreateRawArtifactRequest = artifactcontract.CreateRequest
 
 // CreateSourceSnapshotRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type CreateSourceSnapshotRequest = app.CreateSourceSnapshotRequest
+type CreateSourceSnapshotRequest = sourcecontract.CreateRequest
 
 // CreateSourceSnapshotWithEventRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type CreateSourceSnapshotWithEventRequest = app.CreateSourceSnapshotWithEventRequest
+type CreateSourceSnapshotWithEventRequest = source.CreateSourceSnapshotWithEventRequest
 
 // CreateExistingArtifactSourceSnapshotWithEventRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type CreateExistingArtifactSourceSnapshotWithEventRequest = app.CreateExistingArtifactSourceSnapshotWithEventRequest
+type CreateExistingArtifactSourceSnapshotWithEventRequest = source.CreateExistingArtifactSourceSnapshotWithEventRequest
 
 // CreateLiveSourceSnapshotWithEventRequest는 소스 수집 조립 경계에 전달되는 요청 값이다.
-type CreateLiveSourceSnapshotWithEventRequest = app.CreateLiveSourceSnapshotWithEventRequest
+type CreateLiveSourceSnapshotWithEventRequest = source.CreateLiveSourceSnapshotWithEventRequest
 
 // ConnectorRef는 외부 connector와 source를 연결할 때 쓰는 안정 참조다.
-type ConnectorRef = app.ConnectorRef
+type ConnectorRef = sourcecontract.ConnectorRef
 
 // MediaLocator는 미디어 source 안에서 실제 대상 조각을 가리키는 locator 계약이다.
-type MediaLocator = app.MediaLocator
+type MediaLocator = source.MediaLocator
 
 // SourceAccess는 agent가 source 본문을 읽을 수 있는지와 어떤 경로로 읽는지를 나타낸다.
-type SourceAccess = app.SourceAccess
+type SourceAccess = sourcecontract.Access
 
-const SourceLocatorTypeFullDocument = app.SourceLocatorTypeFullDocument
-const SourceLocatorTypePDFDocument = app.SourceLocatorTypePDFDocument
-const SourceLocatorTypeMedia = app.SourceLocatorTypeMedia
-const SourceConnectorTypePDFURL = app.SourceConnectorTypePDFURL
-const SourceConnectorTypeMediaURL = app.SourceConnectorTypeMediaURL
-const MediaKindImage = app.MediaKindImage
-const MediaKindAudio = app.MediaKindAudio
-const MediaKindVideo = app.MediaKindVideo
-const SourceRetrievalPolicyLiveReference = app.SourceRetrievalPolicyLiveReference
+const SourceLocatorTypeFullDocument = sourcecontract.LocatorTypeFullDocument
+const SourceLocatorTypePDFDocument = sourcecontract.LocatorTypePDFDocument
+const SourceLocatorTypeMedia = sourcecontract.LocatorTypeMedia
+const SourceConnectorTypePDFURL = sourcecontract.ConnectorTypePDFURL
+const SourceConnectorTypeMediaURL = sourcecontract.ConnectorTypeMediaURL
+const MediaKindImage = sourcecontract.MediaKindImage
+const MediaKindAudio = sourcecontract.MediaKindAudio
+const MediaKindVideo = sourcecontract.MediaKindVideo
+const SourceRetrievalPolicyLiveReference = sourcecontract.RetrievalPolicyLiveReference
 
 var ErrInvalidInput = app.ErrInvalidInput
 

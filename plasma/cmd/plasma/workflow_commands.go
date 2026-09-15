@@ -12,6 +12,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func runWorkflow(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -108,7 +109,7 @@ func runWorkflowStart(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "agent: %v\n", err)
 		return 2
 	}
-	view, err := svc.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		MissionID:           missionID,
 		RequestedBySurface:  app.WorkflowSurfaceCLI,
 		AgentExecutor:       resolvedAgentName,
@@ -225,7 +226,7 @@ func runWorkflowStop(ctx context.Context, args []string, stdout, stderr io.Write
 		return 1
 	}
 	defer closeStore()
-	view, err := svc.RequestWorkflowStop(ctx, app.RequestWorkflowStopRequest{
+	view, err := svc.RequestWorkflowStop(ctx, workflowstate.RequestWorkflowStopRequest{
 		MissionID:          positionals[0],
 		WorkflowRunID:      positionals[1],
 		RequestedBySurface: app.WorkflowSurfaceCLI,

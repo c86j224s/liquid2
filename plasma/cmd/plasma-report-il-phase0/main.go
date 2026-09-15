@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/c86j224s/liquid2/plasma/internal/reportilpdf"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilphase0"
 )
 
@@ -43,7 +44,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 	result, err := reportilphase0.Run(ctx, reportilphase0.RunConfig{
 		ArchiveRoot: archiveRoot, RepositoryRoot: repoRoot, BundlePath: bundlePath,
-		RunID: runID, ChromePath: chromePath, RequirePDF: requirePDF,
+		RunID: runID, PDFRenderer: reportilpdf.Chrome{ChromePath: chromePath}, RequirePDF: requirePDF,
 	})
 	if result.RunDirectory != "" {
 		fmt.Fprintf(stdout, "run_dir=%s\n", result.RunDirectory)

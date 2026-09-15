@@ -2,29 +2,28 @@ package confluence
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/url"
 	"strconv"
 	"strings"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 // ListConfluenceSpaces는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluenceSpaces(
 	ctx context.Context,
-	req app.ConfluenceSpaceListRequest,
-) (app.ConfluenceSpaceListResult, error) {
+	req confluencesource.ConfluenceSpaceListRequest,
+) (confluencesource.ConfluenceSpaceListResult, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluenceSpaceListResult{}, err
+		return confluencesource.ConfluenceSpaceListResult{}, err
 	}
 	query := browseQuery(req.Limit, req.Cursor)
 	var response confluenceSpacesResponse
 	if err := client.getJSON(ctx, "/api/v2/spaces", query, &response); err != nil {
-		return app.ConfluenceSpaceListResult{}, err
+		return confluencesource.ConfluenceSpaceListResult{}, err
 	}
-	spaces := make([]app.ConfluenceSpaceSummary, 0, len(response.Results))
+	spaces := make([]confluencesource.ConfluenceSpaceSummary, 0, len(response.Results))
 	for _, item := range response.Results {
-		spaces = append(spaces, app.ConfluenceSpaceSummary{
+		spaces = append(spaces, confluencesource.ConfluenceSpaceSummary{
 			CloudID:  client.cloudID,
 			SpaceID:  item.ID,
 			SpaceKey: item.Key,
@@ -34,7 +33,7 @@ func (client *Client) ListConfluenceSpaces(
 			WebURL:   client.absoluteURL(response.Links.Base, item.Links.WebUI),
 		})
 	}
-	return app.ConfluenceSpaceListResult{
+	return confluencesource.ConfluenceSpaceListResult{
 		MissionID:  req.MissionID,
 		CloudID:    client.cloudID,
 		Spaces:     spaces,
@@ -45,16 +44,16 @@ func (client *Client) ListConfluenceSpaces(
 // ListConfluenceSpacePages는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluenceSpacePages(
 	ctx context.Context,
-	req app.ConfluenceSpacePagesRequest,
-) (app.ConfluencePageListResult, error) {
+	req confluencesource.ConfluenceSpacePagesRequest,
+) (confluencesource.ConfluencePageListResult, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluencePageListResult{}, err
+		return confluencesource.ConfluencePageListResult{}, err
 	}
 	spaceID := strings.TrimSpace(req.SpaceID)
 	query := browseQuery(req.Limit, req.Cursor)
 	var response confluencePageListResponse
 	if err := client.getJSON(ctx, "/api/v2/spaces/"+url.PathEscape(spaceID)+"/pages", query, &response); err != nil {
-		return app.ConfluencePageListResult{}, err
+		return confluencesource.ConfluencePageListResult{}, err
 	}
 	return client.pageListResult(req.MissionID, response), nil
 }
@@ -62,16 +61,16 @@ func (client *Client) ListConfluenceSpacePages(
 // ListConfluencePageChildren는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) ListConfluencePageChildren(
 	ctx context.Context,
-	req app.ConfluencePageChildrenRequest,
-) (app.ConfluencePageListResult, error) {
+	req confluencesource.ConfluencePageChildrenRequest,
+) (confluencesource.ConfluencePageListResult, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluencePageListResult{}, err
+		return confluencesource.ConfluencePageListResult{}, err
 	}
 	pageID := strings.TrimSpace(req.PageID)
 	query := browseQuery(req.Limit, req.Cursor)
 	var response confluencePageListResponse
 	if err := client.getJSON(ctx, "/api/v2/pages/"+url.PathEscape(pageID)+"/children", query, &response); err != nil {
-		return app.ConfluencePageListResult{}, err
+		return confluencesource.ConfluencePageListResult{}, err
 	}
 	result := client.pageListResult(req.MissionID, response)
 	for i := range result.Pages {
@@ -93,10 +92,10 @@ func browseQuery(limit int, cursor string) url.Values {
 	return query
 }
 
-func (client *Client) pageListResult(missionID string, response confluencePageListResponse) app.ConfluencePageListResult {
-	pages := make([]app.ConfluencePageSummary, 0, len(response.Results))
+func (client *Client) pageListResult(missionID string, response confluencePageListResponse) confluencesource.ConfluencePageListResult {
+	pages := make([]confluencesource.ConfluencePageSummary, 0, len(response.Results))
 	for _, item := range response.Results {
-		pages = append(pages, app.ConfluencePageSummary{
+		pages = append(pages, confluencesource.ConfluencePageSummary{
 			CloudID:     client.cloudID,
 			PageID:      item.ID,
 			SpaceID:     item.SpaceID,
@@ -108,7 +107,7 @@ func (client *Client) pageListResult(missionID string, response confluencePageLi
 			HasChildren: true,
 		})
 	}
-	return app.ConfluencePageListResult{
+	return confluencesource.ConfluencePageListResult{
 		MissionID:  missionID,
 		CloudID:    client.cloudID,
 		Pages:      pages,

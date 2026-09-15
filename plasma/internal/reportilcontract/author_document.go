@@ -14,7 +14,6 @@ const (
 	AuthorDocumentMediaType             = "application/vnd.plasma.report-il-author+json"
 	MaxAuthorDocumentBytes              = 512 * 1024
 	MaxAuthorSections                   = 16
-	MaxAuthorBlocks                     = 128
 	MinLongFormParts                    = 2
 	MaxLongFormParts                    = 5
 	MinLongFormSections                 = 6
@@ -178,7 +177,6 @@ func validateAuthorDocument(document AuthorDocument, catalog SourceCatalog, comp
 
 	seenSections := map[string]bool{}
 	seenBlocks := map[string]bool{}
-	blockCount := 0
 	sectionCount := 0
 	firstBlock := true
 	validateSection := func(section AuthorSection, wantSectionKey string) error {
@@ -190,7 +188,6 @@ func validateAuthorDocument(document AuthorDocument, catalog SourceCatalog, comp
 		seenSections[section.SectionKey] = true
 		sectionCount++
 		for blockIndex, block := range section.Blocks {
-			blockCount++
 			wantBlockKey := fmt.Sprintf("%s.block_%03d", section.SectionKey, blockIndex+1)
 			if block.BlockKey != wantBlockKey || seenBlocks[block.BlockKey] {
 				return fmt.Errorf("author document block identity is invalid")
@@ -259,9 +256,6 @@ func validateAuthorDocument(document AuthorDocument, catalog SourceCatalog, comp
 		if sectionCount > MaxLongFormSections || longFormProduct && sectionCount < MinLongFormSections {
 			return fmt.Errorf("long-form author document section inventory is invalid")
 		}
-	}
-	if blockCount > MaxAuthorBlocks {
-		return fmt.Errorf("author document block inventory exceeds the ceiling")
 	}
 	encoded, err := json.Marshal(document)
 	if err != nil || len(encoded) > MaxAuthorDocumentBytes {

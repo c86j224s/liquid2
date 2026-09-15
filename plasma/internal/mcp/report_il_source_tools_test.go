@@ -5,15 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportil"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilsource"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
-	"github.com/c86j224s/liquid2/plasma/internal/reportilsource"
 )
 
 func TestReportILSourceBindingOptionFailsClosedWhenBindingIsInvalid(t *testing.T) {
@@ -140,10 +142,10 @@ func TestReportILNarrativeExposesMemoryAndDocumentWorkspaceWithoutRawSources(t *
 		}},
 	}
 	memoryContent := append(mustArgs(t, reportILEditorialMemoryArtifactFixture(memory)), '\n')
-	memoryArtifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	memoryArtifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_editorial_memory", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.EditorialMemoryMediaType, Filename: "report-il-editorial-memory.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: memoryContent,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: memoryContent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +179,7 @@ func TestReportILNarrativeExposesMemoryAndDocumentWorkspaceWithoutRawSources(t *
 	if beforeRead.Error == nil {
 		t.Fatal("document workspace started before complete editorial memory read")
 	}
-	read := server.Call(context.Background(), ToolCall{Name: ToolReportILEditorialMemoryRead, Arguments: mustArgs(t, map[string]any{"offset": 0, "max_bytes": reportILDocumentMaxReadBytes})})
+	read := server.Call(context.Background(), ToolCall{Name: ToolReportILEditorialMemoryRead, Arguments: mustArgs(t, map[string]any{"offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes})})
 	if read.Error != nil || read.Content.(reportILEditorialMemoryReadOutput).Truncated {
 		t.Fatalf("complete editorial memory read = %#v", read)
 	}
@@ -243,7 +245,7 @@ func TestReportILDirectAuthorReadsSourcesAndUsesSourceBoundWorkspace(t *testing.
 			t.Fatalf("append direct source block = %#v", appended)
 		}
 	}
-	if readDoc := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes})}); readDoc.Error != nil {
+	if readDoc := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes})}); readDoc.Error != nil {
 		t.Fatalf("document read = %#v", readDoc)
 	}
 	finalized := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentFinalize, Arguments: mustArgs(t, map[string]any{"workspace_id": workspaceID})})
@@ -333,7 +335,7 @@ func TestReportILNarrativeBatchDoesNotCrossTruncatedUTF8Source(t *testing.T) {
 		[]byte("second source"),
 	}
 	entries := make([]reportilcontract.SourceCatalogEntry, 0, len(sourceContents))
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{}}
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{}}
 	for index, content := range sourceContents {
 		sourceKey := fmt.Sprintf("source_%03d", index+1)
 		snapshotID := fmt.Sprintf("src_utf8_%03d", index+1)
@@ -342,19 +344,19 @@ func TestReportILNarrativeBatchDoesNotCrossTruncatedUTF8Source(t *testing.T) {
 		entries = append(entries, reportilcontract.SourceCatalogEntry{
 			SourceKey: sourceKey, AcceptedOrdinal: index + 1, SnapshotID: snapshotID,
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt(snapshotID, hash),
-			ContentHash:     hash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash:     hash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: artifactID, SHA256: hash, ByteSize: int64(len(content)), MediaType: "text/plain",
 			}},
 			ReadableSHA256: hash, ReadableBytes: len(content), Extraction: "stored_text",
 		})
-		service.sources = append(service.sources, app.SourceSnapshot{
+		service.sources = append(service.sources, sourcecontract.Snapshot{
 			SnapshotID: snapshotID, MissionID: "mis_report_il_utf8", ArtifactIDs: []string{artifactID},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: hash},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-			State:       app.SourceState{State: app.SourceStateActive},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: hash},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+			State:       sourcecontract.State{State: sourcecontract.StateActive},
 		})
-		service.artifacts[artifactID] = app.RawArtifact{
+		service.artifacts[artifactID] = artifactcontract.Raw{
 			ArtifactID: artifactID, MissionID: "mis_report_il_utf8", MediaType: "text/plain",
 			ByteSize: int64(len(content)), SHA256: hash, Content: content,
 		}
@@ -449,7 +451,7 @@ func TestReportILNarrativeBatchDefersSourceWhenResidualCannotFitFirstRune(t *tes
 		[]byte("가 second source"),
 	}
 	entries := make([]reportilcontract.SourceCatalogEntry, 0, len(sourceContents))
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{}}
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{}}
 	for index, content := range sourceContents {
 		sourceKey := fmt.Sprintf("source_%03d", index+1)
 		snapshotID := fmt.Sprintf("src_residual_%03d", index+1)
@@ -458,19 +460,19 @@ func TestReportILNarrativeBatchDefersSourceWhenResidualCannotFitFirstRune(t *tes
 		entries = append(entries, reportilcontract.SourceCatalogEntry{
 			SourceKey: sourceKey, AcceptedOrdinal: index + 1, SnapshotID: snapshotID,
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt(snapshotID, hash),
-			ContentHash:     hash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash:     hash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: artifactID, SHA256: hash, ByteSize: int64(len(content)), MediaType: "text/plain",
 			}},
 			ReadableSHA256: hash, ReadableBytes: len(content), Extraction: "stored_text",
 		})
-		service.sources = append(service.sources, app.SourceSnapshot{
+		service.sources = append(service.sources, sourcecontract.Snapshot{
 			SnapshotID: snapshotID, MissionID: "mis_report_il_residual", ArtifactIDs: []string{artifactID},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: hash},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-			State:       app.SourceState{State: app.SourceStateActive},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: hash},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+			State:       sourcecontract.State{State: sourcecontract.StateActive},
 		})
-		service.artifacts[artifactID] = app.RawArtifact{
+		service.artifacts[artifactID] = artifactcontract.Raw{
 			ArtifactID: artifactID, MissionID: "mis_report_il_residual", MediaType: "text/plain",
 			ByteSize: int64(len(content)), SHA256: hash, Content: content,
 		}
@@ -519,7 +521,7 @@ func TestReportILSourceSelectionBatchesLargeCatalogWithinCallCeiling(t *testing.
 	const sourceCount = 18
 	const sampleBytes = 8 * 1024
 	entries := make([]reportilcontract.SourceCatalogEntry, 0, sourceCount)
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{}}
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{}}
 	for index := 0; index < sourceCount; index++ {
 		key := fmt.Sprintf("source_%03d", index+1)
 		snapshotID := fmt.Sprintf("src_batch_%03d", index+1)
@@ -529,19 +531,19 @@ func TestReportILSourceSelectionBatchesLargeCatalogWithinCallCeiling(t *testing.
 		entries = append(entries, reportilcontract.SourceCatalogEntry{
 			SourceKey: key, AcceptedOrdinal: index + 1, SnapshotID: snapshotID,
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt(snapshotID, hash),
-			ContentHash:     hash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash:     hash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: artifactID, SHA256: hash, ByteSize: int64(len(content)), MediaType: "text/plain",
 			}},
 			ReadableSHA256: hash, ReadableBytes: len(content), Extraction: "stored_text",
 		})
-		service.sources = append(service.sources, app.SourceSnapshot{
+		service.sources = append(service.sources, sourcecontract.Snapshot{
 			SnapshotID: snapshotID, MissionID: "mis_report_il_batch", ArtifactIDs: []string{artifactID},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: hash},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-			State:       app.SourceState{State: app.SourceStateActive},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: hash},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+			State:       sourcecontract.State{State: sourcecontract.StateActive},
 		})
-		service.artifacts[artifactID] = app.RawArtifact{
+		service.artifacts[artifactID] = artifactcontract.Raw{
 			ArtifactID: artifactID, MissionID: "mis_report_il_batch", MediaType: "text/plain",
 			ByteSize: int64(len(content)), SHA256: hash, Content: content,
 		}
@@ -595,8 +597,8 @@ func TestReportILSourceSelectionBatchesLargeCatalogWithinCallCeiling(t *testing.
 			break
 		}
 	}
-	if !reflect.DeepEqual(batchCounts, []int{8, 8, 2}) || server.reportILSourceReadBytes != sourceCount*sampleBytes {
-		t.Fatalf("selection batches=%v bytes=%d", batchCounts, server.reportILSourceReadBytes)
+	if !reflect.DeepEqual(batchCounts, []int{8, 8, 2}) || server.reportILState.Source.ReadBytes != sourceCount*sampleBytes {
+		t.Fatalf("selection batches=%v bytes=%d", batchCounts, server.reportILState.Source.ReadBytes)
 	}
 
 	narrativeBinding := binding
@@ -627,8 +629,8 @@ func TestReportILSourceSelectionBatchesLargeCatalogWithinCallCeiling(t *testing.
 			break
 		}
 	}
-	if narrativeServer.reportILSourceReadBytes != sourceCount*(sampleBytes+1) {
-		t.Fatalf("narrative complete bytes=%d", narrativeServer.reportILSourceReadBytes)
+	if narrativeServer.reportILState.Source.ReadBytes != sourceCount*(sampleBytes+1) {
+		t.Fatalf("narrative complete bytes=%d", narrativeServer.reportILState.Source.ReadBytes)
 	}
 
 	flowBinding := narrativeBinding
@@ -658,8 +660,8 @@ func TestReportILSourceSelectionBatchesLargeCatalogWithinCallCeiling(t *testing.
 			break
 		}
 	}
-	if flowServer.reportILSourceReadBytes != sourceCount*(sampleBytes+1) {
-		t.Fatalf("flow complete bytes=%d", flowServer.reportILSourceReadBytes)
+	if flowServer.reportILState.Source.ReadBytes != sourceCount*(sampleBytes+1) {
+		t.Fatalf("flow complete bytes=%d", flowServer.reportILState.Source.ReadBytes)
 	}
 }
 
@@ -798,8 +800,8 @@ func TestReportILSourceReadRequiresForwardOnlyNonOverlappingContinuation(t *test
 	if result := read(0, 4); result.Error == nil || !strings.Contains(result.Error.Message, "already completely read") {
 		t.Fatalf("source restart after EOF = %#v", result)
 	}
-	if server.reportILSourceReadBytes != len("abcdefghij") {
-		t.Fatalf("failed reads changed source byte budget: %d", server.reportILSourceReadBytes)
+	if server.reportILState.Source.ReadBytes != len("abcdefghij") {
+		t.Fatalf("failed reads changed source byte budget: %d", server.reportILState.Source.ReadBytes)
 	}
 }
 
@@ -815,7 +817,7 @@ func TestReportILSourceReadExtractsPDFAsCanonicalText(t *testing.T) {
 		Sources: []reportilcontract.SourceCatalogEntry{{
 			SourceKey: "source_001", SnapshotID: "src_report_il",
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_report_il", artifactHash),
-			ContentHash:     artifactHash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			ContentHash:     artifactHash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: "art_report_il", SHA256: artifactHash, ByteSize: int64(len(pdf)), MediaType: "application/pdf",
 			}},
@@ -826,13 +828,13 @@ func TestReportILSourceReadExtractsPDFAsCanonicalText(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_report_il", MissionID: "mis_report_il", ArtifactIDs: []string{"art_report_il"},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifactHash},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-			State:       app.SourceState{State: app.SourceStateActive},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifactHash},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+			State:       sourcecontract.State{State: sourcecontract.StateActive},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_report_il": {ArtifactID: "art_report_il", MissionID: "mis_report_il", MediaType: "application/pdf", ByteSize: int64(len(pdf)), SHA256: artifactHash, Content: pdf},
 		},
 	}
@@ -889,8 +891,8 @@ func TestReportILSourceReadSerializesConcurrentAttemptBudget(t *testing.T) {
 			t.Fatalf("unexpected concurrent read error: %#v", result)
 		}
 	}
-	if successes != 1 || server.reportILSourceReadBytes != binding.MaxReadBytes {
-		t.Fatalf("concurrent source budget successes=%d bytes=%d", successes, server.reportILSourceReadBytes)
+	if successes != 1 || server.reportILState.Source.ReadBytes != binding.MaxReadBytes {
+		t.Fatalf("concurrent source budget successes=%d bytes=%d", successes, server.reportILState.Source.ReadBytes)
 	}
 }
 
@@ -910,13 +912,13 @@ func TestReportILSourceReadFailsClosedForWrongOrChangedFrozenSource(t *testing.T
 		mutate func(*fakeMCPService)
 	}{
 		{name: "removed", mutate: func(service *fakeMCPService) {
-			service.sources[0].State = app.SourceState{State: app.SourceStateRemoved, Removed: true}
+			service.sources[0].State = sourcecontract.State{State: sourcecontract.StateRemoved, Removed: true}
 		}},
 		{name: "changed snapshot hash", mutate: func(service *fakeMCPService) {
 			service.sources[0].ContentHash.Value = strings.Repeat("b", 64)
 		}},
 		{name: "changed retrieval policy", mutate: func(service *fakeMCPService) {
-			service.sources[0].Access.RetrievalPolicy = app.SourceRetrievalPolicyLiveReference
+			service.sources[0].Access.RetrievalPolicy = sourcecontract.RetrievalPolicyLiveReference
 		}},
 		{name: "changed artifact bytes and metadata", mutate: func(service *fakeMCPService) {
 			artifact := service.artifacts["art_report_il"]
@@ -961,7 +963,7 @@ func reportILSourceToolFixture(t *testing.T, text string, maxCall, maxRead int) 
 			SnapshotID:      "src_report_il",
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_report_il", hash),
 			ContentHash:     hash,
-			RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: "art_report_il", SHA256: hash, ByteSize: int64(len(content)), MediaType: "text/plain",
 			}},
@@ -974,13 +976,13 @@ func reportILSourceToolFixture(t *testing.T, text string, maxCall, maxRead int) 
 		t.Fatal(err)
 	}
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_report_il", MissionID: "mis_report_il", ArtifactIDs: []string{"art_report_il"},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: hash},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-			State:       app.SourceState{State: app.SourceStateActive},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: hash},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+			State:       sourcecontract.State{State: sourcecontract.StateActive},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_report_il": {ArtifactID: "art_report_il", MissionID: "mis_report_il", MediaType: "text/plain", ByteSize: int64(len(content)), SHA256: hash, Content: content},
 		},
 	}

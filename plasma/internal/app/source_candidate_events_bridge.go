@@ -1,8 +1,12 @@
 package app
 
-import "github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
+import (
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
+	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
+)
 
-func sourceCandidateEventsFromApp(events []LedgerEvent) []sourcecandidateevents.Event {
+func sourceCandidateEventsFromApp(events []ledger.Event) []sourcecandidateevents.Event {
 	converted := make([]sourcecandidateevents.Event, 0, len(events))
 	for _, event := range events {
 		converted = append(converted, sourcecandidateevents.Event{
@@ -16,7 +20,7 @@ func sourceCandidateEventsFromApp(events []LedgerEvent) []sourcecandidateevents.
 	return converted
 }
 
-func sourceCandidateSnapshotsFromApp(snapshots []SourceSnapshot) []sourcecandidateevents.Snapshot {
+func sourceCandidateSnapshotsFromApp(snapshots []sourcecontract.Snapshot) []sourcecandidateevents.Snapshot {
 	converted := make([]sourcecandidateevents.Snapshot, 0, len(snapshots))
 	for _, snapshot := range snapshots {
 		converted = append(converted, sourcecandidateevents.Snapshot{

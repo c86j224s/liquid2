@@ -7,6 +7,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 )
 
 func recordStageUsage(ctx context.Context, store reporting.FinalEditStageStore, input Input, binding reporting.FinalEditStageBinding, stage reporting.FinalEditStageResult, result agentexec.AgentResult, durationMS int64) {
@@ -15,7 +16,7 @@ func recordStageUsage(ctx context.Context, store reporting.FinalEditStageStore, 
 		agentSessionID = binding.ProviderSessionID
 	}
 	surface := "report_" + binding.Stage
-	if _, _, err := reporting.RecordReportAgentUsage(context.WithoutCancel(ctx), store, reporting.ReportAgentUsageRequest{
+	if _, _, err := reportusage.RecordReportAgentUsage(context.WithoutCancel(ctx), store, reportusage.ReportAgentUsageRequest{
 		MissionID: input.MissionID, PendingEventID: input.PendingEventID, CanonicalEventID: stage.Event.EventID,
 		ForkSourceAgentSessionID: binding.ForkSourceAgentSessionID, Surface: surface,
 		PreviousAgentSessionID: binding.ProviderSessionID, AgentSessionID: agentSessionID,

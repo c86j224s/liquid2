@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestEngineRejectsUnsafePaths(t *testing.T) {
@@ -24,7 +26,7 @@ func TestEngineRejectsUnsafePaths(t *testing.T) {
 	}
 	engine := newTestEngine(t, root)
 	for _, rel := range []string{"/etc/passwd", "../safe.txt", `C:\temp\secret.txt`, `\\server\share\secret.txt`, "escape.txt"} {
-		if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: rel}); !errors.Is(err, ErrInvalidInput) {
+		if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: rel}); !errors.Is(err, ErrInvalidInput) {
 			t.Fatalf("expected %q to be rejected, got %v", rel, err)
 		}
 	}
@@ -37,7 +39,7 @@ func TestEngineRejectsSymlinkInsideRoot(t *testing.T) {
 		t.Skipf("symlink unavailable: %v", err)
 	}
 	engine := newTestEngine(t, root)
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "inside.txt"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "inside.txt"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected symlink rejection, got %v", err)
 	}
 }
@@ -49,7 +51,7 @@ func TestEngineRejectsSpecialFiles(t *testing.T) {
 		t.Skipf("mkfifo unavailable: %v", err)
 	}
 	engine := newTestEngine(t, root)
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "pipe"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "pipe"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected FIFO rejection, got %v", err)
 	}
 }
@@ -63,24 +65,24 @@ func TestEngineReadTreeGrepAndDenyPatternsDoNotLeakAbsolutePaths(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(root, "sub", "note.txt"), "needle in subdir")
 	engine := newTestEngine(t, root)
-	read, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "guide.txt", MaxBytes: 8})
+	read, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "guide.txt", MaxBytes: 8})
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
 	if read.Content != "alpha\nne" || !read.Metadata.Truncated || read.Metadata.SHA256 == "" {
 		t.Fatalf("unexpected read result: %#v", read)
 	}
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: ".env"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: ".env"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected deny pattern rejection, got %v", err)
 	}
-	tree, err := engine.Tree(context.Background(), TreeRequest{RootID: "docs", RelativePath: ".", Depth: 2, Limit: 10})
+	tree, err := engine.Tree(context.Background(), sourcecontract.LocalPathTreeRequest{RootID: "docs", RelativePath: ".", Depth: 2, Limit: 10})
 	if err != nil {
 		t.Fatalf("Tree returned error: %v", err)
 	}
 	if !hasDeniedEntry(tree.Entries, ".env") || !hasTreeEntry(tree.Entries, "sub/note.txt") {
 		t.Fatalf("expected denied .env and recursive note entry, got %#v", tree.Entries)
 	}
-	grep, err := engine.Grep(context.Background(), GrepRequest{RootID: "docs", RelativePath: ".", Query: "needle", MaxSnippets: 2})
+	grep, err := engine.Grep(context.Background(), sourcecontract.LocalPathGrepRequest{RootID: "docs", RelativePath: ".", Query: "needle", MaxSnippets: 2})
 	if err != nil {
 		t.Fatalf("Grep returned error: %v", err)
 	}
@@ -99,37 +101,37 @@ func TestEngineSubpathScopesOperationsUnderRelativePath(t *testing.T) {
 	writeFile(t, filepath.Join(root, "docs", ".env"), "SECRET=1")
 	engine := newTestEngine(t, root)
 
-	read, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/note.txt"})
+	read, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/note.txt"})
 	if err != nil {
 		t.Fatalf("ReadFile with subpath returned error: %v", err)
 	}
 	if read.Content != "needle in nested" || read.Metadata.RelativePath != "docs/nested/note.txt" || read.Metadata.Subpath != "nested/note.txt" {
 		t.Fatalf("unexpected subpath read result: %#v", read)
 	}
-	tree, err := engine.Tree(context.Background(), TreeRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested", Depth: 1, Limit: 10})
+	tree, err := engine.Tree(context.Background(), sourcecontract.LocalPathTreeRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested", Depth: 1, Limit: 10})
 	if err != nil {
 		t.Fatalf("Tree with subpath returned error: %v", err)
 	}
 	if tree.Metadata.Subpath != "nested" || len(tree.Entries) != 1 || tree.Entries[0].RelativePath != "docs/nested/note.txt" {
 		t.Fatalf("unexpected subpath tree result: %#v", tree)
 	}
-	grep, err := engine.Grep(context.Background(), GrepRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested", Query: "needle", MaxSnippets: 5})
+	grep, err := engine.Grep(context.Background(), sourcecontract.LocalPathGrepRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested", Query: "needle", MaxSnippets: 5})
 	if err != nil {
 		t.Fatalf("Grep with subpath returned error: %v", err)
 	}
 	if grep.Metadata.Subpath != "nested" || len(grep.Matches) != 1 || grep.Matches[0].RelativePath != "docs/nested/note.txt" {
 		t.Fatalf("unexpected subpath grep result: %#v", grep)
 	}
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "../guide.txt"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "../guide.txt"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected traversal subpath rejection, got %v", err)
 	}
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/../note.txt"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/../note.txt"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected normalized traversal subpath rejection, got %v", err)
 	}
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/.."}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "docs", Subpath: "nested/.."}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected parent self subpath rejection, got %v", err)
 	}
-	if _, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "docs", Subpath: ".env"}); !errors.Is(err, ErrInvalidInput) {
+	if _, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "docs", Subpath: ".env"}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected denied subpath rejection, got %v", err)
 	}
 	assertNoAbsolutePath(t, root, read, tree, grep)
@@ -141,7 +143,7 @@ func TestEngineBinaryReadReturnsMetadataWithoutContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := newTestEngine(t, root)
-	result, err := engine.ReadFile(context.Background(), ReadRequest{RootID: "docs", RelativePath: "data.bin"})
+	result, err := engine.ReadFile(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "data.bin"})
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
@@ -158,7 +160,7 @@ func TestEngineReadPDFTextReturnsExtractedContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	engine := newTestEngine(t, root)
-	result, err := engine.ReadPDFText(context.Background(), ReadRequest{RootID: "docs", RelativePath: "source.pdf", MaxBytes: 20})
+	result, err := engine.ReadPDFText(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "source.pdf", MaxBytes: 20})
 	if err != nil {
 		t.Fatalf("ReadPDFText returned error: %v", err)
 	}
@@ -171,7 +173,7 @@ func TestEngineReadPDFTextReturnsExtractedContent(t *testing.T) {
 	if result.Metadata.TextLengthKnown {
 		t.Fatalf("expected truncated PDF read to mark text length unknown: %#v", result.Metadata)
 	}
-	next, err := engine.ReadPDFText(context.Background(), ReadRequest{RootID: "docs", RelativePath: "source.pdf", Offset: result.Metadata.NextOffset, MaxBytes: 50})
+	next, err := engine.ReadPDFText(context.Background(), sourcecontract.LocalPathReadRequest{RootID: "docs", RelativePath: "source.pdf", Offset: result.Metadata.NextOffset, MaxBytes: 50})
 	if err != nil {
 		t.Fatalf("ReadPDFText continuation returned error: %v", err)
 	}
@@ -218,7 +220,7 @@ func TestEngineTreeCaps(t *testing.T) {
 		writeFile(t, filepath.Join(root, "file"+string(rune('a'+i))+".txt"), "content")
 	}
 	engine := newTestEngine(t, root)
-	tree, err := engine.Tree(context.Background(), TreeRequest{RootID: "docs", RelativePath: ".", Limit: 2})
+	tree, err := engine.Tree(context.Background(), sourcecontract.LocalPathTreeRequest{RootID: "docs", RelativePath: ".", Limit: 2})
 	if err != nil {
 		t.Fatalf("Tree returned error: %v", err)
 	}
@@ -295,7 +297,7 @@ func writeFile(t *testing.T, path string, content string) {
 	}
 }
 
-func hasDeniedEntry(entries []TreeEntry, rel string) bool {
+func hasDeniedEntry(entries []sourcecontract.LocalPathTreeEntry, rel string) bool {
 	for _, entry := range entries {
 		if entry.RelativePath == rel && entry.Denied {
 			return true
@@ -304,7 +306,7 @@ func hasDeniedEntry(entries []TreeEntry, rel string) bool {
 	return false
 }
 
-func hasTreeEntry(entries []TreeEntry, rel string) bool {
+func hasTreeEntry(entries []sourcecontract.LocalPathTreeEntry, rel string) bool {
 	for _, entry := range entries {
 		if entry.RelativePath == rel && !entry.Denied {
 			return true

@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 )
 
 func TestMissionActivityFromEventsProjectsActiveWorkAndLatestOutcome(t *testing.T) {
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		activityEvent(t, "evt_response", 3, "turn.agent.response", map[string]any{"user_event_id": "evt_user"}),
 		activityEvent(t, "evt_report_pending", 4, "report.draft.pending", map[string]any{"title": "Report"}),
 		activityEvent(t, "evt_report_failed", 5, "report.draft.failed", map[string]any{"pending_event_id": "evt_report_pending"}),
@@ -18,25 +21,25 @@ func TestMissionActivityFromEventsProjectsActiveWorkAndLatestOutcome(t *testing.
 	if summary.LastSequence != 6 {
 		t.Fatalf("last sequence = %d, want 6", summary.LastSequence)
 	}
-	if len(summary.ActiveWork.Items) != 1 || summary.ActiveWork.Items[0].Kind != ActiveWorkTurn {
+	if len(summary.ActiveWork.Items) != 1 || summary.ActiveWork.Items[0].Kind != mission.ActiveWorkTurn {
 		t.Fatalf("active work = %#v, want open agent turn", summary.ActiveWork)
 	}
 	if summary.LatestTerminalActivity == nil {
 		t.Fatal("latest activity is missing")
 	}
-	if got := summary.LatestTerminalActivity; got.EventID != "evt_report_failed" || got.Sequence != 5 || got.Kind != ActiveWorkReport || got.Outcome != TerminalActivityFailed {
+	if got := summary.LatestTerminalActivity; got.EventID != "evt_report_failed" || got.Sequence != 5 || got.Kind != mission.ActiveWorkReport || got.Outcome != mission.TerminalActivityFailed {
 		t.Fatalf("latest activity = %#v", got)
 	}
 }
 
 func TestMissionActivityFromEventsRecognizesWorkflowCompletionAndFailure(t *testing.T) {
-	completed := MissionActivityFromEvents([]LedgerEvent{activityEvent(t, "evt_workflow_done", 4, WorkflowRunCompletedEvent, map[string]any{"workflow_run_id": "wfr_1", "mission_id": "mis_1"})})
-	if completed.LatestTerminalActivity == nil || completed.LatestTerminalActivity.Outcome != TerminalActivityCompleted || completed.LatestTerminalActivity.Kind != ActiveWorkWorkflow {
+	completed := MissionActivityFromEvents([]ledger.Event{activityEvent(t, "evt_workflow_done", 4, WorkflowRunCompletedEvent, map[string]any{"workflow_run_id": "wfr_1", "mission_id": "mis_1"})})
+	if completed.LatestTerminalActivity == nil || completed.LatestTerminalActivity.Outcome != mission.TerminalActivityCompleted || completed.LatestTerminalActivity.Kind != mission.ActiveWorkWorkflow {
 		t.Fatalf("completed workflow activity = %#v", completed.LatestTerminalActivity)
 	}
 
-	failed := MissionActivityFromEvents([]LedgerEvent{activityEvent(t, "evt_workflow_failed", 5, WorkflowRunFailedEvent, map[string]any{"workflow_run_id": "wfr_1", "mission_id": "mis_1"})})
-	if failed.LatestTerminalActivity == nil || failed.LatestTerminalActivity.Outcome != TerminalActivityFailed {
+	failed := MissionActivityFromEvents([]ledger.Event{activityEvent(t, "evt_workflow_failed", 5, WorkflowRunFailedEvent, map[string]any{"workflow_run_id": "wfr_1", "mission_id": "mis_1"})})
+	if failed.LatestTerminalActivity == nil || failed.LatestTerminalActivity.Outcome != mission.TerminalActivityFailed {
 		t.Fatalf("failed workflow activity = %#v", failed.LatestTerminalActivity)
 	}
 }
@@ -46,21 +49,21 @@ func TestTerminalActivityFromEventClassifiesAllCurrentTerminalOutcomes(t *testin
 		name      string
 		eventType string
 		payload   map[string]any
-		kind      TerminalActivityKind
-		outcome   TerminalActivityOutcome
+		kind      mission.TerminalActivityKind
+		outcome   mission.TerminalActivityOutcome
 	}{
-		{name: "agent response", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_response"}, kind: TerminalActivityTurn, outcome: TerminalActivityCompleted},
-		{name: "agent error", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_error"}, kind: TerminalActivityTurn, outcome: TerminalActivityFailed},
-		{name: "agent canceled", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_canceled"}, kind: TerminalActivityTurn, outcome: TerminalActivityCanceled},
-		{name: "unavailable agent", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "placeholder"}, kind: TerminalActivityTurn, outcome: TerminalActivityFailed},
-		{name: "legacy response", eventType: turnAgentResponseEvent, payload: map[string]any{}, kind: TerminalActivityTurn, outcome: TerminalActivityCompleted},
-		{name: "report complete", eventType: "report.artifact.exported", payload: map[string]any{}, kind: TerminalActivityReport, outcome: TerminalActivityCompleted},
-		{name: "report failed", eventType: "report.patch.failed", payload: map[string]any{}, kind: TerminalActivityReport, outcome: TerminalActivityFailed},
-		{name: "workflow complete", eventType: WorkflowRunCompletedEvent, payload: map[string]any{}, kind: TerminalActivityWorkflow, outcome: TerminalActivityCompleted},
-		{name: "workflow paused", eventType: WorkflowRunPausedEvent, payload: map[string]any{}, kind: TerminalActivityWorkflow, outcome: TerminalActivityPaused},
-		{name: "workflow stopped", eventType: WorkflowRunStoppedEvent, payload: map[string]any{}, kind: TerminalActivityWorkflow, outcome: TerminalActivityStopped},
-		{name: "workflow failed", eventType: WorkflowRunFailedEvent, payload: map[string]any{}, kind: TerminalActivityWorkflow, outcome: TerminalActivityFailed},
-		{name: "workflow interrupted", eventType: WorkflowRunInterruptedEvent, payload: map[string]any{}, kind: TerminalActivityWorkflow, outcome: TerminalActivityFailed},
+		{name: "agent response", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_response"}, kind: mission.TerminalActivityTurn, outcome: mission.TerminalActivityCompleted},
+		{name: "agent error", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_error"}, kind: mission.TerminalActivityTurn, outcome: mission.TerminalActivityFailed},
+		{name: "agent canceled", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "agent_canceled"}, kind: mission.TerminalActivityTurn, outcome: mission.TerminalActivityCanceled},
+		{name: "unavailable agent", eventType: turnAgentResponseEvent, payload: map[string]any{"kind": "placeholder"}, kind: mission.TerminalActivityTurn, outcome: mission.TerminalActivityFailed},
+		{name: "legacy response", eventType: turnAgentResponseEvent, payload: map[string]any{}, kind: mission.TerminalActivityTurn, outcome: mission.TerminalActivityCompleted},
+		{name: "report complete", eventType: "report.artifact.exported", payload: map[string]any{}, kind: mission.TerminalActivityReport, outcome: mission.TerminalActivityCompleted},
+		{name: "report failed", eventType: "report.patch.failed", payload: map[string]any{}, kind: mission.TerminalActivityReport, outcome: mission.TerminalActivityFailed},
+		{name: "workflow complete", eventType: WorkflowRunCompletedEvent, payload: map[string]any{}, kind: mission.TerminalActivityWorkflow, outcome: mission.TerminalActivityCompleted},
+		{name: "workflow paused", eventType: WorkflowRunPausedEvent, payload: map[string]any{}, kind: mission.TerminalActivityWorkflow, outcome: mission.TerminalActivityPaused},
+		{name: "workflow stopped", eventType: WorkflowRunStoppedEvent, payload: map[string]any{}, kind: mission.TerminalActivityWorkflow, outcome: mission.TerminalActivityStopped},
+		{name: "workflow failed", eventType: WorkflowRunFailedEvent, payload: map[string]any{}, kind: mission.TerminalActivityWorkflow, outcome: mission.TerminalActivityFailed},
+		{name: "workflow interrupted", eventType: WorkflowRunInterruptedEvent, payload: map[string]any{}, kind: mission.TerminalActivityWorkflow, outcome: mission.TerminalActivityFailed},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -81,11 +84,11 @@ func TestTerminalActivityFromEventClassifiesAllCurrentTerminalOutcomes(t *testin
 
 func TestListMissionsUsesBulkActivityInputsWhenSupported(t *testing.T) {
 	store := &missionActivityListStore{
-		missions: []Mission{{MissionID: "mis_1", Title: "Mission"}},
-		inputs: []MissionActivityInput{{
+		missions: []mission.Mission{{MissionID: "mis_1", Title: "Mission"}},
+		inputs: []mission.ActivityInput{{
 			MissionID:    "mis_1",
 			LastSequence: 9,
-			Events: []LedgerEvent{
+			Events: []ledger.Event{
 				activityEvent(t, "evt_response", 4, turnAgentResponseEvent, map[string]any{"kind": "agent_response"}),
 			},
 		}},
@@ -100,7 +103,7 @@ func TestListMissionsUsesBulkActivityInputsWhenSupported(t *testing.T) {
 	if len(store.lastRequestedMissionIDs) != 1 || store.lastRequestedMissionIDs[0] != "mis_1" {
 		t.Fatalf("bulk activity request must be scoped to visible missions: %#v", store.lastRequestedMissionIDs)
 	}
-	if len(missions) != 1 || missions[0].Activity.LastSequence != 9 || missions[0].Activity.LatestTerminalActivity == nil || missions[0].Activity.LatestTerminalActivity.Outcome != TerminalActivityCompleted {
+	if len(missions) != 1 || missions[0].Activity.LastSequence != 9 || missions[0].Activity.LatestTerminalActivity == nil || missions[0].Activity.LatestTerminalActivity.Outcome != mission.TerminalActivityCompleted {
 		t.Fatalf("missions = %#v", missions)
 	}
 	activity, err := NewService(store).MissionActivity(context.Background(), "mis_1")
@@ -111,11 +114,11 @@ func TestListMissionsUsesBulkActivityInputsWhenSupported(t *testing.T) {
 
 func TestListMissionsFiltersArchivedByDefault(t *testing.T) {
 	store := &missionActivityListStore{
-		missions: []Mission{
-			{MissionID: "mis_active", Title: "Active", LifecycleState: MissionLifecycleActive},
-			{MissionID: "mis_archived", Title: "Archived", LifecycleState: MissionLifecycleArchived},
+		missions: []mission.Mission{
+			{MissionID: "mis_active", Title: "Active", LifecycleState: mission.LifecycleActive},
+			{MissionID: "mis_archived", Title: "Archived", LifecycleState: mission.LifecycleArchived},
 		},
-		inputs: []MissionActivityInput{{MissionID: "mis_active", LastSequence: 2}, {MissionID: "mis_archived", LastSequence: 3}},
+		inputs: []mission.ActivityInput{{MissionID: "mis_active", LastSequence: 2}, {MissionID: "mis_archived", LastSequence: 3}},
 	}
 	missions, err := NewService(store).ListMissions(context.Background())
 	if err != nil {
@@ -128,11 +131,11 @@ func TestListMissionsFiltersArchivedByDefault(t *testing.T) {
 		t.Fatalf("default activity scope = %#v", store.lastRequestedMissionIDs)
 	}
 
-	missions, err = NewService(store).ListMissionsWithState(context.Background(), ListMissionsRequest{IncludeArchived: true})
+	missions, err = NewService(store).ListMissionsWithState(context.Background(), mission.ListRequest{IncludeArchived: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(missions) != 2 || missions[1].MissionID != "mis_archived" || missions[1].LifecycleState != MissionLifecycleArchived {
+	if len(missions) != 2 || missions[1].MissionID != "mis_archived" || missions[1].LifecycleState != mission.LifecycleArchived {
 		t.Fatalf("include archived missions = %#v", missions)
 	}
 	if len(store.lastRequestedMissionIDs) != 2 || store.lastRequestedMissionIDs[0] != "mis_active" || store.lastRequestedMissionIDs[1] != "mis_archived" {
@@ -142,31 +145,31 @@ func TestListMissionsFiltersArchivedByDefault(t *testing.T) {
 
 type missionActivityListStore struct {
 	fakeStore
-	missions                []Mission
-	inputs                  []MissionActivityInput
+	missions                []mission.Mission
+	inputs                  []mission.ActivityInput
 	listLedgerEventsCalls   int
 	lastRequestedMissionIDs []string
 }
 
-func (s *missionActivityListStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
+func (s *missionActivityListStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
 	s.listLedgerEventsCalls++
 	return nil, nil
 }
 
-func (s *missionActivityListStore) ListMissions(context.Context) ([]Mission, error) {
-	return append([]Mission(nil), s.missions...), nil
+func (s *missionActivityListStore) ListMissions(context.Context) ([]mission.Mission, error) {
+	return append([]mission.Mission(nil), s.missions...), nil
 }
 
-func (s *missionActivityListStore) ListMissionActivityInputs(_ context.Context, missionIDs []string) ([]MissionActivityInput, error) {
+func (s *missionActivityListStore) ListMissionActivityInputs(_ context.Context, missionIDs []string) ([]mission.ActivityInput, error) {
 	s.lastRequestedMissionIDs = append([]string(nil), missionIDs...)
-	return append([]MissionActivityInput(nil), s.inputs...), nil
+	return append([]mission.ActivityInput(nil), s.inputs...), nil
 }
 
-func activityEvent(t *testing.T, id string, sequence int64, eventType string, payload any) LedgerEvent {
+func activityEvent(t *testing.T, id string, sequence int64, eventType string, payload any) ledger.Event {
 	t.Helper()
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return LedgerEvent{EventID: id, MissionID: "mis_1", Sequence: sequence, EventType: eventType, Payload: raw}
+	return ledger.Event{EventID: id, MissionID: "mis_1", Sequence: sequence, EventType: eventType, Payload: raw}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/sectiondraft"
 )
 
@@ -57,8 +58,8 @@ func TestRunLongFormPrefixObservesSerialStages(t *testing.T) {
 		},
 	}
 	executor := &workflowExecutor{results: []agentexec.AgentResult{
-		{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
-		{Text: reporting.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"},
+		{Text: plan.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
+		{Text: requirements.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"},
 		{Text: "# Core Section\n\nBody.", SessionID: "plan-session-1"},
 		{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: "plan-session-1"},
 	}}
@@ -881,7 +882,7 @@ func TestRunLongFormPrefixIgnoresOutOfPlanCreatedEventBeforeRequirements(t *test
 		},
 	}
 	executor := &workflowExecutor{results: []agentexec.AgentResult{
-		{Text: reporting.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"},
+		{Text: requirements.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"},
 		{Text: "# Core Section\n\nBody.", SessionID: "plan-session-1"},
 		{Text: `{"intro":"Intro","transitions":[],"closing":"Close"}`, SessionID: "plan-session-1"},
 	}}
@@ -935,7 +936,7 @@ func TestRunLongFormPrefixWrapsPlanAndRequirementAgentFailures(t *testing.T) {
 			name: "requirements provider",
 			executor: &workflowExecutor{
 				results: []agentexec.AgentResult{
-					{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
+					{Text: plan.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
 					{Text: "partial", SessionID: "plan-session-1"},
 				},
 				errs: []error{nil, workflowErr("requirements boom")},
@@ -1058,9 +1059,9 @@ type fanoutPartPlanRaceExecutor struct {
 func (executor *fanoutPartPlanRaceExecutor) Run(_ context.Context, req agentexec.AgentRequest) (agentexec.AgentResult, error) {
 	switch {
 	case strings.HasPrefix(req.UserText, "plan section-fanout"):
-		return agentexec.AgentResult{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"}, nil
+		return agentexec.AgentResult{Text: plan.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"}, nil
 	case strings.HasPrefix(req.UserText, "map explicit report requirements"):
-		return agentexec.AgentResult{Text: reporting.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"}, nil
+		return agentexec.AgentResult{Text: requirements.ReportRequirementsMappedSentinel, SessionID: "plan-session-1"}, nil
 	case strings.HasPrefix(req.UserText, "plan the reading flow for Part"):
 		atomic.AddInt32(&executor.partPlanCalls, 1)
 		inflight := atomic.AddInt32(&executor.partPlanInflight, 1)

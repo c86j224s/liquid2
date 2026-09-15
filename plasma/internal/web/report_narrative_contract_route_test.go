@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -73,7 +74,7 @@ func TestNarrativeContractSerialLongFormUsesProductEditorPath(t *testing.T) {
 }
 
 func TestSectionFanoutPlanActivationFlagsDecodeLifecyclePayload(t *testing.T) {
-	event := app.LedgerEvent{Payload: mustJSON(map[string]any{
+	event := ledger.Event{Payload: mustJSON(map[string]any{
 		"part_edit_enabled": true, "part_planning_enabled": true, "session_chain_kind": "section_fanout_report",
 	})}
 	partEdit, partPlanning, err := sectionFanoutPlanActivationFlags(event)
@@ -92,7 +93,7 @@ func TestSectionFanoutPlanActivationFlagsDecodeLifecyclePayload(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := sectionFanoutPlanActivationFlags(app.LedgerEvent{Payload: mustJSON(tc.payload)})
+			_, _, err := sectionFanoutPlanActivationFlags(ledger.Event{Payload: mustJSON(tc.payload)})
 			if !errors.Is(err, app.ErrConflict) {
 				t.Fatalf("error=%v, want conflict", err)
 			}

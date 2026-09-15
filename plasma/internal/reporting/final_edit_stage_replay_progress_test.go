@@ -1,11 +1,14 @@
 package reporting
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"context"
 	"errors"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestLoadFinalEditStageProgressStates(t *testing.T) {
@@ -64,7 +67,7 @@ func TestLoadFinalEditStageProgressRejectsMalformedSubmissionPayload(t *testing.
 		t.Fatal(err)
 	}
 	request := buildFinalEditSubmittedAppendRequest("evt_reader_malformed_progress_submit", readerBinding, source, source, 0, false, nil, FinalEditSemanticAttestation{})
-	payload := eventPayload(app.LedgerEvent{Payload: request.Payload})
+	payload := eventPayload(ledger.Event{Payload: request.Payload})
 	payload["operation_count"] = "invalid"
 	request.Payload = finalEditStageStoreJSON(payload)
 	if _, err := svc.AppendEvent(ctx, request); err != nil {
@@ -108,15 +111,15 @@ func TestLoadFinalEditStageProgressRejectsUnapprovedGateEvidence(t *testing.T) {
 	if _, created, err := StartFinalEditStage(ctx, svc, "evt_gate_progress_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_gate_progress_evidence", MissionID: binding.MissionID, EventType: "evidence.proposed",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"evidence_id": "evd_gate_progress"}),
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: finalEditStageStoreJSON(map[string]any{"evidence_id": "evd_gate_progress"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateEvidenceRecord(ctx, app.CreateEvidenceRecordRequest{
+	if _, err := svc.CreateEvidenceRecord(ctx, researchrecords.CreateEvidenceRecordRequest{
 		EvidenceID: "evd_gate_progress", MissionID: binding.MissionID, State: "proposed", Summary: "Unapproved gate evidence.",
-		EvidenceType: "user_assertion", Producer: app.Producer{Type: "user", ID: "test"}, CreatedEventID: "evt_gate_progress_evidence",
+		EvidenceType: "user_assertion", Producer: ledger.Producer{Type: "user", ID: "test"}, CreatedEventID: "evt_gate_progress_evidence",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +154,14 @@ func TestLoadFinalEditStageProgressRejectsOpenGateAfterCanonical(t *testing.T) {
 	if _, created, err := StartFinalEditStage(ctx, svc, "evt_gate_progress_open_terminal_start", gateBinding); err != nil || !created {
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte("# Report\n\nCanonical final report.\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_gate_progress_open_terminal_final", MissionID: binding.MissionID, EventType: "report.artifact.created",
 		Producer: binding.Producer, CorrelationID: binding.IdempotencyKey, Payload: finalEditStageStoreJSON(map[string]any{
 			"pending_event_id": binding.PendingEventID,

@@ -1,5 +1,7 @@
 package web
 
+import uploadsource "github.com/c86j224s/liquid2/plasma/internal/source"
+
 import (
 	"bytes"
 	"compress/zlib"
@@ -7,6 +9,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	missioncontract "github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"io"
 	"log"
 	"mime"
@@ -25,13 +34,20 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	workflowplan "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
+	source "github.com/c86j224s/liquid2/plasma/internal/source"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 type roundTripFunc func(req *http.Request) (*http.Response, error)
@@ -53,9 +69,9 @@ func TestMissionDetailActiveWorkIsMissionScoped(t *testing.T) {
 
 	activeMission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Active"})
 	activeMissionID := nestedString(t, activeMission, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_active_report", MissionID: activeMissionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Active report"}),
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Active report"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +85,7 @@ func TestMissionDetailActiveWorkIsMissionScoped(t *testing.T) {
 		t.Fatalf("expected one active mission block, got %#v", activeWork)
 	}
 	block, ok := blocks[0].(map[string]any)
-	if !ok || block["reason_code"] != app.BlockingReasonReport {
+	if !ok || block["reason_code"] != missioncontract.BlockingReasonReport {
 		t.Fatalf("expected active mission report block, got %#v", activeDetail["active_work"])
 	}
 	idleDetail := getJSON(t, server.URL+"/api/missions/"+idleMissionID)
@@ -95,9 +111,9 @@ func TestMissionListIncludesMissionActivitySummary(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Activity"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_list_pending", MissionID: missionID, EventType: "turn.agent.pending",
-		Producer: app.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
+		Producer: ledger.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,15 +151,15 @@ func TestMissionListActivitySummaryExposesAgentFailure(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Failure activity"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_list_error_pending", MissionID: missionID, EventType: "turn.agent.pending",
-		Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
+		Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_list_error", MissionID: missionID, EventType: "turn.agent.response",
-		Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"kind": "agent_error", "user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
+		Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"kind": "agent_error", "user_event_id": "evt_list_error_user", "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -159,13 +175,13 @@ func TestMissionListActivitySummaryExposesAgentFailure(t *testing.T) {
 	}
 	activity := nestedMap(t, item, "activity")
 	latest := nestedMap(t, activity, "latest_terminal_activity")
-	if activity["last_sequence"] != float64(3) || latest["kind"] != string(app.TerminalActivityTurn) || latest["outcome"] != string(app.TerminalActivityFailed) {
+	if activity["last_sequence"] != float64(3) || latest["kind"] != string(missioncontract.TerminalActivityTurn) || latest["outcome"] != string(missioncontract.TerminalActivityFailed) {
 		t.Fatalf("activity = %#v", activity)
 	}
 	activityResponse := getJSON(t, server.URL+"/api/missions/"+missionID+"/activity")
 	polled := nestedMap(t, activityResponse, "activity")
 	polledLatest := nestedMap(t, polled, "latest_terminal_activity")
-	if polled["last_sequence"] != float64(3) || polledLatest["outcome"] != string(app.TerminalActivityFailed) {
+	if polled["last_sequence"] != float64(3) || polledLatest["outcome"] != string(missioncontract.TerminalActivityFailed) {
 		t.Fatalf("polled activity = %#v", activityResponse)
 	}
 	cursor := nestedMap(t, activityResponse, "cursor")
@@ -197,10 +213,10 @@ func TestMissionArchiveRestoreHidesListAndKeepsDetailData(t *testing.T) {
 	})
 
 	archived := postJSON(t, server.URL+"/api/missions/"+missionID+"/archive", map[string]any{"reason": "finished"})
-	if nestedString(t, archived, "event", "EventType") != app.MissionArchivedEvent {
+	if nestedString(t, archived, "event", "EventType") != missioncontract.ArchivedEvent {
 		t.Fatalf("archive result = %#v", archived)
 	}
-	if nestedString(t, archived, "projection", "lifecycle_state") != app.MissionLifecycleArchived {
+	if nestedString(t, archived, "projection", "lifecycle_state") != missioncontract.LifecycleArchived {
 		t.Fatalf("archive projection = %#v", archived["projection"])
 	}
 
@@ -214,11 +230,11 @@ func TestMissionArchiveRestoreHidesListAndKeepsDetailData(t *testing.T) {
 		t.Fatalf("include archived list = %#v", archivedList)
 	}
 	item := missions[0].(map[string]any)
-	if item["lifecycle_state"] != app.MissionLifecycleArchived {
+	if item["lifecycle_state"] != missioncontract.LifecycleArchived {
 		t.Fatalf("archived list item = %#v", item)
 	}
 	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
-	if nestedString(t, detail, "projection", "lifecycle_state") != app.MissionLifecycleArchived {
+	if nestedString(t, detail, "projection", "lifecycle_state") != missioncontract.LifecycleArchived {
 		t.Fatalf("detail projection = %#v", detail["projection"])
 	}
 	if sources := detail["sources"].([]any); len(sources) != 1 {
@@ -226,7 +242,7 @@ func TestMissionArchiveRestoreHidesListAndKeepsDetailData(t *testing.T) {
 	}
 
 	restored := postJSON(t, server.URL+"/api/missions/"+missionID+"/restore", map[string]any{})
-	if nestedString(t, restored, "event", "EventType") != app.MissionRestoredEvent {
+	if nestedString(t, restored, "event", "EventType") != missioncontract.RestoredEvent {
 		t.Fatalf("restore result = %#v", restored)
 	}
 	defaultList = getJSON(t, server.URL+"/api/missions")
@@ -311,9 +327,9 @@ func TestMissionArchiveRejectsOpenActiveWork(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Busy"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_busy_turn", MissionID: missionID, EventType: "turn.agent.pending",
-		Producer: app.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
+		Producer: ledger.Producer{Type: "agent", ID: "test"}, Payload: mustJSON(map[string]any{"user_event_id": "evt_user"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -374,42 +390,42 @@ func TestWorkspaceFlow(t *testing.T) {
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/proposals/"+proposalID+"/approve", map[string]any{})
 	claimID := "clm_workspace_report"
 	claimProposalID := "prp_workspace_report_claim"
-	if _, err := svc.CreateClaimProposal(ctx, app.CreateClaimProposalRequest{
-		ClaimEvent: app.AppendEventRequest{
+	if _, err := svc.CreateClaimProposal(ctx, researchproposal.CreateClaimProposalRequest{
+		ClaimEvent: ledger.AppendRequest{
 			EventID:   "evt_workspace_report_claim",
 			MissionID: missionID,
 			EventType: "claim.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_workspace_test"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_workspace_test"},
 			Payload: mustJSON(map[string]any{
 				"claim_id":    claimID,
 				"proposal_id": claimProposalID,
 			}),
 		},
-		Claim: app.CreateClaimRecordRequest{
+		Claim: researchrecords.CreateClaimRecordRequest{
 			ClaimID:               claimID,
 			MissionID:             missionID,
 			State:                 "proposed",
 			Text:                  "HTTPS DNS records should be explained as HTTPS service binding metadata.",
 			ClaimType:             "descriptive",
 			SupportingEvidenceIDs: []string{evidenceID},
-			Confidence:            app.Confidence{Level: "medium"},
-			Approval:              app.Approval{State: "pending", Required: true},
+			Confidence:            researchrecords.Confidence{Level: "medium"},
+			Approval:              researchrecords.ClaimApproval{State: "pending", Required: true},
 			CreatedEventID:        "evt_workspace_report_claim",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_workspace_report_claim_proposal",
 			MissionID: missionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_workspace_test"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_workspace_test"},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": claimProposalID,
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        claimProposalID,
 			MissionID:         missionID,
 			Title:             "Review claim",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.ClaimRecordObjectKind, ObjectID: claimID}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: claimID}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_workspace_report_claim_proposal",
 		},
@@ -678,7 +694,7 @@ func TestConfluenceSourceAPIWorkflow(t *testing.T) {
 	connection := postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -862,7 +878,7 @@ func TestConfluenceSettingsRoutesAndLegacyLifecycleDeprecation(t *testing.T) {
 	created := postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_settings",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites":         []map[string]any{{"url": "https://docs.atlassian.net/wiki/"}},
@@ -995,7 +1011,7 @@ func TestConfluenceConnectorAccessAPIUsesLedgerAndDoesNotAttachSources(t *testin
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_grant",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites":         []map[string]any{{"url": "https://docs.atlassian.net/wiki/"}},
@@ -1065,7 +1081,7 @@ func TestFileUploadSourceStoresReadableTextAndDeduplicatesArtifact(t *testing.T)
 	missionID := nestedString(t, mission, "projection", "mission_id")
 
 	first := postMultipartFile(t, server.URL+"/api/missions/"+missionID+"/sources/upload", "notes.md", "text/markdown", []byte("# Notes\n\nUploaded body."), "Uploaded notes")
-	if nestedString(t, first, "snapshot", "Connector", "ConnectorType") != app.SourceConnectorTypeFileUpload {
+	if nestedString(t, first, "snapshot", "Connector", "ConnectorType") != sourcecontract.ConnectorTypeFileUpload {
 		t.Fatalf("expected file_upload connector, got %#v", first)
 	}
 	firstArtifactID := nestedString(t, first, "artifact", "ArtifactID")
@@ -1182,7 +1198,7 @@ func TestFileUploadPDFInspectsWithoutExtractingTextAtUpload(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "PDF inspect only"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	uploaded := postMultipartFile(t, server.URL+"/api/missions/"+missionID+"/sources/upload", "inspect-only.pdf", "application/pdf", testPDFBytesWithInvalidContentStream(t), "Inspect-only PDF")
-	if nestedString(t, uploaded, "snapshot", "Connector", "ConnectorType") != app.SourceConnectorTypeFileUpload {
+	if nestedString(t, uploaded, "snapshot", "Connector", "ConnectorType") != sourcecontract.ConnectorTypeFileUpload {
 		t.Fatalf("expected uploaded PDF source, got %#v", uploaded)
 	}
 }
@@ -1232,12 +1248,12 @@ func TestFileUploadDoesNotDedupeAgainstNonUploadArtifact(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Upload provenance"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	content := []byte("same bytes but already stored as a result")
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_existing_result_same_sha",
 		MissionID:  missionID,
 		MediaType:  "text/plain; charset=utf-8",
 		Filename:   "result.txt",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    content,
 	}); err != nil {
 		t.Fatal(err)
@@ -1265,12 +1281,12 @@ func TestReportArtifactPreviewReturnsFullContent(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Report preview"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	content := "# Long Report\n\n" + strings.Repeat("0123456789", 3000)
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_long_report_preview",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "long-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte(content),
 	})
 	if err != nil {
@@ -1280,7 +1296,7 @@ func TestReportArtifactPreviewReturnsFullContent(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": artifact.ArtifactID,
 		"media_type":  artifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	read := getJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+artifact.ArtifactID)
@@ -1312,7 +1328,7 @@ func TestConversationExportCreatesReadableMarkdownArtifact(t *testing.T) {
 		"kind":            "user_turn",
 		"text":            "기술면접 Q&A를 그대로 뽑아줘",
 		"tool_session_id": "ses_private",
-	}, app.Producer{Type: "user", ID: "plasma-ui"}); err != nil {
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"}); err != nil {
 		t.Fatalf("append user turn returned error: %v", err)
 	}
 	if _, err := appendTestEvent(t, webServer, ctx, missionID, "turn.agent.response", map[string]any{
@@ -1320,7 +1336,7 @@ func TestConversationExportCreatesReadableMarkdownArtifact(t *testing.T) {
 		"text":             "Q. HTTP 캐시는 무엇인가?\n\nA. 응답 재사용을 제어하는 메커니즘입니다.",
 		"agent_session_id": "ses_private",
 		"user_event_id":    "evt_user",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatalf("append agent response returned error: %v", err)
 	}
 
@@ -1468,7 +1484,7 @@ func TestConfluenceWebRejectsUnsafeAPITokenSiteURL(t *testing.T) {
 	} {
 		status, failure := postJSONFailure(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 			"display_name": "Unsafe",
-			"auth_type":    app.ConfluenceAuthTypeAPIToken,
+			"auth_type":    confluenceaccess.AuthAPIToken,
 			"account_name": "person@example.com",
 			"api_token":    "secret-api-token",
 			"sites": []map[string]any{{
@@ -1502,7 +1518,7 @@ func TestConfluenceWebRejectsManualOAuthConnection(t *testing.T) {
 
 	status, failure := postJSONFailure(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"display_name": "Forged OAuth",
-		"auth_type":    app.ConfluenceAuthTypeOAuth,
+		"auth_type":    confluenceaccess.AuthOAuth,
 		"access_token": "secret-oauth-token",
 		"scopes":       []string{"read:page:confluence"},
 		"sites": []map[string]any{{
@@ -1535,7 +1551,7 @@ func TestConfluenceWebRejectsAPITokenCloudIDMismatch(t *testing.T) {
 
 	status, failure := postJSONFailure(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"display_name": "Mismatch",
-		"auth_type":    app.ConfluenceAuthTypeAPIToken,
+		"auth_type":    confluenceaccess.AuthAPIToken,
 		"account_name": "person@example.com",
 		"api_token":    "secret-api-token",
 		"sites": []map[string]any{{
@@ -1564,7 +1580,7 @@ func TestConfluenceWebDerivesAPITokenSiteCloudID(t *testing.T) {
 
 	result := postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"display_name": "Docs",
-		"auth_type":    app.ConfluenceAuthTypeAPIToken,
+		"auth_type":    confluenceaccess.AuthAPIToken,
 		"account_name": "person@example.com",
 		"api_token":    "secret-api-token",
 		"sites": []map[string]any{{
@@ -1583,9 +1599,9 @@ func TestConfluenceWebDerivesAPITokenSiteCloudID(t *testing.T) {
 }
 
 func TestConfluenceUpdateConnectionCloudIDForSnapshotRestrictsCrossAuthMapping(t *testing.T) {
-	apiTokenConnection := app.ConfluenceConnection{
-		AuthType: app.ConfluenceAuthTypeAPIToken,
-		Sites: []app.ConfluenceSite{{
+	apiTokenConnection := confluenceaccess.Connection{
+		AuthType: confluenceaccess.AuthAPIToken,
+		Sites: []confluenceaccess.Site{{
 			CloudID: "site_docs.atlassian.net",
 			URL:     "https://docs.atlassian.net/wiki",
 		}},
@@ -1598,9 +1614,9 @@ func TestConfluenceUpdateConnectionCloudIDForSnapshotRestrictsCrossAuthMapping(t
 		t.Fatalf("expected API-token transport cloud id site_docs.atlassian.net, got %q err=%v", got, err)
 	}
 
-	oauthConnection := app.ConfluenceConnection{
-		AuthType: app.ConfluenceAuthTypeOAuth,
-		Sites: []app.ConfluenceSite{{
+	oauthConnection := confluenceaccess.Connection{
+		AuthType: confluenceaccess.AuthOAuth,
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_1",
 			URL:     "https://docs.atlassian.net/wiki",
 			Scopes:  []string{"read:page:confluence"},
@@ -1614,9 +1630,9 @@ func TestConfluenceUpdateConnectionCloudIDForSnapshotRestrictsCrossAuthMapping(t
 		t.Fatalf("expected OAuth transport cloud id cloud_1, got %q err=%v", got, err)
 	}
 
-	unverifiedOAuthConnection := app.ConfluenceConnection{
-		AuthType: app.ConfluenceAuthTypeOAuth,
-		Sites: []app.ConfluenceSite{{
+	unverifiedOAuthConnection := confluenceaccess.Connection{
+		AuthType: confluenceaccess.AuthOAuth,
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_unverified",
 			URL:     "https://docs.atlassian.net/wiki",
 		}},
@@ -1637,9 +1653,9 @@ func TestConfluenceUpdateConnectionCloudIDForSnapshotRestrictsCrossAuthMapping(t
 		t.Fatalf("expected exact OAuth cloud id to remain valid, got %v", err)
 	}
 
-	_, err = webConfluenceConnectionCloudIDForSnapshot(app.ConfluenceConnection{
-		AuthType: app.ConfluenceAuthTypeOAuth,
-		Sites: []app.ConfluenceSite{{
+	_, err = webConfluenceConnectionCloudIDForSnapshot(confluenceaccess.Connection{
+		AuthType: confluenceaccess.AuthOAuth,
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_2",
 			URL:     "https://docs.atlassian.net/wiki",
 			Scopes:  []string{"read:page:confluence"},
@@ -1669,14 +1685,14 @@ func TestConfluenceSnapshotSiteIdentityRecoversLegacySiteURLFromArtifact(t *test
 	}
 	defer store.Close()
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_confluence_legacy", Title: "Legacy Confluence"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_confluence_legacy", Title: "Legacy Confluence"}); err != nil {
 		t.Fatal(err)
 	}
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_confluence_legacy",
 		MissionID:  "mis_confluence_legacy",
-		MediaType:  app.ConfluenceSnapshotMediaType,
-		Producer:   app.Producer{Type: "test", ID: "test"},
+		MediaType:  confluencesource.ConfluenceSnapshotMediaType,
+		Producer:   ledger.Producer{Type: "test", ID: "test"},
 		Content: []byte(`{
 			"schema_version":"plasma.confluence.snapshot.v1",
 			"page":{"cloud_id":"cloud_1","site_url":"https://docs.atlassian.net/wiki","page_id":"123"}
@@ -1685,19 +1701,19 @@ func TestConfluenceSnapshotSiteIdentityRecoversLegacySiteURLFromArtifact(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	snapshot, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_confluence_legacy",
 		MissionID:  "mis_confluence_legacy",
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ConnectorType:    app.ConfluenceConnectorType,
-			ExternalSourceID: app.ConfluenceExternalSourceID("cloud_1", "123"),
-			ExternalURI:      app.ConfluenceExternalURI("cloud_1", "123"),
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
+			ExternalURI:      confluencesource.ConfluenceExternalURI("cloud_1", "123"),
 		},
 		Title:       "Legacy Confluence",
 		ArtifactIDs: []string{artifact.ArtifactID},
 		Locators:    json.RawMessage(`[{"cloud_id":"cloud_1","page_id":"123"}]`),
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1724,32 +1740,32 @@ func TestConfluenceSnapshotSiteIdentityRecoversLegacySyntheticSiteURL(t *testing
 	}
 	defer store.Close()
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_confluence_synthetic", Title: "Synthetic Confluence"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_confluence_synthetic", Title: "Synthetic Confluence"}); err != nil {
 		t.Fatal(err)
 	}
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_confluence_synthetic",
 		MissionID:  "mis_confluence_synthetic",
 		MediaType:  "text/plain",
-		Producer:   app.Producer{Type: "test", ID: "test"},
+		Producer:   ledger.Producer{Type: "test", ID: "test"},
 		Content:    []byte("legacy confluence snapshot without site url"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	snapshot, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_confluence_synthetic",
 		MissionID:  "mis_confluence_synthetic",
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ConnectorType:    app.ConfluenceConnectorType,
-			ExternalSourceID: app.ConfluenceExternalSourceID("site_docs.atlassian.net", "123"),
-			ExternalURI:      app.ConfluenceExternalURI("site_docs.atlassian.net", "123"),
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID("site_docs.atlassian.net", "123"),
+			ExternalURI:      confluencesource.ConfluenceExternalURI("site_docs.atlassian.net", "123"),
 		},
 		Title:       "Synthetic Confluence",
 		ArtifactIDs: []string{artifact.ArtifactID},
 		Locators:    json.RawMessage(`[{"cloud_id":"site_docs.atlassian.net","page_id":"123"}]`),
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1777,7 +1793,7 @@ func TestConfluenceIdentityMappingConnectorPreservesSnapshotIdentity(t *testing.
 	}
 	ctx := context.Background()
 
-	version, err := connector.GetConfluenceSourceVersion(ctx, app.ConfluenceSourceReadRequest{
+	version, err := connector.GetConfluenceSourceVersion(ctx, confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "123",
 	})
@@ -1788,12 +1804,12 @@ func TestConfluenceIdentityMappingConnectorPreservesSnapshotIdentity(t *testing.
 		t.Fatalf("expected delegate version request to use connection cloud id, got %#v", delegate.versionReq)
 	}
 	if version.CloudID != "cloud_1" ||
-		version.Connector.ExternalSourceID != app.ConfluenceExternalSourceID("cloud_1", "123") ||
-		version.Connector.ExternalURI != app.ConfluenceExternalURI("cloud_1", "123") {
+		version.Connector.ExternalSourceID != confluencesource.ConfluenceExternalSourceID("cloud_1", "123") ||
+		version.Connector.ExternalURI != confluencesource.ConfluenceExternalURI("cloud_1", "123") {
 		t.Fatalf("expected version response mapped to snapshot identity, got %#v", version)
 	}
 
-	page, err := connector.ReadConfluenceSource(ctx, app.ConfluenceSourceReadRequest{
+	page, err := connector.ReadConfluenceSource(ctx, confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "123",
 	})
@@ -1804,8 +1820,8 @@ func TestConfluenceIdentityMappingConnectorPreservesSnapshotIdentity(t *testing.
 		t.Fatalf("expected delegate read request to use connection cloud id, got %#v", delegate.readReq)
 	}
 	if page.CloudID != "cloud_1" ||
-		page.Connector.ExternalSourceID != app.ConfluenceExternalSourceID("cloud_1", "123") ||
-		page.Connector.ExternalURI != app.ConfluenceExternalURI("cloud_1", "123") {
+		page.Connector.ExternalSourceID != confluencesource.ConfluenceExternalSourceID("cloud_1", "123") ||
+		page.Connector.ExternalURI != confluencesource.ConfluenceExternalURI("cloud_1", "123") {
 		t.Fatalf("expected page response mapped to snapshot identity, got %#v", page)
 	}
 	var metadata map[string]string
@@ -1816,7 +1832,7 @@ func TestConfluenceIdentityMappingConnectorPreservesSnapshotIdentity(t *testing.
 		t.Fatalf("expected page metadata cloud id mapped to snapshot identity, got %#v", metadata)
 	}
 
-	search, err := connector.SearchConfluenceSources(ctx, app.ConfluenceSourceSearchRequest{
+	search, err := connector.SearchConfluenceSources(ctx, confluencesource.ConfluenceSourceSearchRequest{
 		CloudID: "cloud_1",
 		Query:   "roadmap",
 	})
@@ -1829,7 +1845,7 @@ func TestConfluenceIdentityMappingConnectorPreservesSnapshotIdentity(t *testing.
 	candidate := search.Candidates[0]
 	if search.CloudID != "cloud_1" ||
 		candidate.CloudID != "cloud_1" ||
-		candidate.Connector.ExternalSourceID != app.ConfluenceExternalSourceID("cloud_1", "123") {
+		candidate.Connector.ExternalSourceID != confluencesource.ConfluenceExternalSourceID("cloud_1", "123") {
 		t.Fatalf("expected search response mapped to snapshot identity, got %#v", search)
 	}
 }
@@ -1845,7 +1861,7 @@ func TestConfluenceIdentityMappingConnectorRejectsMismatchedResponseSite(t *test
 		snapshotSiteURL:   "https://docs.atlassian.net/wiki",
 		connectionCloudID: "site_other.atlassian.net",
 	}
-	_, err := connector.GetConfluenceSourceVersion(context.Background(), app.ConfluenceSourceReadRequest{
+	_, err := connector.GetConfluenceSourceVersion(context.Background(), confluencesource.ConfluenceSourceReadRequest{
 		CloudID: "cloud_1",
 		PageID:  "123",
 	})
@@ -1857,21 +1873,21 @@ func TestConfluenceIdentityMappingConnectorRejectsMismatchedResponseSite(t *test
 type recordingConfluenceSourceConnector struct {
 	cloudID    string
 	siteURL    string
-	searchReq  app.ConfluenceSourceSearchRequest
-	readReq    app.ConfluenceSourceReadRequest
-	versionReq app.ConfluenceSourceReadRequest
+	searchReq  confluencesource.ConfluenceSourceSearchRequest
+	readReq    confluencesource.ConfluenceSourceReadRequest
+	versionReq confluencesource.ConfluenceSourceReadRequest
 }
 
-func (connector *recordingConfluenceSourceConnector) SearchConfluenceSources(_ context.Context, req app.ConfluenceSourceSearchRequest) (app.ConfluenceSourceSearchResult, error) {
+func (connector *recordingConfluenceSourceConnector) SearchConfluenceSources(_ context.Context, req confluencesource.ConfluenceSourceSearchRequest) (confluencesource.ConfluenceSourceSearchResult, error) {
 	connector.searchReq = req
 	cloudID := connector.responseCloudID()
-	return app.ConfluenceSourceSearchResult{
+	return confluencesource.ConfluenceSourceSearchResult{
 		CloudID: cloudID,
-		Candidates: []app.ConfluenceSourceCandidate{{
-			Connector: app.ConnectorRef{
-				ConnectorID:      app.ConfluenceConnectorID,
-				ExternalSourceID: app.ConfluenceExternalSourceID(cloudID, "123"),
-				ExternalURI:      app.ConfluenceExternalURI(cloudID, "123"),
+		Candidates: []confluencesource.ConfluenceSourceCandidate{{
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:      confluencesource.ConfluenceConnectorID,
+				ExternalSourceID: confluencesource.ConfluenceExternalSourceID(cloudID, "123"),
+				ExternalURI:      confluencesource.ConfluenceExternalURI(cloudID, "123"),
 			},
 			CloudID: cloudID,
 			Title:   "Roadmap",
@@ -1879,14 +1895,14 @@ func (connector *recordingConfluenceSourceConnector) SearchConfluenceSources(_ c
 	}, nil
 }
 
-func (connector *recordingConfluenceSourceConnector) ReadConfluenceSource(_ context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourcePage, error) {
+func (connector *recordingConfluenceSourceConnector) ReadConfluenceSource(_ context.Context, req confluencesource.ConfluenceSourceReadRequest) (confluencesource.ConfluenceSourcePage, error) {
 	connector.readReq = req
 	cloudID := connector.responseCloudID()
-	return app.ConfluenceSourcePage{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ExternalSourceID: app.ConfluenceExternalSourceID(cloudID, "123"),
-			ExternalURI:      app.ConfluenceExternalURI(cloudID, "123"),
+	return confluencesource.ConfluenceSourcePage{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(cloudID, "123"),
+			ExternalURI:      confluencesource.ConfluenceExternalURI(cloudID, "123"),
 		},
 		CloudID:  cloudID,
 		SiteURL:  connector.siteURL,
@@ -1896,14 +1912,14 @@ func (connector *recordingConfluenceSourceConnector) ReadConfluenceSource(_ cont
 	}, nil
 }
 
-func (connector *recordingConfluenceSourceConnector) GetConfluenceSourceVersion(_ context.Context, req app.ConfluenceSourceReadRequest) (app.ConfluenceSourceVersion, error) {
+func (connector *recordingConfluenceSourceConnector) GetConfluenceSourceVersion(_ context.Context, req confluencesource.ConfluenceSourceReadRequest) (confluencesource.ConfluenceSourceVersion, error) {
 	connector.versionReq = req
 	cloudID := connector.responseCloudID()
-	return app.ConfluenceSourceVersion{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ExternalSourceID: app.ConfluenceExternalSourceID(cloudID, "123"),
-			ExternalURI:      app.ConfluenceExternalURI(cloudID, "123"),
+	return confluencesource.ConfluenceSourceVersion{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(cloudID, "123"),
+			ExternalURI:      confluencesource.ConfluenceExternalURI(cloudID, "123"),
 		},
 		CloudID: cloudID,
 		SiteURL: connector.siteURL,
@@ -1926,13 +1942,13 @@ func TestConfluenceClientRejectsStoredUnsafeAPITokenSiteURLWithAPIBaseOverride(t
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.UpsertConfluenceConnection(ctx, app.ConfluenceConnection{
+	if err := store.UpsertConfluenceConnection(ctx, confluenceaccess.Connection{
 		ConnectionID: "cnf_unsafe",
 		DisplayName:  "Unsafe",
-		AuthType:     app.ConfluenceAuthTypeAPIToken,
+		AuthType:     confluenceaccess.AuthAPIToken,
 		AccountName:  "person@example.com",
 		AccessToken:  "secret-api-token",
-		Sites: []app.ConfluenceSite{{
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_1",
 			Name:    "Unsafe",
 			URL:     "https://person:secret@docs.atlassian.net/wiki",
@@ -1968,13 +1984,13 @@ func TestConfluenceClientRejectsUnsafeAPITokenAPIBaseURLWithSafeSite(t *testing.
 				t.Fatal(err)
 			}
 			defer store.Close()
-			if err := store.UpsertConfluenceConnection(ctx, app.ConfluenceConnection{
+			if err := store.UpsertConfluenceConnection(ctx, confluenceaccess.Connection{
 				ConnectionID: "cnf_api_base",
 				DisplayName:  "Docs API",
-				AuthType:     app.ConfluenceAuthTypeAPIToken,
+				AuthType:     confluenceaccess.AuthAPIToken,
 				AccountName:  "person@example.com",
 				AccessToken:  "secret-api-token",
-				Sites: []app.ConfluenceSite{{
+				Sites: []confluenceaccess.Site{{
 					CloudID: "cloud_1",
 					Name:    "Docs",
 					URL:     "https://docs.atlassian.net/wiki",
@@ -2005,14 +2021,14 @@ func TestConfluenceWebRejectsOAuthConnectionBeforeUse(t *testing.T) {
 	defer store.Close()
 
 	svc := app.NewService(store)
-	_, err = svc.UpsertConfluenceConnection(ctx, app.UpsertConfluenceConnectionRequest{
+	_, err = svc.UpsertConfluenceConnection(ctx, confluenceaccess.UpsertRequest{
 		ConnectionID:   "cnf_refresh",
 		DisplayName:    "Docs",
-		AuthType:       app.ConfluenceAuthTypeOAuth,
+		AuthType:       confluenceaccess.AuthOAuth,
 		AccessToken:    "expired-oauth-token",
 		RefreshToken:   "refresh-secret",
 		TokenExpiresAt: time.Now().UTC().Add(-time.Minute),
-		Sites: []app.ConfluenceSite{{
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_1",
 			Name:    "Docs",
 			URL:     "https://docs.atlassian.net/wiki",
@@ -2053,12 +2069,12 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "HTML report export"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_html_report_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "odyssey-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# 오디세이 리포트\n\n본문 \\(E=mc^2\\) 입니다.\n\n| 항목 | 값 |\n| --- | --- |\n| 수식 | \\(x+1\\) |\n\n```mermaid\nflowchart TD\n  A[시작] --> B[검토]\n```\n\n\\[x^2+y^2=z^2\\]\n\n잘못된 \\(\\notacommand{\\) 수식입니다.\n\n`\\(code\\)`와 $dollar$는 그대로입니다.\n"),
 	})
 	if err != nil {
@@ -2068,13 +2084,13 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
-	locators, err := json.Marshal([]app.MediaLocator{{
-		LocatorType:    app.SourceLocatorTypeMedia,
-		MediaKind:      app.MediaKindImage,
+	locators, err := json.Marshal([]sourcecontract.MediaLocator{{
+		LocatorType:    sourcecontract.LocatorTypeMedia,
+		MediaKind:      sourcecontract.MediaKindImage,
 		Provider:       "media_url",
 		CanonicalURL:   "https://example.com/odyssey.png",
 		DirectMediaURL: "https://example.com/odyssey.png",
@@ -2089,46 +2105,46 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_html_report_image",
 			MissionID:  missionID,
 			MediaType:  "image/png",
 			Filename:   "odyssey.png",
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    []byte("fake-png-bytes"),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID: "src_html_report_image",
 			MissionID:  missionID,
-			Connector: app.ConnectorRef{
+			Connector: sourcecontract.ConnectorRef{
 				ConnectorID:      "media_url",
-				ConnectorType:    app.SourceConnectorTypeMediaURL,
+				ConnectorType:    sourcecontract.ConnectorTypeMediaURL,
 				ExternalSourceID: "https://example.com/odyssey.png",
 				ExternalURI:      "https://example.com/odyssey.png",
 			},
 			Title:    "Odyssey still",
 			Locators: locators,
-			Access: app.SourceAccess{
+			Access: sourcecontract.Access{
 				License:         "CC-BY",
-				RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+				RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   "evt_html_report_image_source",
 			MissionID: missionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	legacyArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	legacyArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_legacy_html_export",
 		MissionID:  missionID,
 		MediaType:  "text/html; charset=utf-8",
 		Filename:   "legacy.html",
-		Producer:   app.Producer{Type: "plasma", ID: "html-export"},
+		Producer:   ledger.Producer{Type: "plasma", ID: "html-export"},
 		Content:    []byte("<!doctype html><html><body>legacy</body></html>"),
 	})
 	if err != nil {
@@ -2138,51 +2154,51 @@ func TestReportArtifactHTMLExportInlinesImageMediaSources(t *testing.T) {
 		"kind": reportexecution.ExportKindSelfContainedHTML, "source_artifact_id": reportArtifact.ArtifactID,
 		"artifact_id": legacyArtifact.ArtifactID, "target": reportexecution.ExportTargetSelfContainedHTML,
 		"renderer_version": "html7-heading-palette-20260814",
-	}, app.Producer{Type: "plasma", ID: "html-export"}); err != nil {
+	}, ledger.Producer{Type: "plasma", ID: "html-export"}); err != nil {
 		t.Fatal(err)
 	}
-	uploadLocators, err := json.Marshal([]app.UploadedFileLocator{{
-		LocatorType:       app.SourceLocatorTypeMedia,
-		MediaKind:         app.MediaKindImage,
+	uploadLocators, err := json.Marshal([]sourcecontract.UploadedFileLocator{{
+		LocatorType:       sourcecontract.LocatorTypeMedia,
+		MediaKind:         sourcecontract.MediaKindImage,
 		OriginalFilename:  "uploaded-still.png",
 		SanitizedFilename: "uploaded-still.png",
 		MIMEType:          "image/png",
 		ByteSize:          int64(len("uploaded-png-bytes")),
 		SHA256:            "uploaded-image-sha",
-		ContentKind:       app.UploadedContentKindImage,
+		ContentKind:       uploadsource.UploadedContentKindImage,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_html_report_uploaded_image",
 			MissionID:  missionID,
 			MediaType:  "image/png",
 			Filename:   "uploaded-still.png",
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    []byte("uploaded-png-bytes"),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID: "src_html_report_uploaded_image",
 			MissionID:  missionID,
-			Connector: app.ConnectorRef{
+			Connector: sourcecontract.ConnectorRef{
 				ConnectorID:      "file_upload",
-				ConnectorType:    app.SourceConnectorTypeFileUpload,
+				ConnectorType:    sourcecontract.ConnectorTypeFileUpload,
 				ExternalSourceID: "file_upload:uploaded-image-sha",
 				ExternalURI:      "file-upload://uploaded-image-sha",
 			},
 			Title:    "Uploaded still",
 			Locators: uploadLocators,
-			Access: app.SourceAccess{
-				RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+			Access: sourcecontract.Access{
+				RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   "evt_html_report_uploaded_image_source",
 			MissionID: missionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -2367,12 +2383,12 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 	unsafeParameterizedImageDataURI := "data:image/png;charset=utf-8;base64," + strings.Repeat("D", 320)
 	unsafeCaseImageDataURI := "DATA:IMAGE/PNG;BASE64," + strings.Repeat("E", 320)
 	unsafeBase64Payload := strings.Repeat("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo", 8)
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_designed_report_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "odyssey-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content: []byte("# 오디세이 리포트\n\n소스 기반 장문 리포트입니다.\n\n" +
 			"상대성 식은 \\(E=mc^2\\)이고 표의 관계는 \\[x^2+y^2=z^2\\]입니다.\n\n" +
 			"![inline payload](" + unsafeImageDataURI + ")\n\n" +
@@ -2389,7 +2405,7 @@ func TestReportArtifactDesignedHTMLExportCreatesCachedArtifact(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	addDesignedReportImageSource(t, ctx, svc, missionID, "src_designed_report_image", "art_designed_report_image", "evt_designed_report_image_source", "Odyssey still", "https://example.com/odyssey.png", []byte("fake-designed-png-bytes"))
@@ -2548,9 +2564,9 @@ func addDesignedReportImageSource(t *testing.T, ctx context.Context, svc *app.Se
 
 func addDesignedReportMediaSource(t *testing.T, ctx context.Context, svc *app.Service, missionID string, snapshotID string, artifactID string, eventID string, title string, sourceURL string, mediaType string, content []byte) {
 	t.Helper()
-	imageLocators, err := json.Marshal([]app.MediaLocator{{
-		LocatorType:    app.SourceLocatorTypeMedia,
-		MediaKind:      app.MediaKindImage,
+	imageLocators, err := json.Marshal([]sourcecontract.MediaLocator{{
+		LocatorType:    sourcecontract.LocatorTypeMedia,
+		MediaKind:      sourcecontract.MediaKindImage,
 		Provider:       "media_url",
 		CanonicalURL:   sourceURL,
 		DirectMediaURL: sourceURL,
@@ -2565,36 +2581,36 @@ func addDesignedReportMediaSource(t *testing.T, ctx context.Context, svc *app.Se
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: artifactID,
 			MissionID:  missionID,
 			MediaType:  mediaType,
 			Filename:   safeFilename(title, ".png"),
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    content,
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID: snapshotID,
 			MissionID:  missionID,
-			Connector: app.ConnectorRef{
+			Connector: sourcecontract.ConnectorRef{
 				ConnectorID:      "media_url",
-				ConnectorType:    app.SourceConnectorTypeMediaURL,
+				ConnectorType:    sourcecontract.ConnectorTypeMediaURL,
 				ExternalSourceID: sourceURL,
 				ExternalURI:      sourceURL,
 			},
 			Title:    title,
 			Locators: imageLocators,
-			Access: app.SourceAccess{
+			Access: sourcecontract.Access{
 				License:         "CC-BY",
-				RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+				RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   eventID,
 			MissionID: missionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -2622,12 +2638,12 @@ func TestReportArtifactDesignedHTMLExportSkipsUnsupportedImageArtifact(t *testin
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Designed HTML unsupported image"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_designed_svg_report_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "svg-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# SVG 제외 리포트\n\n이미지 필터를 검증합니다.\n"),
 	})
 	if err != nil {
@@ -2637,7 +2653,7 @@ func TestReportArtifactDesignedHTMLExportSkipsUnsupportedImageArtifact(t *testin
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	addDesignedReportMediaSource(t, ctx, svc, missionID, "src_designed_svg_image", "art_designed_svg_image", "evt_designed_svg_image_source", "Unsafe SVG", "https://example.com/unsafe.svg", "image/svg+xml", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`))
@@ -2701,12 +2717,12 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Designed HTML stale cache"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_stale_source_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# 리포트\n\n새 HTML export가 필요합니다.\n"),
 	})
 	if err != nil {
@@ -2716,15 +2732,15 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	staleArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	staleArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_stale_designed_html",
 		MissionID:  missionID,
 		MediaType:  "text/html; charset=utf-8",
 		Filename:   "old.html",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("<!doctype html><html><body>old</body></html>"),
 	})
 	if err != nil {
@@ -2736,7 +2752,7 @@ func TestReportArtifactDesignedHTMLExportIgnoresStaleRendererVersion(t *testing.
 		"artifact_id":        staleArtifact.ArtifactID,
 		"target":             reportexecution.ExportTargetDesignedHTML,
 		"renderer_version":   "dh27-katex-math-20260713",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2782,12 +2798,12 @@ func TestStaleAgentTurnAutoClosesBeforeDesignedHTMLExport(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Designed HTML stale agent turn"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_designed_stale_agent_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# stale turn export\n\n본문입니다.\n"),
 	})
 	if err != nil {
@@ -2797,7 +2813,7 @@ func TestStaleAgentTurnAutoClosesBeforeDesignedHTMLExport(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	appendStaleAgentPending(t, ctx, svc, missionID, "evt_stale_design_user", "evt_stale_design_pending")
@@ -2837,12 +2853,12 @@ func TestReportArtifactDesignedHTMLPendingBlocksNormalTurn(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Designed HTML pending"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_designed_pending_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "pending-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# 느린 리포트\n\n본문입니다.\n"),
 	})
 	if err != nil {
@@ -2852,7 +2868,7 @@ func TestReportArtifactDesignedHTMLPendingBlocksNormalTurn(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2887,12 +2903,12 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Designed HTML resume"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_designed_resume_md",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "resume-report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# 재개 리포트\n\n본문입니다.\n"),
 	})
 	if err != nil {
@@ -2902,7 +2918,7 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 		"kind":        "markdown_report_artifact",
 		"artifact_id": reportArtifact.ArtifactID,
 		"media_type":  reportArtifact.MediaType,
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	pending, err := appendTestEvent(t, webServer, ctx, missionID, "report.design.pending", map[string]any{
@@ -2913,7 +2929,7 @@ func TestReportArtifactDesignedHTMLStalePendingResumes(t *testing.T) {
 		"agent_executor":     "codex",
 		"target":             reportexecution.ExportTargetDesignedHTML,
 		"renderer_version":   designedReportRendererVersion,
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3579,12 +3595,12 @@ func TestReportPatchUsesPreviousReportSessionNotLatestConversationSession(t *tes
 		"objective": "Ensure report patch does not use current conversation session",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_patch_base_report",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "base-report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
 	})
 	if err != nil {
@@ -3600,7 +3616,7 @@ func TestReportPatchUsesPreviousReportSessionNotLatestConversationSession(t *tes
 		"report_session_id":               "report-session-1",
 		"report_session_policy":           reportSessionPolicyIsolatedFork,
 		"report_session_policy_selection": reportSessionPolicySelectionAutoIsolatedFork,
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+	}, ledger.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3685,12 +3701,12 @@ func TestReportPatchExplicitFreshSessionRejectedBeforeProviderWork(t *testing.T)
 		"objective": "Reject auto-only patch policy before provider work",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_patch_fresh_reject_base",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "base-report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
 	})
 	if err != nil {
@@ -3704,7 +3720,7 @@ func TestReportPatchExplicitFreshSessionRejectedBeforeProviderWork(t *testing.T)
 		"agent_executor":    "codex",
 		"agent_session_id":  "report-session-1",
 		"report_session_id": "report-session-1",
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+	}, ledger.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3753,12 +3769,12 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 			if req.ReportPatch == nil {
 				return
 			}
-			artifact, err := svc.CreateRawArtifact(runCtx, app.CreateRawArtifactRequest{
+			artifact, err := svc.CreateRawArtifact(runCtx, artifactcontract.CreateRequest{
 				ArtifactID: "art_patch_wrong_session",
 				MissionID:  req.MissionID,
 				MediaType:  "text/markdown; charset=utf-8",
 				Filename:   "patched.md",
-				Producer:   app.Producer{Type: "mcp_tool", ID: "plasma.report.patch.finalize"},
+				Producer:   ledger.Producer{Type: "mcp_tool", ID: "plasma.report.patch.finalize"},
 				Content:    []byte("# Patched Report\n\nThis should not be promoted.\n"),
 			})
 			if err != nil {
@@ -3778,7 +3794,7 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 				"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
 				"tool_session_id":                 req.ToolSessionID,
 				"composition_strategy":            "mcp_patch_markdown",
-			}, app.Producer{Type: "mcp_tool", ID: "plasma.report.patch.finalize"}); err != nil {
+			}, ledger.Producer{Type: "mcp_tool", ID: "plasma.report.patch.finalize"}); err != nil {
 				t.Errorf("append provisional finalize event: %v", err)
 			}
 		},
@@ -3793,12 +3809,12 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 		"objective": "Do not publish report patches from the wrong session",
 	})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	reportArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reportArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_patch_validation_base",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "base-report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Base Report\n\nNeeds a patch.\n"),
 	})
 	if err != nil {
@@ -3814,7 +3830,7 @@ func TestReportPatchDoesNotPromoteFinalizedPatchWhenAgentSessionValidationFails(
 		"report_session_id":               "report-session-1",
 		"report_session_policy":           reportSessionPolicySameSession,
 		"report_session_policy_selection": reportexecution.SessionPolicySelectionExplicitSameSession,
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+	}, ledger.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3889,512 +3905,6 @@ func TestReportDraftOneTakeKeepsSameSessionEvenWhenForkIsAvailable(t *testing.T)
 		payload["report_session_id"] != "research-session-1" ||
 		payload["pre_report_research_session_id"] != "research-session-1" {
 		t.Fatalf("expected one-take same-session report metadata, got %#v", payload)
-	}
-}
-
-func TestReportDraftCreatesHumanizedMarkdownArtifact(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n수행되어야 한다.", SessionID: "research-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "research-session-1"},
-	}}
-	agent.onRun = fakeHumanizePatchFinalizer(t, svc, "# Report\n\n수행해야 한다.")
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "Humanized Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-
-	detail := waitForEventType(t, server.URL, missionID, "report.artifact.exported")
-	if countEvents(detail, "report.humanize.pending") != 1 {
-		t.Fatalf("expected one humanize pending event, got %#v", detail["events"])
-	}
-	pendingEvent := lastEvent(t, detail, "report.humanize.pending")
-	pendingEventID, _ := pendingEvent["EventID"].(string)
-	pendingPayload, _ := pendingEvent["Payload"].(map[string]any)
-	if pendingEventID == "" || pendingPayload["pending_event_id"] != pendingEventID {
-		t.Fatalf("expected humanize pending payload to identify itself, event=%#v payload=%#v", pendingEvent, pendingPayload)
-	}
-	sourcePayload := lastEventPayload(t, detail, "report.artifact.created")
-	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
-	if humanizedPayload["target"] != reportexecution.ExportTargetHumanizedMarkdown ||
-		humanizedPayload["source_artifact_id"] != sourcePayload["artifact_id"] ||
-		humanizedPayload["relationship"] != "post_report_tone_pass_of_source_artifact" ||
-		humanizedPayload["humanize_transport"] != reportexecution.HumanizeTransportPatch ||
-		humanizedPayload["pending_event_id"] != pendingEventID ||
-		humanizedPayload["report_pending_event_id"] != sourcePayload["pending_event_id"] {
-		t.Fatalf("expected explicit humanized artifact relationship, got %#v", humanizedPayload)
-	}
-	if hasOpenReportDraftDetail(detail) {
-		t.Fatalf("expected humanize pending to close after export")
-	}
-	source, err := svc.GetRawArtifact(ctx, sourcePayload["artifact_id"].(string))
-	if err != nil {
-		t.Fatal(err)
-	}
-	humanized, err := svc.GetRawArtifact(ctx, humanizedPayload["artifact_id"].(string))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(source.Content) != "# Report\n\n수행되어야 한다." || string(humanized.Content) != "# Report\n\n수행해야 한다." {
-		t.Fatalf("expected source preserved and humanized artifact separate, source=%q humanized=%q", string(source.Content), string(humanized.Content))
-	}
-	humanizedArtifactID := humanizedPayload["artifact_id"].(string)
-	readResp := getJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+humanizedArtifactID)
-	if readResp["content"] != "# Report\n\n수행해야 한다." {
-		t.Fatalf("expected humanized artifact read content, got %#v", readResp)
-	}
-	downloadResp, err := http.Get(server.URL + "/api/missions/" + missionID + "/artifacts/" + humanizedArtifactID + "/download")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer downloadResp.Body.Close()
-	if downloadResp.StatusCode != http.StatusOK {
-		t.Fatalf("expected humanized artifact download 200, got %d", downloadResp.StatusCode)
-	}
-	downloadBody, err := io.ReadAll(downloadResp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(downloadBody) != "# Report\n\n수행해야 한다." {
-		t.Fatalf("expected humanized artifact download body, got %q", string(downloadBody))
-	}
-	if len(agent.requests) != 3 ||
-		agent.requests[2].DisableTools ||
-		!agent.requests[2].ReplaceMCPTools ||
-		agent.requests[2].PreviousSessionID != "research-session-1" ||
-		agent.requests[2].ReportPatch == nil {
-		t.Fatalf("expected humanize request to use report patch MCP on the report session, got %#v", agent.requests)
-	}
-	if strings.Contains(agent.requests[2].Prompt, "# Report\n\n수행되어야 한다.") {
-		t.Fatalf("humanize prompt must not include the full Markdown body: %q", agent.requests[2].Prompt)
-	}
-}
-
-func TestReportDraftSkipsHumanizeWhenPatchSessionMakesNoSafeChanges(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n이미 자연스러운 문장입니다.", SessionID: "research-session-1"},
-		{Text: "검토했지만 안전하게 바꿀 문장이 없습니다.", SessionID: "research-session-1"},
-	}}
-	agent.onRun = fakeHumanizePatchReader(t, svc)
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize no-op test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "Natural Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-
-	detail := waitForEventType(t, server.URL, missionID, "report.humanize.skipped")
-	if countEvents(detail, "report.humanize.pending") != 1 ||
-		countEvents(detail, "report.humanize.skipped") != 1 ||
-		countEvents(detail, "report.humanize.failed") != 0 ||
-		countEvents(detail, "report.artifact.exported") != 0 {
-		t.Fatalf("expected no-op H5 patch session to skip without failure or export, got %#v", detail["events"])
-	}
-	if hasOpenReportDraftDetail(detail) {
-		t.Fatalf("expected skipped humanize pending to close")
-	}
-	if len(agent.requests) != 3 ||
-		agent.requests[2].ReportPatch == nil ||
-		!agent.requests[2].ReplaceMCPTools {
-		t.Fatalf("expected no-op humanize to use report patch MCP, got %#v", agent.requests)
-	}
-
-	events, err := svc.ListEvents(ctx, missionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawStart, sawRead bool
-	for _, event := range events {
-		if event.EventType != "mcp.tool.called" {
-			continue
-		}
-		var payload struct {
-			ToolName      string `json:"tool_name"`
-			ToolSessionID string `json:"tool_session_id"`
-		}
-		if err := json.Unmarshal(event.Payload, &payload); err != nil {
-			t.Fatal(err)
-		}
-		if payload.ToolSessionID != agent.requests[2].ToolSessionID {
-			continue
-		}
-		sawStart = sawStart || payload.ToolName == plasmamcp.ToolReportPatchStart
-		sawRead = sawRead || payload.ToolName == plasmamcp.ToolReportPatchRead
-		if payload.ToolName == plasmamcp.ToolReportPatchApply || payload.ToolName == plasmamcp.ToolReportPatchFinalize {
-			t.Fatalf("no-op H5 session must not apply or finalize, got %s", payload.ToolName)
-		}
-	}
-	if !sawStart || !sawRead {
-		t.Fatalf("expected H5 no-op session to start and read, sawStart=%v sawRead=%v", sawStart, sawRead)
-	}
-}
-
-func TestReportArtifactHumanizeRetryUsesExistingReportSession(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n수행되어야 한다.", SessionID: "research-session-1"},
-		{Text: "forgot to finalize", SessionID: "research-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "research-session-1"},
-	}}
-	finalize := fakeHumanizePatchFinalizer(t, svc, "# Report\n\n수행해야 한다.")
-	humanizeRuns := 0
-	agent.onRun = func(runCtx context.Context, req AgentRequest) {
-		if req.ReportPatch == nil {
-			return
-		}
-		humanizeRuns++
-		if humanizeRuns == 2 {
-			finalize(runCtx, req)
-		}
-	}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize retry test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "Humanized Retry Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-	detail := waitForEventType(t, server.URL, missionID, "report.humanize.failed")
-	sourcePayload := lastEventPayload(t, detail, "report.artifact.created")
-	sourceArtifactID, _ := sourcePayload["artifact_id"].(string)
-	if sourceArtifactID == "" {
-		t.Fatalf("expected source report artifact, got %#v", sourcePayload)
-	}
-	if countEvents(detail, "report.humanize.pending") != 1 || countEvents(detail, "report.humanize.failed") != 1 {
-		t.Fatalf("expected initial humanize failure to close the first pending, got %#v", detail["events"])
-	}
-
-	start := postJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+sourceArtifactID+"/humanized_markdown_export", map[string]any{})
-	if start["status"] != "pending" {
-		t.Fatalf("expected retry to start pending humanize job, got %#v", start)
-	}
-	detail = waitForEventTypeCount(t, server.URL, missionID, "report.artifact.exported", 1)
-	if countEvents(detail, "report.humanize.pending") != 2 || countEvents(detail, "report.humanize.failed") != 1 {
-		t.Fatalf("expected retry humanize pending to complete without new failure, got %#v", detail["events"])
-	}
-	humanizedPayload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
-	if humanizedPayload["source_artifact_id"] != sourceArtifactID ||
-		humanizedPayload["target"] != reportexecution.ExportTargetHumanizedMarkdown ||
-		humanizedPayload["previous_agent_session_id"] != "research-session-1" {
-		t.Fatalf("expected retry to humanize the original report session artifact, got %#v", humanizedPayload)
-	}
-	if len(agent.requests) != 4 ||
-		agent.requests[3].PreviousSessionID != "research-session-1" ||
-		agent.requests[3].ReportPatch == nil ||
-		!agent.requests[3].ReplaceMCPTools {
-		t.Fatalf("expected retry to use report patch MCP on the existing report session, got %#v", agent.requests)
-	}
-	if strings.Contains(agent.requests[3].Prompt, "# Report\n\n수행되어야 한다.") {
-		t.Fatalf("retry prompt must not include the full Markdown body: %q", agent.requests[3].Prompt)
-	}
-}
-
-func TestReportDraftKeepsOriginalWhenHumanizeGuardFails(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n첫 문단입니다.\n\n둘째 문단입니다.", SessionID: "research-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "research-session-1"},
-	}}
-	agent.onRun = fakeHumanizePatchFinalizer(t, svc, "# Report\n\n첫 문단입니다.")
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize guard test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "Guarded Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-
-	detail := waitForEventType(t, server.URL, missionID, "report.humanize.failed")
-	if countEvents(detail, "report.humanize.pending") != 1 {
-		t.Fatalf("expected one humanize pending event, got %#v", detail["events"])
-	}
-	if countEvents(detail, "report.artifact.exported") != 0 {
-		t.Fatalf("guard failure must not create a humanized artifact, got %#v", detail["events"])
-	}
-	if countEvents(detail, "report.patch.rejected") != 1 {
-		t.Fatalf("guard failure must reject the finalized patch artifact, got %#v", detail["events"])
-	}
-	pendingEvent := lastEvent(t, detail, "report.humanize.pending")
-	pendingEventID, _ := pendingEvent["EventID"].(string)
-	sourcePayload := lastEventPayload(t, detail, "report.artifact.created")
-	patchPayload := lastEventPayload(t, detail, "report.patch.finalized")
-	rejectedPayload := lastEventPayload(t, detail, "report.patch.rejected")
-	failurePayload := lastEventPayload(t, detail, "report.humanize.failed")
-	if failurePayload["source_artifact_id"] != sourcePayload["artifact_id"] ||
-		failurePayload["preserved_original_markdown"] != true ||
-		failurePayload["pending_event_id"] != pendingEventID ||
-		failurePayload["report_pending_event_id"] != sourcePayload["pending_event_id"] {
-		t.Fatalf("expected failure to point at preserved source artifact, got %#v", failurePayload)
-	}
-	if patchPayload["artifact_id"] == "" || rejectedPayload["artifact_id"] != patchPayload["artifact_id"] {
-		t.Fatalf("expected rejected patch artifact to match finalized patch artifact, finalized=%#v rejected=%#v", patchPayload, rejectedPayload)
-	}
-	if hasOpenReportDraftDetail(detail) {
-		t.Fatalf("expected humanize pending to close after failure")
-	}
-	source, err := svc.GetRawArtifact(ctx, sourcePayload["artifact_id"].(string))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(source.Content) != "# Report\n\n첫 문단입니다.\n\n둘째 문단입니다." {
-		t.Fatalf("expected original artifact to remain unchanged, got %q", string(source.Content))
-	}
-	patchArtifactID := patchPayload["artifact_id"].(string)
-	page, err := svc.ListMissionObjects(ctx, missionID, app.ResearchIDEObjectRawArtifact, 20, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range page.Items {
-		if item.ObjectID == patchArtifactID {
-			t.Fatalf("rejected H5 patch artifact must not be listed in research raw artifacts: %#v", page.Items)
-		}
-	}
-	if _, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{MissionID: missionID, ObjectKind: app.ResearchIDEObjectRawArtifact, ObjectID: patchArtifactID}); err == nil {
-		t.Fatalf("rejected H5 patch artifact must not be readable through research raw artifacts")
-	}
-}
-
-func TestReportDraftRejectsHumanizePatchArtifactWhenTerminalRaceWins(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	finalize := fakeHumanizePatchFinalizer(t, svc, "# Report\n\n수행해야 한다.")
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n수행되어야 한다.", SessionID: "research-session-1"},
-		{Text: "H5 patch finalized.", SessionID: "research-session-1"},
-	}}
-	agent.onRun = func(runCtx context.Context, req AgentRequest) {
-		finalize(runCtx, req)
-		if req.ReportPatch == nil {
-			return
-		}
-		if _, err := svc.AppendEvent(runCtx, app.AppendEventRequest{
-			EventID:   newID("evt"),
-			MissionID: req.MissionID,
-			EventType: "report.humanize.failed",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
-			Payload: mustJSON(map[string]any{
-				"kind":             "humanized_markdown_report_canceled",
-				"pending_event_id": req.ReportPatch.PendingEventID,
-				"canceled":         true,
-			}),
-		}); err != nil {
-			t.Errorf("append terminal race event: %v", err)
-		}
-	}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize terminal race test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "Terminal Race Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-
-	detail := waitForEventType(t, server.URL, missionID, "report.patch.rejected")
-	if countEvents(detail, "report.artifact.exported") != 0 {
-		t.Fatalf("terminal race must not export the humanized artifact, got %#v", detail["events"])
-	}
-	patchPayload := lastEventPayload(t, detail, "report.patch.finalized")
-	rejectedPayload := lastEventPayload(t, detail, "report.patch.rejected")
-	if rejectedPayload["reason"] != "terminal_already_closed" ||
-		rejectedPayload["artifact_id"] != patchPayload["artifact_id"] {
-		t.Fatalf("expected terminal race to reject finalized patch artifact, finalized=%#v rejected=%#v", patchPayload, rejectedPayload)
-	}
-	patchArtifactID := patchPayload["artifact_id"].(string)
-	page, err := svc.ListMissionObjects(ctx, missionID, app.ResearchIDEObjectRawArtifact, 20, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range page.Items {
-		if item.ObjectID == patchArtifactID {
-			t.Fatalf("terminal-race rejected artifact must not be listed in research raw artifacts: %#v", page.Items)
-		}
-	}
-	if _, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{MissionID: missionID, ObjectKind: app.ResearchIDEObjectRawArtifact, ObjectID: patchArtifactID}); err == nil {
-		t.Fatalf("terminal-race rejected artifact must not be readable through research raw artifacts")
-	}
-}
-
-func TestReportDraftClosesHumanizePendingWhenOutputUnchanged(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	agent := &fakeAgentExecutor{responses: []AgentResult{
-		{Text: "research ready", SessionID: "research-session-1"},
-		{Text: "# Report\n\n이미 충분히 자연스럽다.", SessionID: "research-session-1"},
-		{Text: "NO_H5_CHANGES", SessionID: "research-session-1"},
-	}}
-	server := httptest.NewServer(NewServer(svc, Options{AgentExecutor: agent}))
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Humanize no-op test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "Prepare report context."})
-	waitForEventType(t, server.URL, missionID, "turn.agent.response")
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/reports", map[string]any{
-		"title":                "No-op Report",
-		"report_mode":          "one_take",
-		"post_report_humanize": "enabled",
-	})
-
-	detail := waitForEventType(t, server.URL, missionID, "report.humanize.skipped")
-	if countEvents(detail, "report.humanize.pending") != 1 || countEvents(detail, "report.artifact.exported") != 0 {
-		t.Fatalf("expected pending to close with skipped and no export, got %#v", detail["events"])
-	}
-	pendingEvent := lastEvent(t, detail, "report.humanize.pending")
-	pendingEventID, _ := pendingEvent["EventID"].(string)
-	sourcePayload := lastEventPayload(t, detail, "report.artifact.created")
-	payload := lastEventPayload(t, detail, "report.humanize.skipped")
-	if payload["preserved_original_markdown"] != true ||
-		payload["relationship"] != "no_change_post_report_tone_pass_of_source_artifact" ||
-		payload["pending_event_id"] != pendingEventID ||
-		payload["report_pending_event_id"] != sourcePayload["pending_event_id"] {
-		t.Fatalf("expected explicit no-change relationship, got %#v", payload)
-	}
-	if hasOpenReportDraftDetail(detail) {
-		t.Fatalf("expected humanize pending to close after skipped event")
-	}
-	if len(agent.requests) != 3 ||
-		agent.requests[2].DisableTools ||
-		!agent.requests[2].ReplaceMCPTools ||
-		agent.requests[2].PreviousSessionID != "research-session-1" ||
-		agent.requests[2].ReportPatch == nil {
-		t.Fatalf("expected humanize request to use report patch MCP, got %#v", agent.requests)
-	}
-}
-
-func TestHumanizeMarkdownReportClosesPendingAfterContextCancellation(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	mission, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_humanize_cancel", Title: "Humanize cancel test"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	source, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
-		ArtifactID: "art_humanize_cancel_source",
-		MissionID:  mission.MissionID,
-		MediaType:  "text/markdown; charset=utf-8",
-		Filename:   "cancel-source.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
-		Content:    []byte("# Report\n\n취소되어야 합니다."),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	runCtx, cancel := context.WithCancel(ctx)
-	executor := &cancelingHumanizeExecutor{cancel: cancel}
-	result, err := HumanizeMarkdownReport(runCtx, svc, newID, mission.MissionID, ReportHumanizeInput{
-		Title:             "Canceled Humanize",
-		Markdown:          string(source.Content),
-		SourceArtifact:    source,
-		ExecutorName:      "codex",
-		MCPMode:           "auto",
-		PreviousSessionID: "report-session-1",
-		ReportMode:        "planned",
-		PendingEventID:    "evt_report_pending",
-	}, executor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Applied {
-		t.Fatalf("canceled H5 pass must not create a humanized artifact: %#v", result)
-	}
-	if len(executor.requests) != 1 ||
-		executor.requests[0].DisableTools ||
-		!executor.requests[0].ReplaceMCPTools ||
-		executor.requests[0].PreviousSessionID != "report-session-1" ||
-		executor.requests[0].ReportPatch == nil {
-		t.Fatalf("H5 pass must use report patch MCP on the source report session, got %#v", executor.requests)
-	}
-
-	events, err := svc.ListEvents(ctx, mission.MissionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if countLedgerEvents(events, "report.humanize.pending") != 1 ||
-		countLedgerEvents(events, "report.humanize.failed") != 1 ||
-		countLedgerEvents(events, "report.artifact.exported") != 0 {
-		t.Fatalf("expected canceled humanize pending to close with failed event, got %#v", events)
 	}
 }
 
@@ -4524,7 +4034,7 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: payload})
+	req, err := reportDraftRequestFromPendingEvent(ledger.Event{Payload: payload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4547,7 +4057,7 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	freshReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: freshPayload})
+	freshReq, err := reportDraftRequestFromPendingEvent(ledger.Event{Payload: freshPayload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4563,7 +4073,7 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacyReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: legacyPayload})
+	legacyReq, err := reportDraftRequestFromPendingEvent(ledger.Event{Payload: legacyPayload})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -4597,12 +4107,58 @@ func TestReportDraftRequestFromPendingEventPreservesSessionPolicy(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	experimentalReq, err := reportDraftRequestFromPendingEvent(app.LedgerEvent{Payload: experimentalPayload})
+	experimentalReq, err := reportDraftRequestFromPendingEvent(ledger.Event{Payload: experimentalPayload})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if experimentalReq.AgentExecutor != "codex" || experimentalReq.AgentModel != "gpt-5.6-luna" || experimentalReq.AgentReasoningEffort != "xhigh" || experimentalReq.AgentSelectionSource != "experimental_fixed" || experimentalReq.MCPMode != "source_read_only" || experimentalReq.RigorLevel != "strict" || experimentalReq.ReportMode != reportModeLongForm || experimentalReq.PipelineFamily != "report_il_experimental" || experimentalReq.ExecutionStrategy != "" || experimentalReq.ReportSessionPolicy != reportSessionPolicyFreshSession || experimentalReq.ReportSessionPolicySelection != "experimental_fixed" || experimentalReq.PostReportHumanize != "disabled" {
+	if experimentalReq.AgentExecutor != "codex" || experimentalReq.AgentModel != "wrong-model" || experimentalReq.AgentReasoningEffort != "low" || experimentalReq.AgentSelectionSource != "mission" || experimentalReq.MCPMode != "source_read_only" || experimentalReq.RigorLevel != "strict" || experimentalReq.ReportMode != reportModeLongForm || experimentalReq.PipelineFamily != "report_il_experimental" || experimentalReq.ExecutionStrategy != "" || experimentalReq.ReportSessionPolicy != reportSessionPolicyFreshSession || experimentalReq.ReportSessionPolicySelection != "experimental_fixed" || experimentalReq.PostReportHumanize != "disabled" {
 		t.Fatalf("tampered experimental pending was not canonicalized: %#v", experimentalReq)
+	}
+}
+
+func TestReportDraftRecoveryPreservesLongFormArticleIdentity(t *testing.T) {
+	payload := mustJSON(map[string]any{
+		"title": "Booklet", "report_mode": reportModeLongForm, "pipeline_family": "report_il_experimental",
+		"output_kind": "article", "article_intent": map[string]any{"audience": "Reader", "reader_promise": "Promise", "emphasis": "Method"},
+		"agent_model": "gpt-5.6-sol", "agent_reasoning_effort": "high", "rigor_level": "strict",
+	})
+	req, err := reportDraftRequestFromPendingEvent(ledger.Event{Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.OutputKind != "article" || req.ArticleIntent.Audience != "Reader" || req.ArticleIntent.ReaderPromise != "Promise" || req.ReportMode != reportModeLongForm || req.PipelineFamily != "report_il_experimental" || req.AgentModel != "gpt-5.6-sol" || req.AgentReasoningEffort != "high" {
+		t.Fatalf("recovered long-form Article identity = %#v", req)
+	}
+}
+
+func TestResumeReportDraftWorkerPreservesLongFormArticleIdentity(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	missionID := createMissionForTest(t, ctx, service)
+	pending, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: "evt_article_resume", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"},
+		Payload: mustJSON(map[string]any{
+			"kind": "article_artifact_pending", "title": "Booklet", "report_mode": reportModeLongForm,
+			"pipeline_family": "report_il_experimental", "output_kind": "article",
+			"article_intent": map[string]any{"audience": "Reader", "reader_promise": "Promise"},
+			"agent_executor": "codex", "agent_model": "gpt-5.6-sol", "agent_reasoning_effort": "high", "mcp_mode": "source_read_only",
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := reportDraftRequestFromPendingEvent(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured := req
+	if captured.OutputKind != "article" || captured.ArticleIntent.Audience != "Reader" || captured.ReportMode != reportModeLongForm || captured.PipelineFamily != "report_il_experimental" || captured.AgentModel != "gpt-5.6-sol" || captured.AgentReasoningEffort != "high" {
+		t.Fatalf("resume worker Article identity = %#v", captured)
 	}
 }
 
@@ -4763,7 +4319,7 @@ func TestRunPartAssemblyAgentUsesMCPToolsForPartAssemblyEditProfile(t *testing.T
 	defer store.Close()
 
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_part_assembly", Title: "Part assembly test"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_part_assembly", Title: "Part assembly test"}); err != nil {
 		t.Fatal(err)
 	}
 	server := NewServer(svc, Options{}).(*Server)
@@ -5037,7 +4593,7 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Workflow repair"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	run, err := svc.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	run, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		MissionID:          missionID,
 		RequestedBySurface: app.WorkflowSurfaceWeb,
 		AgentExecutor:      "codex",
@@ -5054,12 +4610,12 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 	}
 	stepID := "wfs_repair"
 	userEventID := "evt_repair_user"
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
 		{
 			EventID:   "evt_repair_step_started",
 			MissionID: missionID,
 			EventType: app.WorkflowStepStartedEvent,
-			Producer:  app.Producer{Type: "workflow", ID: run.WorkflowRunID},
+			Producer:  ledger.Producer{Type: "workflow", ID: run.WorkflowRunID},
 			Payload: mustJSON(app.WorkflowStepStartedPayload{
 				WorkflowRunID:  run.WorkflowRunID,
 				MissionID:      missionID,
@@ -5074,7 +4630,7 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 			EventID:   userEventID,
 			MissionID: missionID,
 			EventType: "turn.user",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload: mustJSON(map[string]any{
 				"kind":             "workflow_step_user",
 				"text":             "Repair old stuck workflow",
@@ -5086,7 +4642,7 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 			EventID:   "evt_repair_pending",
 			MissionID: missionID,
 			EventType: "turn.agent.pending",
-			Producer:  app.Producer{Type: "agent", ID: "codex"},
+			Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 			Payload: mustJSON(map[string]any{
 				"kind":             "agent_pending",
 				"agent_executor":   "codex",
@@ -5101,7 +4657,7 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 			EventID:   "evt_repair_agent_canceled",
 			MissionID: missionID,
 			EventType: "turn.agent.response",
-			Producer:  app.Producer{Type: "agent", ID: "codex"},
+			Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 			Payload: mustJSON(map[string]any{
 				"kind":             "agent_canceled",
 				"agent_executor":   "codex",
@@ -5115,7 +4671,7 @@ func TestWorkflowReconcileStopsCanceledPendingRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("AppendEvents returned error: %v", err)
 	}
-	if _, err := svc.RequestWorkflowStop(ctx, app.RequestWorkflowStopRequest{
+	if _, err := svc.RequestWorkflowStop(ctx, workflowstate.RequestWorkflowStopRequest{
 		WorkflowRunID:      run.WorkflowRunID,
 		MissionID:          missionID,
 		RequestedBySurface: app.WorkflowSurfaceWeb,
@@ -5529,25 +5085,25 @@ func TestWebWorkflowRejectsNormalTurnWhileQueued(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Workflow queued conflict"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_user_queued",
 		MissionID: missionID,
 		EventType: "turn.user",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSON(map[string]any{"kind": "user_turn", "text": "hold"}),
 	}); err != nil {
 		t.Fatalf("append turn.user returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_pending_queued",
 		MissionID: missionID,
 		EventType: "turn.agent.pending",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload:   mustJSON(map[string]any{"user_event_id": "evt_user_queued", "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatalf("append turn.agent.pending returned error: %v", err)
 	}
-	if _, err := svc.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		MissionID:          missionID,
 		RequestedBySurface: app.WorkflowSurfaceMCP,
 		AgentExecutor:      "codex",
@@ -5704,10 +5260,10 @@ func TestReportDraftCreatesMarkdownArtifactWithoutASTRepair(t *testing.T) {
 }
 
 func TestReportScopeIDsHonorPartiallyApprovedProposalDecision(t *testing.T) {
-	events := []app.LedgerEvent{{
+	events := []ledger.Event{{
 		EventID:   "evt_partial_decision",
 		EventType: "proposal.partially_approved",
-		Producer:  app.Producer{Type: "user", ID: "ses_user"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_user"},
 		Payload: mustJSON(map[string]any{
 			"proposal_id":         "prp_partial",
 			"approved_object_ids": []string{"evd_ok", "clm_ok"},
@@ -5716,7 +5272,7 @@ func TestReportScopeIDsHonorPartiallyApprovedProposalDecision(t *testing.T) {
 	}, {
 		EventID:   "evt_partial_stray",
 		EventType: "proposal.partially_approved",
-		Producer:  app.Producer{Type: "user", ID: "ses_user"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_user"},
 		Payload: mustJSON(map[string]any{
 			"proposal_id":         "prp_partial",
 			"approved_object_ids": []string{"evd_rejected", "clm_rejected"},
@@ -5724,23 +5280,23 @@ func TestReportScopeIDsHonorPartiallyApprovedProposalDecision(t *testing.T) {
 		}),
 	}}
 	records := recordsResponse{
-		Evidence: []app.EvidenceRecord{
+		Evidence: []researchrecords.EvidenceRecord{
 			{EvidenceID: "evd_ok"},
 			{EvidenceID: "evd_rejected"},
 		},
-		Claims: []app.ClaimRecord{
+		Claims: []researchrecords.ClaimRecord{
 			{ClaimID: "clm_ok"},
 			{ClaimID: "clm_rejected"},
 		},
-		Proposals: []app.ProposalBundle{{
+		Proposals: []researchproposal.ProposalBundle{{
 			ProposalID:      "prp_partial",
 			State:           "partially_approved",
 			DecisionEventID: "evt_partial_decision",
-			ObjectRefs: []app.ObjectRef{
-				{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_ok"},
-				{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_rejected"},
-				{ObjectKind: app.ClaimRecordObjectKind, ObjectID: "clm_ok"},
-				{ObjectKind: app.ClaimRecordObjectKind, ObjectID: "clm_rejected"},
+			ObjectRefs: []researchcatalog.ObjectRef{
+				{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_ok"},
+				{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_rejected"},
+				{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: "clm_ok"},
+				{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: "clm_rejected"},
 			},
 		}},
 		approvedObjectIDsByDecisionEventID: approvedObjectIDsByDecisionEventID(events),
@@ -5999,7 +5555,7 @@ func TestReportDraftCanceledContextStillClosesPending(t *testing.T) {
 		"kind":  "report_draft_pending",
 		"title": "Canceled report",
 		"text":  "리포트 초안 생성 중입니다.",
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6008,7 +5564,7 @@ func TestReportDraftCanceledContextStillClosesPending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var events []app.LedgerEvent
+	var events []ledger.Event
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		events, err = svc.ListEvents(ctx, missionID)
@@ -6065,7 +5621,7 @@ func TestCancelReportDraftEndpointClosesPending(t *testing.T) {
 		"agent_executor": "codex",
 		"report_mode":    "long_form",
 		"text":           "리포트 초안 생성 중입니다.",
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6106,16 +5662,16 @@ func TestCancelReportDraftEndpointClosesHumanizePending(t *testing.T) {
 		"agent_executor": "codex",
 		"report_mode":    "long_form",
 		"text":           "리포트 초안 생성 중입니다.",
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_report",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Canceled report\n\nOriginal report.\n"),
 	}); err != nil {
 		t.Fatal(err)
@@ -6125,7 +5681,7 @@ func TestCancelReportDraftEndpointClosesHumanizePending(t *testing.T) {
 		"pending_event_id": reportPending.EventID,
 		"artifact_id":      "art_report",
 		"media_type":       "text/markdown; charset=utf-8",
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+	}, ledger.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
 	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
@@ -6139,14 +5695,14 @@ func TestCancelReportDraftEndpointClosesHumanizePending(t *testing.T) {
 		"agent_executor":          "codex",
 		"report_mode":             "long_form",
 		"text":                    "H5 말투 보정 Markdown artifact를 생성하는 중입니다.",
-	}, app.Producer{Type: "agent", ID: "codex"})
+	}, ledger.Producer{Type: "agent", ID: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	canceled := false
 	if _, ok := webServer.runningReports.Start(missionID, reportPending.EventID, func() {
 		canceled = true
-		if _, err := appendReportHumanizeFailed(context.Background(), webServer.service, newID, missionID, reportHumanizeInput{}, "ses_cancel", humanizePending.EventID, 1, errors.New("worker observed canceled context")); err != nil {
+		if _, err := webServer.reportRunner().AppendHumanizeFailed(context.Background(), missionID, humanizePending.EventID, "codex", "art_report", "long_form", errors.New("worker observed canceled context")); err != nil {
 			t.Errorf("append worker cancellation failure returned error: %v", err)
 		}
 	}); !ok {
@@ -6209,11 +5765,11 @@ func TestMissionSourcesHidesSupersededByDefault(t *testing.T) {
 	if oldSnapshotID == "" || newSnapshotID == "" {
 		t.Fatalf("expected source snapshots, old=%#v new=%#v", oldSource, newSource)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_superseded_source_list",
 		MissionID: missionID,
 		EventType: app.ConfluenceUpdatedEvent,
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{
 			"old_snapshot_id": oldSnapshotID,
 			"new_snapshot_id": newSnapshotID,
@@ -6304,7 +5860,7 @@ func TestDetailGETReconciliationResumesStaleReportDraft(t *testing.T) {
 	}
 }
 
-func hasReportArtifactCreated(events []app.LedgerEvent) bool {
+func hasReportArtifactCreated(events []ledger.Event) bool {
 	for _, event := range events {
 		if event.EventType == "report.artifact.created" {
 			return true
@@ -6326,13 +5882,13 @@ func TestReportDraftStalePendingKeepsFrozenSelection(t *testing.T) {
 	defer server.Close()
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Frozen recovery"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_frozen_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_frozen_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
 		"kind": "markdown_report_artifact_pending", "title": "Frozen", "agent_executor": "codex", "agent_model": "gpt-5.5", "agent_reasoning_effort": "high", "agent_selection_source": reporting.AgentSelectionSourceExplicitRequest,
 		"mcp_mode": "auto", "report_mode": "planned", "report_session_policy": "same_session", "started_at": time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano),
 	})}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_newer_session", MissionID: missionID, EventType: "agent.session.reset", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_newer_session", MissionID: missionID, EventType: "agent.session.reset", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{
 		"agent_executor": "codex", "agent_model": "gpt-5.4", "agent_reasoning_effort": "low",
 	})}); err != nil {
 		t.Fatal(err)
@@ -6428,11 +5984,11 @@ func TestReportDraftRecoveryResumesFreshPlannedPendingFromStoredPlanSession(t *t
 			Purpose: "Write the final report from the stored plan.",
 		}},
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":                            "markdown_report_artifact_pending",
 			"title":                           "Recovered planned report",
@@ -6479,7 +6035,7 @@ func TestReportDraftRecoveryResumesFreshPlannedPendingFromStoredPlanSession(t *t
 			PostReportResearchSessionID:  "",
 			CompositionStrategy:          "planned_markdown",
 			Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
-			Producer:                     app.Producer{Type: "agent_session", ID: "fresh-plan-session"},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: "fresh-plan-session"},
 		},
 		ArtifactID:         finalArtifactID,
 		Plan:               plan,
@@ -6527,11 +6083,11 @@ func TestLoadPlannedReportProgressRejectsConflictingCanonicalState(t *testing.T)
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned recovery conflict"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	pendingID := "evt_planned_conflict_pending"
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "markdown_report_artifact_pending",
 			"title":          "Conflict",
@@ -6564,11 +6120,11 @@ func TestLoadPlannedReportProgressRejectsMalformedCanonicalPlan(t *testing.T) {
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned recovery malformed"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	pendingID := "evt_planned_malformed_pending"
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "markdown_report_artifact_pending",
 			"title":          "Malformed",
@@ -6578,11 +6134,11 @@ func TestLoadPlannedReportProgressRejectsMalformedCanonicalPlan(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_planned_malformed_plan",
 		MissionID: missionID,
 		EventType: "report.plan.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "session-one"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "session-one"},
 		Payload: mustJSON(map[string]any{
 			"kind":                            "markdown_report_plan",
 			"pending_event_id":                pendingID,
@@ -6672,11 +6228,11 @@ func TestReportDraftRecoveryRejectsContradictoryPlannedLineageBeforeProviderWork
 			mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Planned lineage conflict"})
 			missionID := nestedString(t, mission, "projection", "mission_id")
 			pendingID := "evt_planned_lineage_conflict_pending"
-			if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+			if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 				EventID:   pendingID,
 				MissionID: missionID,
 				EventType: "report.draft.pending",
-				Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+				Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 				Payload: mustJSON(map[string]any{
 					"kind":           "markdown_report_artifact_pending",
 					"title":          "Lineage conflict",
@@ -6760,11 +6316,11 @@ func TestReportDraftRecoveryResumesFreshLongFormPendingFromStoredPlanSession(t *
 	pendingID := "evt_fresh_recovery_pending"
 	planEventID := "evt_fresh_recovery_plan"
 	finalArtifactID := "art_fresh_recovery_final"
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":                            "markdown_report_artifact_pending",
 			"title":                           "Recovered Fresh Report",
@@ -6781,11 +6337,11 @@ func TestReportDraftRecoveryResumesFreshLongFormPendingFromStoredPlanSession(t *
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   planEventID,
 		MissionID: missionID,
 		EventType: "report.plan.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "fresh-plan-session"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "fresh-plan-session"},
 		Payload: mustJSON(map[string]any{
 			"kind":                            "sectional_markdown_report_plan",
 			"pending_event_id":                pendingID,
@@ -6840,7 +6396,7 @@ func TestReportDraftRecoveryResumesFreshLongFormPendingFromStoredPlanSession(t *
 	}
 }
 
-func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T) {
+func TestReportDraftStaleHumanizePendingRetiresOncePreservingHistory(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -6862,16 +6418,16 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 		"agent_executor": "codex",
 		"report_mode":    "long_form",
 		"text":           "리포트 초안 생성 중입니다.",
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
+	}, ledger.Producer{Type: "user", ID: "plasma-ui"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_report",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Recovered report\n\nOriginal report.\n"),
 	}); err != nil {
 		t.Fatal(err)
@@ -6881,7 +6437,7 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 		"pending_event_id": reportPending.EventID,
 		"artifact_id":      "art_report",
 		"media_type":       "text/markdown; charset=utf-8",
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
+	}, ledger.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
 		t.Fatal(err)
 	}
 	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
@@ -6895,7 +6451,7 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 		"agent_executor":          "codex",
 		"report_mode":             "long_form",
 		"text":                    "H5 말투 보정 Markdown artifact를 생성하는 중입니다.",
-	}, app.Producer{Type: "agent", ID: "codex"})
+	}, ledger.Producer{Type: "agent", ID: "codex"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6905,115 +6461,21 @@ func TestReportDraftStaleHumanizePendingFailsClosedWhenCannotResume(t *testing.T
 		t.Fatal("expected stale humanize pending to close")
 	}
 	payload := lastEventPayload(t, detail, "report.humanize.failed")
-	if payload["kind"] != "humanized_markdown_report_failed" ||
+	if payload["kind"] != "humanized_markdown_report_retired" ||
 		payload["pending_event_id"] != humanizePending.EventID ||
+		payload["report_pending_event_id"] != reportPending.EventID ||
 		payload["source_artifact_id"] != "art_report" ||
+		payload["title"] != "Recovered report" ||
+		payload["retired"] != true ||
 		payload["preserved_original_markdown"] != true {
-		t.Fatalf("expected stale humanize resume failure to preserve original report, got %#v", payload)
+		t.Fatalf("expected retired humanize to preserve original report and lineage, got %#v", payload)
+	}
+	detail = getJSON(t, server.URL+"/api/missions/"+missionID)
+	if countEvents(detail, "report.humanize.failed") != 1 {
+		t.Fatal("repeated recovery must not duplicate retirement")
 	}
 	if countEvents(detail, "report.draft.failed") != 0 {
 		t.Fatalf("stale humanize must not fail the preserved original report, got %#v", detail["events"])
-	}
-}
-
-func TestReportDraftStaleHumanizePendingPromotesFinalizedPatch(t *testing.T) {
-	ctx := context.Background()
-	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-
-	svc := app.NewService(store)
-	handler := NewServer(svc, Options{})
-	webServer := handler.(*Server)
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Recovered humanize patch test"})
-	missionID := nestedString(t, mission, "projection", "mission_id")
-	source, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
-		ArtifactID: "art_source_report",
-		MissionID:  missionID,
-		MediaType:  "text/markdown; charset=utf-8",
-		Filename:   "source.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
-		Content:    []byte("# Report\n\n수행되어야 한다."),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	reportPending, err := appendTestEvent(t, webServer, ctx, missionID, "report.draft.pending", map[string]any{
-		"kind":           "markdown_report_artifact_pending",
-		"title":          "Recovered report",
-		"agent_executor": "codex",
-		"report_mode":    "long_form",
-		"text":           "리포트 초안 생성 중입니다.",
-	}, app.Producer{Type: "user", ID: "plasma-ui"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.artifact.created", map[string]any{
-		"kind":             "markdown_report_artifact",
-		"pending_event_id": reportPending.EventID,
-		"artifact_id":      source.ArtifactID,
-		"media_type":       source.MediaType,
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
-		t.Fatal(err)
-	}
-	humanizePending, err := appendTestEvent(t, webServer, ctx, missionID, "report.humanize.pending", map[string]any{
-		"kind":                      "humanized_markdown_report_pending",
-		"target":                    reportexecution.ExportTargetHumanizedMarkdown,
-		"profile":                   reportexecution.HumanizeProfileH5,
-		"pending_event_id":          "evt_humanize_stale_finalized",
-		"report_pending_event_id":   reportPending.EventID,
-		"title":                     "Recovered report",
-		"source_artifact_id":        source.ArtifactID,
-		"source_artifact_sha256":    source.SHA256,
-		"agent_executor":            "codex",
-		"previous_agent_session_id": "report-session-1",
-		"tool_session_id":           "tool-session-1",
-		"mcp_mode":                  "auto",
-		"report_mode":               "long_form",
-		"text":                      "H5 말투 보정 Markdown artifact를 생성하는 중입니다.",
-	}, app.Producer{Type: "agent", ID: "codex"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	patch, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
-		ArtifactID: "art_humanized_report",
-		MissionID:  missionID,
-		MediaType:  "text/markdown; charset=utf-8",
-		Filename:   "humanized.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
-		Content:    []byte("# Report\n\n수행해야 한다."),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := appendTestEvent(t, webServer, ctx, missionID, "report.patch.finalized", map[string]any{
-		"kind":              "markdown_report_patch_finalized",
-		"pending_event_id":  humanizePending.EventID,
-		"artifact_id":       patch.ArtifactID,
-		"media_type":        patch.MediaType,
-		"report_session_id": "report-session-1",
-	}, app.Producer{Type: "agent_session", ID: "report-session-1"}); err != nil {
-		t.Fatal(err)
-	}
-
-	detail := getJSON(t, server.URL+"/api/missions/"+missionID)
-	if hasOpenReportDraftDetail(detail) {
-		t.Fatal("expected stale finalized humanize patch to close")
-	}
-	if countEvents(detail, "report.humanize.failed") != 0 || countEvents(detail, "report.patch.rejected") != 0 {
-		t.Fatalf("valid finalized patch must not be failed or rejected, got %#v", detail["events"])
-	}
-	payload := latestEventPayload(t, detail, "report.artifact.exported", reportexecution.ExportKindHumanizedMarkdown)
-	if payload["artifact_id"] != patch.ArtifactID ||
-		payload["pending_event_id"] != humanizePending.EventID ||
-		payload["report_pending_event_id"] != reportPending.EventID ||
-		payload["recovered_after_restart"] != true {
-		t.Fatalf("expected recovered humanized export from finalized patch, got %#v", payload)
 	}
 }
 
@@ -7106,22 +6568,22 @@ func TestReportDraftResumesPartialLongFormSections(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	pendingID := "evt_partial_long_pending"
 	finalArtifactID := "art_partial_long_final"
-	sectionArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	sectionArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_partial_section_1",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "section-1.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("Existing first section body."),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "markdown_report_artifact_pending",
 			"title":          "Recovered long report",
@@ -7135,11 +6597,11 @@ func TestReportDraftResumesPartialLongFormSections(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_partial_long_plan",
 		MissionID: missionID,
 		EventType: "report.plan.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Payload: mustJSON(map[string]any{
 			"kind":                 "sectional_markdown_report_plan",
 			"pending_event_id":     pendingID,
@@ -7156,11 +6618,11 @@ func TestReportDraftResumesPartialLongFormSections(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_partial_long_section_1",
 		MissionID: missionID,
 		EventType: "report.section.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Payload: mustJSON(map[string]any{
 			"kind":                 "sectional_markdown_report_section",
 			"pending_event_id":     pendingID,
@@ -7241,22 +6703,22 @@ func TestReportDraftResumesPartialLongFormParts(t *testing.T) {
 	pendingID := "evt_partial_part_pending"
 	planEventID := "evt_partial_part_plan"
 	finalArtifactID := "art_partial_part_final"
-	partArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	partArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_partial_part_1",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "part-1.md",
-		Producer:   app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Content:    []byte("# Part 1. Existing Part\n\nExisting preserved part body."),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "markdown_report_artifact_pending",
 			"title":          "Recovered from part",
@@ -7270,11 +6732,11 @@ func TestReportDraftResumesPartialLongFormParts(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   planEventID,
 		MissionID: missionID,
 		EventType: "report.plan.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Payload: mustJSON(map[string]any{
 			"kind":                 "sectional_markdown_report_plan",
 			"pending_event_id":     pendingID,
@@ -7291,11 +6753,11 @@ func TestReportDraftResumesPartialLongFormParts(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_partial_part_1",
 		MissionID: missionID,
 		EventType: "report.part.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "report-session-1"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "report-session-1"},
 		Payload: mustJSON(map[string]any{
 			"kind":                 "sectional_markdown_report_part",
 			"pending_event_id":     pendingID,
@@ -7367,41 +6829,41 @@ func TestClaimConfidenceUpdateAppearsInMissionDetail(t *testing.T) {
 	})
 	evidenceID := nestedString(t, proposal, "Evidence", "evidence_id")
 	claimID := "clm_confidence_web"
-	if _, err := svc.CreateClaimProposal(ctx, app.CreateClaimProposalRequest{
-		ClaimEvent: app.AppendEventRequest{
+	if _, err := svc.CreateClaimProposal(ctx, researchproposal.CreateClaimProposalRequest{
+		ClaimEvent: ledger.AppendRequest{
 			EventID:   "evt_confidence_web_claim",
 			MissionID: missionID,
 			EventType: "claim.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_confidence_web"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_confidence_web"},
 			Payload: mustJSON(map[string]any{
 				"claim_id":    claimID,
 				"proposal_id": "prp_confidence_web",
 			}),
 		},
-		Claim: app.CreateClaimRecordRequest{
+		Claim: researchrecords.CreateClaimRecordRequest{
 			ClaimID:               claimID,
 			MissionID:             missionID,
 			Text:                  "The claim can be reassessed as evidence improves.",
 			ClaimType:             "descriptive",
 			SupportingEvidenceIDs: []string{evidenceID},
-			Confidence:            app.Confidence{Level: "low", Rationale: "Initial support was weak."},
-			Approval:              app.Approval{State: "pending", Required: true},
+			Confidence:            researchrecords.Confidence{Level: "low", Rationale: "Initial support was weak."},
+			Approval:              researchrecords.ClaimApproval{State: "pending", Required: true},
 			CreatedEventID:        "evt_confidence_web_claim",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_confidence_web_proposal",
 			MissionID: missionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_confidence_web"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_confidence_web"},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": "prp_confidence_web",
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_confidence_web",
 			MissionID:         missionID,
 			Title:             "Review claim",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.ClaimRecordObjectKind, ObjectID: claimID}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: claimID}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_confidence_web_proposal",
 		},
@@ -7414,7 +6876,7 @@ func TestClaimConfidenceUpdateAppearsInMissionDetail(t *testing.T) {
 		"rationale":          "The accepted source-backed evidence now directly supports the claim.",
 		"basis_evidence_ids": []string{evidenceID},
 	})
-	if got := nestedString(t, response, "event", "EventType"); got != app.ClaimConfidenceUpdatedEvent {
+	if got := nestedString(t, response, "event", "EventType"); got != researchrecords.ClaimConfidenceUpdatedEvent {
 		t.Fatalf("unexpected event type %q", got)
 	}
 	detail := response["detail"].(map[string]any)
@@ -7457,14 +6919,14 @@ func TestMediaURLSourceStoresImageArtifactAndAudioLiveReference(t *testing.T) {
 			if strings.Contains(rawURL, "sound") {
 				return fetchedMediaSource{
 					MediaType: "audio/mpeg",
-					MediaKind: app.MediaKindAudio,
+					MediaKind: sourcecontract.MediaKindAudio,
 					ByteSize:  12345,
 				}, nil
 			}
 			return fetchedMediaSource{
 				Content:   []byte("fake-png-bytes"),
 				MediaType: "image/png",
-				MediaKind: app.MediaKindImage,
+				MediaKind: sourcecontract.MediaKindImage,
 				ByteSize:  int64(len("fake-png-bytes")),
 				Width:     640,
 				Height:    480,
@@ -7489,7 +6951,7 @@ func TestMediaURLSourceStoresImageArtifactAndAudioLiveReference(t *testing.T) {
 		t.Fatalf("media source read must not return binary content: %#v", imageRead)
 	}
 	media := imageRead["media"].(map[string]any)
-	if media["media_kind"] != app.MediaKindImage || media["inspection_support"] != "metadata_only_until_vision_engine_configured" {
+	if media["media_kind"] != sourcecontract.MediaKindImage || media["inspection_support"] != "metadata_only_until_vision_engine_configured" {
 		t.Fatalf("unexpected image media locator: %#v", media)
 	}
 
@@ -7502,7 +6964,7 @@ func TestMediaURLSourceStoresImageArtifactAndAudioLiveReference(t *testing.T) {
 	}
 	audioSnapshot := audio["snapshot"].(map[string]any)
 	access := audioSnapshot["Access"].(map[string]any)
-	if access["RetrievalPolicy"] != app.SourceRetrievalPolicyLiveReference {
+	if access["RetrievalPolicy"] != sourcecontract.RetrievalPolicyLiveReference {
 		t.Fatalf("expected audio live reference, got %#v", audioSnapshot)
 	}
 }
@@ -7515,14 +6977,14 @@ func TestMediaLocatorFromJSONValidatesLocatorTypeAndLegacyKind(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected legacy media kind fallback: %v", err)
 	}
-	if legacy.LocatorType != app.SourceLocatorTypeMedia || legacy.Kind != "" || legacy.MediaKind != app.MediaKindImage {
+	if legacy.LocatorType != sourcecontract.LocatorTypeMedia || legacy.Kind != "" || legacy.MediaKind != sourcecontract.MediaKindImage {
 		t.Fatalf("expected normalized legacy media locator, got %#v", legacy)
 	}
 	uploadedLegacy, err := mediaLocatorFromJSON(json.RawMessage(`{"kind":"file_upload","content_kind":"image","sanitized_filename":"legacy-pixel.png","media_type":"image/png","byte_size":123}`))
 	if err != nil {
 		t.Fatalf("expected legacy uploaded image fallback: %v", err)
 	}
-	if uploadedLegacy.LocatorType != app.SourceLocatorTypeMedia || uploadedLegacy.Provider != app.SourceConnectorTypeFileUpload || uploadedLegacy.Title != "legacy-pixel.png" || uploadedLegacy.MIMEType != "image/png" {
+	if uploadedLegacy.LocatorType != sourcecontract.LocatorTypeMedia || uploadedLegacy.Provider != sourcecontract.ConnectorTypeFileUpload || uploadedLegacy.Title != "legacy-pixel.png" || uploadedLegacy.MIMEType != "image/png" {
 		t.Fatalf("expected normalized legacy uploaded image locator, got %#v", uploadedLegacy)
 	}
 }
@@ -7589,22 +7051,22 @@ func TestPDFURLSourceReusesStagedSourceCandidate(t *testing.T) {
 		"Staged PDF URL Source",
 		"Alpha code is 94.",
 	})
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_candidate_pdf",
 		MissionID:  missionID,
 		MediaType:  "application/pdf",
 		Filename:   "candidate.pdf",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    pdfBytes,
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_candidate_staged",
 		MissionID: missionID,
 		EventType: "source.candidate.staged",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSON(map[string]any{
 			"url":                "https://example.com/candidate.pdf",
 			"proposal_event_id":  "evt_candidate_proposed",
@@ -7622,7 +7084,7 @@ func TestPDFURLSourceReusesStagedSourceCandidate(t *testing.T) {
 	if reused, _ := source["reused_source_candidate"].(bool); !reused {
 		t.Fatalf("expected staged PDF candidate artifact reuse, got %#v", source)
 	}
-	if nestedString(t, source, "snapshot", "Connector", "ConnectorType") != app.SourceConnectorTypePDFURL {
+	if nestedString(t, source, "snapshot", "Connector", "ConnectorType") != sourcecontract.ConnectorTypePDFURL {
 		t.Fatalf("expected pdf_url source snapshot, got %#v", source)
 	}
 	read := getJSON(t, server.URL+"/api/missions/"+missionID+"/sources/"+nestedString(t, source, "snapshot", "SnapshotID")+"/read?max_bytes=20000")
@@ -7662,46 +7124,46 @@ func TestAgentProposalExtractionIgnoresQuestionOnlyEvents(t *testing.T) {
 	defer store.Close()
 
 	svc := app.NewService(store)
-	mission, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_question_only", Title: "Question only"})
+	mission, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_question_only", Title: "Question only"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_question_only",
 			MissionID:  mission.MissionID,
 			MediaType:  "text/plain",
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    []byte("source body"),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID:  "src_question_only",
 			MissionID:   mission.MissionID,
-			Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://source"},
+			Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://source"},
 			Title:       "Question only source",
 			ArtifactIDs: []string{"art_question_only"},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   "evt_question_only_source",
 			MissionID: mission.MissionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateQuestionProposal(ctx, app.CreateQuestionProposalRequest{
-		QuestionEvent: app.AppendEventRequest{
+	if _, err := svc.CreateQuestionProposal(ctx, researchproposal.CreateQuestionProposalRequest{
+		QuestionEvent: ledger.AppendRequest{
 			EventID:   "evt_question_only",
 			MissionID: mission.MissionID,
 			EventType: "question.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_question_only"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_question_only"},
 			Payload: mustJSON(map[string]any{
 				"question_id": "qst_question_only",
 				"proposal_id": "prp_question_only",
 			}),
 		},
-		Question: app.CreateQuestionRecordRequest{
+		Question: researchrecords.CreateQuestionRecordRequest{
 			QuestionID:     "qst_question_only",
 			MissionID:      mission.MissionID,
 			State:          "open",
@@ -7709,20 +7171,20 @@ func TestAgentProposalExtractionIgnoresQuestionOnlyEvents(t *testing.T) {
 			Priority:       "medium",
 			CreatedEventID: "evt_question_only",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_question_only_proposal",
 			MissionID: mission.MissionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_question_only"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_question_only"},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": "prp_question_only",
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_question_only",
 			MissionID:         mission.MissionID,
 			Title:             "Review question",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.QuestionRecordObjectKind, ObjectID: "qst_question_only"}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.QuestionRecordObjectKind, ObjectID: "qst_question_only"}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_question_only_proposal",
 		},
@@ -7745,72 +7207,72 @@ func TestAgentProposalExtractionRunsWhenMainTurnAlreadyCreatedOneProposal(t *tes
 	defer store.Close()
 
 	svc := app.NewService(store)
-	mission, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_existing_proposal", Title: "Existing proposal"})
+	mission, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_existing_proposal", Title: "Existing proposal"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_existing_proposal",
 			MissionID:  mission.MissionID,
 			MediaType:  "text/plain",
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    []byte("source body with multiple useful facts and reactions"),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID:  "src_existing_proposal",
 			MissionID:   mission.MissionID,
-			Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://existing"},
+			Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://existing"},
 			Title:       "Existing proposal source",
 			ArtifactIDs: []string{"art_existing_proposal"},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   "evt_existing_proposal_source",
 			MissionID: mission.MissionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateEvidenceProposal(ctx, app.CreateEvidenceProposalRequest{
-		EvidenceEvent: app.AppendEventRequest{
+	if _, err := svc.CreateEvidenceProposal(ctx, researchproposal.CreateEvidenceProposalRequest{
+		EvidenceEvent: ledger.AppendRequest{
 			EventID:   "evt_existing_evidence",
 			MissionID: mission.MissionID,
 			EventType: "evidence.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_existing"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_existing"},
 			Payload: mustJSON(map[string]any{
 				"evidence_id": "evd_existing",
 				"proposal_id": "prp_existing",
 			}),
 		},
-		Evidence: app.CreateEvidenceRecordRequest{
+		Evidence: researchrecords.CreateEvidenceRecordRequest{
 			EvidenceID:   "evd_existing",
 			MissionID:    mission.MissionID,
 			State:        "proposed",
 			Summary:      "One existing proposal should not stop extraction.",
 			EvidenceType: "fact",
-			SnapshotRefs: []app.SnapshotRef{{
+			SnapshotRefs: []researchrecords.SnapshotRef{{
 				SnapshotID: "src_existing_proposal",
 				ArtifactID: "art_existing_proposal",
 			}},
-			Producer:       app.Producer{Type: "agent_session", ID: "ses_existing"},
+			Producer:       ledger.Producer{Type: "agent_session", ID: "ses_existing"},
 			CreatedEventID: "evt_existing_evidence",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_existing_proposal",
 			MissionID: mission.MissionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_existing"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_existing"},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": "prp_existing",
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_existing",
 			MissionID:         mission.MissionID,
 			Title:             "Review existing evidence",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_existing"}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_existing"}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_existing_proposal",
 		},
@@ -7854,30 +7316,30 @@ func TestAgentProposalExtractionCountsCreatedProposalsDespiteEmptyResponse(t *te
 	defer store.Close()
 
 	svc := app.NewService(store)
-	mission, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_empty_proposal_response", Title: "Empty proposal response"})
+	mission, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_empty_proposal_response", Title: "Empty proposal response"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: "art_existing_proposal",
 			MissionID:  mission.MissionID,
 			MediaType:  "text/plain",
-			Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:    []byte("source body"),
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID:  "src_existing_proposal",
 			MissionID:   mission.MissionID,
-			Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://source"},
+			Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: "test", ExternalSourceID: "test://source"},
 			Title:       "Empty response source",
 			ArtifactIDs: []string{"art_existing_proposal"},
 		},
-		Event: app.AppendEventRequest{
+		Event: ledger.AppendRequest{
 			EventID:   "evt_empty_proposal_response_source",
 			MissionID: mission.MissionID,
 			EventType: "source.snapshotted",
-			Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -8128,11 +7590,11 @@ func TestPriorSearchApprovalTurnDoesNotNeedBackfilledPermission(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Backfill search approval"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_old_search_approval",
 		MissionID: missionID,
 		EventType: "turn.user",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"text":           "검색 승인",
 			"agent_executor": "codex",
@@ -9125,7 +8587,7 @@ func TestSeparateMissionsCanUseDifferentExecutors(t *testing.T) {
 }
 
 func TestProviderLockIgnoresEventsWithoutExplicitExecutor(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		{EventType: "turn.agent.response", Payload: []byte(`{"kind":"agent_response","text":"legacy"}`)},
 		{EventType: "report.draft.pending", Payload: []byte(`{"kind":"report_draft_pending"}`)},
 	}
@@ -9133,7 +8595,7 @@ func TestProviderLockIgnoresEventsWithoutExplicitExecutor(t *testing.T) {
 		t.Fatalf("expected no lock from events without agent_executor, got %q", got)
 	}
 
-	events = append(events, app.LedgerEvent{EventType: "turn.agent.response", Payload: []byte(`{"kind":"agent_response","agent_executor":"claude"}`)})
+	events = append(events, ledger.Event{EventType: "turn.agent.response", Payload: []byte(`{"kind":"agent_response","agent_executor":"claude"}`)})
 	if got := app.LockedAgentExecutorFromEvents(events); got != "claude" {
 		t.Fatalf("expected explicit claude lock, got %q", got)
 	}
@@ -9159,7 +8621,7 @@ func TestUntaggedAgentSessionOnlyResumesForCodexCompatibility(t *testing.T) {
 		"agent_session_id": "legacy-codex-session",
 		"text":             "legacy response",
 		"user_event_id":    "evt_user",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -9187,12 +8649,12 @@ func TestReportArtifactSessionContributesToLatestAgentSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	missionID := mission.Projection.MissionID
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_report_session",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "report-session.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# Report session\n\nSession report.\n"),
 	}); err != nil {
 		t.Fatal(err)
@@ -9202,7 +8664,7 @@ func TestReportArtifactSessionContributesToLatestAgentSession(t *testing.T) {
 		"artifact_id":      "art_report_session",
 		"agent_executor":   "codex",
 		"agent_session_id": "report-session-1",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -9231,15 +8693,15 @@ func TestIsolatedReportArtifactDoesNotReplaceResearchSession(t *testing.T) {
 		"kind":             "agent_response",
 		"agent_executor":   "codex",
 		"agent_session_id": "research-session-1",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_isolated_report_session",
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "isolated-report-session.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("# Isolated report session\n\nSession report.\n"),
 	}); err != nil {
 		t.Fatal(err)
@@ -9251,7 +8713,7 @@ func TestIsolatedReportArtifactDoesNotReplaceResearchSession(t *testing.T) {
 		"agent_session_id":               "report-session-1",
 		"report_session_policy":          reportSessionPolicyIsolatedFork,
 		"pre_report_research_session_id": "research-session-1",
-	}, app.Producer{Type: "agent", ID: "codex"}); err != nil {
+	}, ledger.Producer{Type: "agent", ID: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -9392,14 +8854,14 @@ func TestAgentTurnStagesConfluenceSourceCandidateWithMissionAccess(t *testing.T)
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Confluence candidate staging"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	cloudID, err := app.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
+	cloudID, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
 	if err != nil {
 		t.Fatal(err)
 	}
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_stage",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites":         []map[string]any{{"url": "https://docs.atlassian.net/wiki"}},
@@ -9427,7 +8889,7 @@ func TestAgentTurnStagesConfluenceSourceCandidateWithMissionAccess(t *testing.T)
 	if artifact.MediaType != "text/plain; charset=utf-8" || !strings.Contains(string(artifact.Content), "Stage me before approval") {
 		t.Fatalf("expected staged Confluence plain text artifact, got type=%q content=%q", artifact.MediaType, string(artifact.Content))
 	}
-	sources, err := svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	sources, err := svc.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{MissionID: missionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9461,13 +8923,13 @@ func TestAgentTurnStagesConfluenceSourceCandidateWithMissionAccess(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if approvedArtifact.MediaType != app.ConfluenceSnapshotMediaType || !strings.Contains(string(approvedArtifact.Content), "Stage me before approval") {
+	if approvedArtifact.MediaType != confluencesource.ConfluenceSnapshotMediaType || !strings.Contains(string(approvedArtifact.Content), "Stage me before approval") {
 		t.Fatalf("approved artifact should be fresh Confluence representation: type=%q content=%q", approvedArtifact.MediaType, approvedArtifact.Content)
 	}
 	if approvedArtifactID == artifactID || string(approvedArtifact.Content) == string(artifact.Content) {
 		t.Fatalf("approved artifact reused staged bytes: approved=%q staged=%q", approvedArtifactID, artifactID)
 	}
-	sources, err = svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	sources, err = svc.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{MissionID: missionID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -9554,7 +9016,7 @@ func TestAgentTurnStagesAndURLRouteApprovesExtensionlessImageCandidate(t *testin
 				t.Fatalf("unexpected image candidate URL %q", rawURL)
 			}
 			return fetchedURLSource{
-				Content: imageBytes, MediaType: "image/png", MediaKind: app.MediaKindImage,
+				Content: imageBytes, MediaType: "image/png", MediaKind: sourcecontract.MediaKindImage,
 				Title: "Game screen", ByteSize: int64(len(imageBytes)), Width: 1, Height: 1,
 			}, nil
 		},
@@ -9566,7 +9028,7 @@ func TestAgentTurnStagesAndURLRouteApprovesExtensionlessImageCandidate(t *testin
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "find an image"})
 	detail := waitForEventType(t, server.URL, missionID, "source.candidate.staged")
 	stagedPayload := lastEventPayload(t, detail, "source.candidate.staged")
-	if stagedPayload["candidate_kind"] != "media_url" || stagedPayload["media_kind"] != app.MediaKindImage || stagedPayload["media_type"] != "image/png" || stagedPayload["width"] != float64(1) || stagedPayload["height"] != float64(1) {
+	if stagedPayload["candidate_kind"] != "media_url" || stagedPayload["media_kind"] != sourcecontract.MediaKindImage || stagedPayload["media_type"] != "image/png" || stagedPayload["width"] != float64(1) || stagedPayload["height"] != float64(1) {
 		t.Fatalf("staged image metadata = %#v", stagedPayload)
 	}
 	stagedArtifactID, _ := stagedPayload["artifact_id"].(string)
@@ -9586,18 +9048,18 @@ func TestAgentTurnStagesAndURLRouteApprovesExtensionlessImageCandidate(t *testin
 	if fetches.Load() != 1 {
 		t.Fatalf("image approval refetched candidate: %d", fetches.Load())
 	}
-	if got := nestedString(t, result, "snapshot", "Connector", "ConnectorType"); got != app.SourceConnectorTypeMediaURL {
+	if got := nestedString(t, result, "snapshot", "Connector", "ConnectorType"); got != sourcecontract.ConnectorTypeMediaURL {
 		t.Fatalf("approved connector type = %q", got)
 	}
 	approvedPayload := lastEventPayload(t, getJSON(t, server.URL+"/api/missions/"+missionID), "source.snapshotted")
-	if approvedPayload["source_candidate_proposal_event_id"] != stagedPayload["proposal_event_id"] || approvedPayload["source_candidate_artifact_reused"] != true || approvedPayload["media_kind"] != app.MediaKindImage {
+	if approvedPayload["source_candidate_proposal_event_id"] != stagedPayload["proposal_event_id"] || approvedPayload["source_candidate_artifact_reused"] != true || approvedPayload["media_kind"] != sourcecontract.MediaKindImage {
 		t.Fatalf("approved image provenance = %#v", approvedPayload)
 	}
-	sources, err := svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: missionID})
+	sources, err := svc.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{MissionID: missionID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(sources) != 1 || len(sources[0].ArtifactIDs) != 1 || sources[0].ArtifactIDs[0] != stagedArtifactID || sources[0].Connector.ConnectorType != app.SourceConnectorTypeMediaURL {
+	if len(sources) != 1 || len(sources[0].ArtifactIDs) != 1 || sources[0].ArtifactIDs[0] != stagedArtifactID || sources[0].Connector.ConnectorType != sourcecontract.ConnectorTypeMediaURL {
 		t.Fatalf("approved image source = %#v", sources)
 	}
 }
@@ -9798,22 +9260,22 @@ func TestURLSourceSnapshotBrowserRendersStagedCandidate(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Staged browser candidate"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	rawArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	rawArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_candidate_browser",
 		MissionID:  missionID,
 		MediaType:  "text/html; charset=utf-8",
 		Filename:   "candidate.html",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte(browserRenderCandidateHTMLFixture()),
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_candidate_staged_browser",
 		MissionID: missionID,
 		EventType: "source.candidate.staged",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSON(map[string]any{
 			"url":                "https://example.com/app",
 			"title":              "Raw Client App",
@@ -9952,7 +9414,7 @@ func TestURLSourceSnapshotRoutesConfluencePageURLToConnector(t *testing.T) {
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -9963,7 +9425,7 @@ func TestURLSourceSnapshotRoutesConfluencePageURLToConnector(t *testing.T) {
 	result := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/url", map[string]any{
 		"url": "https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap#ignored",
 	})
-	if got := nestedString(t, result, "Snapshot", "Connector", "ConnectorID"); got != app.ConfluenceConnectorID {
+	if got := nestedString(t, result, "Snapshot", "Connector", "ConnectorID"); got != confluencesource.ConfluenceConnectorID {
 		t.Fatalf("expected Confluence snapshot connector, got %q result=%#v", got, result)
 	}
 	if got := nestedString(t, result, "Snapshot", "Connector", "ExternalSourceID"); got != "site_docs.atlassian.net:123" {
@@ -9985,7 +9447,7 @@ func TestURLSourceSnapshotRoutesConfluencePageURLToConnector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if artifact.MediaType != app.ConfluenceSnapshotMediaType || !strings.Contains(string(artifact.Content), "Confluence body") {
+	if artifact.MediaType != confluencesource.ConfluenceSnapshotMediaType || !strings.Contains(string(artifact.Content), "Confluence body") {
 		t.Fatalf("expected Confluence snapshot artifact, got type=%q content=%q", artifact.MediaType, string(artifact.Content))
 	}
 	for _, auth := range authHeaders {
@@ -10031,14 +9493,14 @@ func TestConfluenceURLSourceRouteSnapshotsPageURL(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Confluence URL route test"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	cloudID, err := app.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
+	cloudID, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
 	if err != nil {
 		t.Fatal(err)
 	}
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -10051,7 +9513,7 @@ func TestConfluenceURLSourceRouteSnapshotsPageURL(t *testing.T) {
 		"connection_id": "cnf_web",
 		"cloud_id":      cloudID,
 	})
-	if got := nestedString(t, result, "Snapshot", "Connector", "ConnectorID"); got != app.ConfluenceConnectorID {
+	if got := nestedString(t, result, "Snapshot", "Connector", "ConnectorID"); got != confluencesource.ConfluenceConnectorID {
 		t.Fatalf("expected Confluence snapshot connector, got %q result=%#v", got, result)
 	}
 }
@@ -10092,14 +9554,14 @@ func TestConfluenceURLSourceRouteUsesRequestTitleAsFallback(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Confluence URL title fallback test"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	cloudID, err := app.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
+	cloudID, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki")
 	if err != nil {
 		t.Fatal(err)
 	}
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -10131,14 +9593,14 @@ func TestConfluenceURLSourceRouteRejectsSelectedSiteMismatch(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Confluence URL selected site mismatch test"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	otherCloudID, err := app.ConfluenceAPITokenSiteCloudID("https://other.atlassian.net/wiki")
+	otherCloudID, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://other.atlassian.net/wiki")
 	if err != nil {
 		t.Fatal(err)
 	}
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -10222,7 +9684,7 @@ func TestURLSourceSnapshotRejectsConfluencePageIDMismatch(t *testing.T) {
 	postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 		"connection_id": "cnf_web",
 		"display_name":  "Docs",
-		"auth_type":     app.ConfluenceAuthTypeAPIToken,
+		"auth_type":     confluenceaccess.AuthAPIToken,
 		"account_name":  "person@example.com",
 		"api_token":     "secret-api-token",
 		"sites": []map[string]any{{
@@ -10258,7 +9720,7 @@ func TestURLSourceSnapshotRejectsAmbiguousConfluenceConnections(t *testing.T) {
 		postJSON(t, server.URL+"/api/settings/connectors/confluence/connections", map[string]any{
 			"connection_id": connectionID,
 			"display_name":  connectionID,
-			"auth_type":     app.ConfluenceAuthTypeAPIToken,
+			"auth_type":     confluenceaccess.AuthAPIToken,
 			"account_name":  "person@example.com",
 			"api_token":     "secret-api-token",
 			"sites": []map[string]any{{
@@ -10696,7 +10158,7 @@ func TestLocalPathSourceWebWorkflow(t *testing.T) {
 		"title":         "Notes",
 	})
 	snapshotID := nestedString(t, attach, "snapshot", "SnapshotID")
-	if policy := nestedString(t, attach, "snapshot", "Access", "RetrievalPolicy"); policy != app.SourceRetrievalPolicyLiveReference {
+	if policy := nestedString(t, attach, "snapshot", "Access", "RetrievalPolicy"); policy != sourcecontract.RetrievalPolicyLiveReference {
 		t.Fatalf("expected live reference policy, got %q", policy)
 	}
 	encodedAttach, _ := json.Marshal(attach)
@@ -10725,7 +10187,7 @@ func TestLocalPathSourceWebWorkflow(t *testing.T) {
 	}
 
 	remove := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/"+snapshotID+"/remove", map[string]any{"reason": "test removal"})
-	if removed := nestedString(t, remove, "snapshot", "State", "state"); removed != app.SourceStateRemoved {
+	if removed := nestedString(t, remove, "snapshot", "State", "state"); removed != sourcecontract.StateRemoved {
 		t.Fatalf("expected removed source state, got %#v", remove)
 	}
 	listDefault := getJSON(t, server.URL+"/api/missions/"+missionID+"/sources")
@@ -10748,7 +10210,7 @@ func TestLocalPathSourceWebWorkflow(t *testing.T) {
 		t.Fatalf("expected restore-required conflict, got %d %#v", status, body)
 	}
 	restored := postJSON(t, server.URL+"/api/missions/"+missionID+"/sources/"+snapshotID+"/restore", map[string]any{})
-	if state := nestedString(t, restored, "snapshot", "State", "state"); state != app.SourceStateActive {
+	if state := nestedString(t, restored, "snapshot", "State", "state"); state != sourcecontract.StateActive {
 		t.Fatalf("expected restored active state, got %#v", restored)
 	}
 
@@ -11474,7 +10936,7 @@ func appendLegacyCodexSession(t *testing.T, ctx context.Context, svc *app.Servic
 		Text:                  "legacy response",
 		AgentSessionID:        sessionID,
 		IncludeAgentSessionID: true,
-		Producer:              app.Producer{Type: "agent", ID: "codex"},
+		Producer:              ledger.Producer{Type: "agent", ID: "codex"},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -11584,11 +11046,11 @@ func lastEvent(t *testing.T, detail map[string]any, eventType string) map[string
 
 func appendStaleReportPending(t *testing.T, ctx context.Context, svc *app.Service, missionID string, eventID string) {
 	t.Helper()
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "report_draft_pending",
 			"title":          "Stale report",
@@ -11634,7 +11096,7 @@ func appendStoredPlannedRecoveryPlan(t *testing.T, ctx context.Context, svc *app
 			PostReportResearchSessionID:  "",
 			CompositionStrategy:          "planned_markdown",
 			Text:                         "Markdown 리포트 생성 계획을 만들었습니다.",
-			Producer:                     app.Producer{Type: "agent_session", ID: sessionID},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: sessionID},
 		},
 		ArtifactID:         artifactID,
 		Plan:               plan,
@@ -11678,11 +11140,11 @@ func appendStoredPlannedRecoveryPlanPayload(t *testing.T, ctx context.Context, s
 	for key, value := range overrides {
 		payload[key] = value
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: missionID,
 		EventType: "report.plan.created",
-		Producer:  app.Producer{Type: "agent_session", ID: "stored-plan-session"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "stored-plan-session"},
 		Payload:   mustJSON(payload),
 	}); err != nil {
 		t.Fatal(err)
@@ -11691,11 +11153,11 @@ func appendStoredPlannedRecoveryPlanPayload(t *testing.T, ctx context.Context, s
 
 func appendStaleAgentPending(t *testing.T, ctx context.Context, svc *app.Service, missionID string, userEventID string, pendingEventID string) {
 	t.Helper()
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   userEventID,
 		MissionID: missionID,
 		EventType: "turn.user",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{
 			"kind": "user_turn",
 			"text": "stale turn",
@@ -11703,11 +11165,11 @@ func appendStaleAgentPending(t *testing.T, ctx context.Context, svc *app.Service
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   pendingEventID,
 		MissionID: missionID,
 		EventType: "turn.agent.pending",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSON(map[string]any{
 			"kind":           "agent_pending",
 			"agent_executor": "codex",
@@ -11866,7 +11328,7 @@ func hasEventForPending(detail map[string]any, eventType string, pendingEventID 
 	return false
 }
 
-func countLedgerEvents(events []app.LedgerEvent, eventType string) int {
+func countLedgerEvents(events []ledger.Event, eventType string) int {
 	var count int
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -12001,23 +11463,23 @@ func fakeHumanizePatchFinalizer(t *testing.T, svc *app.Service, content string) 
 		if req.ReportPatch == nil {
 			return
 		}
-		artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+		artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 			ArtifactID: newID("art"),
 			MissionID:  req.MissionID,
 			MediaType:  "text/markdown; charset=utf-8",
 			Filename:   "humanized.md",
-			Producer:   app.Producer{Type: "mcp_tool", ID: plasmamcp.ToolReportPatchFinalize},
+			Producer:   ledger.Producer{Type: "mcp_tool", ID: plasmamcp.ToolReportPatchFinalize},
 			Content:    []byte(content),
 		})
 		if err != nil {
 			t.Errorf("create H5 patch artifact: %v", err)
 			return
 		}
-		if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+		if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 			EventID:       newID("evt"),
 			MissionID:     req.MissionID,
 			EventType:     "report.patch.finalized",
-			Producer:      app.Producer{Type: "mcp_tool", ID: plasmamcp.ToolReportPatchFinalize},
+			Producer:      ledger.Producer{Type: "mcp_tool", ID: plasmamcp.ToolReportPatchFinalize},
 			CorrelationID: req.ToolSessionID,
 			Payload: mustJSON(map[string]any{
 				"kind":                            "markdown_report_patch_finalized",
@@ -12053,11 +11515,11 @@ func fakeHumanizePatchReader(t *testing.T, svc *app.Service) func(context.Contex
 			return
 		}
 		for _, toolName := range []string{plasmamcp.ToolReportPatchStart, plasmamcp.ToolReportPatchRead} {
-			if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+			if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 				EventID:       newID("evt"),
 				MissionID:     req.MissionID,
 				EventType:     "mcp.tool.called",
-				Producer:      app.Producer{Type: "agent_session", ID: req.ToolSessionID},
+				Producer:      ledger.Producer{Type: "agent_session", ID: req.ToolSessionID},
 				CorrelationID: req.ToolSessionID,
 				Payload: mustJSON(map[string]any{
 					"agent_session_id": req.ToolSessionID,
@@ -12090,42 +11552,42 @@ func createClaimForReportRepairTest(
 	evidenceIDs []string,
 ) {
 	t.Helper()
-	if _, err := svc.CreateClaimProposal(ctx, app.CreateClaimProposalRequest{
-		ClaimEvent: app.AppendEventRequest{
+	if _, err := svc.CreateClaimProposal(ctx, researchproposal.CreateClaimProposalRequest{
+		ClaimEvent: ledger.AppendRequest{
 			EventID:   eventID,
 			MissionID: missionID,
 			EventType: "claim.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_report_repair_test"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_report_repair_test"},
 			Payload: mustJSON(map[string]any{
 				"claim_id":    claimID,
 				"proposal_id": proposalID,
 			}),
 		},
-		Claim: app.CreateClaimRecordRequest{
+		Claim: researchrecords.CreateClaimRecordRequest{
 			ClaimID:               claimID,
 			MissionID:             missionID,
 			State:                 "proposed",
 			Text:                  text,
 			ClaimType:             "descriptive",
 			SupportingEvidenceIDs: evidenceIDs,
-			Confidence:            app.Confidence{Level: "medium"},
-			Approval:              app.Approval{State: "pending", Required: true},
+			Confidence:            researchrecords.Confidence{Level: "medium"},
+			Approval:              researchrecords.ClaimApproval{State: "pending", Required: true},
 			CreatedEventID:        eventID,
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   eventID + "_proposal",
 			MissionID: missionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_report_repair_test"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_report_repair_test"},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": proposalID,
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        proposalID,
 			MissionID:         missionID,
 			Title:             "Review claim",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.ClaimRecordObjectKind, ObjectID: claimID}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: claimID}},
 			RequestedDecision: "approve",
 			CreatedEventID:    eventID + "_proposal",
 		},
@@ -12280,12 +11742,12 @@ func (executor *reportPlanFixtureExecutor) Run(ctx context.Context, req AgentReq
 		ReportMode: req.ReportPlan.ReportMode, ToolSessionID: req.ToolSessionID, PreviousProviderSessionID: req.ReportPlan.PreviousProviderSessionID, AgentExecutor: req.AgentExecutor,
 		AgentModel: req.ReportPlan.AgentModel, AgentReasoningEffort: req.ReportPlan.AgentReasoningEffort,
 		IdempotencyKey: req.ReportPlan.IdempotencyKey, ArgumentsHash: "fixture-arguments", PlanHash: hash, Plan: encoded, Attempt: 1,
-		ToolProducer: app.Producer{Type: "agent_session", ID: req.ToolSessionID},
+		ToolProducer: ledger.Producer{Type: "agent_session", ID: req.ToolSessionID},
 	})
 	if submitErr != nil {
 		return result, submitErr
 	}
-	result.Text = reporting.ReportPlanSubmittedSentinel
+	result.Text = workflowplan.ReportPlanSubmittedSentinel
 	return result, nil
 }
 
@@ -12418,14 +11880,14 @@ func (executor *reportPlanFixtureExecutor) submitEmptyReportRequirementMap(ctx c
 	if err != nil {
 		return result, err
 	}
-	result.Text = reporting.ReportRequirementsMappedSentinel
+	result.Text = requirements.ReportRequirementsMappedSentinel
 	if strings.TrimSpace(result.SessionID) == "" {
 		result.SessionID = req.PreviousSessionID
 	}
 	return result, nil
 }
 
-func reportPlanFixtureSectionalPlan(events []app.LedgerEvent, binding reporting.ReportRequirementMapBinding) (reporting.SectionalReportPlan, error) {
+func reportPlanFixtureSectionalPlan(events []ledger.Event, binding reporting.ReportRequirementMapBinding) (reporting.SectionalReportPlan, error) {
 	for _, event := range events {
 		if event.EventID != binding.PlanEventID || event.EventType != "report.plan.created" {
 			continue
@@ -12632,44 +12094,44 @@ func (executor *proposalWritingAgentExecutor) Run(ctx context.Context, req Agent
 }
 
 func (executor *proposalWritingAgentExecutor) createEvidenceProposal(ctx context.Context, evidenceID, proposalID, evidenceEventID, proposalEventID, summary string) error {
-	_, err := executor.service.CreateEvidenceProposal(ctx, app.CreateEvidenceProposalRequest{
-		EvidenceEvent: app.AppendEventRequest{
+	_, err := executor.service.CreateEvidenceProposal(ctx, researchproposal.CreateEvidenceProposalRequest{
+		EvidenceEvent: ledger.AppendRequest{
 			EventID:   evidenceEventID,
 			MissionID: executor.missionID,
 			EventType: "evidence.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: executor.sessionID},
+			Producer:  ledger.Producer{Type: "agent_session", ID: executor.sessionID},
 			Payload: mustJSON(map[string]any{
 				"evidence_id": evidenceID,
 				"proposal_id": proposalID,
 			}),
 		},
-		Evidence: app.CreateEvidenceRecordRequest{
+		Evidence: researchrecords.CreateEvidenceRecordRequest{
 			EvidenceID:   evidenceID,
 			MissionID:    executor.missionID,
 			State:        "proposed",
 			Summary:      summary,
 			EvidenceType: "reaction",
-			SnapshotRefs: []app.SnapshotRef{{
+			SnapshotRefs: []researchrecords.SnapshotRef{{
 				SnapshotID: "src_existing_proposal",
 				ArtifactID: "art_existing_proposal",
 			}},
-			Producer:       app.Producer{Type: "agent_session", ID: executor.sessionID},
+			Producer:       ledger.Producer{Type: "agent_session", ID: executor.sessionID},
 			CreatedEventID: evidenceEventID,
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   proposalEventID,
 			MissionID: executor.missionID,
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: executor.sessionID},
+			Producer:  ledger.Producer{Type: "agent_session", ID: executor.sessionID},
 			Payload: mustJSON(map[string]any{
 				"proposal_id": proposalID,
 			}),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        proposalID,
 			MissionID:         executor.missionID,
 			Title:             "Review extracted evidence",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: evidenceID}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: evidenceID}},
 			RequestedDecision: "approve",
 			CreatedEventID:    proposalEventID,
 		},
@@ -12775,9 +12237,9 @@ func mustMarshalTestJSON(t *testing.T, value any) string {
 	return string(encoded)
 }
 
-func appendTestEvent(t *testing.T, server *Server, ctx context.Context, missionID string, eventType string, payload any, producer app.Producer) (app.LedgerEvent, error) {
+func appendTestEvent(t *testing.T, server *Server, ctx context.Context, missionID string, eventType string, payload any, producer ledger.Producer) (ledger.Event, error) {
 	t.Helper()
-	return server.service.AppendEvent(ctx, app.AppendEventRequest{
+	return server.service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   newID("evt"),
 		MissionID: missionID,
 		EventType: eventType,

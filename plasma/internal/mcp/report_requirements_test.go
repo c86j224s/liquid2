@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -16,16 +17,16 @@ type reportRequirementMCPService struct {
 
 func (service *reportRequirementMCPService) SubmitReportRequirementMap(_ context.Context, req app.ReportRequirementMapSubmissionRequest) (app.ReportRequirementMapSubmission, error) {
 	service.request = req
-	return app.ReportRequirementMapSubmission{Event: app.LedgerEvent{EventID: req.EventID, MissionID: req.MissionID, EventType: reporting.ReportRequirementsMappedEventType}}, nil
+	return app.ReportRequirementMapSubmission{Event: ledger.Event{EventID: req.EventID, MissionID: req.MissionID, EventType: reporting.ReportRequirementsMappedEventType}}, nil
 }
 
 func TestReportRequirementsSubmitIsBoundToFixedPlan(t *testing.T) {
 	binding := reporting.ReportRequirementMapBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool",
 		PreviousProviderSessionID: "ses_plan", IdempotencyKey: "rrk_once", AgentExecutor: "codex", AgentModel: "gpt-test", AgentReasoningEffort: "high",
-		Producer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
-	service := &reportRequirementMCPService{fakeMCPService: &fakeMCPService{ledgerEvents: []app.LedgerEvent{{
+	service := &reportRequirementMCPService{fakeMCPService: &fakeMCPService{ledgerEvents: []ledger.Event{{
 		EventID: "evt_plan", MissionID: "mis_1", EventType: "report.plan.created",
 		Payload: json.RawMessage(`{"pending_event_id":"evt_pending","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`),
 	}}}}
@@ -53,8 +54,8 @@ func TestReportRequirementsSubmitIsBoundToFixedPlan(t *testing.T) {
 }
 
 func TestReportRequirementsSubmitRejectsOutlineMutationAndBindingMismatch(t *testing.T) {
-	binding := reporting.ReportRequirementMapBinding{MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool", IdempotencyKey: "rrk", AgentExecutor: "codex", Producer: app.Producer{Type: "agent_session", ID: "ses_tool"}}
-	service := &reportRequirementMCPService{fakeMCPService: &fakeMCPService{ledgerEvents: []app.LedgerEvent{{EventID: "evt_plan", MissionID: "mis_1", EventType: "report.plan.created", Payload: json.RawMessage(`{"pending_event_id":"evt_pending","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`)}}}}
+	binding := reporting.ReportRequirementMapBinding{MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool", IdempotencyKey: "rrk", AgentExecutor: "codex", Producer: ledger.Producer{Type: "agent_session", ID: "ses_tool"}}
+	service := &reportRequirementMCPService{fakeMCPService: &fakeMCPService{ledgerEvents: []ledger.Event{{EventID: "evt_plan", MissionID: "mis_1", EventType: "report.plan.created", Payload: json.RawMessage(`{"pending_event_id":"evt_pending","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`)}}}}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_tool", AgentExecutor: "codex"}), WithReportRequirementMapBinding(binding), WithEnabledTools([]string{ToolReportRequirementsSubmit}))
 	base := map[string]any{
 		"mission_id": "mis_1", "session_id": "ses_tool", "pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "idempotency_key": "rrk",

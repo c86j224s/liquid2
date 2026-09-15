@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -26,7 +26,7 @@ type OpenAgentPending struct {
 // LatestAgentSessionID는 특정 executor가 다음 대화 턴에서 재개할 세션 ID를
 // 원장 이벤트에서 복원한다. isolated/fresh 보고서 세션은 보고서 작성용 세션을
 // 이어 쓰지 않도록 pre-report 연구 세션으로 되돌린다.
-func LatestAgentSessionID(events []app.LedgerEvent, executorName string) string {
+func LatestAgentSessionID(events []ledger.Event, executorName string) string {
 	return LatestAgentSession(events, executorName).SessionID
 }
 
@@ -41,7 +41,7 @@ type AgentSession struct {
 // LatestAgentSession restores the latest provider session and profile identity.
 // Historical events without profile fields map to legacy.v1. Report sessions
 // inherit the profile of their recorded pre-report or same-session ancestor.
-func LatestAgentSession(events []app.LedgerEvent, executorName string) AgentSession {
+func LatestAgentSession(events []ledger.Event, executorName string) AgentSession {
 	latest, _ := scanAgentSessions(events, executorName)
 	return latest
 }
@@ -49,7 +49,7 @@ func LatestAgentSession(events []app.LedgerEvent, executorName string) AgentSess
 // AgentSessionByID restores the immutable profile associated with a recorded
 // provider session. It includes report sessions whose profile is inherited from
 // their pre-report research lineage.
-func AgentSessionByID(events []app.LedgerEvent, executorName string, sessionID string) (AgentSession, bool) {
+func AgentSessionByID(events []ledger.Event, executorName string, sessionID string) (AgentSession, bool) {
 	_, sessions := scanAgentSessions(events, executorName)
 	session, ok := sessions[strings.TrimSpace(sessionID)]
 	return session, ok
@@ -65,7 +65,7 @@ type agentSessionPayload struct {
 	PreReportResearchSessionID string                    `json:"pre_report_research_session_id"`
 }
 
-func scanAgentSessions(events []app.LedgerEvent, executorName string) (AgentSession, map[string]AgentSession) {
+func scanAgentSessions(events []ledger.Event, executorName string) (AgentSession, map[string]AgentSession) {
 	latestOrder := int64(-1)
 	latest := AgentSession{}
 	sessions := map[string]AgentSession{}
@@ -173,7 +173,7 @@ func firstProfileRevision(value string) string {
 
 // LatestAgentModel은 특정 executor에 대해 마지막으로 확인된 모델명을 반환한다.
 // 세션 reset 이벤트가 있으면 reset payload의 모델 설정을 현재값으로 본다.
-func LatestAgentModel(events []app.LedgerEvent, executorName string) string {
+func LatestAgentModel(events []ledger.Event, executorName string) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].EventType != "agent.session.reset" && events[i].EventType != "turn.agent.response" {
 			continue
@@ -201,7 +201,7 @@ func LatestAgentModel(events []app.LedgerEvent, executorName string) string {
 
 // LatestAgentReasoningEffort는 특정 executor에 대해 마지막으로 확인된 추론
 // 강도를 반환한다. 빈 값은 호출자가 기본 설정을 적용해야 한다는 뜻이다.
-func LatestAgentReasoningEffort(events []app.LedgerEvent, executorName string) string {
+func LatestAgentReasoningEffort(events []ledger.Event, executorName string) string {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].EventType != "agent.session.reset" && events[i].EventType != "turn.agent.response" {
 			continue
@@ -230,7 +230,7 @@ func LatestAgentReasoningEffort(events []app.LedgerEvent, executorName string) s
 // LatestOpenAgentPending은 아직 turn.agent.response로 닫히지 않은 최신 pending
 // 턴을 반환한다. workflowRunID가 주어지면 해당 workflow에 속한 pending만
 // 대상으로 삼는다.
-func LatestOpenAgentPending(events []app.LedgerEvent, workflowRunID string) (OpenAgentPending, bool) {
+func LatestOpenAgentPending(events []ledger.Event, workflowRunID string) (OpenAgentPending, bool) {
 	completed := CompletedUserEventIDs(events)
 	workflowRunID = strings.TrimSpace(workflowRunID)
 	for i := len(events) - 1; i >= 0; i-- {
@@ -269,7 +269,7 @@ func LatestOpenAgentPending(events []app.LedgerEvent, workflowRunID string) (Ope
 
 // AgentPendingForUserEvent는 특정 사용자 이벤트에 연결된 pending 턴을 찾는다.
 // 이 함수는 terminal 여부를 판정하지 않고, 원장에 기록된 pending 문맥만 복원한다.
-func AgentPendingForUserEvent(events []app.LedgerEvent, userEventID string) (OpenAgentPending, bool) {
+func AgentPendingForUserEvent(events []ledger.Event, userEventID string) (OpenAgentPending, bool) {
 	userEventID = strings.TrimSpace(userEventID)
 	if userEventID == "" {
 		return OpenAgentPending{}, false
@@ -302,14 +302,14 @@ func AgentPendingForUserEvent(events []app.LedgerEvent, userEventID string) (Ope
 
 // HasOpenAgentPending은 workflow 구분 없이 열린 에이전트 pending이 남아 있는지
 // 판정한다.
-func HasOpenAgentPending(events []app.LedgerEvent) bool {
+func HasOpenAgentPending(events []ledger.Event) bool {
 	_, ok := LatestOpenAgentPending(events, "")
 	return ok
 }
 
 // HasAgentTerminalEventForUser는 특정 사용자 이벤트가 에이전트 terminal 응답으로
 // 닫혔는지 판정한다. 빈 ID는 유효한 사용자 이벤트가 아니므로 닫힘으로 보지 않는다.
-func HasAgentTerminalEventForUser(events []app.LedgerEvent, userEventID string) bool {
+func HasAgentTerminalEventForUser(events []ledger.Event, userEventID string) bool {
 	userEventID = strings.TrimSpace(userEventID)
 	if userEventID == "" {
 		return false
@@ -320,7 +320,7 @@ func HasAgentTerminalEventForUser(events []app.LedgerEvent, userEventID string) 
 
 // CompletedUserEventIDs는 turn.agent.response가 닫은 사용자 이벤트 ID 집합을
 // 만든다. payload 파싱에 실패한 이벤트는 닫힘 근거로 쓰지 않는다.
-func CompletedUserEventIDs(events []app.LedgerEvent) map[string]struct{} {
+func CompletedUserEventIDs(events []ledger.Event) map[string]struct{} {
 	completed := map[string]struct{}{}
 	for _, event := range events {
 		if event.EventType != "turn.agent.response" {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 	"strings"
 	"testing"
 )
@@ -10,15 +11,15 @@ import (
 func TestUpsertConfluenceConnectionNormalizesAndDoesNotMarshalTokens(t *testing.T) {
 	store := &confluenceConnectionFakeStore{}
 	svc := NewService(store)
-	connection, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+	connection, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 		ConnectionID: " cnf_1 ",
 		DisplayName:  " Workspace ",
-		AuthType:     ConfluenceAuthTypeOAuth,
+		AuthType:     confluenceaccess.AuthOAuth,
 		AccountID:    " acct_1 ",
 		AccessToken:  " access-secret ",
 		RefreshToken: " refresh-secret ",
 		Scopes:       []string{"read:page:confluence", "read:page:confluence"},
-		Sites: []ConfluenceSite{{
+		Sites: []confluenceaccess.Site{{
 			CloudID: " cloud_1 ",
 			Name:    " Example ",
 			URL:     "https://example.atlassian.net/",
@@ -43,9 +44,9 @@ func TestUpsertConfluenceConnectionNormalizesAndDoesNotMarshalTokens(t *testing.
 
 func TestUpsertConfluenceConnectionRejectsMissingToken(t *testing.T) {
 	svc := NewService(&confluenceConnectionFakeStore{})
-	_, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+	_, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 		ConnectionID: "cnf_1",
-		AuthType:     ConfluenceAuthTypeOAuth,
+		AuthType:     confluenceaccess.AuthOAuth,
 	})
 	if err == nil {
 		t.Fatal("expected missing token error")
@@ -54,9 +55,9 @@ func TestUpsertConfluenceConnectionRejectsMissingToken(t *testing.T) {
 
 func TestUpsertConfluenceConnectionRejectsAPITokenWithoutEmail(t *testing.T) {
 	svc := NewService(&confluenceConnectionFakeStore{})
-	_, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+	_, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 		ConnectionID: "cnf_1",
-		AuthType:     ConfluenceAuthTypeAPIToken,
+		AuthType:     confluenceaccess.AuthAPIToken,
 		AccessToken:  "api-token",
 	})
 	if err == nil || !strings.Contains(err.Error(), "account email") {
@@ -72,12 +73,12 @@ func TestUpsertConfluenceConnectionRejectsUnsafeAPITokenSiteURL(t *testing.T) {
 		"https://person:secret@docs.atlassian.net/wiki",
 		"https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap",
 	} {
-		_, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+		_, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 			ConnectionID: "cnf_1",
-			AuthType:     ConfluenceAuthTypeAPIToken,
+			AuthType:     confluenceaccess.AuthAPIToken,
 			AccountName:  "person@example.com",
 			AccessToken:  "api-token",
-			Sites:        []ConfluenceSite{{CloudID: "cloud_1", URL: siteURL}},
+			Sites:        []confluenceaccess.Site{{CloudID: "cloud_1", URL: siteURL}},
 		})
 		if err == nil {
 			t.Fatalf("expected unsafe site URL %q to be rejected", siteURL)
@@ -87,12 +88,12 @@ func TestUpsertConfluenceConnectionRejectsUnsafeAPITokenSiteURL(t *testing.T) {
 
 func TestUpsertConfluenceConnectionRejectsAPITokenCloudIDMismatch(t *testing.T) {
 	svc := NewService(&confluenceConnectionFakeStore{})
-	_, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+	_, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 		ConnectionID: "cnf_1",
-		AuthType:     ConfluenceAuthTypeAPIToken,
+		AuthType:     confluenceaccess.AuthAPIToken,
 		AccountName:  "person@example.com",
 		AccessToken:  "api-token",
-		Sites:        []ConfluenceSite{{CloudID: "cloud_1", URL: "https://docs.atlassian.net/wiki/"}},
+		Sites:        []confluenceaccess.Site{{CloudID: "cloud_1", URL: "https://docs.atlassian.net/wiki/"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "cloud id must match the site URL") {
 		t.Fatalf("expected API token cloud id mismatch error, got %v", err)
@@ -101,12 +102,12 @@ func TestUpsertConfluenceConnectionRejectsAPITokenCloudIDMismatch(t *testing.T) 
 
 func TestUpsertConfluenceConnectionAllowsAPITokenAtlassianSiteURL(t *testing.T) {
 	svc := NewService(&confluenceConnectionFakeStore{})
-	connection, err := svc.UpsertConfluenceConnection(context.Background(), UpsertConfluenceConnectionRequest{
+	connection, err := svc.UpsertConfluenceConnection(context.Background(), confluenceaccess.UpsertRequest{
 		ConnectionID: "cnf_1",
-		AuthType:     ConfluenceAuthTypeAPIToken,
+		AuthType:     confluenceaccess.AuthAPIToken,
 		AccountName:  "person@example.com",
 		AccessToken:  "api-token",
-		Sites:        []ConfluenceSite{{URL: "https://docs.atlassian.net/wiki/"}},
+		Sites:        []confluenceaccess.Site{{URL: "https://docs.atlassian.net/wiki/"}},
 	})
 	if err != nil {
 		t.Fatalf("UpsertConfluenceConnection returned error: %v", err)
@@ -120,21 +121,21 @@ func TestUpsertConfluenceConnectionAllowsAPITokenAtlassianSiteURL(t *testing.T) 
 }
 
 func TestConfluenceAPITokenSiteCloudIDRejectsUnsafeURL(t *testing.T) {
-	if got, err := ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki/"); err != nil || got != "site_docs.atlassian.net" {
-		t.Fatalf("ConfluenceAPITokenSiteCloudID returned %q, %v", got, err)
+	if got, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki/"); err != nil || got != "site_docs.atlassian.net" {
+		t.Fatalf("confluenceaccess.ConfluenceAPITokenSiteCloudID returned %q, %v", got, err)
 	}
-	if _, err := ConfluenceAPITokenSiteCloudID("https://evil.example/wiki"); err == nil {
+	if _, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://evil.example/wiki"); err == nil {
 		t.Fatal("expected unsafe site URL to be rejected")
 	}
-	if _, err := ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap"); err == nil {
+	if _, err := confluenceaccess.ConfluenceAPITokenSiteCloudID("https://docs.atlassian.net/wiki/spaces/ENG/pages/123/Roadmap"); err == nil {
 		t.Fatal("expected page URL to be rejected")
 	}
 }
 
 func TestNormalizeConfluenceAPITokenAPIBaseURL(t *testing.T) {
-	got, err := NormalizeConfluenceAPITokenAPIBaseURL("https://docs.atlassian.net/wiki/?ignored=1#fragment")
+	got, err := confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURL("https://docs.atlassian.net/wiki/?ignored=1#fragment")
 	if err != nil {
-		t.Fatalf("NormalizeConfluenceAPITokenAPIBaseURL returned error: %v", err)
+		t.Fatalf("confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURL returned error: %v", err)
 	}
 	if got != "https://docs.atlassian.net/wiki" {
 		t.Fatalf("unexpected normalized API base URL: %q", got)
@@ -144,24 +145,24 @@ func TestNormalizeConfluenceAPITokenAPIBaseURL(t *testing.T) {
 		"https://evil.example/wiki",
 		"https://person:secret@docs.atlassian.net/wiki",
 	} {
-		if _, err := NormalizeConfluenceAPITokenAPIBaseURL(value); err == nil {
+		if _, err := confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURL(value); err == nil {
 			t.Fatalf("expected API base URL %q to be rejected", value)
 		}
 	}
 }
 
 func TestNormalizeConfluenceAPITokenAPIBaseURLForSiteRejectsCrossTenant(t *testing.T) {
-	got, err := NormalizeConfluenceAPITokenAPIBaseURLForSite(
+	got, err := confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURLForSite(
 		"https://docs.atlassian.net/wiki",
 		"https://docs.atlassian.net/wiki/",
 	)
 	if err != nil {
-		t.Fatalf("NormalizeConfluenceAPITokenAPIBaseURLForSite returned error: %v", err)
+		t.Fatalf("confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURLForSite returned error: %v", err)
 	}
 	if got != "https://docs.atlassian.net/wiki" {
 		t.Fatalf("unexpected normalized API base URL: %q", got)
 	}
-	if _, err := NormalizeConfluenceAPITokenAPIBaseURLForSite(
+	if _, err := confluenceaccess.NormalizeConfluenceAPITokenAPIBaseURLForSite(
 		"https://other.atlassian.net/wiki",
 		"https://docs.atlassian.net/wiki",
 	); err == nil {
@@ -171,26 +172,26 @@ func TestNormalizeConfluenceAPITokenAPIBaseURLForSiteRejectsCrossTenant(t *testi
 
 type confluenceConnectionFakeStore struct {
 	fakeStore
-	connections map[string]ConfluenceConnection
+	connections map[string]confluenceaccess.Connection
 }
 
-func (f *confluenceConnectionFakeStore) UpsertConfluenceConnection(_ context.Context, connection ConfluenceConnection) error {
+func (f *confluenceConnectionFakeStore) UpsertConfluenceConnection(_ context.Context, connection confluenceaccess.Connection) error {
 	if f.connections == nil {
-		f.connections = map[string]ConfluenceConnection{}
+		f.connections = map[string]confluenceaccess.Connection{}
 	}
 	f.connections[connection.ConnectionID] = connection
 	return nil
 }
 
-func (f *confluenceConnectionFakeStore) GetConfluenceConnection(_ context.Context, connectionID string) (ConfluenceConnection, error) {
+func (f *confluenceConnectionFakeStore) GetConfluenceConnection(_ context.Context, connectionID string) (confluenceaccess.Connection, error) {
 	if connection, ok := f.connections[connectionID]; ok {
 		return connection, nil
 	}
-	return ConfluenceConnection{}, ErrInvalidInput
+	return confluenceaccess.Connection{}, ErrInvalidInput
 }
 
-func (f *confluenceConnectionFakeStore) ListConfluenceConnections(context.Context) ([]ConfluenceConnection, error) {
-	connections := make([]ConfluenceConnection, 0, len(f.connections))
+func (f *confluenceConnectionFakeStore) ListConfluenceConnections(context.Context) ([]confluenceaccess.Connection, error) {
+	connections := make([]confluenceaccess.Connection, 0, len(f.connections))
 	for _, connection := range f.connections {
 		connections = append(connections, connection)
 	}

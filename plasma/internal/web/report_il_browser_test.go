@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilphase0"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
@@ -87,7 +89,7 @@ func TestReportILExperimentalBrowserDogfood(t *testing.T) {
 	defer store.Close()
 	service := app.NewService(store)
 	missionID := "mis_il_browser"
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Experimental IL browser dogfood"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Experimental IL browser dogfood"}); err != nil {
 		t.Fatal(err)
 	}
 	bundle := seedILHTTPGateBundle(t, ctx, service, missionID)
@@ -271,6 +273,7 @@ func testReportILUnverifiedProfileBrowserGeneration(t *testing.T, buttonID, repo
 		chromedp.Poll(fmt.Sprintf(`document.querySelector('#missionList button.item[data-mission-id="%s"]') !== null`, missionID), nil, chromedp.WithPollingTimeout(10*time.Second)),
 		chromedp.Evaluate(fmt.Sprintf(`document.querySelector('#missionList button.item[data-mission-id="%s"]').click()`, missionID), nil),
 		chromedp.Poll(fmt.Sprintf(`window.Plasma?.state?.missionId === %q`, missionID), nil, chromedp.WithPollingTimeout(10*time.Second)),
+		chromedp.Click(`#reportCreationTab`, chromedp.ByID),
 		chromedp.Evaluate(`document.querySelector('#reportRigor').value = 'unverified'`, nil),
 		chromedp.Click(`#`+buttonID, chromedp.ByID),
 		chromedp.Poll(`document.querySelector('.report-il-card') !== null && document.querySelector('.report-il-card')?.textContent.includes('Markdown') && document.querySelector('.report-il-card')?.textContent.includes('HTML') && document.querySelector('.report-il-card')?.textContent.includes('PDF')`, nil, chromedp.WithPollingTimeout(30*time.Second)),
@@ -311,7 +314,7 @@ func testReportILUnverifiedProfileBrowserGeneration(t *testing.T, buttonID, repo
 	if err != nil {
 		t.Fatal(err)
 	}
-	var terminal app.LedgerEvent
+	var terminal ledger.Event
 	for _, event := range events {
 		if event.EventType == "report.draft.pending" {
 			var payload map[string]any
@@ -362,7 +365,7 @@ func TestLongFormReportILProgressFanoutBrowserLayout(t *testing.T) {
 	defer store.Close()
 	service := app.NewService(store)
 	missionID := "mis_il_fanout_browser"
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Long-form IL fan-out browser fixture"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Long-form IL fan-out browser fixture"}); err != nil {
 		t.Fatal(err)
 	}
 	seedLongFormILBrowserProgress(t, ctx, service, missionID)
@@ -426,9 +429,9 @@ func TestLongFormReportILProgressFanoutBrowserLayout(t *testing.T) {
 func seedLongFormILBrowserProgress(t *testing.T, ctx context.Context, service *app.Service, missionID string) {
 	t.Helper()
 	pendingID := "evt_il_fanout_pending"
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{
 			"title": "Long-form IL fan-out", "report_mode": "long_form",
 			"pipeline_family": reportilcontract.PipelineFamily,
@@ -440,11 +443,11 @@ func seedLongFormILBrowserProgress(t *testing.T, ctx context.Context, service *a
 	}
 	for _, stage := range []string{"source_packet", "il_editorial_memory", "il_narrative", "il_long_form_plan"} {
 		for _, status := range []string{"started", "completed"} {
-			if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+			if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 				EventID:   "evt_il_fanout_" + stage + "_" + status,
 				MissionID: missionID, EventType: "report." + stage + "." + status,
 				CausationEventID: pendingID, CorrelationID: pendingID,
-				Producer: app.Producer{Type: "system", ID: "report-il"},
+				Producer: ledger.Producer{Type: "system", ID: "report-il"},
 				Payload:  mustJSON(map[string]any{"pending_event_id": pendingID}),
 			}); err != nil {
 				t.Fatal(err)
@@ -462,11 +465,11 @@ func seedLongFormILBrowserProgress(t *testing.T, ctx context.Context, service *a
 	if err := service.AppendReportILLongFormProgress(ctx, missionID, pendingID, "plan", "completed", &plan, 0, 0, plan.Title); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_il_fanout_sections_started", MissionID: missionID,
 		EventType:        "report.il_long_form_sections.started",
 		CausationEventID: pendingID, CorrelationID: pendingID,
-		Producer: app.Producer{Type: "system", ID: "report-il"},
+		Producer: ledger.Producer{Type: "system", ID: "report-il"},
 		Payload:  mustJSON(map[string]any{"pending_event_id": pendingID}),
 	}); err != nil {
 		t.Fatal(err)
@@ -517,9 +520,9 @@ func seedILBrowserFailure(t *testing.T, ctx context.Context, service *app.Servic
 	t.Helper()
 	pendingID := "evt_il_browser_failed_pending"
 	terminalID := "evt_il_browser_failed_terminal"
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{
 			"title": "Experimental IL typed failure", "report_mode": "planned",
 			"pipeline_family": reportilcontract.PipelineFamily, "pipeline_graph": reportpipeline.ExperimentalILEditorialMemoryGraph,
@@ -531,31 +534,31 @@ func seedILBrowserFailure(t *testing.T, ctx context.Context, service *app.Servic
 	}
 	for index, stage := range []string{"source_packet", "il_narrative"} {
 		for _, status := range []string{"started", "completed"} {
-			if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+			if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 				EventID:   fmt.Sprintf("evt_il_browser_%s_%s_%d", stage, status, index),
 				MissionID: missionID, EventType: "report." + stage + "." + status,
 				CausationEventID: pendingID, CorrelationID: pendingID,
-				Producer: app.Producer{Type: "system", ID: "report-il"},
+				Producer: ledger.Producer{Type: "system", ID: "report-il"},
 				Payload:  mustJSON(map[string]any{"pending_event_id": pendingID, "stage_kind": stage, "stage_id": stage}),
 			}); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_il_browser_reader_started", MissionID: missionID,
 		EventType: "report.il_reader.started", CausationEventID: pendingID,
-		CorrelationID: pendingID, Producer: app.Producer{Type: "system", ID: "report-il"},
+		CorrelationID: pendingID, Producer: ledger.Producer{Type: "system", ID: "report-il"},
 		Payload: mustJSON(map[string]any{"pending_event_id": pendingID, "stage_kind": "il_reader", "stage_id": "il_reader"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	stageFailureID := "evt_il_browser_reader_failed"
-	appended, closed, err := service.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []app.AppendEventRequest{
+	appended, closed, err := service.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []ledger.AppendRequest{
 		{
 			EventID: stageFailureID, MissionID: missionID, EventType: "report.il_reader.failed",
 			CausationEventID: pendingID, CorrelationID: terminalID,
-			Producer: app.Producer{Type: "agent", ID: "codex"},
+			Producer: ledger.Producer{Type: "agent", ID: "codex"},
 			Payload: mustJSON(map[string]any{
 				"pending_event_id": pendingID, "stage_kind": "il_reader", "stage_id": "il_reader",
 				"safe_error_class": "report_stage_failed", "safe_error_message": "안전한 독자 편집 실패", "retryable": false,
@@ -565,7 +568,7 @@ func seedILBrowserFailure(t *testing.T, ctx context.Context, service *app.Servic
 		{
 			EventID: terminalID, MissionID: missionID, EventType: "report.draft.failed",
 			CausationEventID: pendingID, CorrelationID: pendingID,
-			Producer: app.Producer{Type: "agent", ID: "codex"},
+			Producer: ledger.Producer{Type: "agent", ID: "codex"},
 			Payload: mustJSON(map[string]any{
 				"kind": "report_draft_failed", "pending_event_id": pendingID,
 				"failed_stage_kind": "il_reader", "failed_stage_id": "il_reader", "stage_failure_event_id": stageFailureID,

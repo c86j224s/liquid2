@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 	"time"
 
@@ -29,12 +31,12 @@ type confluenceUpdateStateEventPayload struct {
 }
 
 func (s *Service) recordConfluenceUpdateCheckFailure(ctx context.Context, req CheckConfluenceSourceUpdateRequest, checkErr error) error {
-	details, ok := ConfluenceErrorDetails(checkErr)
+	details, ok := confluencesource.ConfluenceErrorDetails(checkErr)
 	if !ok || !durableConfluenceUpdateError(details.Category, details.Code) {
 		return nil
 	}
 	checkedAt := time.Now().UTC()
-	event, err := buildLedgerEvent(AppendEventRequest{
+	event, err := buildLedgerEvent(ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: ConfluenceUpdateFailedEvent,
@@ -49,31 +51,31 @@ func (s *Service) recordConfluenceUpdateCheckFailure(ctx context.Context, req Ch
 	if err != nil {
 		return err
 	}
-	_, err = s.commitAtomicWrite(ctx, AtomicWrite{Events: []LedgerEvent{event}})
+	_, err = s.commitAtomicWrite(ctx, AtomicWrite{Events: []ledger.Event{event}})
 	return err
 }
 
 func durableConfluenceUpdateError(category string, code string) bool {
 	code = strings.TrimSpace(code)
 	switch strings.TrimSpace(category) {
-	case ConfluenceErrorCategoryAuth:
-		return code == ConfluenceErrorCodeUnauthorized ||
-			code == ConfluenceErrorCodeTokenExpired ||
-			code == ConfluenceErrorCodeRevoked
-	case ConfluenceErrorCategoryPermission:
-		return code == ConfluenceErrorCodeForbidden
-	case ConfluenceErrorCategoryNotFound:
-		return code == ConfluenceErrorCodeNotFound
-	case ConfluenceErrorCategoryRateLimited:
-		return code == ConfluenceErrorCodeRateLimited
-	case ConfluenceErrorCategoryUpstream:
-		return code == ConfluenceErrorCodeUpstream
+	case confluencesource.ConfluenceErrorCategoryAuth:
+		return code == confluencesource.ConfluenceErrorCodeUnauthorized ||
+			code == confluencesource.ConfluenceErrorCodeTokenExpired ||
+			code == confluencesource.ConfluenceErrorCodeRevoked
+	case confluencesource.ConfluenceErrorCategoryPermission:
+		return code == confluencesource.ConfluenceErrorCodeForbidden
+	case confluencesource.ConfluenceErrorCategoryNotFound:
+		return code == confluencesource.ConfluenceErrorCodeNotFound
+	case confluencesource.ConfluenceErrorCategoryRateLimited:
+		return code == confluencesource.ConfluenceErrorCodeRateLimited
+	case confluencesource.ConfluenceErrorCategoryUpstream:
+		return code == confluencesource.ConfluenceErrorCodeUpstream
 	default:
 		return false
 	}
 }
 
-func applyConfluenceUpdateState(states map[string]SourceState, event LedgerEvent) {
+func applyConfluenceUpdateState(states map[string]source.State, event ledger.Event) {
 	payload, ok := decodeConfluenceUpdateStatePayload(event)
 	if !ok {
 		return
@@ -86,7 +88,7 @@ func applyConfluenceUpdateState(states map[string]SourceState, event LedgerEvent
 	}
 	state := states[payload.OldSnapshotID]
 	if state.State == "" {
-		state.State = SourceStateActive
+		state.State = source.StateActive
 	}
 	state.ConfluenceUpdate = &ConfluenceUpdateState{
 		Status:          status,
@@ -101,7 +103,7 @@ func applyConfluenceUpdateState(states map[string]SourceState, event LedgerEvent
 	states[payload.OldSnapshotID] = state
 }
 
-func decodeConfluenceUpdateStatePayload(event LedgerEvent) (confluenceUpdateStateEventPayload, bool) {
+func decodeConfluenceUpdateStatePayload(event ledger.Event) (confluenceUpdateStateEventPayload, bool) {
 	var payload confluenceUpdateStateEventPayload
 	if json.Unmarshal(event.Payload, &payload) != nil {
 		return confluenceUpdateStateEventPayload{}, false

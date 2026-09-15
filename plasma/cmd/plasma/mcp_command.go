@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -114,7 +114,7 @@ func runMCP(ctx context.Context, args []string, stdin io.Reader, stdout, stderr 
 		}
 		options = append(options, mcp.WithLiquid2Connector(connector))
 	}
-	options = append(options, mcp.WithConfluenceConnectorFactory(func(ctx context.Context, req mcp.ConfluenceConnectorRequest) (app.ConfluenceSourceConnector, error) {
+	options = append(options, mcp.WithConfluenceConnectorFactory(func(ctx context.Context, req mcp.ConfluenceConnectorRequest) (confluencesource.ConfluenceSourceConnector, error) {
 		return cliConfluenceClient(ctx, svc, req.ConnectionID, req.CloudID, "", "", false)
 	}))
 

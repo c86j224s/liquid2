@@ -1,5 +1,7 @@
 package mcp
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"bytes"
 	"context"
@@ -8,23 +10,24 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 type reportPlanMCPService struct {
 	*fakeMCPService
 	submission  app.ReportPlanSubmissionRequest
 	submissions int
-	refs        []app.ReportBlockSourceRefs
+	refs        []reportdocument.ReportBlockSourceRefs
 	refErr      error
 }
 
 func (service *reportPlanMCPService) SubmitReportPlan(_ context.Context, req app.ReportPlanSubmissionRequest) (app.ReportPlanSubmission, error) {
 	service.submission = req
 	service.submissions++
-	return app.ReportPlanSubmission{Event: app.LedgerEvent{EventID: req.EventID, MissionID: req.MissionID, EventType: "report.plan.submitted"}}, nil
+	return app.ReportPlanSubmission{Event: ledger.Event{EventID: req.EventID, MissionID: req.MissionID, EventType: "report.plan.submitted"}}, nil
 }
 
-func (service *reportPlanMCPService) ValidateReportPlanRefs(_ context.Context, _ string, refs []app.ReportBlockSourceRefs) error {
+func (service *reportPlanMCPService) ValidateReportPlanRefs(_ context.Context, _ string, refs []reportdocument.ReportBlockSourceRefs) error {
 	service.refs = refs
 	return service.refErr
 }

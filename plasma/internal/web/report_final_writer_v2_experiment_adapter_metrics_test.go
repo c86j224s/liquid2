@@ -4,12 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	source "github.com/c86j224s/liquid2/plasma/internal/source"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
@@ -153,7 +158,7 @@ func writeFinalWriterV2ReplayableTestFrozenManifest(t *testing.T, ctx context.Co
 	missionID := "mis_" + fragment
 	pendingID := "evt_" + fragment + "_pending"
 	planID := "evt_" + fragment + "_plan"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: pair.TopicTitle}); err != nil {
 		t.Fatal(err)
 	}
 	sourceDir := filepath.Join(archive, "source-corpora", pair.TopicID)
@@ -168,18 +173,18 @@ func writeFinalWriterV2ReplayableTestFrozenManifest(t *testing.T, ctx context.Co
 	sourceArtifactID := "art_" + fragment + "_source_01"
 	sourceSnapshotID := "src_" + fragment + "_source_01"
 	sourceEventID := "evt_" + fragment + "_source_01"
-	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, app.CreateSourceSnapshotWithEventRequest{
-		Artifact: app.CreateRawArtifactRequest{
+	if _, err := svc.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
+		Artifact: artifactcontract.CreateRequest{
 			ArtifactID: sourceArtifactID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
-			Filename: "source-01.md", Producer: app.Producer{Type: "user", ID: "experiment"}, Content: sourceBytes,
+			Filename: "source-01.md", Producer: ledger.Producer{Type: "user", ID: "experiment"}, Content: sourceBytes,
 		},
-		Snapshot: app.CreateSourceSnapshotRequest{
+		Snapshot: sourcecontract.CreateRequest{
 			SnapshotID: sourceSnapshotID, MissionID: missionID,
-			Connector: app.ConnectorRef{ConnectorID: "experiment-archive", ConnectorType: app.SourceConnectorTypeFileUpload, ExternalSourceID: pair.TopicID + "/source-01.md", ConnectorVersion: finalWriterV2ExperimentRunNamespace},
+			Connector: sourcecontract.ConnectorRef{ConnectorID: "experiment-archive", ConnectorType: sourcecontract.ConnectorTypeFileUpload, ExternalSourceID: pair.TopicID + "/source-01.md", ConnectorVersion: finalWriterV2ExperimentRunNamespace},
 			Title:     "source-01", Locators: json.RawMessage(`[{"locator_type":"full_text"}]`),
-			Access: app.SourceAccess{Visibility: "private", License: "experiment-corpus", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+			Access: sourcecontract.Access{Visibility: "private", License: "experiment-corpus", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		},
-		Event: app.AppendEventRequest{EventID: sourceEventID, MissionID: missionID, EventType: sourceevents.SourceSnapshottedEventType, Producer: app.Producer{Type: "user", ID: "experiment"}},
+		Event: ledger.AppendRequest{EventID: sourceEventID, MissionID: missionID, EventType: sourceevents.SourceSnapshottedEventType, Producer: ledger.Producer{Type: "user", ID: "experiment"}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -189,9 +194,9 @@ func writeFinalWriterV2ReplayableTestFrozenManifest(t *testing.T, ctx context.Co
 		appendFinalWriterV2PrepEvent(t, ctx, svc, missionID, fmt.Sprintf("evt_%s_step_%02d", fragment, index), eventType, map[string]any{"pending_event_id": pendingID, "plan_event_id": planID})
 	}
 	partMarkdown := "# 검증 Part\n\n제품 상류 경로에서 검토된 한국어 Part 바이트입니다. [T-1]\n"
-	partArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	partArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_" + fragment + "_part_01", MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
-		Filename: "part-01-edited.md", Producer: app.Producer{Type: "agent", ID: "experiment"}, Content: []byte(partMarkdown),
+		Filename: "part-01-edited.md", Producer: ledger.Producer{Type: "agent", ID: "experiment"}, Content: []byte(partMarkdown),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -215,8 +220,8 @@ func writeFinalWriterV2ReplayableTestFrozenManifest(t *testing.T, ctx context.Co
 
 func appendFinalWriterV2PrepEvent(t *testing.T, ctx context.Context, svc *app.Service, missionID string, eventID string, eventType string, payload map[string]any) {
 	t.Helper()
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: eventID, MissionID: missionID, EventType: eventType, Producer: app.Producer{Type: "agent", ID: "experiment"},
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: eventID, MissionID: missionID, EventType: eventType, Producer: ledger.Producer{Type: "agent", ID: "experiment"},
 		Payload: finalWriterV2MustJSON(payload),
 	}); err != nil {
 		t.Fatal(err)

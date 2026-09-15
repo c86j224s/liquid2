@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -27,7 +27,7 @@ func (server *Server) resolveReportModelSelection(ctx context.Context, missionID
 		ReasoningEffortSupported: status.ReasoningEffortSupported,
 	})
 	if err != nil {
-		return reporting.ModelSelection{}, fmt.Errorf("%w: %v", app.ErrInvalidInput, err)
+		return reporting.ModelSelection{}, fmt.Errorf("%w: %v", producterror.ErrInvalidInput, err)
 	}
 	return selection, nil
 }

@@ -2,8 +2,8 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"os"
 	"os/exec"
 	"runtime"
@@ -12,41 +12,16 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilpdf"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilphase0"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
-
-func reportILRetryPendingLineage(events []ledger.Event, pendingID string) []string {
-	parents := map[string]string{}
-	for _, event := range events {
-		if event.EventType != "report.draft.pending" {
-			continue
-		}
-		var payload struct {
-			RetryOf string `json:"retry_of_pending_event_id"`
-		}
-		_ = json.Unmarshal(event.Payload, &payload)
-		parents[event.EventID] = strings.TrimSpace(payload.RetryOf)
-	}
-	lineage := []string{}
-	seen := map[string]bool{}
-	for current, depth := pendingID, 0; current != "" && depth < 64; depth++ {
-		if seen[current] {
-			return nil
-		}
-		seen[current] = true
-		lineage = append(lineage, current)
-		current = parents[current]
-	}
-	return lineage
-}
 
 func (server *Server) createExperimentalReportDraft(ctx context.Context, missionID string, req reportexecution.DraftRequest, pendingEventID string) error {
 	req = reportexecution.NormalizeDraftRequest(req)
 	if req.PipelineFamily != reportilcontract.PipelineFamily {
 		return fmt.Errorf("unsupported report IL pipeline family")
 	}
-	req.AgentExecutor, req.AgentModel, req.AgentReasoningEffort, req.PostReportHumanize = "codex", "gpt-5.6-luna", "xhigh", "disabled"
+	req.AgentExecutor, req.PostReportHumanize = "codex", "disabled"
 	executor := server.agentExecutor("codex")
 	if executor == nil {
 		return fmt.Errorf("report IL requires a Codex executor")
@@ -89,31 +64,10 @@ func (server *Server) createExperimentalReportDraft(ctx context.Context, mission
 		if listErr != nil {
 			err = listErr
 		} else {
-			for _, attemptID := range reportILRetryPendingLineage(events, req.RetryOfPendingEventID) {
-				resume, err = server.service.LoadReportILResumeCheckpoint(ctx, missionID, attemptID)
-				if err == nil {
-					break
-				}
-				if !strings.Contains(err.Error(), "no durable checkpoint") {
-					break
-				}
-			}
-			if resume == nil && err != nil && strings.Contains(err.Error(), "no durable checkpoint") {
-				resume, err = reportilphase0.RecoverPartsCheckpoint(
-					ctx, missionID, req.RetryOfPendingEventID, events,
-					server.service.ReportILSourceReader(), server.service,
-				)
-				if err == nil {
-					if writeErr := server.service.AppendReportILCheckpoint(ctx, missionID, resume.ProductCheckpoint); writeErr != nil {
-						err = fmt.Errorf("append recovered Part checkpoint: %w", writeErr)
-					}
-				} else if strings.Contains(err.Error(), "not recoverable") {
-					resume, err = reportilphase0.RecoverLegacyCheckpoint(
-						ctx, missionID, req.RetryOfPendingEventID, events,
-						server.service.ReportILSourceReader(), server.service,
-					)
-				}
-			}
+			resume, err = reportilphase0.ResolveRetryCheckpoint(
+				ctx, missionID, req.RetryOfPendingEventID, events,
+				server.service, server.service.ReportILSourceReader(), server.service,
+			)
 		}
 		if err != nil {
 			return reportexecution.NewStageFailure("source_packet", "", -1, -1, fmt.Errorf("load report IL checkpoint: %w", err))
@@ -125,7 +79,11 @@ func (server *Server) createExperimentalReportDraft(ctx context.Context, mission
 		}
 		return nil
 	}
-	bundle, err := reportilphase0.RunProduct(ctx, reportilphase0.ProductConfig{MissionID: missionID, MissionObjective: mission.Objective, Title: req.Title, Direction: req.DirectionHint, TargetLanguage: "ko", AuthoringMode: authoringMode, ValidationProfile: req.RigorLevel, ChromePath: chromePath, NewID: newID, Sources: server.service.ReportILSourceReader(), Provider: executor, Progress: progress, LongFormProgress: longFormProgress, PendingEventID: pendingEventID, VerifySourceRead: server.service, AuthorDocuments: server.service, ImageFetch: imageFetch, Resume: resume, Checkpoint: checkpoint})
+	articleContract := ""
+	if req.OutputKind == reportexecution.OutputKindArticle {
+		articleContract = longFormArticleContract(req.ArticleIntent)
+	}
+	bundle, err := reportilphase0.RunProduct(ctx, reportilphase0.ProductConfig{MissionID: missionID, MissionObjective: mission.Objective, Title: req.Title, Direction: req.DirectionHint, ArticleContract: articleContract, Model: req.AgentModel, ReasoningEffort: req.AgentReasoningEffort, ExecutionStrategy: req.ExecutionStrategy, TargetLanguage: "ko", AuthoringMode: authoringMode, ValidationProfile: req.RigorLevel, PDFRenderer: reportilpdf.Chrome{ChromePath: chromePath}, NewID: newID, Sources: server.service.ReportILSourceReader(), Provider: executor, Progress: progress, LongFormProgress: longFormProgress, PendingEventID: pendingEventID, VerifySourceRead: server.service, AuthorDocuments: server.service, ImageFetch: imageFetch, Resume: resume, Checkpoint: checkpoint})
 	if err != nil {
 		return err
 	}
@@ -159,7 +117,12 @@ func (server *Server) createExperimentalReportDraft(ctx context.Context, mission
 			ExcludedBudgetSources:   bundle.SourceSelection.ExcludedBudgetSources,
 		},
 	}
-	terminalPayload := map[string]any{"kind": "markdown_report_artifact", "pending_event_id": pendingEventID, "artifact_id": markdownID, "media_type": "text/markdown; charset=utf-8", "title": req.Title, "agent_executor": "codex", "agent_model": "gpt-5.6-luna", "agent_reasoning_effort": "xhigh", "report_mode": req.ReportMode, "pipeline_family": reportilcontract.PipelineFamily, "rigor_level": req.RigorLevel, "rigor_label": req.RigorLabel, "post_report_humanize": "disabled", "humanize_enabled": false, "artifact_bundle": lineage, "text": "IL 보고서가 생성되었습니다."}
+	terminalPayload := map[string]any{"kind": "markdown_report_artifact", "pending_event_id": pendingEventID, "artifact_id": markdownID, "media_type": "text/markdown; charset=utf-8", "title": req.Title, "agent_executor": "codex", "agent_model": req.AgentModel, "agent_reasoning_effort": req.AgentReasoningEffort, "report_mode": req.ReportMode, "pipeline_family": reportilcontract.PipelineFamily, "rigor_level": req.RigorLevel, "rigor_label": req.RigorLabel, "post_report_humanize": "disabled", "humanize_enabled": false, "artifact_bundle": lineage, "text": "IL 보고서가 생성되었습니다."}
+	if req.OutputKind == reportexecution.OutputKindArticle {
+		terminalPayload["output_kind"] = req.OutputKind
+		terminalPayload["article_intent"] = req.ArticleIntent
+		terminalPayload["text"] = "장문 글과 Markdown·HTML·PDF가 생성되었습니다."
+	}
 	terminal := reportilcontract.EventInput{EventID: newID("evt"), MissionID: missionID, EventType: "report.artifact.created", CausationEventID: pendingEventID, CorrelationID: pendingEventID, Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(terminalPayload)}
 	storeCompleted := reportilcontract.EventInput{EventID: newID("evt"), MissionID: missionID, EventType: "report.il_store.completed", CausationEventID: pendingEventID, CorrelationID: pendingEventID, Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: mustJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": pendingEventID, "pipeline_family": reportilcontract.PipelineFamily, "stage": "il_store", "status": "completed"})}
 	result, err := server.service.CreateReportILBundleIfOpenContract(ctx, reportilcontract.BundleRequest{MissionID: missionID, PendingID: pendingEventID, Artifacts: artifacts, StoreCompleted: storeCompleted, Terminal: terminal})
@@ -172,7 +135,7 @@ func (server *Server) createExperimentalReportDraft(ctx context.Context, mission
 		}
 		return reportexecution.NewStageFailure("il_store", "", -1, -1, fmt.Errorf("report IL bundle was already claimed"))
 	}
-	_, err = reporting.CompleteReportRun(ctx, server.service, reporting.ReportCompletionRequest{MissionID: missionID, CanonicalEventID: result.Terminal.EventID})
+	_, err = reportrun.CompleteReportRun(ctx, server.service, reportrun.ReportCompletionRequest{MissionID: missionID, CanonicalEventID: result.Terminal.EventID})
 	return err
 }
 

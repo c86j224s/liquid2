@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"embed"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -36,7 +37,7 @@ const (
 type Server struct {
 	service                     *app.Service
 	reportFinalizationNewID     func(string) string
-	liquid2                     app.Liquid2SourceConnector
+	liquid2                     liquid2source.Liquid2SourceConnector
 	agent                       AgentExecutor
 	agents                      map[string]AgentExecutor
 	turns                       missionTurnLocks
@@ -68,7 +69,7 @@ type Server struct {
 // nil fetcher와 renderer는 제품 기본 구현으로 채워진다. Agent executor는 제공된
 // 값만 등록하므로, agent 실행이 필요한 테스트나 embedding은 명시적으로 주입해야 한다.
 type Options struct {
-	Liquid2Connector            app.Liquid2SourceConnector
+	Liquid2Connector            liquid2source.Liquid2SourceConnector
 	AgentExecutor               AgentExecutor
 	AgentExecutors              map[string]AgentExecutor
 	urlFetcher                  urlSourceFetchFunc

@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 const sourceCandidateFetchingMessage = "후보 원문을 백그라운드에서 가져오는 중입니다. 완료되면 source.candidate.staged 또는 source.candidate.staging_failed 이벤트가 장부에 남습니다."
@@ -15,14 +18,14 @@ const defaultSourceCandidateRestoreReason = "사용자가 기각했던 URL을 �
 // Store는 후보 제안 이벤트와 staging 결과를 저장하는 소스 후보 저장소 포트다.
 type Store interface {
 	appender
-	ListRawArtifacts(context.Context, string) ([]app.RawArtifact, error)
-	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
-	ListSourceSnapshotsWithState(context.Context, app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error)
-	CreateRawArtifactWithEvent(context.Context, app.CreateRawArtifactRequest, func(app.RawArtifact) app.AppendEventRequest) (app.RawArtifact, app.LedgerEvent, error)
+	ListRawArtifacts(context.Context, string) ([]artifactcontract.Raw, error)
+	ListEvents(context.Context, string) ([]ledger.Event, error)
+	ListSourceSnapshotsWithState(context.Context, sourcecontract.ListRequest) ([]sourcecontract.Snapshot, error)
+	CreateRawArtifactWithEvent(context.Context, artifactcontract.CreateRequest, func(artifactcontract.Raw) ledger.AppendRequest) (artifactcontract.Raw, ledger.Event, error)
 }
 
 type appender interface {
-	AppendEvent(context.Context, app.AppendEventRequest) (app.LedgerEvent, error)
+	AppendEvent(context.Context, ledger.AppendRequest) (ledger.Event, error)
 }
 
 // StartStaging는 소스 후보 스테이징 경계 실행 lifecycle을 다룬다. 중복 실행과 취소는 저장된 pending/terminal 이벤트 기준으로 판정한다.
@@ -51,7 +54,7 @@ func StartStaging(ctx context.Context, store Store, req SourceCandidateStagingSt
 	if strings.TrimSpace(req.AgentExecutor) != "" {
 		payload["agent_executor"] = strings.TrimSpace(req.AgentExecutor)
 	}
-	event, err := store.AppendEvent(ctx, app.AppendEventRequest{
+	event, err := store.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:          strings.TrimSpace(req.EventID),
 		MissionID:        strings.TrimSpace(req.MissionID),
 		EventType:        "source.candidate.staging_started",
@@ -113,7 +116,7 @@ func Stage(ctx context.Context, store Store, req SourceCandidateStageRequest) er
 		}
 		return err
 	}
-	_, _, err = store.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	_, _, err = store.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID:     req.NewArtifactID("art"),
 		MissionID:      job.MissionID,
 		MediaType:      fetched.MediaType,
@@ -121,7 +124,7 @@ func Stage(ctx context.Context, store Store, req SourceCandidateStageRequest) er
 		Producer:       job.Producer,
 		Content:        fetched.Content,
 		ExpectedSHA256: contentSHA,
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
 		return sourceCandidateStagedEventRequest(job, req.NewEventID("evt"), artifact, title, fetched)
 	})
 	if err != nil {
@@ -148,25 +151,25 @@ func sourceCandidateKind(kind string) string {
 }
 
 // Reject는 소스 후보를 승인하지 않겠다는 사용자 결정을 장부에 남긴다.
-func Reject(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (app.LedgerEvent, error) {
+func Reject(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (ledger.Event, error) {
 	return appendDecision(ctx, store, req, "source.candidate.rejected", "source_candidate_rejected", defaultSourceCandidateRejectReason)
 }
 
 // Restore는 소스 후보 스테이징 경계의 명시적 상태 전이를 수행한다. 결과는 후보 장부 이벤트로 확인한다.
-func Restore(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (app.LedgerEvent, error) {
+func Restore(ctx context.Context, store appender, req SourceCandidateDecisionRequest) (ledger.Event, error) {
 	return appendDecision(ctx, store, req, "source.candidate.restored", "source_candidate_restored", defaultSourceCandidateRestoreReason)
 }
 
-func appendDecision(ctx context.Context, store appender, req SourceCandidateDecisionRequest, eventType string, kind string, defaultReason string) (app.LedgerEvent, error) {
+func appendDecision(ctx context.Context, store appender, req SourceCandidateDecisionRequest, eventType string, kind string, defaultReason string) (ledger.Event, error) {
 	normalizedURL, err := normalizeSourceCandidateDecisionURL(req.URL)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = defaultReason
 	}
-	return store.AppendEvent(ctx, app.AppendEventRequest{
+	return store.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: eventType,

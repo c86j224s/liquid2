@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	workflowruntime "github.com/c86j224s/liquid2/plasma/internal/workflow"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 // Run은 웹 및 에이전트 어댑터의 실행 진입점이다. 호출자는 취소, 실패, 외부 부작용 범위를 해당 패키지 계약에 맞게 보존해야 한다.
@@ -101,7 +102,7 @@ func workflowLiveTerminalState(err error) string {
 	return "error"
 }
 
-func activeWorkflowRun(runs []app.WorkflowRunView) *app.WorkflowRunView {
+func activeWorkflowRun(runs []workflowstate.WorkflowRunView) *workflowstate.WorkflowRunView {
 	for i := range runs {
 		switch runs[i].Status {
 		case app.WorkflowStatusQueued, app.WorkflowStatusRunning, app.WorkflowStatusStopping:

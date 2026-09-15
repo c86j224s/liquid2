@@ -10,9 +10,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentmodels"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
@@ -47,7 +47,7 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 	mcpMode := fs.String("mcp-mode", "auto", "MCP mode")
 	wait := fs.Bool("wait", false, "run the report agent and wait for the artifact")
 	jsonOut := fs.Bool("json", false, "write JSON")
-	humanize := fs.Bool("humanize", false, "deprecated manual post-canonical H5 compatibility pass; current long-form reports use pre-canonical style edit")
+
 	generationGuidance := fs.String("generation-guidance", "visual-plan", "report generation guidance profile: visual-plan, g2, or none")
 	experimentalGenerationGuidance := fs.String("experimental-generation-guidance", "", "deprecated alias for -generation-guidance")
 	reportSessionPolicyFlag := fs.String("report-session-policy", "", "report session policy: auto, same_session, or isolated_fork")
@@ -216,10 +216,10 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		ReportMode:                   reportMode,
 		ReportSessionPolicy:          reportSessionPolicy,
 		ReportSessionPolicySelection: reportSessionPolicySelection,
-		PostReportHumanize:           cliPostReportHumanizeFlag(*humanize),
+		PostReportHumanize:           "disabled",
 		GenerationGuidanceProfile:    guidanceProfile,
 		GenerationGuidanceSHA256:     guidanceSHA,
-	}, app.Producer{Type: "user", ID: "plasma-cli"})
+	}, ledger.Producer{Type: "user", ID: "plasma-cli"})
 	if err != nil {
 		fmt.Fprintf(stderr, "reports draft: %v\n", err)
 		return 1
@@ -230,13 +230,9 @@ func runReportsDraft(ctx context.Context, args []string, stdout, stderr io.Write
 		return 1
 	}
 	if *jsonOut {
-		writeCLIJSON(stdout, map[string]any{"pending_event": pendingEvent, "artifact": runResult.Artifact, "event": runResult.Event, "humanized": runResult.Humanized})
+		writeCLIJSON(stdout, map[string]any{"pending_event": pendingEvent, "artifact": runResult.Artifact, "event": runResult.Event})
 	} else {
-		humanized := ""
-		if runResult.Humanized.Applied {
-			humanized = fmt.Sprintf(" humanized=%s", runResult.Humanized.Artifact.ArtifactID)
-		}
-		fmt.Fprintf(stdout, "report artifact %s event=%s session=%s%s\n", runResult.Artifact.ArtifactID, runResult.Event.EventID, runResult.SessionID, humanized)
+		fmt.Fprintf(stdout, "report artifact %s event=%s session=%s\n", runResult.Artifact.ArtifactID, runResult.Event.EventID, runResult.SessionID)
 	}
 	return 0
 }
@@ -385,7 +381,7 @@ func runReportsPatch(ctx context.Context, args []string, stdout, stderr io.Write
 		ReportSessionPolicy:          selection.ReportSessionPolicy,
 		ReportSessionPolicySelection: selection.ReportSessionPolicySelection,
 		SessionChainKind:             selection.SessionChainKind,
-	}, app.Producer{Type: "user", ID: "plasma-cli"})
+	}, ledger.Producer{Type: "user", ID: "plasma-cli"})
 	if err != nil {
 		fmt.Fprintf(stderr, "reports patch: %v\n", err)
 		return 1

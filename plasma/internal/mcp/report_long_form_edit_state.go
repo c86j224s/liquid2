@@ -1,68 +1,19 @@
 package mcp
 
 import (
+	"context"
 	"fmt"
-	"strings"
-	"time"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportfinaledit"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"strings"
 )
 
-const (
-	reportLongFormEditMaxDrafts     = 2
-	reportLongFormEditMaxOperations = 64
-)
-
-type longFormEditDraft struct {
-	DraftID     string
-	MissionID   string
-	SessionID   string
-	PendingID   string
-	PlanEventID string
-	Content     string
-	Operations  []reportPatchOperation
-	Finalizing  bool
-	Submitted   bool
-	ArtifactID  string
-	EventID     string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+func (server *Server) finalEditHandler() reportfinaledit.Handler {
+	return reportfinaledit.Handler{State: server.reportFinalEditState, Mu: &server.mu, Service: server.service, StageBinding: func() reporting.FinalEditStageBinding { return server.finalEditStageBinding }, FinalizeBinding: func() reporting.LongFormFinalizeBinding { return server.longFormFinalizeBinding }, RequireStageBinding: server.requireFinalEditStageBinding, RequireLongFormBinding: server.requireLongFormEditBinding, FinalizeAvailable: func(b reporting.LongFormFinalizeBinding) bool {
+		return ValidateLongFormFinalizeBinding(server.binding, b) == nil && server.toolEnabled(ToolReportLongFormFinalize)
+	}, MissionID: func() string { return server.binding.MissionID }, Decode: decodeReportPlanJSON, NormalizeInput: normalizeMutatingInput, ErrorResult: errorResult, ErrorFromErr: errorFromErr, ValidateID: validateID, NewID: newMCPID}
 }
-
-type reportLongFormEditStartInput struct {
-	CommonMutatingInput
-	DraftID        string `json:"draft_id"`
-	PendingEventID string `json:"pending_event_id"`
-	PlanEventID    string `json:"plan_event_id"`
-}
-
-type reportLongFormEditReadInput struct {
-	MissionID string `json:"mission_id"`
-	SessionID string `json:"session_id"`
-	DraftID   string `json:"draft_id"`
-	Offset    int    `json:"offset"`
-	MaxBytes  int    `json:"max_bytes"`
-}
-
-type reportLongFormEditPatchInput struct {
-	CommonMutatingInput
-	DraftID     string `json:"draft_id"`
-	Operation   string `json:"operation"`
-	MatchText   string `json:"match_text"`
-	Replacement string `json:"replacement"`
-	Occurrence  int    `json:"occurrence"`
-	ReplaceAll  bool   `json:"replace_all"`
-	Summary     string `json:"summary"`
-}
-
-type reportLongFormEditSubmitInput struct {
-	CommonMutatingInput
-	DraftID        string `json:"draft_id"`
-	PendingEventID string `json:"pending_event_id"`
-	PlanEventID    string `json:"plan_event_id"`
-}
-
 func (server *Server) requireLongFormEditBinding(common commonMutatingInput) (reporting.LongFormFinalizeBinding, error) {
 	if err := server.requireBoundWriteSession(common); err != nil {
 		return reporting.LongFormFinalizeBinding{}, err
@@ -72,7 +23,7 @@ func (server *Server) requireLongFormEditBinding(common commonMutatingInput) (re
 		return reporting.LongFormFinalizeBinding{}, err
 	}
 	if binding.CompositionStrategy != reporting.LongFormCompositionNarrativeEdit {
-		return reporting.LongFormFinalizeBinding{}, fmt.Errorf("%w: long-form final editor is not enabled for this composition strategy", app.ErrInvalidInput)
+		return reporting.LongFormFinalizeBinding{}, fmt.Errorf("%w: long-form final editor is not enabled for this composition strategy", producterror.ErrInvalidInput)
 	}
 	return binding, nil
 }
@@ -89,24 +40,134 @@ func longFormEditDisabledResult(call ToolCall) ToolResult {
 	return errorResult(call.Name, missionIDFromArguments(call.Arguments), "binding", "long-form final editor tools are only enabled for a bound narrative-edit legacy session or corrective gate stage; invalid stage/final binding configurations are closed", false, nil)
 }
 
-func validateLongFormEditAccess(draft *longFormEditDraft, missionID string, sessionID string) error {
-	if draft == nil || draft.MissionID != strings.TrimSpace(missionID) || draft.SessionID != strings.TrimSpace(sessionID) {
-		return fmt.Errorf("%w: long-form edit draft is outside this MCP session", app.ErrInvalidInput)
+func (server *Server) finalEditStageMode() string {
+	if server.finalEditConfigErr != nil || !server.finalEditStageBindingSet {
+		return ""
 	}
-	return nil
+	return strings.TrimSpace(server.finalEditStageBinding.Stage)
 }
 
-func longFormEditFromState(draft longFormEditDraft) map[string]any {
-	state := "open"
-	if draft.Submitted {
-		state = "submitted"
-	} else if draft.Finalizing {
-		state = "finalizing"
+func (server *Server) finalEditStageToolEnabled(name string) bool {
+	if server.finalEditConfigErr != nil || !server.toolEnabled(name) {
+		return false
 	}
-	return map[string]any{
-		"draft_id": draft.DraftID, "mission_id": draft.MissionID, "session_id": draft.SessionID,
-		"pending_event_id": draft.PendingID, "plan_event_id": draft.PlanEventID,
-		"state": state, "content_length": len([]byte(draft.Content)), "operation_count": len(draft.Operations),
-		"submitted": draft.Submitted, "artifact_id": draft.ArtifactID, "event_id": draft.EventID,
+	stage := server.finalEditStageMode()
+	switch name {
+	case ToolReportLongFormFinalWriteStart, ToolReportLongFormFinalWriteRead, ToolReportLongFormFinalWritePatch, ToolReportLongFormFinalWriteSubmit:
+		return stage == reporting.FinalEditStageWriter
+	case ToolReportLongFormReaderEditStart, ToolReportLongFormReaderEditRead, ToolReportLongFormReaderEditPatch, ToolReportLongFormReaderEditSubmit:
+		return stage == reporting.FinalEditStageReader
+	case ToolReportLongFormStyleEditStart, ToolReportLongFormStyleEditRead, ToolReportLongFormStyleEditPatch, ToolReportLongFormStyleEditSubmit:
+		return stage == reporting.FinalEditStageStyle
+	case ToolReportLongFormEditStart, ToolReportLongFormEditRead, ToolReportLongFormEditPatch, ToolReportLongFormEditSubmit:
+		return stage == reporting.FinalEditStageGate
+	case ToolReportLongFormStyleReviewRead:
+		return stage == reporting.FinalEditStageGate && server.finalEditStageBinding.PostReportHumanize == reporting.FinalEditHumanizeEnabled
+	case ToolReportLongFormStyleSemanticValidationRead, ToolReportLongFormStyleSemanticValidationSubmit:
+		return stage == reporting.FinalEditStageStyleSemanticValidation
+	case ToolReportLongFormEvidenceGateRead, ToolReportLongFormEvidenceGateSubmit:
+		return stage == reporting.FinalEditStageEvidenceGate
+	default:
+		return false
 	}
 }
+
+func (server *Server) requireFinalEditStageBinding(common commonMutatingInput, expectedStage string) (reporting.FinalEditStageBinding, error) {
+	if server.finalEditConfigErr != nil {
+		return reporting.FinalEditStageBinding{}, fmt.Errorf("%w: final edit MCP binding configuration is closed: %v", producterror.ErrInvalidInput, server.finalEditConfigErr)
+	}
+	if err := server.requireBoundWriteSession(common); err != nil {
+		return reporting.FinalEditStageBinding{}, err
+	}
+	binding := server.finalEditStageBinding
+	if err := ValidateFinalEditStageBinding(server.binding, binding); err != nil {
+		return reporting.FinalEditStageBinding{}, err
+	}
+	if strings.TrimSpace(binding.Stage) != strings.TrimSpace(expectedStage) {
+		return reporting.FinalEditStageBinding{}, fmt.Errorf("%w: final edit stage tool does not match the runner binding", producterror.ErrInvalidInput)
+	}
+	if binding.Stage == reporting.FinalEditStageGate || binding.Stage == reporting.FinalEditStageEvidenceGate {
+		if err := ValidateLongFormFinalizeBinding(server.binding, server.longFormFinalizeBinding); err != nil {
+			return reporting.FinalEditStageBinding{}, err
+		}
+	}
+	return binding, nil
+}
+
+func finalEditStageDisabledResult(call ToolCall) ToolResult {
+	return errorResult(call.Name, missionIDFromArguments(call.Arguments), "binding", "final edit stage tools are only enabled for a matching bound stage session; invalid stage/final binding configurations are closed", false, nil)
+}
+
+func (server *Server) callReportLongFormFinalize(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormFinalize(ctx, call)
+}
+func (server *Server) callReportLongFormEditSubmit(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEditSubmit(ctx, call)
+}
+func (server *Server) callReportLongFormEditStart(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEditStart(ctx, call)
+}
+func (server *Server) callReportLongFormEditRead(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEditRead(ctx, call)
+}
+func (server *Server) callReportLongFormStyleSemanticValidationRead(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStyleSemanticValidationRead(ctx, call)
+}
+func (server *Server) callReportLongFormStyleSemanticValidationSubmit(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStyleSemanticValidationSubmit(ctx, call)
+}
+func (server *Server) callReportLongFormEvidenceGateRead(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEvidenceGateRead(ctx, call)
+}
+func (server *Server) callReportLongFormEvidenceGateSubmit(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEvidenceGateSubmit(ctx, call)
+}
+func (server *Server) callReportLongFormStageEditStart(ctx context.Context, call ToolCall, expectedStage string) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStageEditStart(ctx, call, expectedStage)
+}
+func (server *Server) callReportLongFormStageEditRead(ctx context.Context, call ToolCall, expectedStage string) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStageEditRead(ctx, call, expectedStage)
+}
+func (server *Server) callReportLongFormStageEditPatch(ctx context.Context, call ToolCall, expectedStage string) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStageEditPatch(ctx, call, expectedStage)
+}
+func (server *Server) callReportLongFormStageEditSubmit(ctx context.Context, call ToolCall, expectedStage string) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStageEditSubmit(ctx, call, expectedStage)
+}
+func (server *Server) callReportLongFormStyleReviewRead(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormStyleReviewRead(ctx, call)
+}
+func (server *Server) callReportLongFormEditPatch(ctx context.Context, call ToolCall) ToolResult {
+	h := server.finalEditHandler()
+	return h.CallReportLongFormEditPatch(ctx, call)
+}
+
+type longFormEditDraft = reportfinaledit.LongFormEditDraft
+type reportLongFormEditStartInput = reportfinaledit.ReportLongFormEditStartInput
+type reportLongFormEditReadInput = reportfinaledit.ReportLongFormEditReadInput
+type reportLongFormEditPatchInput = reportfinaledit.ReportLongFormEditPatchInput
+type reportLongFormEditSubmitInput = reportfinaledit.ReportLongFormEditSubmitInput
+type reportLongFormFinalizeInput = reportfinaledit.ReportLongFormFinalizeInput
+type readOnlyValidationDraft = reportfinaledit.ReadOnlyValidationDraft
+type reportLongFormStyleSemanticValidationSubmitInput = reportfinaledit.ReportLongFormStyleSemanticValidationSubmitInput
+type reportLongFormStyleSemanticValidationVerdict = reportfinaledit.ReportLongFormStyleSemanticValidationVerdict
+type reportLongFormEvidenceGateSubmitInput = reportfinaledit.ReportLongFormEvidenceGateSubmitInput
+type reportLongFormEvidenceGateFindingInput = reportfinaledit.ReportLongFormEvidenceGateFindingInput
+type longFormStageEditDraft = reportfinaledit.LongFormStageEditDraft
+type reportLongFormStageEditSubmitInput = reportfinaledit.ReportLongFormStageEditSubmitInput
+type reportLongFormGateFindingInput = reportfinaledit.ReportLongFormGateFindingInput
+type reportLongFormSemanticAcceptanceInput = reportfinaledit.ReportLongFormSemanticAcceptanceInput
+type markdownBlockByteRange = reportfinaledit.MarkdownBlockByteRange

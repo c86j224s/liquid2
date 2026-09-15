@@ -3,21 +3,23 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestReportRequirementMapSubmissionIsAtomicReplayableAndOrdered(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_requirements", Title: "Requirements"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_requirements", Title: "Requirements"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []app.LedgerEvent{
-		{EventID: "evt_user", MissionID: "mis_requirements", EventType: "turn.user", Producer: app.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"kind":"user_turn","text":"include a table"}`)},
-		{EventID: "evt_pending", MissionID: "mis_requirements", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"report_mode":"long_form","agent_executor":"codex","direction_hint":"include a table"}`)},
-		{EventID: "evt_plan", MissionID: "mis_requirements", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: []byte(`{"pending_event_id":"evt_pending","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`)},
+	for _, event := range []ledger.Event{
+		{EventID: "evt_user", MissionID: "mis_requirements", EventType: "turn.user", Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"kind":"user_turn","text":"include a table"}`)},
+		{EventID: "evt_pending", MissionID: "mis_requirements", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"report_mode":"long_form","agent_executor":"codex","direction_hint":"include a table"}`)},
+		{EventID: "evt_plan", MissionID: "mis_requirements", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: []byte(`{"pending_event_id":"evt_pending","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`)},
 	} {
 		if _, err := store.AppendLedgerEvent(ctx, event); err != nil {
 			t.Fatal(err)
@@ -29,7 +31,7 @@ func TestReportRequirementMapSubmissionIsAtomicReplayableAndOrdered(t *testing.T
 		ToolSessionID: "ses_tool", PreviousProviderSessionID: "ses_plan", AgentExecutor: "codex", AgentModel: "gpt-test", AgentReasoningEffort: "high",
 		IdempotencyKey: "rrk_once", ArgumentsHash: "args", RequirementMapHash: "map",
 		RequirementMap:   json.RawMessage(`{"reviewed_event_ids":["evt_user","evt_pending"],"requirements":[{"requirement_id":"req_table","instruction":"include a table","source_event_ids":["evt_user","evt_pending"],"owner":{"part_index":1,"section_index":1}}]}`),
-		ReviewedEventIDs: []string{"evt_user", "evt_pending"}, Attempt: 1, ToolProducer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+		ReviewedEventIDs: []string{"evt_user", "evt_pending"}, Attempt: 1, ToolProducer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
 	first, err := svc.SubmitReportRequirementMap(ctx, req)
 	if err != nil {
@@ -56,19 +58,19 @@ func TestReportRequirementMapSubmissionIsAtomicReplayableAndOrdered(t *testing.T
 func TestReportRequirementMapSubmissionRejectsLateStageAndForeignTrace(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_late_map", Title: "Late"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_late_map", Title: "Late"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []app.LedgerEvent{
-		{EventID: "evt_pending", MissionID: "mis_late_map", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"report_mode":"long_form","agent_executor":"codex"}`)},
-		{EventID: "evt_plan", MissionID: "mis_late_map", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: []byte(`{"pending_event_id":"evt_pending"}`)},
-		{EventID: "evt_section", MissionID: "mis_late_map", EventType: "report.section.started", Producer: app.Producer{Type: "agent_session", ID: "ses_section"}, Payload: []byte(`{"pending_event_id":"evt_pending","plan_event_id":"evt_plan","part_index":1,"section_index":1}`)},
+	for _, event := range []ledger.Event{
+		{EventID: "evt_pending", MissionID: "mis_late_map", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Payload: []byte(`{"report_mode":"long_form","agent_executor":"codex"}`)},
+		{EventID: "evt_plan", MissionID: "mis_late_map", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: []byte(`{"pending_event_id":"evt_pending"}`)},
+		{EventID: "evt_section", MissionID: "mis_late_map", EventType: "report.section.started", Producer: ledger.Producer{Type: "agent_session", ID: "ses_section"}, Payload: []byte(`{"pending_event_id":"evt_pending","plan_event_id":"evt_plan","part_index":1,"section_index":1}`)},
 	} {
 		if _, err := store.AppendLedgerEvent(ctx, event); err != nil {
 			t.Fatal(err)
 		}
 	}
-	req := app.ReportRequirementMapSubmissionRequest{EventID: "evt_map", MissionID: "mis_late_map", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool", AgentExecutor: "codex", IdempotencyKey: "rrk", ArgumentsHash: "args", RequirementMapHash: "map", RequirementMap: json.RawMessage(`{"reviewed_event_ids":["evt_pending"],"requirements":[]}`), ReviewedEventIDs: []string{"evt_pending"}, Attempt: 1, ToolProducer: app.Producer{Type: "agent_session", ID: "ses_tool"}}
+	req := app.ReportRequirementMapSubmissionRequest{EventID: "evt_map", MissionID: "mis_late_map", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool", AgentExecutor: "codex", IdempotencyKey: "rrk", ArgumentsHash: "args", RequirementMapHash: "map", RequirementMap: json.RawMessage(`{"reviewed_event_ids":["evt_pending"],"requirements":[]}`), ReviewedEventIDs: []string{"evt_pending"}, Attempt: 1, ToolProducer: ledger.Producer{Type: "agent_session", ID: "ses_tool"}}
 	if _, err := app.NewService(store).SubmitReportRequirementMap(ctx, req); err == nil {
 		t.Fatal("late requirement mapping was accepted")
 	}

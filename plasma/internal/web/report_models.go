@@ -1,12 +1,12 @@
 package web
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"errors"
-	"strings"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"strings"
 )
 
 var errReportDraftRunning = errors.New("report draft is already running for this mission")
@@ -107,26 +107,28 @@ type reportRefViolation struct {
 }
 
 type reportDraftRequest struct {
-	Title                        string `json:"title"`
-	DirectionHint                string `json:"direction_hint"`
-	ExecutionStrategy            string `json:"execution_strategy"`
-	AgentExecutor                string `json:"agent_executor"`
-	AgentModel                   string `json:"agent_model"`
-	AgentReasoningEffort         string `json:"agent_reasoning_effort"`
-	AgentSelectionSource         string `json:"agent_selection_source"`
-	MCPMode                      string `json:"mcp_mode"`
-	RigorLevel                   string `json:"rigor_level"`
-	RigorLabel                   string `json:"rigor_label"`
-	ReportMode                   string `json:"report_mode"`
-	PipelineFamily               string `json:"pipeline_family"`
-	ReportSessionPolicy          string `json:"report_session_policy"`
-	ReportSessionPolicySelection string `json:"report_session_policy_selection"`
-	PostReportHumanize           string `json:"post_report_humanize"`
-	GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
-	GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
-	RetryStrategy                string `json:"retry_strategy"`
-	RetryOfPendingEventID        string `json:"retry_of_pending_event_id"`
-	ResumeStage                  string `json:"resume_stage"`
+	Title                        string                        `json:"title"`
+	DirectionHint                string                        `json:"direction_hint"`
+	ExecutionStrategy            string                        `json:"execution_strategy"`
+	AgentExecutor                string                        `json:"agent_executor"`
+	AgentModel                   string                        `json:"agent_model"`
+	AgentReasoningEffort         string                        `json:"agent_reasoning_effort"`
+	AgentSelectionSource         string                        `json:"agent_selection_source"`
+	MCPMode                      string                        `json:"mcp_mode"`
+	RigorLevel                   string                        `json:"rigor_level"`
+	RigorLabel                   string                        `json:"rigor_label"`
+	ReportMode                   string                        `json:"report_mode"`
+	PipelineFamily               string                        `json:"pipeline_family"`
+	ReportSessionPolicy          string                        `json:"report_session_policy"`
+	ReportSessionPolicySelection string                        `json:"report_session_policy_selection"`
+	PostReportHumanize           string                        `json:"post_report_humanize"`
+	GenerationGuidanceProfile    string                        `json:"generation_guidance_profile"`
+	GenerationGuidanceSHA256     string                        `json:"generation_guidance_sha256"`
+	RetryStrategy                string                        `json:"retry_strategy"`
+	RetryOfPendingEventID        string                        `json:"retry_of_pending_event_id"`
+	ResumeStage                  string                        `json:"resume_stage"`
+	OutputKind                   string                        `json:"output_kind"`
+	ArticleIntent                reportexecution.ArticleIntent `json:"article_intent"`
 }
 
 type reportPatchRequest struct {
@@ -179,10 +181,10 @@ type agentReportAST struct {
 }
 
 type agentReportBlock struct {
-	Type       string                    `json:"type"`
-	Level      int                       `json:"level,omitempty"`
-	Text       string                    `json:"text,omitempty"`
-	Items      []string                  `json:"items,omitempty"`
-	SourceRefs app.ReportBlockSourceRefs `json:"source_refs,omitempty"`
-	Refs       app.ReportBlockSourceRefs `json:"refs,omitempty"`
+	Type       string                               `json:"type"`
+	Level      int                                  `json:"level,omitempty"`
+	Text       string                               `json:"text,omitempty"`
+	Items      []string                             `json:"items,omitempty"`
+	SourceRefs reportdocument.ReportBlockSourceRefs `json:"source_refs,omitempty"`
+	Refs       reportdocument.ReportBlockSourceRefs `json:"refs,omitempty"`
 }

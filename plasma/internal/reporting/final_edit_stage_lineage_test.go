@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -34,7 +35,7 @@ func TestFinalEditStageLineageRequiresEnabledStyleAndGateFinalTarget(t *testing.
 
 type finalEditReaderStageTestResult struct {
 	Binding  reporting.FinalEditStageBinding
-	Artifact app.RawArtifact
+	Artifact artifactcontract.Raw
 }
 
 func startAndSubmitReaderStage(t *testing.T, ctx context.Context, svc *app.Service, binding reporting.LongFormFinalizeBinding, suffix string) finalEditReaderStageTestResult {

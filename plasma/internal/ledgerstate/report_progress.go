@@ -476,9 +476,10 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			id = stageID("evidence_gate", 0, 0)
 		case "report.source_packet.started", "report.il_source_selection.started", "report.il_editorial_memory.started", "report.il_narrative.started", "report.il_long_form_plan.started", "report.il_long_form_sections.started", "report.il_long_form_parts.started", "report.il_long_form_final.started", "report.il_continuity.started", "report.il_reader.started", "report.il_images.started", "report.il_document.started", "report.il_flow.started", "report.il_render.started", "report.il_store.started":
 			id = ilProgressStageID(e.EventType)
-			if i, ok := index[id]; ok && nodes[i].State == "pending" {
+			if i, ok := index[id]; ok && (nodes[i].State == "pending" || q.PendingID == selected && nodes[i].AttemptID != selected) {
 				nodes[i].State = "running"
 				nodes[i].AttemptID = q.PendingID
+				nodes[i].Error = ""
 			}
 			continue
 		case "report.il_source_selection.reused", "report.il_editorial_memory.reused", "report.il_narrative.reused", "report.il_long_form_plan.reused", "report.il_long_form_sections.reused", "report.il_long_form_parts.reused", "report.il_long_form_final.reused", "report.il_reader.reused", "report.il_continuity.reused":
@@ -526,12 +527,15 @@ func ProjectReportProgress(events []Event) ReportProgress {
 			}
 		}
 		if i, ok := index[id]; ok {
-			nodes[i].AttemptID = q.PendingID
-			if strings.HasSuffix(e.EventType, ".failed") {
-				nodes[i].State = "failed"
-				nodes[i].Error = safeText(q.Error)
-			} else {
-				nodes[i].State = "completed"
+			if nodes[i].AttemptID != selected || q.PendingID == selected || nodes[i].State != "completed" {
+				nodes[i].AttemptID = q.PendingID
+				if strings.HasSuffix(e.EventType, ".failed") {
+					nodes[i].State = "failed"
+					nodes[i].Error = safeText(q.Error)
+				} else {
+					nodes[i].State = "completed"
+					nodes[i].Error = ""
+				}
 			}
 		}
 	}
@@ -573,6 +577,8 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		if strings.TrimSpace(p.PipelineFamily) == "report_il_experimental" {
 			if p.ReportMode == "long_form" && reportILProgressLineageHasCheckpoint(events, selected) {
 				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true}
+			} else if p.ReportMode == "long_form" && reportILSourceSelectionCheckpointEligible(events, selected, terminal[selected]) {
+				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true, ReasonCode: "source_selection_checkpoint_recoverable", Reason: "선별된 소스를 검증한 뒤 자료 관계·맥락 정리부터 이어서 생성합니다."}
 			} else if p.ReportMode == "long_form" && reportILPartsCheckpointEligible(events, selected, terminal[selected]) {
 				result.Retry = ReportRetryCapability{ResumeFailed: true, Restart: true, ReasonCode: "parts_checkpoint_recoverable", Reason: "완료된 Section과 Part를 검증한 뒤 최종 원고 단계부터 이어서 생성합니다."}
 			} else if p.ReportMode == "long_form" && reportILLegacyCheckpointEligible(events, selected, terminal[selected]) {
@@ -595,6 +601,73 @@ func ProjectReportProgress(events []Event) ReportProgress {
 		result.Retry = ReportRetryCapability{ReasonCode: "attempt_not_failed", Reason: "실패한 리포트 시도만 다시 생성할 수 있습니다."}
 	}
 	return result
+}
+
+func reportILSourceSelectionCheckpointEligible(events []Event, pendingID string, failure reportPayload) bool {
+	if failure.FailedStage != "il_editorial_memory" && failure.FailedStageID != "il_editorial_memory" {
+		return false
+	}
+	selectionCompleted := false
+	readComplete := false
+	catalogSHA := ""
+	seenSources := map[string]bool{}
+	for _, event := range reportILProgressAttemptEventRange(events, pendingID) {
+		var payload struct {
+			PendingID string `json:"pending_event_id"`
+			ToolName  string `json:"tool_name"`
+			Success   bool   `json:"success"`
+			IOMetrics struct {
+				Stage         string `json:"report_il_stage"`
+				CatalogSHA256 string `json:"catalog_sha256"`
+				Remaining     int    `json:"remaining_sources"`
+				SourceReads   []struct {
+					SourceKey string `json:"source_key"`
+				} `json:"source_reads"`
+			} `json:"io_metrics"`
+		}
+		_ = json.Unmarshal(event.Payload, &payload)
+		if payload.PendingID == pendingID && event.EventType == "report.il_source_selection.completed" {
+			selectionCompleted = true
+		}
+		if event.EventType != "mcp.tool.called" || !payload.Success || payload.ToolName != reportilcontract.SourceReadTool || payload.IOMetrics.Stage != "il_editorial_memory" {
+			continue
+		}
+		if catalogSHA != "" && !strings.EqualFold(catalogSHA, payload.IOMetrics.CatalogSHA256) {
+			return false
+		}
+		catalogSHA = payload.IOMetrics.CatalogSHA256
+		for _, read := range payload.IOMetrics.SourceReads {
+			seenSources[read.SourceKey] = true
+		}
+		if payload.IOMetrics.Remaining == 0 {
+			readComplete = true
+		}
+	}
+	return selectionCompleted && readComplete && len(catalogSHA) == 64 && len(seenSources) > 0
+}
+
+func reportILProgressAttemptEventRange(events []Event, pendingID string) []Event {
+	start, end := -1, len(events)
+	for index, event := range events {
+		if event.EventID == pendingID && event.EventType == "report.draft.pending" {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		return nil
+	}
+	for index := start + 1; index < len(events); index++ {
+		if events[index].EventType != "report.draft.failed" {
+			continue
+		}
+		var payload reportPayload
+		if json.Unmarshal(events[index].Payload, &payload) == nil && payload.PendingID == pendingID {
+			end = index + 1
+			break
+		}
+	}
+	return events[start:end]
 }
 
 func reportILPartsCheckpointEligible(events []Event, pendingID string, failure reportPayload) bool {
@@ -702,7 +775,7 @@ func reportILProgressHasCheckpoint(events []Event, pendingID string) bool {
 		}
 		if json.Unmarshal(event.Payload, &payload) == nil && payload.PendingID == pendingID {
 			switch payload.Checkpoint.Stage {
-			case "il_long_form_parts", "il_long_form_final", "il_reader", "il_continuity":
+			case "il_source_selection", "il_long_form_parts", "il_long_form_final", "il_reader", "il_continuity":
 				return true
 			}
 		}

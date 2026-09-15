@@ -31,6 +31,8 @@ Plasma를 처음 이해하려면 아래 순서로 읽는 것이 좋습니다.
    [패키지 경계 규칙](architecture/package-boundaries.ko.md) - 코드 배치, import, 분할 검토 기준을 정의합니다.
 6. [Product Architecture](product-architecture.md) /
    [제품 아키텍처](product-architecture.ko.md) - 제품 동작과 기능별 상세 경계를 설명합니다.
+7. [Article IL Design](article-il-design.md) /
+   [Article IL 설계](article-il-design.ko.md) - 별도 읽기 중심 `글 만들기` 기능과 제품화 gate를 정의합니다.
 
 ## 현재 제품 규칙
 

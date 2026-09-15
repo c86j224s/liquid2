@@ -1,12 +1,21 @@
 package sqlite
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestResearchIDEReaderListsChunksGrepsAndReferences(t *testing.T) {
@@ -14,11 +23,11 @@ func TestResearchIDEReaderListsChunksGrepsAndReferences(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
 
-	if _, err := svc.ListMissionObjects(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, 1, ""); !errors.Is(err, app.ErrInvalidInput) {
+	if _, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, 1, ""); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("default ListMissionObjects should reject legacy evidence records, got %v", err)
 	}
 
-	page, err := svc.ListMissionObjects(ctx, "mis_1", app.ResearchIDEObjectRawArtifact, 1, "")
+	page, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectRawArtifact, 1, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects returned error: %v", err)
 	}
@@ -26,9 +35,9 @@ func TestResearchIDEReaderListsChunksGrepsAndReferences(t *testing.T) {
 		t.Fatalf("unexpected raw artifact page: %#v", page)
 	}
 
-	read, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	read, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectRawArtifact,
+		ObjectKind: researchcatalog.ObjectRawArtifact,
 		ObjectID:   "art_1",
 		MaxBytes:   12,
 	})
@@ -47,14 +56,14 @@ func TestResearchIDEReaderListsChunksGrepsAndReferences(t *testing.T) {
 		t.Fatalf("expected grep match")
 	}
 
-	legacyPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, 1, "")
+	legacyPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, 1, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjectsLegacy returned error: %v", err)
 	}
 	if len(legacyPage.Items) != 1 || legacyPage.Items[0].ObjectID != "evd_2" || legacyPage.NextCursor == "" || !legacyPage.Truncated {
 		t.Fatalf("unexpected first legacy evidence page: %#v", legacyPage)
 	}
-	legacyNext, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, 1, legacyPage.NextCursor)
+	legacyNext, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, 1, legacyPage.NextCursor)
 	if err != nil {
 		t.Fatalf("ListMissionObjectsLegacy second page returned error: %v", err)
 	}
@@ -62,15 +71,15 @@ func TestResearchIDEReaderListsChunksGrepsAndReferences(t *testing.T) {
 		t.Fatalf("unexpected second legacy evidence page: %#v", legacyNext)
 	}
 
-	refs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, "evd_1", 10, "")
+	refs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, "evd_1", 10, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferences returned error: %v", err)
 	}
-	if !hasResearchIDERef(refs.Forward, app.ResearchIDEObjectSourceSnapshot, "src_1") {
+	if !hasResearchIDERef(refs.Forward, researchcatalog.ObjectSourceSnapshot, "src_1") {
 		t.Fatalf("expected evidence forward source ref: %#v", refs)
 	}
-	if !hasResearchIDERef(refs.Backward, app.ResearchIDEObjectClaimRecord, "clm_1") ||
-		!hasAnyResearchIDERefKind(refs.Backward, app.ResearchIDEObjectReportBlock) {
+	if !hasResearchIDERef(refs.Backward, researchcatalog.ObjectClaimRecord, "clm_1") ||
+		!hasAnyResearchIDERefKind(refs.Backward, researchcatalog.ObjectReportBlock) {
 		t.Fatalf("expected claim and report block backward refs: %#v", refs)
 	}
 }
@@ -79,21 +88,21 @@ func TestResearchIDEHidesStagedSourceCandidateArtifacts(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_candidate",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain; charset=utf-8",
 		Filename:   "candidate.txt",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("unapproved candidate body"),
 	}); err != nil {
 		t.Fatalf("CreateRawArtifact candidate returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_candidate_staged",
 		MissionID: "mis_1",
 		EventType: "source.candidate.staged",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: []byte(`{
 			"url":"https://example.com/source",
 			"proposal_event_id":"evt_candidate_proposed",
@@ -105,7 +114,7 @@ func TestResearchIDEHidesStagedSourceCandidateArtifacts(t *testing.T) {
 		t.Fatalf("AppendEvent source candidate staged returned error: %v", err)
 	}
 
-	page, err := svc.ListMissionObjects(ctx, "mis_1", app.ResearchIDEObjectRawArtifact, 10, "")
+	page, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectRawArtifact, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects returned error: %v", err)
 	}
@@ -114,9 +123,9 @@ func TestResearchIDEHidesStagedSourceCandidateArtifacts(t *testing.T) {
 			t.Fatalf("staged source candidate artifact must not be listed as a normal raw artifact: %#v", page.Items)
 		}
 	}
-	_, err = svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	_, err = svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectRawArtifact,
+		ObjectKind: researchcatalog.ObjectRawArtifact,
 		ObjectID:   "art_candidate",
 		MaxBytes:   64,
 	})
@@ -130,14 +139,14 @@ func TestResearchIDEReferencesArePaged(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
 
-	first, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, "evd_1", 1, "")
+	first, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, "evd_1", 1, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferences first page returned error: %v", err)
 	}
 	if len(first.Forward)+len(first.Backward) != 1 || first.NextCursor == "" || !first.Truncated {
 		t.Fatalf("expected one paged reference and next cursor, got %#v", first)
 	}
-	second, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", app.ResearchIDEObjectEvidenceRecord, "evd_1", 10, first.NextCursor)
+	second, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", researchcatalog.ObjectEvidenceRecord, "evd_1", 10, first.NextCursor)
 	if err != nil {
 		t.Fatalf("ListObjectReferences second page returned error: %v", err)
 	}
@@ -150,16 +159,16 @@ func TestResearchIDEReadReportVersionChildrenAreFilteredBeforePaging(t *testing.
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
-	if _, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	if _, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_2",
 		ReportVersionID: "rvn_2",
 		MissionID:       "mis_1",
 		Title:           "Second Report",
 		FormatIntent:    "briefing",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_report"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		CreatedEventID:  "evt_report_drafted_2",
-		Blocks: []app.ReportBlockDraftInput{{
+		Blocks: []reportdocument.ReportBlockDraftInput{{
 			BlockType: "paragraph",
 			Content:   []byte(`{"text":"Second report block."}`),
 		}},
@@ -167,9 +176,9 @@ func TestResearchIDEReadReportVersionChildrenAreFilteredBeforePaging(t *testing.
 		t.Fatalf("CreateReportDraft second returned error: %v", err)
 	}
 
-	read, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	read, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectReportVersion,
+		ObjectKind: researchcatalog.ObjectReportVersion,
 		ObjectID:   "rvn_1",
 		Limit:      1,
 		Legacy:     true,
@@ -190,19 +199,19 @@ func TestResearchIDEReadKeepsUTF8Boundaries(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
 	content := []byte("가나다🙂xyz")
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_utf8",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain; charset=utf-8",
-		Producer:   app.Producer{Type: "connector", ID: "test"},
+		Producer:   ledger.Producer{Type: "connector", ID: "test"},
 		Content:    content,
 	}); err != nil {
 		t.Fatalf("CreateRawArtifact utf8 returned error: %v", err)
 	}
 
-	first, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	first, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectRawArtifact,
+		ObjectKind: researchcatalog.ObjectRawArtifact,
 		ObjectID:   "art_utf8",
 		MaxBytes:   4,
 	})
@@ -213,9 +222,9 @@ func TestResearchIDEReadKeepsUTF8Boundaries(t *testing.T) {
 		t.Fatalf("unexpected UTF-8 chunk: %#v", first)
 	}
 
-	_, err = svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	_, err = svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectRawArtifact,
+		ObjectKind: researchcatalog.ObjectRawArtifact,
 		ObjectID:   "art_utf8",
 		Offset:     1,
 		MaxBytes:   4,
@@ -231,9 +240,9 @@ func TestResearchIDEReaderRejectsCrossMissionReads(t *testing.T) {
 	svc := newResearchIDEFixture(t, store)
 	createSecondMissionArtifact(t, ctx, svc)
 
-	_, err := svc.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	_, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: app.ResearchIDEObjectRawArtifact,
+		ObjectKind: researchcatalog.ObjectRawArtifact,
 		ObjectID:   "art_other",
 	})
 	if !errors.Is(err, app.ErrInvalidInput) || !strings.Contains(err.Error(), "art_other") {
@@ -245,11 +254,11 @@ func TestResearchIDEOutlineKeepsSmallMissionOverview(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newResearchIDEFixture(t, store)
-	latest, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	latest, err := store.AppendLedgerEvent(ctx, ledger.Event{
 		EventID:   "evt_after_projection",
 		MissionID: "mis_1",
 		EventType: "report.qa.completed",
-		Producer:  app.Producer{Type: "agent_session", ID: "ses_report"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		Payload:   []byte(`{"status":"completed"}`),
 	})
 	if err != nil {
@@ -262,8 +271,8 @@ func TestResearchIDEOutlineKeepsSmallMissionOverview(t *testing.T) {
 	}
 	if outline.Title != "Research Mission" ||
 		outline.LastSequence != latest.Sequence ||
-		outline.Counts[app.ResearchIDEObjectSourceSnapshot] != 1 ||
-		outline.Counts[app.ResearchIDEObjectRawArtifact] != 1 ||
+		outline.Counts[researchcatalog.ObjectSourceSnapshot] != 1 ||
+		outline.Counts[researchcatalog.ObjectRawArtifact] != 1 ||
 		outline.Counts["evidence_record.proposed"] != 0 ||
 		outline.ActiveReportVersionID != "" {
 		t.Fatalf("unexpected outline: %#v", outline)
@@ -290,13 +299,13 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 	t.Helper()
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
-	if err := store.SaveMissionProjection(ctx, app.MissionProjection{
+	if err := store.SaveMissionProjection(ctx, mission.Projection{
 		MissionID:             "mis_1",
 		LastEventID:           "evt_report_drafted",
 		LastSequence:          8,
 		Title:                 "Research Mission",
 		Objective:             "Explain the research ledger.",
-		Scope:                 app.MissionScope{Included: []string{"sources"}, Excluded: []string{"prompt stuffing"}},
+		Scope:                 mission.Scope{Included: []string{"sources"}, Excluded: []string{"prompt stuffing"}},
 		AcceptedClaimIDs:      []string{"clm_1"},
 		OpenQuestionIDs:       []string{"qst_1", "qst_extra_1", "qst_extra_2", "qst_extra_3", "qst_extra_4", "qst_extra_5", "qst_extra_6"},
 		ActiveReportVersionID: "rvn_1",
@@ -304,36 +313,36 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 	}); err != nil {
 		t.Fatalf("SaveMissionProjection returned error: %v", err)
 	}
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain",
 		Filename:   "source.txt",
-		Producer:   app.Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte("alpha beta gamma delta epsilon zeta"),
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	if _, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	if _, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   app.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
 		Title:       "Pinned source",
 		ArtifactIDs: []string{"art_1"},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
 	}); err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 	}
-	for _, evidence := range []app.CreateEvidenceRecordRequest{
+	for _, evidence := range []researchrecords.CreateEvidenceRecordRequest{
 		{
 			EvidenceID:     "evd_1",
 			MissionID:      "mis_1",
 			Summary:        "Gamma appears in the pinned source.",
 			EvidenceType:   "quote",
-			SnapshotRefs:   []app.SnapshotRef{{SnapshotID: "src_1", ArtifactID: "art_1", Locator: []byte(`{"locator_type":"text_quote","exact":"gamma"}`)}},
-			Confidence:     app.Confidence{Level: "medium"},
-			Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+			SnapshotRefs:   []researchrecords.SnapshotRef{{SnapshotID: "src_1", ArtifactID: "art_1", Locator: []byte(`{"locator_type":"text_quote","exact":"gamma"}`)}},
+			Confidence:     researchrecords.Confidence{Level: "medium"},
+			Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 			CreatedEventID: "evt_evidence",
 		},
 		{
@@ -341,9 +350,9 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 			MissionID:      "mis_1",
 			Summary:        "Delta is nearby.",
 			EvidenceType:   "quote",
-			SnapshotRefs:   []app.SnapshotRef{{SnapshotID: "src_1", ArtifactID: "art_1", Locator: []byte(`{"locator_type":"text_quote","exact":"delta"}`)}},
-			Confidence:     app.Confidence{Level: "low"},
-			Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+			SnapshotRefs:   []researchrecords.SnapshotRef{{SnapshotID: "src_1", ArtifactID: "art_1", Locator: []byte(`{"locator_type":"text_quote","exact":"delta"}`)}},
+			Confidence:     researchrecords.Confidence{Level: "low"},
+			Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 			CreatedEventID: "evt_evidence",
 		},
 	} {
@@ -351,20 +360,20 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 			t.Fatalf("CreateEvidenceRecord %s returned error: %v", evidence.EvidenceID, err)
 		}
 	}
-	if _, err := svc.CreateClaimRecord(ctx, app.CreateClaimRecordRequest{
+	if _, err := svc.CreateClaimRecord(ctx, researchrecords.CreateClaimRecordRequest{
 		ClaimID:               "clm_1",
 		MissionID:             "mis_1",
 		State:                 "approved",
 		Text:                  "Gamma is a useful research signal.",
 		ClaimType:             "descriptive",
 		SupportingEvidenceIDs: []string{"evd_1"},
-		Confidence:            app.Confidence{Level: "high"},
-		Approval:              app.Approval{State: "approved", ApprovalEventID: "evt_approval"},
+		Confidence:            researchrecords.Confidence{Level: "high"},
+		Approval:              researchrecords.ClaimApproval{State: "approved", ApprovalEventID: "evt_approval"},
 		CreatedEventID:        "evt_claim",
 	}); err != nil {
 		t.Fatalf("CreateClaimRecord returned error: %v", err)
 	}
-	if _, err := svc.CreateQuestionRecord(ctx, app.CreateQuestionRecordRequest{
+	if _, err := svc.CreateQuestionRecord(ctx, researchrecords.CreateQuestionRecordRequest{
 		QuestionID:         "qst_1",
 		MissionID:          "mis_1",
 		Text:               "How should gamma be interpreted?",
@@ -375,19 +384,19 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 	}); err != nil {
 		t.Fatalf("CreateQuestionRecord returned error: %v", err)
 	}
-	if _, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	if _, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_1",
 		ReportVersionID: "rvn_1",
 		MissionID:       "mis_1",
 		Title:           "Research Report",
 		FormatIntent:    "briefing",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_report"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		CreatedEventID:  "evt_report_drafted",
-		Blocks: []app.ReportBlockDraftInput{{
+		Blocks: []reportdocument.ReportBlockDraftInput{{
 			BlockType: "paragraph",
 			Content:   []byte(`{"text":"Gamma is a useful research signal."}`),
-			SourceRefs: app.ReportBlockSourceRefs{
+			SourceRefs: reportdocument.ReportBlockSourceRefs{
 				ClaimIDs:    []string{"clm_1"},
 				EvidenceIDs: []string{"evd_1"},
 				SnapshotIDs: []string{"src_1"},
@@ -401,21 +410,21 @@ func newResearchIDEFixture(t *testing.T, store *Store) *app.Service {
 
 func createSecondMissionArtifact(t *testing.T, ctx context.Context, svc *app.Service) {
 	t.Helper()
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_2", Title: "Other"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_2", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission second returned error: %v", err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_other",
 		MissionID:  "mis_2",
 		MediaType:  "text/plain",
-		Producer:   app.Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte("other mission body"),
 	}); err != nil {
 		t.Fatalf("CreateRawArtifact second returned error: %v", err)
 	}
 }
 
-func hasResearchIDERef(refs []app.ResearchIDEObjectRef, kind, id string) bool {
+func hasResearchIDERef(refs []researchcatalog.ObjectRef, kind, id string) bool {
 	for _, ref := range refs {
 		if ref.ObjectKind == kind && ref.ObjectID == id {
 			return true
@@ -424,7 +433,7 @@ func hasResearchIDERef(refs []app.ResearchIDEObjectRef, kind, id string) bool {
 	return false
 }
 
-func hasAnyResearchIDERefKind(refs []app.ResearchIDEObjectRef, kind string) bool {
+func hasAnyResearchIDERefKind(refs []researchcatalog.ObjectRef, kind string) bool {
 	for _, ref := range refs {
 		if ref.ObjectKind == kind {
 			return true

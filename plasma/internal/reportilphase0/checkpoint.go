@@ -50,6 +50,23 @@ func sourceSelectionFromCheckpoint(receipt reportilcontract.CheckpointSourceSele
 	}
 }
 
+// NewSourceSelectionCheckpoint freezes the verified selected catalog before
+// editorial memory so that a later attempt can resume without selecting again.
+func NewSourceSelectionCheckpoint(
+	config ProductConfig,
+	candidateCatalogSHA string,
+	authorCatalog reportilcontract.SourceCatalog,
+	imageCatalog reportilcontract.SourceCatalog,
+	selection SourceSelectionReceipt,
+) reportilcontract.ProductCheckpoint {
+	return reportilcontract.ProductCheckpoint{
+		SchemaVersion:  reportilcontract.ProductCheckpointSchemaVersion,
+		PendingEventID: config.PendingEventID, Stage: "il_source_selection",
+		CandidateCatalogSHA256: candidateCatalogSHA, AuthorCatalog: authorCatalog,
+		ImageCatalog: imageCatalog, SourceSelection: checkpointSourceSelection(selection),
+	}
+}
+
 func checkpointArtifact(receipt LongFormArtifactReceipt) reportilcontract.CheckpointArtifact {
 	return reportilcontract.CheckpointArtifact{
 		ArtifactID: receipt.ArtifactID, SHA256: receipt.SHA256,

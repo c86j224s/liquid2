@@ -3,9 +3,14 @@ package research
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
 )
 
@@ -110,44 +115,44 @@ func (readerOnlyService) ListMissionChanges(context.Context, app.ResearchIDEChan
 	return app.ResearchIDEChanges{}, nil
 }
 
-func (readerOnlyService) ListMissionObjects(context.Context, string, string, int, string) (app.ResearchIDEPage, error) {
-	return app.ResearchIDEPage{}, nil
+func (readerOnlyService) ListMissionObjects(context.Context, string, string, int, string) (researchcatalog.Page, error) {
+	return researchcatalog.Page{}, nil
 }
 
-func (readerOnlyService) ReadMissionObject(context.Context, app.ResearchIDEReadRequest) (app.ResearchIDEObjectRead, error) {
-	return app.ResearchIDEObjectRead{}, nil
+func (readerOnlyService) ReadMissionObject(context.Context, researchinspection.ReadRequest) (researchinspection.ObjectRead, error) {
+	return researchinspection.ObjectRead{}, nil
 }
 
-func (readerOnlyService) GrepMissionObjects(context.Context, string, string, int, string) (app.ResearchIDEGrepResult, error) {
-	return app.ResearchIDEGrepResult{}, nil
+func (readerOnlyService) GrepMissionObjects(context.Context, string, string, int, string) (researchinspection.GrepResult, error) {
+	return researchinspection.GrepResult{}, nil
 }
 
-func (readerOnlyService) ListObjectReferences(context.Context, string, string, string, int, string) (app.ResearchIDEReferences, error) {
-	return app.ResearchIDEReferences{}, nil
+func (readerOnlyService) ListObjectReferences(context.Context, string, string, string, int, string) (researchcatalog.References, error) {
+	return researchcatalog.References{}, nil
 }
 
 type countingProposalWriter struct {
 	count int
 }
 
-func (writer *countingProposalWriter) CreateEvidenceProposal(context.Context, app.CreateEvidenceProposalRequest) (app.EvidenceProposalResult, error) {
+func (writer *countingProposalWriter) CreateEvidenceProposal(context.Context, researchproposal.CreateEvidenceProposalRequest) (researchproposal.EvidenceProposalResult, error) {
 	writer.count++
-	return app.EvidenceProposalResult{}, nil
+	return researchproposal.EvidenceProposalResult{}, nil
 }
 
-func (writer *countingProposalWriter) CreateQuestionProposal(context.Context, app.CreateQuestionProposalRequest) (app.QuestionProposalResult, error) {
+func (writer *countingProposalWriter) CreateQuestionProposal(context.Context, researchproposal.CreateQuestionProposalRequest) (researchproposal.QuestionProposalResult, error) {
 	writer.count++
-	return app.QuestionProposalResult{}, nil
+	return researchproposal.QuestionProposalResult{}, nil
 }
 
-func (writer *countingProposalWriter) CreateClaimProposal(context.Context, app.CreateClaimProposalRequest) (app.ClaimProposalResult, error) {
+func (writer *countingProposalWriter) CreateClaimProposal(context.Context, researchproposal.CreateClaimProposalRequest) (researchproposal.ClaimProposalResult, error) {
 	writer.count++
-	return app.ClaimProposalResult{}, nil
+	return researchproposal.ClaimProposalResult{}, nil
 }
 
-func (writer *countingProposalWriter) UpdateClaimConfidence(context.Context, app.UpdateClaimConfidenceRequest) (app.LedgerEvent, error) {
+func (writer *countingProposalWriter) UpdateClaimConfidence(context.Context, researchrecords.UpdateClaimConfidenceRequest) (ledger.Event, error) {
 	writer.count++
-	return app.LedgerEvent{}, nil
+	return ledger.Event{}, nil
 }
 
 func (writer *countingProposalWriter) SubmitProposal(context.Context, app.SubmitProposalRequest) (app.SubmitProposalResult, error) {

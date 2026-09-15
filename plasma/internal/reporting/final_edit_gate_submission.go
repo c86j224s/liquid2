@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // FinalEditGateSubmitRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -36,11 +38,11 @@ func SubmitFinalEditGate(ctx context.Context, store FinalEditStageStore, req Fin
 	semanticReview := FinalEditSemanticAttestation{}
 	if stageBinding.PostReportHumanize != FinalEditHumanizeEnabled {
 		if len(req.SemanticAcceptance) != 0 {
-			return LongFormFinalizeResult{}, fmt.Errorf("%w: semantic acceptance is only valid when post_report_humanize is enabled", app.ErrInvalidInput)
+			return LongFormFinalizeResult{}, fmt.Errorf("%w: semantic acceptance is only valid when post_report_humanize is enabled", producterror.ErrInvalidInput)
 		}
 	} else {
 		var err error
-		semanticReview, err = ValidateFinalEditSemanticAcceptance(ctx, store, stageBinding, req.ManuscriptMarkdown, req.SemanticAcceptance)
+		semanticReview, err = validateFinalEditSemanticAcceptance(ctx, store, stageBinding, req.ManuscriptMarkdown, req.SemanticAcceptance)
 		if err != nil {
 			return LongFormFinalizeResult{}, err
 		}
@@ -74,7 +76,7 @@ func SubmitFinalEditGate(ctx context.Context, store FinalEditStageStore, req Fin
 func SubmitFinalEditEvidenceGate(ctx context.Context, store FinalEditStageStore, req FinalEditEvidenceGateSubmitRequest) (LongFormFinalizeResult, error) {
 	stageBinding := normalizeFinalEditStageBinding(req.StageBinding)
 	finalBinding := normalizeLongFormFinalizeBinding(req.FinalBinding)
-	findings, err := NormalizeFinalEditEvidenceGateFindings(ctx, store, finalBinding.MissionID, req.Findings)
+	findings, err := normalizeFinalEditEvidenceGateFindings(ctx, store, finalBinding.MissionID, req.Findings)
 	if err != nil {
 		return LongFormFinalizeResult{}, err
 	}
@@ -110,7 +112,7 @@ func validateFinalEditEvidenceGateSubmitRequest(ctx context.Context, store Final
 		return FinalEditPipelinePlanState{}, err
 	}
 	if stageBinding.Stage != FinalEditStageEvidenceGate {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate submit requires evidence gate stage", app.ErrInvalidInput)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate submit requires evidence gate stage", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, finalBinding.MissionID)
 	if err != nil {
@@ -121,7 +123,7 @@ func validateFinalEditEvidenceGateSubmitRequest(ctx context.Context, store Final
 		return FinalEditPipelinePlanState{}, err
 	}
 	if !ok || plan.Pipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate requires active v3 final edit plan", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate requires active v3 final edit plan", producterror.ErrConflict)
 	}
 	stageBinding = finalEditStageBindingForPlan(stageBinding, plan)
 	if err := validateLongFormFinalPipeline(events, finalBinding, true); err != nil {
@@ -129,7 +131,7 @@ func validateFinalEditEvidenceGateSubmitRequest(ctx context.Context, store Final
 	}
 	canonical, canonicalCount := longFormCanonical(events, finalBinding.PendingEventID)
 	if canonicalCount > 1 {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: multiple canonical long-form finalizations", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: multiple canonical long-form finalizations", producterror.ErrConflict)
 	}
 	if canonicalCount == 0 {
 		if err := validateLongFormLineage(ctx, store, events, finalBinding); err != nil {
@@ -145,14 +147,14 @@ func validateFinalEditEvidenceGateSubmitRequest(ctx context.Context, store Final
 	if _, ok, err := finalEditStageStartedEvent(events, stageBinding); err != nil {
 		return FinalEditPipelinePlanState{}, err
 	} else if !ok {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: matching evidence gate start is missing", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: matching evidence gate start is missing", producterror.ErrConflict)
 	}
 	source, err := store.GetRawArtifact(ctx, stageBinding.SourceArtifactID)
 	if err != nil {
 		return FinalEditPipelinePlanState{}, err
 	}
 	if source.MissionID != stageBinding.MissionID || source.MediaType != "text/markdown; charset=utf-8" || source.SHA256 != contentSHA256(source.Content) {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate source artifact is foreign or not Markdown", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: evidence gate source artifact is foreign or not Markdown", producterror.ErrConflict)
 	}
 	if err := validateFinalEditEvidenceGateFindingStatementsInSource(string(source.Content), findings); err != nil {
 		return FinalEditPipelinePlanState{}, err
@@ -187,10 +189,10 @@ func validateFinalEditGateSubmitRequest(ctx context.Context, store FinalEditStag
 		return FinalEditPipelinePlanState{}, err
 	}
 	if stageBinding.Stage != FinalEditStageGate {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate submit requires corrective gate stage", app.ErrInvalidInput)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate submit requires corrective gate stage", producterror.ErrInvalidInput)
 	}
 	if strings.TrimSpace(markdown) == "" || operationCount < 0 {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate Markdown is invalid", app.ErrInvalidInput)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate Markdown is invalid", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, finalBinding.MissionID)
 	if err != nil {
@@ -201,7 +203,7 @@ func validateFinalEditGateSubmitRequest(ctx context.Context, store FinalEditStag
 		return FinalEditPipelinePlanState{}, err
 	}
 	if !ok || !isSupportedFinalEditPipeline(plan.Pipeline) {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate requires active final edit plan", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: final edit gate requires active final edit plan", producterror.ErrConflict)
 	}
 	stageBinding = finalEditStageBindingForPlan(stageBinding, plan)
 	if err := validateLongFormFinalPipeline(events, finalBinding, true); err != nil {
@@ -209,7 +211,7 @@ func validateFinalEditGateSubmitRequest(ctx context.Context, store FinalEditStag
 	}
 	canonical, canonicalCount := longFormCanonical(events, finalBinding.PendingEventID)
 	if canonicalCount > 1 {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: multiple canonical long-form finalizations", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: multiple canonical long-form finalizations", producterror.ErrConflict)
 	}
 	if canonicalCount == 0 {
 		if err := validateLongFormLineage(ctx, store, events, finalBinding); err != nil {
@@ -225,14 +227,14 @@ func validateFinalEditGateSubmitRequest(ctx context.Context, store FinalEditStag
 	if _, ok, err := finalEditStageStartedEvent(events, stageBinding); err != nil {
 		return FinalEditPipelinePlanState{}, err
 	} else if !ok {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: matching corrective gate start is missing", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: matching corrective gate start is missing", producterror.ErrConflict)
 	}
 	source, err := store.GetRawArtifact(ctx, stageBinding.SourceArtifactID)
 	if err != nil {
 		return FinalEditPipelinePlanState{}, err
 	}
 	if source.MissionID != stageBinding.MissionID || source.MediaType != "text/markdown; charset=utf-8" || source.SHA256 != contentSHA256(source.Content) {
-		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: corrective gate source artifact is foreign or not Markdown", app.ErrConflict)
+		return FinalEditPipelinePlanState{}, fmt.Errorf("%w: corrective gate source artifact is foreign or not Markdown", producterror.ErrConflict)
 	}
 	if submitted, ok, err := finalEditStageSubmittedEvent(events, stageBinding); err != nil {
 		return FinalEditPipelinePlanState{}, err
@@ -261,31 +263,31 @@ func validateFinalEditGateBindingMatchesFinal(stageBinding FinalEditStageBinding
 		return err
 	}
 	if finalBinding.ArtifactID != plan.ArtifactID {
-		return fmt.Errorf("%w: corrective gate binding differs from final binding", app.ErrConflict)
+		return fmt.Errorf("%w: corrective gate binding differs from final binding", producterror.ErrConflict)
 	}
 	return nil
 }
 
-func submitFinalEditStageChanged(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, source app.RawArtifact, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
-	producer := app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
-	artifactReq := app.CreateRawArtifactRequest{
+func submitFinalEditStageChanged(ctx context.Context, store FinalEditStageStore, binding FinalEditStageBinding, eventID string, source artifactcontract.Raw, markdown string, operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) (FinalEditStageResult, error) {
+	producer := ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
+	artifactReq := artifactcontract.CreateRequest{
 		ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: producer, Content: []byte(markdown),
 	}
-	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []app.LedgerEvent, artifact app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+	artifact, event, created, err := store.CreateRawArtifactWithEventConditionally(ctx, artifactReq, func(events []ledger.Event, artifact artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error) {
 		if err := validateFinalEditStageLineage(ctx, store, events, binding, finalEditStageAllowsCanonicalLoad(binding.Stage)); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		if _, ok, err := finalEditStageStartedEvent(events, binding); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		} else if !ok {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: matching final edit stage start is missing", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: matching final edit stage start is missing", producterror.ErrConflict)
 		}
 		if existing, ok, err := finalEditStageSubmittedEvent(events, binding); ok || err != nil {
-			return app.AppendEventRequest{}, existing, false, err
+			return ledger.AppendRequest{}, existing, false, err
 		}
-		return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, artifact, operationCount, true, diagnoses, findings, semanticReview), app.LedgerEvent{}, true, nil
+		return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, artifact, operationCount, true, diagnoses, findings, semanticReview), ledger.Event{}, true, nil
 	})
 	if err != nil {
 		if existing, ok, loadErr := LoadFinalEditStageSubmission(ctx, store, binding); ok && loadErr == nil {

@@ -173,7 +173,7 @@ func validateReaderFacingDocumentExceptMixedScript(document Document) error {
 				fmt.Errorf("reader-facing content explains an ordinary SI measurement"),
 			)
 		}
-		if readerFacingAuditVoicePattern.MatchString(value) {
+		if readerFacingAuditVoiceDominates(value) {
 			auditVoicePassages++
 		}
 	}
@@ -206,4 +206,21 @@ func authoredBlockText(block Block) []string {
 		}
 	}
 	return result
+}
+
+// Count source-audit narration only when it dominates a passage. A local caveat
+// inside a substantive explanation is not a source tour, even if the regex hits.
+func readerFacingAuditVoiceDominates(value string) bool {
+	sentences := strings.FieldsFunc(value, func(r rune) bool { return r == '.' || r == '!' || r == '?' || r == '。' || r == '\n' })
+	total, audit := 0, 0
+	for _, sentence := range sentences {
+		if strings.TrimSpace(sentence) == "" {
+			continue
+		}
+		total++
+		if readerFacingAuditVoicePattern.MatchString(sentence) {
+			audit++
+		}
+	}
+	return total > 0 && audit*2 > total
 }

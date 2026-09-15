@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"io"
 	"mime"
 	"net/http"
@@ -15,7 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target any) bool {
@@ -55,7 +58,7 @@ func parseOptionalRFC3339(value string) (time.Time, error) {
 	}
 	parsed, err := time.Parse(time.RFC3339, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("%w: timestamp must be RFC3339", app.ErrInvalidInput)
+		return time.Time{}, fmt.Errorf("%w: timestamp must be RFC3339", producterror.ErrInvalidInput)
 	}
 	return parsed, nil
 }
@@ -78,32 +81,32 @@ func validateWebRelativePath(relativePath string) error {
 		return nil
 	}
 	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, `\`) || strings.HasPrefix(trimmed, "~") {
-		return fmt.Errorf("%w: relative_path must be root-relative", app.ErrInvalidInput)
+		return fmt.Errorf("%w: relative_path must be root-relative", producterror.ErrInvalidInput)
 	}
 	firstSegment := trimmed
 	if slash := strings.IndexAny(firstSegment, `/\`); slash >= 0 {
 		firstSegment = firstSegment[:slash]
 	}
 	if strings.Contains(firstSegment, ":") {
-		return fmt.Errorf("%w: relative_path must be root-relative", app.ErrInvalidInput)
+		return fmt.Errorf("%w: relative_path must be root-relative", producterror.ErrInvalidInput)
 	}
 	return nil
 }
 
-func sourceEventID(event *app.LedgerEvent) string {
+func sourceEventID(event *ledger.Event) string {
 	if event == nil {
 		return ""
 	}
 	return event.EventID
 }
 
-func localPathLocatorKind(snapshot app.SourceSnapshot) string {
-	var locators []app.LocalPathLocator
+func localPathLocatorKind(snapshot sourcecontract.Snapshot) string {
+	var locators []sourcecontract.LocalPathLocator
 	if err := json.Unmarshal(snapshot.Locators, &locators); err != nil {
 		return ""
 	}
 	for _, locator := range locators {
-		if locatorType(locator.LocatorType, locator.Kind) == app.SourceLocatorTypeLocalPath {
+		if locatorType(locator.LocatorType, locator.Kind) == sourcecontract.LocatorTypeLocalPath {
 			return strings.TrimSpace(locator.PathKind)
 		}
 	}
@@ -135,22 +138,22 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func writeAppError(w http.ResponseWriter, err error) {
-	if confluenceErr, ok := app.ConfluenceErrorDetails(err); ok {
+	if confluenceErr, ok := confluencesource.ConfluenceErrorDetails(err); ok {
 		writeConfluenceError(w, confluenceErr)
 		return
 	}
-	if errors.Is(err, app.ErrInvalidInput) {
+	if errors.Is(err, producterror.ErrInvalidInput) {
 		writeError(w, http.StatusBadRequest, appErrorMessage(err))
 		return
 	}
-	if errors.Is(err, app.ErrConflict) {
+	if errors.Is(err, producterror.ErrConflict) {
 		writeError(w, http.StatusConflict, appErrorMessage(err))
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error())
 }
 
-func writeConfluenceError(w http.ResponseWriter, err *app.ConfluenceError) {
+func writeConfluenceError(w http.ResponseWriter, err *confluencesource.ConfluenceError) {
 	status := err.HTTPStatus
 	if status <= 0 {
 		status = http.StatusBadRequest
@@ -172,7 +175,7 @@ func writeConfluenceError(w http.ResponseWriter, err *app.ConfluenceError) {
 
 func appErrorMessage(err error) string {
 	message := err.Error()
-	for _, base := range []error{app.ErrInvalidInput, app.ErrConflict} {
+	for _, base := range []error{producterror.ErrInvalidInput, producterror.ErrConflict} {
 		prefix := base.Error() + ": "
 		if strings.HasPrefix(message, prefix) {
 			message = strings.TrimSpace(strings.TrimPrefix(message, prefix))
@@ -180,7 +183,7 @@ func appErrorMessage(err error) string {
 		}
 	}
 	if message == "" {
-		return app.ErrInvalidInput.Error()
+		return producterror.ErrInvalidInput.Error()
 	}
 	return message
 }

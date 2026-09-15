@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // TurnUserEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -22,7 +22,7 @@ type TurnUserEventRequest struct {
 	WorkflowRunID        string
 	WorkflowStepID       string
 	StepInstructionMode  string
-	Producer             app.Producer
+	Producer             ledger.Producer
 }
 
 // ControllerStrategySelectedEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -39,7 +39,7 @@ type ControllerStrategySelectedEventRequest struct {
 	UserEventID       string
 	ToolSessionID     string
 	PreviousSessionID string
-	Producer          app.Producer
+	Producer          ledger.Producer
 }
 
 // TurnAgentPendingEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -60,7 +60,7 @@ type TurnAgentPendingEventRequest struct {
 	WorkflowRunID        string
 	WorkflowStepID       string
 	StepInstructionMode  string
-	Producer             app.Producer
+	Producer             ledger.Producer
 }
 
 // AgentSessionResetEventRequest는 대화 이벤트 경계에 전달되는 요청 값이다.
@@ -71,11 +71,11 @@ type AgentSessionResetEventRequest struct {
 	AgentModel             string
 	AgentReasoningEffort   string
 	PreviousAgentSessionID string
-	Producer               app.Producer
+	Producer               ledger.Producer
 }
 
 // BuildTurnUserAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildTurnUserAppendRequest(req TurnUserEventRequest) app.AppendEventRequest {
+func BuildTurnUserAppendRequest(req TurnUserEventRequest) ledger.AppendRequest {
 	payload := map[string]any{
 		"kind":            req.Kind,
 		"text":            req.Text,
@@ -88,7 +88,7 @@ func BuildTurnUserAppendRequest(req TurnUserEventRequest) app.AppendEventRequest
 	putNonEmpty(payload, "workflow_run_id", req.WorkflowRunID)
 	putNonEmpty(payload, "workflow_step_id", req.WorkflowStepID)
 	putNonEmpty(payload, "step_instruction_mode", req.StepInstructionMode)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "turn.user",
@@ -98,8 +98,8 @@ func BuildTurnUserAppendRequest(req TurnUserEventRequest) app.AppendEventRequest
 }
 
 // BuildControllerStrategySelectedAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildControllerStrategySelectedAppendRequest(req ControllerStrategySelectedEventRequest) app.AppendEventRequest {
-	return app.AppendEventRequest{
+func BuildControllerStrategySelectedAppendRequest(req ControllerStrategySelectedEventRequest) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "controller.strategy.selected",
@@ -121,7 +121,7 @@ func BuildControllerStrategySelectedAppendRequest(req ControllerStrategySelected
 }
 
 // BuildTurnAgentPendingAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) app.AppendEventRequest {
+func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) ledger.AppendRequest {
 	payload := map[string]any{
 		"kind":            "agent_pending",
 		"agent_executor":  req.AgentExecutor,
@@ -137,7 +137,7 @@ func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) app.Ap
 	putNonEmpty(payload, "workflow_run_id", req.WorkflowRunID)
 	putNonEmpty(payload, "workflow_step_id", req.WorkflowStepID)
 	putNonEmpty(payload, "step_instruction_mode", req.StepInstructionMode)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "turn.agent.pending",
@@ -147,8 +147,8 @@ func BuildTurnAgentPendingAppendRequest(req TurnAgentPendingEventRequest) app.Ap
 }
 
 // BuildAgentSessionResetAppendRequest는 대화 이벤트 경계에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildAgentSessionResetAppendRequest(req AgentSessionResetEventRequest) app.AppendEventRequest {
-	return app.AppendEventRequest{
+func BuildAgentSessionResetAppendRequest(req AgentSessionResetEventRequest) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
 		EventType: "agent.session.reset",

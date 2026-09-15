@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -15,13 +16,13 @@ const (
 )
 
 // BuildPartEditStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildPartEditStartedAppendRequest(eventID string, binding PartEditBinding) app.AppendEventRequest {
+func BuildPartEditStartedAppendRequest(eventID string, binding PartEditBinding) ledger.AppendRequest {
 	binding = normalizePartEditBinding(binding)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        binding.MissionID,
 		EventType:        PartEditStartedEventType,
-		Producer:         app.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
+		Producer:         ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
 		CausationEventID: binding.SourcePartEventID,
 		CorrelationID:    binding.IdempotencyKey,
 		Payload: mustJSON(map[string]any{
@@ -90,8 +91,8 @@ type PartEditBinding struct {
 
 // PartEditResult는 part edit 제출 이벤트와 artifact를 함께 반환한다.
 type PartEditResult struct {
-	Artifact app.RawArtifact
-	Event    app.LedgerEvent
+	Artifact artifactcontract.Raw
+	Event    ledger.Event
 	Replay   bool
 }
 
@@ -128,7 +129,7 @@ type partEditedPayload struct {
 	Text                         string `json:"text"`
 }
 
-func buildPartEditedAppendRequest(eventID string, binding PartEditBinding, source, artifact app.RawArtifact, operationCount int, changed bool) app.AppendEventRequest {
+func buildPartEditedAppendRequest(eventID string, binding PartEditBinding, source, artifact artifactcontract.Raw, operationCount int, changed bool) ledger.AppendRequest {
 	payload := partEditedPayload{
 		Kind:                         PartEditedKind,
 		PendingEventID:               binding.PendingEventID,
@@ -161,11 +162,11 @@ func buildPartEditedAppendRequest(eventID string, binding PartEditBinding, sourc
 		Changed:                      changed,
 		Text:                         "조립된 Part를 별도 편집 단계에서 검토하고 편집본으로 확정했습니다.",
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        binding.MissionID,
 		EventType:        PartEditedEventType,
-		Producer:         app.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
+		Producer:         ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
 		CausationEventID: binding.SourcePartEventID,
 		CorrelationID:    binding.IdempotencyKey,
 		Payload:          mustJSON(payload),

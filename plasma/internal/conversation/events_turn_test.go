@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestBuildTurnStartAppendRequestsPreserveWebPayloadContracts(t *testing.T) {
@@ -16,7 +16,7 @@ func TestBuildTurnStartAppendRequestsPreserveWebPayloadContracts(t *testing.T) {
 		AgentExecutor: "codex",
 		MCPMode:       "auto",
 		ToolSessionID: "ses_tool",
-		Producer:      app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:      ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if userReq.EventType != "turn.user" || userReq.Producer.Type != "user" || userReq.Producer.ID != "plasma-ui" {
 		t.Fatalf("unexpected user turn shell: %#v", userReq)
@@ -46,7 +46,7 @@ func TestBuildTurnStartAppendRequestsPreserveWebPayloadContracts(t *testing.T) {
 		UserEventID:       "evt_user",
 		ToolSessionID:     "ses_tool",
 		PreviousSessionID: "ses_prev",
-		Producer:          app.Producer{Type: "steering_chat", ID: "plasma-controller"},
+		Producer:          ledger.Producer{Type: "steering_chat", ID: "plasma-controller"},
 	})
 	if controllerReq.EventType != "controller.strategy.selected" {
 		t.Fatalf("unexpected controller event shell: %#v", controllerReq)
@@ -74,7 +74,7 @@ func TestBuildTurnStartAppendRequestsPreserveWebPayloadContracts(t *testing.T) {
 		UserEventID:       "evt_user",
 		ToolSessionID:     "ses_tool",
 		StartedAt:         "2026-07-09T01:02:03Z",
-		Producer:          app.Producer{Type: "agent", ID: "codex"},
+		Producer:          ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	if pendingReq.EventType != "turn.agent.pending" {
 		t.Fatalf("unexpected pending event shell: %#v", pendingReq)
@@ -100,7 +100,7 @@ func TestBuildTurnStartAppendRequestsPreserveWebPayloadContracts(t *testing.T) {
 		UserEventID:       "evt_user",
 		ToolSessionID:     "ses_tool",
 		StartedAt:         "2026-07-09T01:02:03Z",
-		Producer:          app.Producer{Type: "agent", ID: "codex"},
+		Producer:          ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	manualCompactPendingPayload := appPayload(t, manualCompactPendingReq)
 	if strategyID, ok := manualCompactPendingPayload["strategy_id"]; !ok || strategyID != "" {
@@ -123,7 +123,7 @@ func TestBuildTurnStartAppendRequestsPreserveWorkflowPayloadContracts(t *testing
 		WorkflowRunID:        "wfr_1",
 		WorkflowStepID:       "wfs_1",
 		StepInstructionMode:  "layered",
-		Producer:             app.Producer{Type: "workflow", ID: "wfr_1"},
+		Producer:             ledger.Producer{Type: "workflow", ID: "wfr_1"},
 	})
 	userPayload := appPayload(t, userReq)
 	if userPayload["kind"] != "workflow_steering" ||
@@ -150,7 +150,7 @@ func TestBuildTurnStartAppendRequestsPreserveWorkflowPayloadContracts(t *testing
 		WorkflowRunID:        "wfr_1",
 		WorkflowStepID:       "wfs_1",
 		StepInstructionMode:  "layered",
-		Producer:             app.Producer{Type: "agent", ID: "codex"},
+		Producer:             ledger.Producer{Type: "agent", ID: "codex"},
 	})
 	pendingPayload := appPayload(t, pendingReq)
 	if pendingPayload["kind"] != "agent_pending" ||
@@ -174,7 +174,7 @@ func TestBuildAgentSessionResetAppendRequestPreservesPayloadContract(t *testing.
 		AgentModel:             "gpt-5.5",
 		AgentReasoningEffort:   "medium",
 		PreviousAgentSessionID: "ses_prev",
-		Producer:               app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:               ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if req.EventType != "agent.session.reset" || req.Producer.Type != "user" || req.Producer.ID != "plasma-ui" {
 		t.Fatalf("unexpected reset event shell: %#v", req)
@@ -190,7 +190,7 @@ func TestBuildAgentSessionResetAppendRequestPreservesPayloadContract(t *testing.
 	}
 }
 
-func appPayload(t *testing.T, req app.AppendEventRequest) map[string]any {
+func appPayload(t *testing.T, req ledger.AppendRequest) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(req.Payload, &payload); err != nil {

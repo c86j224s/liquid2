@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestBuildSourceCandidateProposalEventRequestPreservesWebPayload(t *testing.T) {
@@ -19,7 +20,7 @@ func TestBuildSourceCandidateProposalEventRequestPreservesWebPayload(t *testing.
 		MCPMode:       "auto",
 		ToolSessionID: "ses_tool",
 		StrategyID:    "v2",
-		Producer:      app.Producer{Type: "agent", ID: "codex"},
+		Producer:      ledger.Producer{Type: "agent", ID: "codex"},
 		Candidates: []SourceCandidateProposal{{
 			URL:    "https://example.com/a",
 			Title:  "Example",
@@ -58,7 +59,7 @@ func TestBuildSourceCandidateMCPProposalEventRequestPreservesMCPPayload(t *testi
 		SessionID:          "ses_1",
 		CurrentUserEventID: "evt_user",
 		AgentExecutor:      "codex",
-		Producer:           app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:           ledger.Producer{Type: "agent_session", ID: "ses_1"},
 		Candidates: []SourceCandidateProposal{{
 			URL:    "https://example.com/a",
 			Title:  "Example",
@@ -97,7 +98,7 @@ func TestBuildWorkflowSourceCandidateProposalEventRequestPreservesWorkflowPayloa
 		WorkflowStepID: "wfs_1",
 		UserEventID:    "evt_user",
 		AgentEventID:   "evt_agent",
-		Producer:       app.Producer{Type: "agent", ID: "codex"},
+		Producer:       ledger.Producer{Type: "agent", ID: "codex"},
 		Candidates: []WorkflowSourceCandidateProposal{{
 			URL:    "https://example.com/a",
 			Title:  "Example",
@@ -137,7 +138,7 @@ func TestBuildWorkflowSourceCandidateProposalEventRequestPreservesWorkflowPayloa
 }
 
 func TestSourceCandidateTerminalEventsPreserveSurfaceSpecificAgentExecutor(t *testing.T) {
-	artifact := app.RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain; charset=utf-8",
@@ -156,7 +157,7 @@ func TestSourceCandidateTerminalEventsPreserveSurfaceSpecificAgentExecutor(t *te
 			URL:   "https://example.com/a",
 			Title: "Example",
 		},
-		Producer:       app.Producer{Type: "agent", ID: "codex"},
+		Producer:       ledger.Producer{Type: "agent", ID: "codex"},
 		StartedEventID: "evt_started",
 		AgentExecutor:  "codex",
 	}
@@ -164,7 +165,7 @@ func TestSourceCandidateTerminalEventsPreserveSurfaceSpecificAgentExecutor(t *te
 	assertPayloadLacksKey(t, sourceCandidateStagingFailedEventRequest(webJob, "evt_failed", errSourceCandidateTest).Payload, "agent_executor")
 
 	mcpJob := webJob
-	mcpJob.Producer = app.Producer{Type: "agent_session", ID: "ses_1"}
+	mcpJob.Producer = ledger.Producer{Type: "agent_session", ID: "ses_1"}
 	mcpJob.EmitAgentExecutorInTerminalEvents = true
 	assertJSONPayloadIncludes(t, sourceCandidateStagedEventRequest(mcpJob, "evt_staged", artifact, "Example", fetched).Payload, map[string]any{
 		"agent_executor": "codex",
@@ -175,7 +176,7 @@ func TestSourceCandidateTerminalEventsPreserveSurfaceSpecificAgentExecutor(t *te
 }
 
 func TestSourceCandidateStagedEventIncludesBrowserRenderCandidateDiagnosis(t *testing.T) {
-	artifact := app.RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/html; charset=utf-8",
@@ -194,7 +195,7 @@ func TestSourceCandidateStagedEventIncludesBrowserRenderCandidateDiagnosis(t *te
 			URL:   "https://example.com/app",
 			Title: "Client app",
 		},
-		Producer:       app.Producer{Type: "agent", ID: "codex"},
+		Producer:       ledger.Producer{Type: "agent", ID: "codex"},
 		StartedEventID: "evt_started",
 	}
 	var payload map[string]any

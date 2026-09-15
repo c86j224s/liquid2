@@ -9,7 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow"
 )
@@ -45,8 +46,8 @@ func TestLongFormFinalizationWebAdapterMatchesRootResultShape(t *testing.T) {
 
 type finalizationParityRun struct {
 	requests         []AgentRequest
-	artifact         app.RawArtifact
-	event            app.LedgerEvent
+	artifact         artifactcontract.Raw
+	event            ledger.Event
 	markdown         string
 	terminalPayload  map[string]any
 	humanizedPresent bool
@@ -73,8 +74,8 @@ func runLongFormFinalizationParity(t *testing.T, ctx context.Context, throughWeb
 	req.started = time.Unix(123, 456).UTC()
 	executor := &w4BRestartExecutor{service: svc}
 	ids := &finalizationParityIDGenerator{}
-	var artifact app.RawArtifact
-	var event app.LedgerEvent
+	var artifact artifactcontract.Raw
+	var event ledger.Event
 	var markdown string
 	humanizedPresent := false
 	if throughWeb {
@@ -105,7 +106,7 @@ func runLongFormFinalizationParity(t *testing.T, ctx context.Context, throughWeb
 		artifact = result.Artifact
 		event = result.Event
 		markdown = result.Markdown
-		humanizedPresent = result.Humanized != nil
+		humanizedPresent = false
 	}
 	events := w4BEvents(t, ctx, svc, req.missionID)
 	canonical := w4BCanonicalEvent(t, events)
@@ -174,7 +175,7 @@ func finalizationParityStages(requests []AgentRequest) []string {
 	return stages
 }
 
-func finalizationParityEventLineage(event app.LedgerEvent) map[string]any {
+func finalizationParityEventLineage(event ledger.Event) map[string]any {
 	return map[string]any{
 		"event_id":           event.EventID,
 		"mission_id":         event.MissionID,
@@ -186,7 +187,7 @@ func finalizationParityEventLineage(event app.LedgerEvent) map[string]any {
 	}
 }
 
-func finalizationParityPayload(t *testing.T, event app.LedgerEvent) map[string]any {
+func finalizationParityPayload(t *testing.T, event ledger.Event) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

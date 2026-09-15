@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestFinalEditGateRequiresSemanticAcceptanceForEveryStyleChangedParagraph(t *testing.T) {
@@ -107,7 +110,7 @@ func TestFinalEditSemanticAcceptanceRejectsDuplicateMismatchedAndUnresolvedRevie
 		"mismatch":   {{ParagraphOrdinal: 3, FinalParagraphOrdinal: 3, Verdict: FinalEditSemanticAcceptedEquivalent}},
 		"unresolved": {{ParagraphOrdinal: base.ParagraphOrdinal, FinalParagraphOrdinal: base.FinalParagraphOrdinal, Verdict: FinalEditSemanticRevertedToReader}},
 	} {
-		if _, err := ValidateFinalEditSemanticAcceptance(ctx, svc, gateBinding, styleMarkdown, reviews); !errors.Is(err, app.ErrConflict) && !errors.Is(err, app.ErrInvalidInput) {
+		if _, err := validateFinalEditSemanticAcceptance(ctx, svc, gateBinding, styleMarkdown, reviews); !errors.Is(err, app.ErrConflict) && !errors.Is(err, app.ErrInvalidInput) {
 			t.Fatalf("%s error=%v, want closed failure", name, err)
 		}
 	}
@@ -220,12 +223,12 @@ func TestFinalEditStyleSemanticValidationV3ReplayRejectsTamperedDurablePayloads(
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name   string
-		mutate func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation)
+		mutate func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation)
 	}{
 		{
 			name: "arbitrary_third_manuscript",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
-				_, attestation, err := BuildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticAcceptedEquivalent}})
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
+				_, attestation, err := buildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticAcceptedEquivalent}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -235,19 +238,19 @@ func TestFinalEditStyleSemanticValidationV3ReplayRejectsTamperedDurablePayloads(
 		},
 		{
 			name: "missing_attestation",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
 				return reader, 0, true, FinalEditSemanticAttestation{}
 			},
 		},
 		{
 			name: "partial_attestation",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
 				return reader, 0, true, FinalEditSemanticAttestation{Count: 1}
 			},
 		},
 		{
 			name: "repaired_by_gate",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
 				record := StoredFinalEditSemanticAcceptance{
 					ParagraphOrdinal:      comparison[0].ParagraphOrdinal,
 					FinalParagraphOrdinal: comparison[0].ParagraphOrdinal,
@@ -265,8 +268,8 @@ func TestFinalEditStyleSemanticValidationV3ReplayRejectsTamperedDurablePayloads(
 		},
 		{
 			name: "wrong_artifact",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
-				_, attestation, err := BuildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticRejectedRevertToReader}})
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
+				_, attestation, err := buildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticRejectedRevertToReader}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -275,8 +278,8 @@ func TestFinalEditStyleSemanticValidationV3ReplayRejectsTamperedDurablePayloads(
 		},
 		{
 			name: "nonzero_operation_count",
-			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader app.RawArtifact, style app.RawArtifact, comparison []FinalEditSemanticComparisonParagraph) (app.RawArtifact, int, bool, FinalEditSemanticAttestation) {
-				_, attestation, err := BuildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticAcceptedEquivalent}})
+			mutate: func(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, reader artifactcontract.Raw, style artifactcontract.Raw, comparison []FinalEditSemanticComparisonParagraph) (artifactcontract.Raw, int, bool, FinalEditSemanticAttestation) {
+				_, attestation, err := buildFinalEditStyleSemanticValidation(ctx, svc, binding, []FinalEditSemanticAcceptance{{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticAcceptedEquivalent}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -356,14 +359,14 @@ func TestFinalEditStyleSemanticValidationV3ReplayRejectsMixedArtifactForeignProd
 		{ParagraphOrdinal: comparison[0].ParagraphOrdinal, Verdict: FinalEditSemanticAcceptedEquivalent},
 		{ParagraphOrdinal: comparison[1].ParagraphOrdinal, Verdict: FinalEditSemanticRejectedRevertToReader},
 	}
-	resolved, attestation, err := BuildFinalEditStyleSemanticValidation(ctx, svc, semanticBinding, reviews)
+	resolved, attestation, err := buildFinalEditStyleSemanticValidation(ctx, svc, semanticBinding, reviews)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resolved == string(style.Artifact.Content) || resolved == string(reader.Artifact.Content) {
 		t.Fatalf("test did not produce mixed resolved markdown:\n%s", resolved)
 	}
-	forged := createFinalEditReplayArtifact(t, ctx, svc, semanticBinding, semanticBinding.EditedArtifactID, resolved, app.Producer{Type: "agent_session", ID: "provider-foreign"})
+	forged := createFinalEditReplayArtifact(t, ctx, svc, semanticBinding, semanticBinding.EditedArtifactID, resolved, ledger.Producer{Type: "agent_session", ID: "provider-foreign"})
 	if _, err := svc.AppendEvent(ctx, buildFinalEditSubmittedAppendRequest("evt_v3_mixed_semantic_submit", semanticBinding, style.Artifact, forged, 0, true, nil, attestation)); err != nil {
 		t.Fatal(err)
 	}
@@ -402,9 +405,9 @@ func seededV3StyleSemanticValidationReplayFixture(t *testing.T, ctx context.Cont
 	return svc, closeStore, semanticBinding, comparison
 }
 
-func createFinalEditReplayArtifact(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, artifactID string, markdown string, producer app.Producer) app.RawArtifact {
+func createFinalEditReplayArtifact(t *testing.T, ctx context.Context, svc *app.Service, binding FinalEditStageBinding, artifactID string, markdown string, producer ledger.Producer) artifactcontract.Raw {
 	t.Helper()
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: artifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: producer, Content: []byte(markdown),
@@ -415,7 +418,7 @@ func createFinalEditReplayArtifact(t *testing.T, ctx context.Context, svc *app.S
 	return artifact
 }
 
-func mustListFinalEditReplayEvents(t *testing.T, ctx context.Context, svc *app.Service, missionID string) []app.LedgerEvent {
+func mustListFinalEditReplayEvents(t *testing.T, ctx context.Context, svc *app.Service, missionID string) []ledger.Event {
 	t.Helper()
 	events, err := svc.ListEvents(ctx, missionID)
 	if err != nil {
@@ -473,7 +476,7 @@ func TestFinalEditSemanticAcceptanceAllowsGateInsertedFinalParagraph(t *testing.
 		t.Fatalf("comparison=%#v err=%v", comparison, err)
 	}
 	remappedFinalOrdinal := comparison[0].ParagraphOrdinal + 1
-	attestation, err := ValidateFinalEditSemanticAcceptance(ctx, svc, gateBinding, finalMarkdown, []FinalEditSemanticAcceptance{{
+	attestation, err := validateFinalEditSemanticAcceptance(ctx, svc, gateBinding, finalMarkdown, []FinalEditSemanticAcceptance{{
 		ParagraphOrdinal:      comparison[0].ParagraphOrdinal,
 		FinalParagraphOrdinal: remappedFinalOrdinal,
 		Verdict:               FinalEditSemanticAcceptedEquivalent,
@@ -484,7 +487,7 @@ func TestFinalEditSemanticAcceptanceAllowsGateInsertedFinalParagraph(t *testing.
 	if attestation.Count != 1 || attestation.Digest == "" || attestation.Records[0].FinalParagraphOrdinal != remappedFinalOrdinal {
 		t.Fatalf("inserted final paragraph broke semantic attestation: %#v", attestation)
 	}
-	_, err = ValidateFinalEditSemanticAcceptance(ctx, svc, gateBinding, finalMarkdown, []FinalEditSemanticAcceptance{{
+	_, err = validateFinalEditSemanticAcceptance(ctx, svc, gateBinding, finalMarkdown, []FinalEditSemanticAcceptance{{
 		ParagraphOrdinal:      comparison[0].ParagraphOrdinal,
 		FinalParagraphOrdinal: comparison[0].ParagraphOrdinal,
 		Verdict:               FinalEditSemanticAcceptedEquivalent,
@@ -496,24 +499,24 @@ func TestFinalEditSemanticAcceptanceAllowsGateInsertedFinalParagraph(t *testing.
 
 type finalEditGateNoReadStore struct{}
 
-func (finalEditGateNoReadStore) ListEvents(context.Context, string) ([]app.LedgerEvent, error) {
+func (finalEditGateNoReadStore) ListEvents(context.Context, string) ([]ledger.Event, error) {
 	return nil, errors.New("unexpected lineage read")
 }
 
-func (finalEditGateNoReadStore) GetRawArtifact(context.Context, string) (app.RawArtifact, error) {
-	return app.RawArtifact{}, errors.New("unexpected artifact read")
+func (finalEditGateNoReadStore) GetRawArtifact(context.Context, string) (artifactcontract.Raw, error) {
+	return artifactcontract.Raw{}, errors.New("unexpected artifact read")
 }
 
-func (finalEditGateNoReadStore) AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error) {
-	return app.LedgerEvent{}, false, errors.New("unexpected append")
+func (finalEditGateNoReadStore) AppendEventConditionally(context.Context, string, func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error) {
+	return ledger.Event{}, false, errors.New("unexpected append")
 }
 
-func (finalEditGateNoReadStore) CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error) {
-	return app.RawArtifact{}, app.LedgerEvent{}, false, errors.New("unexpected artifact create")
+func (finalEditGateNoReadStore) CreateRawArtifactWithEventConditionally(context.Context, artifactcontract.CreateRequest, func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error)) (artifactcontract.Raw, ledger.Event, bool, error) {
+	return artifactcontract.Raw{}, ledger.Event{}, false, errors.New("unexpected artifact create")
 }
 
-func (finalEditGateNoReadStore) GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error) {
-	return app.EvidenceRecord{}, errors.New("unexpected evidence read")
+func (finalEditGateNoReadStore) GetEvidenceRecord(context.Context, string) (researchrecords.EvidenceRecord, error) {
+	return researchrecords.EvidenceRecord{}, errors.New("unexpected evidence read")
 }
 
 func TestFinalEditSemanticReplayRejectsStoredHashTamperAndRawFields(t *testing.T) {
@@ -536,7 +539,7 @@ func TestFinalEditSemanticReplayRejectsStoredHashTamperAndRawFields(t *testing.T
 	if err != nil || len(comparison) != 1 {
 		t.Fatalf("comparison=%#v err=%v", comparison, err)
 	}
-	valid, err := ValidateFinalEditSemanticAcceptance(ctx, svc, gateBinding, styleMarkdown, []FinalEditSemanticAcceptance{{
+	valid, err := validateFinalEditSemanticAcceptance(ctx, svc, gateBinding, styleMarkdown, []FinalEditSemanticAcceptance{{
 		ParagraphOrdinal:      comparison[0].ParagraphOrdinal,
 		FinalParagraphOrdinal: comparison[0].ParagraphOrdinal,
 		Verdict:               FinalEditSemanticAcceptedEquivalent,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"testing"
 	"time"
 
@@ -12,10 +13,10 @@ import (
 
 func TestPreviewReportDeleteBackfillsAndReturnsFacts(t *testing.T) {
 	store := &reportRunDeleteStore{
-		events: []LedgerEvent{
+		events: []ledger.Event{
 			{EventID: "evt_report_pending", MissionID: "mis_1", EventType: "report.draft.pending", Payload: []byte(`{"title":"Report"}`)},
 			{EventID: "evt_report_final", MissionID: "mis_1", EventType: "report.artifact.created", Payload: []byte(`{"pending_event_id":"evt_report_pending","artifact_id":"art_1"}`)},
-			{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)},
+			{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)},
 		},
 		facts: completedReportDeleteFacts(),
 	}
@@ -40,21 +41,21 @@ func TestDeleteReportRequiresLiteralConfirmationAndUserProducer(t *testing.T) {
 	svc := NewService(&reportRunDeleteStore{facts: completedReportDeleteFacts()})
 	_, err := svc.DeleteReport(context.Background(), ReportDeleteRequest{
 		MissionID: "mis_1", ArtifactID: "art_1", ConfirmArtifactID: "art_other",
-		ExpectedRevision: 3, DeleteFactsHash: "hash", Producer: Producer{Type: "user", ID: "test"},
+		ExpectedRevision: 3, DeleteFactsHash: "hash", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected invalid confirmation error, got %v", err)
 	}
 	_, err = svc.DeleteReport(context.Background(), ReportDeleteRequest{
 		MissionID: "mis_1", ArtifactID: "art_1", ConfirmArtifactID: "art_1",
-		ExpectedRevision: 3, DeleteFactsHash: "hash", Producer: Producer{Type: "agent", ID: "test"},
+		ExpectedRevision: 3, DeleteFactsHash: "hash", Producer: ledger.Producer{Type: "agent", ID: "test"},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected non-user producer error, got %v", err)
 	}
 	_, err = svc.DeleteReport(context.Background(), ReportDeleteRequest{
 		MissionID: "mis_1", ArtifactID: "art_1", ConfirmArtifactID: "art_1",
-		ExpectedRevision: 3, Producer: Producer{Type: "user", ID: "test"},
+		ExpectedRevision: 3, Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected missing delete facts hash error, got %v", err)
@@ -67,7 +68,7 @@ func TestDeleteReportDelegatesExpectedRevisionAndReturnsDeletedResult(t *testing
 
 	result, err := svc.DeleteReport(context.Background(), ReportDeleteRequest{
 		MissionID: "mis_1", ArtifactID: "art_1", ConfirmArtifactID: "art_1",
-		ExpectedRevision: 3, DeleteFactsHash: "expected-hash", Producer: Producer{Type: "user", ID: "test"},
+		ExpectedRevision: 3, DeleteFactsHash: "expected-hash", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if err != nil {
 		t.Fatalf("DeleteReport returned error: %v", err)
@@ -94,7 +95,7 @@ func TestPreviewReportDeletePropagatesMissingDeleteTarget(t *testing.T) {
 
 type reportRunDeleteStore struct {
 	fakeStore
-	events                  []LedgerEvent
+	events                  []ledger.Event
 	facts                   reportrun.DeleteFacts
 	loadErr                 error
 	backfilled              bool
@@ -104,8 +105,8 @@ type reportRunDeleteStore struct {
 	expectedDeleteFactsHash string
 }
 
-func (s *reportRunDeleteStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
-	return append([]LedgerEvent(nil), s.events...), nil
+func (s *reportRunDeleteStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
+	return append([]ledger.Event(nil), s.events...), nil
 }
 
 func (s *reportRunDeleteStore) BackfillReportRuns(_ context.Context, registration reportrun.Registration) error {
@@ -154,7 +155,7 @@ func completedReportDeleteFacts() reportrun.DeleteFacts {
 			Event:      reportrun.Event{EventID: "evt_report_final", MissionID: "mis_1", EventType: "report.artifact.created", Payload: []byte(`{"pending_event_id":"evt_report_pending","artifact_id":"art_1"}`), CreatedAt: now},
 		}, {
 			Membership: reportrun.EventMembership{RunID: "evt_report_pending", EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventRole: "completion", AttemptEventID: "evt_report_pending"},
-			Event:      reportrun.Event{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`), CreatedAt: now},
+			Event:      reportrun.Event{EventID: "evt_report_run_completed_report_pending", MissionID: "mis_1", EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_report_final", CorrelationID: "evt_report_pending", Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"evt_report_pending","pending_event_id":"evt_report_pending","canonical_event_id":"evt_report_final","artifact_id":"art_1","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`), CreatedAt: now},
 		}},
 		Artifacts: []reportrun.MemberArtifact{{
 			Membership: reportrun.ArtifactMembership{ArtifactID: "art_1", ArtifactRole: reportrun.ArtifactRoleFinal, Ownership: reportrun.OwnershipCreated},

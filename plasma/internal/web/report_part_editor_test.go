@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -9,9 +10,12 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partedit"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -115,11 +119,11 @@ func TestRunPartEditorAgentUsesDedicatedPartEditTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	if countLedgerEvents(events, reporting.PartEditStartedEventType) != 1 || countLedgerEvents(events, reporting.PartEditedEventType) != 1 ||
-		countLedgerEvents(events, reporting.ReportAgentUsageRecordedEventType) != 1 {
+		countLedgerEvents(events, reportusage.ReportAgentUsageRecordedEventType) != 1 {
 		t.Fatalf("Part edit lifecycle events missing: %#v", events)
 	}
 	for _, event := range events {
-		if event.EventType == reporting.ReportAgentUsageRecordedEventType && event.CausationEventID != "evt_part_edit_done" {
+		if event.EventType == reportusage.ReportAgentUsageRecordedEventType && event.CausationEventID != "evt_part_edit_done" {
 			t.Fatalf("Part edit usage did not correlate to canonical edit: %#v", event)
 		}
 	}
@@ -167,20 +171,20 @@ func TestLongFormDefaultPartEditorPromptAuditsAdjacentBoundaries(t *testing.T) {
 
 func seedPartEditorFixture(t *testing.T, ctx context.Context, svc *app.Service) {
 	t.Helper()
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_part_editor", Title: "Part editor"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_part_editor", Title: "Part editor"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_part", MissionID: "mis_part_editor", MediaType: "text/markdown; charset=utf-8",
-		Filename: "part-1.md", Producer: app.Producer{Type: "agent_session", ID: "provider-part"},
+		Filename: "part-1.md", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"},
 		Content: []byte("# Part 1\n\nSource body.\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, request := range []app.AppendEventRequest{
-		{EventID: "evt_pending", MissionID: "mis_part_editor", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
-		{EventID: "evt_plan", MissionID: "mis_part_editor", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_pending", "report_mode": "long_form", "artifact_id": "art_final", "part_edit_enabled": true})},
-		{EventID: "evt_part", MissionID: "mis_part_editor", EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_part", "part_index": 1})},
+	for _, request := range []ledger.AppendRequest{
+		{EventID: "evt_pending", MissionID: "mis_part_editor", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": "long_form"})},
+		{EventID: "evt_plan", MissionID: "mis_part_editor", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_pending", "report_mode": "long_form", "artifact_id": "art_final", "part_edit_enabled": true})},
+		{EventID: "evt_part", MissionID: "mis_part_editor", EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_part", "part_index": 1})},
 	} {
 		if _, err := svc.AppendEvent(ctx, request); err != nil {
 			t.Fatal(err)

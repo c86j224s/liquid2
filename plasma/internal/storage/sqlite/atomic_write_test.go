@@ -2,9 +2,15 @@ package sqlite
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestCreateEvidenceProposalCommitsAtomically(t *testing.T) {
@@ -13,40 +19,40 @@ func TestCreateEvidenceProposalCommitsAtomically(t *testing.T) {
 	svc := newResearchTestService(t, store)
 	createResearchSource(t, ctx, svc)
 
-	result, err := svc.CreateEvidenceProposal(ctx, app.CreateEvidenceProposalRequest{
-		EvidenceEvent: app.AppendEventRequest{
+	result, err := svc.CreateEvidenceProposal(ctx, researchproposal.CreateEvidenceProposalRequest{
+		EvidenceEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_evidence",
 			MissionID: "mis_1",
 			EventType: "evidence.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"evidence_id":"evd_atomic","proposal_id":"prp_atomic"}`),
 		},
-		Evidence: app.CreateEvidenceRecordRequest{
+		Evidence: researchrecords.CreateEvidenceRecordRequest{
 			EvidenceID:   "evd_atomic",
 			MissionID:    "mis_1",
 			State:        "proposed",
 			Summary:      "Atomic evidence.",
 			EvidenceType: "quote",
-			SnapshotRefs: []app.SnapshotRef{{
+			SnapshotRefs: []researchrecords.SnapshotRef{{
 				SnapshotID: "src_1",
 				ArtifactID: "art_1",
 			}},
-			Producer:       app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:       ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			CreatedEventID: "evt_atomic_evidence",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_proposal",
 			MissionID: "mis_1",
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"proposal_id":"prp_atomic"}`),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_atomic",
 			MissionID:         "mis_1",
 			State:             "pending_review",
 			Title:             "Atomic proposal",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_atomic"}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_atomic"}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_atomic_proposal",
 		},
@@ -70,66 +76,66 @@ func TestCreateEvidenceProposalRollsBackWhenBundleInsertFails(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
 	createResearchSource(t, ctx, svc)
-	if _, err := svc.CreateEvidenceRecord(ctx, app.CreateEvidenceRecordRequest{
+	if _, err := svc.CreateEvidenceRecord(ctx, researchrecords.CreateEvidenceRecordRequest{
 		EvidenceID:   "evd_1",
 		MissionID:    "mis_1",
 		Summary:      "Existing evidence.",
 		EvidenceType: "quote",
-		SnapshotRefs: []app.SnapshotRef{{
+		SnapshotRefs: []researchrecords.SnapshotRef{{
 			SnapshotID: "src_1",
 			ArtifactID: "art_1",
 			Locator:    []byte(`{"locator_type":"text_quote"}`),
 		}},
-		Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		CreatedEventID: "evt_evidence",
 	}); err != nil {
 		t.Fatalf("CreateEvidenceRecord returned error: %v", err)
 	}
-	if _, err := svc.CreateProposalBundle(ctx, app.CreateProposalBundleRequest{
+	if _, err := svc.CreateProposalBundle(ctx, researchproposal.CreateProposalBundleRequest{
 		ProposalID:        "prp_1",
 		MissionID:         "mis_1",
 		Title:             "Existing proposal",
-		ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_1"}},
+		ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_1"}},
 		RequestedDecision: "approve",
 		CreatedEventID:    "evt_proposal",
 	}); err != nil {
 		t.Fatalf("CreateProposalBundle returned error: %v", err)
 	}
 
-	_, err := svc.CreateEvidenceProposal(ctx, app.CreateEvidenceProposalRequest{
-		EvidenceEvent: app.AppendEventRequest{
+	_, err := svc.CreateEvidenceProposal(ctx, researchproposal.CreateEvidenceProposalRequest{
+		EvidenceEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_evidence",
 			MissionID: "mis_1",
 			EventType: "evidence.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"evidence_id":"evd_atomic","proposal_id":"prp_1"}`),
 		},
-		Evidence: app.CreateEvidenceRecordRequest{
+		Evidence: researchrecords.CreateEvidenceRecordRequest{
 			EvidenceID:   "evd_atomic",
 			MissionID:    "mis_1",
 			State:        "proposed",
 			Summary:      "This write should roll back.",
 			EvidenceType: "quote",
-			SnapshotRefs: []app.SnapshotRef{{
+			SnapshotRefs: []researchrecords.SnapshotRef{{
 				SnapshotID: "src_1",
 				ArtifactID: "art_1",
 			}},
-			Producer:       app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:       ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			CreatedEventID: "evt_atomic_evidence",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_proposal",
 			MissionID: "mis_1",
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"proposal_id":"prp_1"}`),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_1",
 			MissionID:         "mis_1",
 			State:             "pending_review",
 			Title:             "Duplicate proposal",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_atomic"}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_atomic"}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_atomic_proposal",
 		},
@@ -149,41 +155,41 @@ func TestCreateQuestionProposalRollsBackWhenBundleInsertFails(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
 	createResearchSource(t, ctx, svc)
-	if _, err := svc.CreateEvidenceRecord(ctx, app.CreateEvidenceRecordRequest{
+	if _, err := svc.CreateEvidenceRecord(ctx, researchrecords.CreateEvidenceRecordRequest{
 		EvidenceID:   "evd_1",
 		MissionID:    "mis_1",
 		Summary:      "Existing evidence.",
 		EvidenceType: "quote",
-		SnapshotRefs: []app.SnapshotRef{{
+		SnapshotRefs: []researchrecords.SnapshotRef{{
 			SnapshotID: "src_1",
 			ArtifactID: "art_1",
 			Locator:    []byte(`{"locator_type":"text_quote"}`),
 		}},
-		Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		CreatedEventID: "evt_evidence",
 	}); err != nil {
 		t.Fatalf("CreateEvidenceRecord returned error: %v", err)
 	}
-	if _, err := svc.CreateProposalBundle(ctx, app.CreateProposalBundleRequest{
+	if _, err := svc.CreateProposalBundle(ctx, researchproposal.CreateProposalBundleRequest{
 		ProposalID:        "prp_1",
 		MissionID:         "mis_1",
 		Title:             "Existing proposal",
-		ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_1"}},
+		ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_1"}},
 		RequestedDecision: "approve",
 		CreatedEventID:    "evt_proposal",
 	}); err != nil {
 		t.Fatalf("CreateProposalBundle returned error: %v", err)
 	}
 
-	_, err := svc.CreateQuestionProposal(ctx, app.CreateQuestionProposalRequest{
-		QuestionEvent: app.AppendEventRequest{
+	_, err := svc.CreateQuestionProposal(ctx, researchproposal.CreateQuestionProposalRequest{
+		QuestionEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_question",
 			MissionID: "mis_1",
 			EventType: "question.proposed",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"question_id":"qst_atomic","proposal_id":"prp_1"}`),
 		},
-		Question: app.CreateQuestionRecordRequest{
+		Question: researchrecords.CreateQuestionRecordRequest{
 			QuestionID:     "qst_atomic",
 			MissionID:      "mis_1",
 			State:          "open",
@@ -191,19 +197,19 @@ func TestCreateQuestionProposalRollsBackWhenBundleInsertFails(t *testing.T) {
 			Priority:       "medium",
 			CreatedEventID: "evt_atomic_question",
 		},
-		ProposalEvent: app.AppendEventRequest{
+		ProposalEvent: ledger.AppendRequest{
 			EventID:   "evt_atomic_question_proposal",
 			MissionID: "mis_1",
 			EventType: "proposal.submitted",
-			Producer:  app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			Payload:   []byte(`{"proposal_id":"prp_1"}`),
 		},
-		Proposal: app.CreateProposalBundleRequest{
+		Proposal: researchproposal.CreateProposalBundleRequest{
 			ProposalID:        "prp_1",
 			MissionID:         "mis_1",
 			State:             "pending_review",
 			Title:             "Duplicate proposal",
-			ObjectRefs:        []app.ObjectRef{{ObjectKind: app.QuestionRecordObjectKind, ObjectID: "qst_atomic"}},
+			ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.QuestionRecordObjectKind, ObjectID: "qst_atomic"}},
 			RequestedDecision: "approve",
 			CreatedEventID:    "evt_atomic_question_proposal",
 		},
@@ -224,8 +230,8 @@ func TestSnapshotLiquid2SourceWithEventRollsBackWhenSnapshotInsertFails(t *testi
 	svc := newResearchTestService(t, store)
 	createResearchSource(t, ctx, svc)
 
-	_, err := svc.SnapshotLiquid2SourceWithEvent(ctx, atomicFakeLiquid2Connector{}, app.SnapshotLiquid2SourceWithEventRequest{
-		Snapshot: app.SnapshotLiquid2SourceRequest{
+	_, err := svc.SnapshotLiquid2SourceWithEvent(ctx, atomicFakeLiquid2Connector{}, liquid2source.SnapshotLiquid2SourceWithEventRequest{
+		Snapshot: liquid2source.SnapshotLiquid2SourceRequest{
 			MissionID:        "mis_1",
 			ArtifactID:       "art_atomic",
 			SnapshotID:       "src_1",
@@ -233,7 +239,7 @@ func TestSnapshotLiquid2SourceWithEventRollsBackWhenSnapshotInsertFails(t *testi
 			Reason:           "duplicate snapshot should fail",
 		},
 		EventID:  "evt_atomic_snapshot",
-		Producer: app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err == nil {
 		t.Fatalf("expected duplicate snapshot failure")
@@ -249,8 +255,8 @@ func TestSnapshotLiquid2SourceWithEventCommitsAtomically(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
 
-	result, err := svc.SnapshotLiquid2SourceWithEvent(ctx, atomicFakeLiquid2Connector{}, app.SnapshotLiquid2SourceWithEventRequest{
-		Snapshot: app.SnapshotLiquid2SourceRequest{
+	result, err := svc.SnapshotLiquid2SourceWithEvent(ctx, atomicFakeLiquid2Connector{}, liquid2source.SnapshotLiquid2SourceWithEventRequest{
+		Snapshot: liquid2source.SnapshotLiquid2SourceRequest{
 			MissionID:        "mis_1",
 			ArtifactID:       "art_atomic",
 			SnapshotID:       "src_atomic",
@@ -258,7 +264,7 @@ func TestSnapshotLiquid2SourceWithEventCommitsAtomically(t *testing.T) {
 			Reason:           "atomic snapshot",
 		},
 		EventID:  "evt_atomic_snapshot",
-		Producer: app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("SnapshotLiquid2SourceWithEvent returned error: %v", err)
@@ -291,19 +297,19 @@ type atomicFakeLiquid2Connector struct{}
 
 func (atomicFakeLiquid2Connector) SearchLiquid2Sources(
 	context.Context,
-	app.Liquid2SourceSearchRequest,
-) (app.Liquid2SourceSearchResult, error) {
-	return app.Liquid2SourceSearchResult{}, nil
+	liquid2source.Liquid2SourceSearchRequest,
+) (liquid2source.Liquid2SourceSearchResult, error) {
+	return liquid2source.Liquid2SourceSearchResult{}, nil
 }
 
 func (atomicFakeLiquid2Connector) ReadLiquid2Source(
 	context.Context,
-	app.Liquid2SourceReadRequest,
-) (app.Liquid2SourceDocument, error) {
-	return app.Liquid2SourceDocument{
-		Connector: app.ConnectorRef{ExternalSourceID: "doc_atomic"},
+	liquid2source.Liquid2SourceReadRequest,
+) (liquid2source.Liquid2SourceDocument, error) {
+	return liquid2source.Liquid2SourceDocument{
+		Connector: sourcecontract.ConnectorRef{ExternalSourceID: "doc_atomic"},
 		Title:     "Atomic source",
-		Contents: []app.Liquid2SourceContent{{
+		Contents: []liquid2source.Liquid2SourceContent{{
 			ContentID: "content_1",
 			Role:      "extracted",
 			Format:    "text",

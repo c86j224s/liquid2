@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"io"
 	"net/http"
 	"os"
@@ -14,7 +16,6 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	confluenceconnector "github.com/c86j224s/liquid2/plasma/internal/connectors/confluence"
 	liquid2connector "github.com/c86j224s/liquid2/plasma/internal/connectors/liquid2"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/startuprecovery"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
@@ -36,7 +37,7 @@ func serveStartupRecoverySteps(svc *app.Service) []startuprecovery.Step {
 	}, {
 		Name: "report_completion",
 		Run: func(ctx context.Context) (int, error) {
-			return reporting.RecoverAll(ctx, svc)
+			return reportrun.RecoverAll(ctx, svc)
 		},
 	}}
 }
@@ -141,7 +142,7 @@ func runServeWithListen(ctx context.Context, args []string, stdout, stderr io.Wr
 
 	effectiveLocalRoots := cfg.LocalSourceRoots
 
-	var connector app.Liquid2SourceConnector
+	var connector liquid2source.Liquid2SourceConnector
 	if strings.TrimSpace(cfg.Liquid2URL) != "" {
 		connector, err = liquid2connector.NewClient(cfg.Liquid2URL)
 		if err != nil {

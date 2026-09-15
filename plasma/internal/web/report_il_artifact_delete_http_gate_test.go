@@ -15,6 +15,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	_ "modernc.org/sqlite"
@@ -167,20 +169,20 @@ func seedILHTTPGateBundle(t *testing.T, ctx context.Context, service *app.Servic
 		{ID: "art_il_http_gate_manifest", Kind: "manifest", MediaType: "application/json", Filename: "manifest.json", Role: "intermediate", Content: []byte(`{"bundle":"report_il_experimental","artifact_count":8}`)},
 		{ID: "art_il_http_gate_image", Kind: "image", MediaType: "image/jpeg", Filename: "report-image.jpg", Role: "asset", Content: []byte("pinned image bytes"), AssetID: "asset_il_http_gate_image"},
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: bundle.PendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload:  mustJSON(map[string]any{"title": "IL route gate", "pipeline_family": reportilcontract.PipelineFamily}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	artifactRequests := make([]app.CreateRawArtifactRequest, 0, len(bundle.Artifacts))
+	artifactRequests := make([]artifactcontract.CreateRequest, 0, len(bundle.Artifacts))
 	entries := make([]map[string]any, 0, len(bundle.Artifacts))
 	for _, artifact := range bundle.Artifacts {
 		hash := sha256Hex(artifact.Content)
-		artifactRequests = append(artifactRequests, app.CreateRawArtifactRequest{
+		artifactRequests = append(artifactRequests, artifactcontract.CreateRequest{
 			ArtifactID: artifact.ID, MissionID: missionID, MediaType: artifact.MediaType,
-			Filename: artifact.Filename, Producer: app.Producer{Type: "agent", ID: "codex"},
+			Filename: artifact.Filename, Producer: ledger.Producer{Type: "agent", ID: "codex"},
 			Content: artifact.Content, ExpectedSHA256: hash,
 		})
 		entries = append(entries, map[string]any{
@@ -198,26 +200,26 @@ func seedILHTTPGateBundle(t *testing.T, ctx context.Context, service *app.Servic
 	}
 	result, terminal, created, err := service.CreateReportILBundleIfOpen(ctx, app.ReportILBundleRequest{
 		MissionID: missionID, PendingID: bundle.PendingID, Artifacts: artifactRequests,
-		StoreCompleted: app.AppendEventRequest{
+		StoreCompleted: ledger.AppendRequest{
 			EventID: bundle.StoreID, MissionID: missionID, EventType: "report.il_store.completed",
 			CausationEventID: bundle.PendingID, CorrelationID: bundle.PendingID,
-			Producer: app.Producer{Type: "system", ID: "report-il"},
+			Producer: ledger.Producer{Type: "system", ID: "report-il"},
 			Payload:  mustJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": bundle.PendingID, "pipeline_family": reportilcontract.PipelineFamily, "stage": "il_store", "status": "completed"}),
 		},
-		Terminal: app.AppendEventRequest{
+		Terminal: ledger.AppendRequest{
 			EventID: bundle.TerminalID, MissionID: missionID, EventType: "report.artifact.created",
 			CausationEventID: bundle.PendingID, CorrelationID: bundle.PendingID,
-			Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(terminalPayload),
+			Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(terminalPayload),
 		},
 	})
 	if err != nil || !created || len(result) != len(bundle.Artifacts) || terminal.EventID != bundle.TerminalID {
 		t.Fatalf("atomic IL bundle = artifacts %d terminal %q created %v err %v", len(result), terminal.EventID, created, err)
 	}
 	bundle.TerminalRef = terminal.EventID
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: bundle.Completion, MissionID: missionID, EventType: "report.run.completed",
 		CausationEventID: bundle.TerminalID, CorrelationID: bundle.PendingID,
-		Producer: app.Producer{Type: "system", ID: "report-completion"},
+		Producer: ledger.Producer{Type: "system", ID: "report-completion"},
 		Payload: mustJSON(map[string]any{
 			"kind": "report_run_completed", "schema_version": "plasma.report_run_completion.v1",
 			"run_id": bundle.PendingID, "pending_event_id": bundle.PendingID,
@@ -242,9 +244,9 @@ func seedILHTTPGateControlCases(t *testing.T, ctx context.Context, service *app.
 		{pending: "evt_il_http_gate_malformed_pending", suffix: "malformed", badHash: true},
 		{pending: "evt_il_http_gate_nonil_pending", suffix: "nonil", badHash: false},
 	} {
-		if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 			EventID: malformed.pending, MissionID: missionID, EventType: "report.draft.pending",
-			Producer: app.Producer{Type: "user", ID: "test"},
+			Producer: ledger.Producer{Type: "user", ID: "test"},
 			Payload: func() []byte {
 				if malformed.badHash {
 					return mustJSON(map[string]any{"title": "malformed IL", "pipeline_family": reportilcontract.PipelineFamily})
@@ -274,9 +276,9 @@ func seedILHTTPGateControlCases(t *testing.T, ctx context.Context, service *app.
 			artifact := ilHTTPGateArtifact{ID: id, Kind: source.kind, MediaType: source.media, Filename: source.filename, Role: source.role, Content: content}
 			artifacts = append(artifacts, artifact)
 			controlArtifacts = append(controlArtifacts, artifact)
-			if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+			if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 				ArtifactID: id, MissionID: missionID, MediaType: source.media, Filename: source.filename,
-				Producer: app.Producer{Type: "agent", ID: "codex"}, Content: content,
+				Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: content,
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -294,9 +296,9 @@ func seedILHTTPGateControlCases(t *testing.T, ctx context.Context, service *app.
 			})
 		}
 		terminalID := "evt_il_http_gate_" + malformed.suffix + "_terminal"
-		_, appendErr := service.AppendEvent(ctx, app.AppendEventRequest{
+		_, appendErr := service.AppendEvent(ctx, ledger.AppendRequest{
 			EventID: terminalID, MissionID: missionID, EventType: "report.artifact.created",
-			Producer: app.Producer{Type: "agent", ID: "codex"}, CausationEventID: malformed.pending, CorrelationID: malformed.pending,
+			Producer: ledger.Producer{Type: "agent", ID: "codex"}, CausationEventID: malformed.pending, CorrelationID: malformed.pending,
 			Payload: mustJSON(map[string]any{
 				"kind": "markdown_report_artifact", "pending_event_id": malformed.pending,
 				"pipeline_family": reportilcontract.PipelineFamily, "artifact_id": markdownID,
@@ -322,23 +324,23 @@ func seedClassicILHTTPGateArtifact(t *testing.T, ctx context.Context, service *a
 	finalID := "art_il_http_gate_classic"
 	terminalID := "evt_il_http_gate_classic_terminal"
 	completionID := "evt_report_run_completed_il_http_gate_classic_pending"
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Classic report"}),
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Classic report"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
 	content := []byte("# Classic report\n")
-	if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: finalID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "classic.md", Producer: app.Producer{Type: "agent", ID: "test"}, Content: content}); err != nil {
+	if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: finalID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "classic.md", Producer: ledger.Producer{Type: "agent", ID: "test"}, Content: content}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: terminalID, MissionID: missionID, EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "test"}, CausationEventID: pendingID, CorrelationID: pendingID,
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: terminalID, MissionID: missionID, EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "test"}, CausationEventID: pendingID, CorrelationID: pendingID,
 		Payload: mustJSON(map[string]any{"kind": "markdown_report_artifact", "pending_event_id": pendingID, "artifact_id": finalID}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: completionID, MissionID: missionID, EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"}, CausationEventID: terminalID, CorrelationID: pendingID,
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: completionID, MissionID: missionID, EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"}, CausationEventID: terminalID, CorrelationID: pendingID,
 		Payload: mustJSON(map[string]any{"kind": "report_run_completed", "schema_version": "plasma.report_run_completion.v1", "run_id": pendingID, "pending_event_id": pendingID, "canonical_event_id": terminalID, "artifact_id": finalID, "delayed_usage_target_count": 0, "usage_recorded_count": 0, "usage_unavailable_count": 0}),
 	}); err != nil {
 		t.Fatal(err)

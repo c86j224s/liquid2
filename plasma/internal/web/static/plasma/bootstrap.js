@@ -102,14 +102,22 @@
   $("includeRemovedSources").addEventListener("change", window.Plasma.sources.toggleRemovedSources);
   $("liquid2Form").addEventListener("submit", window.Plasma.sources.searchLiquid2);
 	  $("candidateForm").addEventListener("submit", Plasma.proposals.proposeEvidence);
+  for (const tab of document.querySelectorAll("[data-report-creation-tab]")) {
+    tab.addEventListener("click", () => reports.activateCreationTab(tab.dataset.reportCreationTab));
+  }
+  reports.activateCreationTab("articleCreationPanel");
+  $("draftArticle").addEventListener("click", () => reports.draftArticle("one_take"));
+  $("draftLongArticle").addEventListener("click", () => reports.draftArticle("long_form"));
   $("draftQuickReport").addEventListener("click", () => reports.draftReport("planned"));
   $("draftLongReport").addEventListener("click", () => reports.draftReport("long_form"));
   $("draftExperimentalReport").addEventListener("click", () => reports.draftReport("planned", { pipelineFamily: reports.REPORT_IL_PIPELINE_FAMILY }));
   $("draftLongExperimentalReport").addEventListener("click", () => reports.draftReport("long_form", { pipelineFamily: reports.REPORT_IL_PIPELINE_FAMILY }));
-	$("reportAgentModel").addEventListener("change", () => {
-		const status = reports.modelSelection.configuredStatus(state.detail?.agent_executors || [], $("agentExecutor").value);
-		reports.modelSelection.refreshEfforts(status);
-	});
+	for (const [modelID, effortID] of [["articleAgentModel", "articleAgentReasoningEffort"], ["reportAgentModel", "reportAgentReasoningEffort"]]) {
+		$(modelID).addEventListener("change", () => {
+			const status = reports.modelSelection.configuredStatus(state.detail?.agent_executors || [], $("agentExecutor").value);
+			reports.modelSelection.refreshEfforts(status, modelID, effortID);
+		});
+	}
   $("cancelReportButton").addEventListener("click", reports.cancelReport);
   document.addEventListener("click", (event) => {
     const action = event.target.closest("[data-active-work-action]")?.dataset.activeWorkAction;
@@ -144,6 +152,7 @@
 	  $("claimConfidenceList").addEventListener("click", Plasma.knowledge.onDetailButtonClick);
 	  $("savedClaimList").addEventListener("click", Plasma.knowledge.onDetailButtonClick);
   $("reportList").addEventListener("click", reports.onReportListClick);
+  $("conversationExportSettingsDetails").addEventListener("click", reports.onConversationExportClick);
 	  $("ledgerList").addEventListener("click", ui.onDetailButtonClick);
   c.setFormsEnabled(false);
   // Deep-link the initial tab via URL hash (e.g. #reports), when valid.

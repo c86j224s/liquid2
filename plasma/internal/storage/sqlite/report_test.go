@@ -1,12 +1,16 @@
 package sqlite
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestCreateReportDraftPersistsImmutableVersionAndClaimLinks(t *testing.T) {
@@ -34,13 +38,13 @@ func TestCreateReportDraftPersistsImmutableVersionAndClaimLinks(t *testing.T) {
 		t.Fatalf("claim block lost snapshot ref: %#v", claimBlock.SourceRefs)
 	}
 
-	_, err = svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	_, err = svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_2",
 		ReportVersionID: "rvn_1",
 		MissionID:       "mis_1",
 		Title:           "Duplicate version",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_1"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_1"},
 		CreatedEventID:  "evt_report_drafted_dup",
 	})
 	if err == nil {
@@ -60,14 +64,14 @@ func TestReportMarkdownAndJSONExportsUseASTFixtures(t *testing.T) {
 	createReportDraftFixture(t, ctx, svc)
 	promoteReportFixture(t, ctx, svc, "evt_report_promoted")
 
-	markdown, err := svc.ExportReportVersion(ctx, app.ExportReportVersionRequest{
+	markdown, err := svc.ExportReportVersion(ctx, reportdocument.ExportReportVersionRequest{
 		ExportID:        "exp_markdown",
 		ReportVersionID: "rvn_1",
-		Target:          app.ReportExportTargetMarkdown,
+		Target:          reportdocument.ReportExportTargetMarkdown,
 		ArtifactID:      "art_report_markdown",
 		EventID:         "evt_report_exported_markdown",
 		ApprovalEventID: "evt_report_promoted",
-		Producer:        app.Producer{Type: "user", ID: "ses_user"},
+		Producer:        ledger.Producer{Type: "user", ID: "ses_user"},
 	})
 	if err != nil {
 		t.Fatalf("ExportReportVersion markdown returned error: %v", err)
@@ -93,14 +97,14 @@ func TestReportMarkdownAndJSONExportsUseASTFixtures(t *testing.T) {
 		t.Fatalf("unexpected export event: %#v", markdown.Event)
 	}
 
-	jsonAST, err := svc.ExportReportVersion(ctx, app.ExportReportVersionRequest{
+	jsonAST, err := svc.ExportReportVersion(ctx, reportdocument.ExportReportVersionRequest{
 		ExportID:        "exp_json",
 		ReportVersionID: "rvn_1",
-		Target:          app.ReportExportTargetJSONAST,
+		Target:          reportdocument.ReportExportTargetJSONAST,
 		ArtifactID:      "art_report_json",
 		EventID:         "evt_report_exported_json",
 		ApprovalEventID: "evt_report_promoted",
-		Producer:        app.Producer{Type: "user", ID: "ses_user"},
+		Producer:        ledger.Producer{Type: "user", ID: "ses_user"},
 	})
 	if err != nil {
 		t.Fatalf("ExportReportVersion json returned error: %v", err)
@@ -117,20 +121,20 @@ func TestReportDraftCanUseArticleASTAndExportHTML(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
 	createApprovedClaimFixture(t, ctx, svc)
-	result, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	result, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_article",
 		ReportVersionID: "rvn_article",
 		MissionID:       "mis_1",
 		Title:           "Article Report",
 		FormatIntent:    "full_report",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_report"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		CreatedEventID:  "evt_article_report_drafted",
 		Generation: map[string]any{
 			"mode":             "agent_article_ast",
 			"agent_session_id": "agent-session-1",
 		},
-		Blocks: []app.ReportBlockDraftInput{
+		Blocks: []reportdocument.ReportBlockDraftInput{
 			{
 				BlockType: "title",
 				Content:   []byte(`{"text":"Article Report"}`),
@@ -138,7 +142,7 @@ func TestReportDraftCanUseArticleASTAndExportHTML(t *testing.T) {
 			{
 				BlockType: "paragraph",
 				Content:   []byte(`{"text":"This is a polished article paragraph."}`),
-				SourceRefs: app.ReportBlockSourceRefs{
+				SourceRefs: reportdocument.ReportBlockSourceRefs{
 					ClaimIDs:    []string{"clm_1"},
 					EvidenceIDs: []string{"evd_1"},
 					SnapshotIDs: []string{"src_1"},
@@ -157,14 +161,14 @@ func TestReportDraftCanUseArticleASTAndExportHTML(t *testing.T) {
 		t.Fatalf("unexpected article version: %#v", result.Version)
 	}
 	promoteReportFixtureForVersion(t, ctx, svc, "evt_article_report_promoted", "rvn_article")
-	markdown, err := svc.ExportReportVersion(ctx, app.ExportReportVersionRequest{
+	markdown, err := svc.ExportReportVersion(ctx, reportdocument.ExportReportVersionRequest{
 		ExportID:        "exp_article_markdown",
 		ReportVersionID: "rvn_article",
-		Target:          app.ReportExportTargetMarkdown,
+		Target:          reportdocument.ReportExportTargetMarkdown,
 		ArtifactID:      "art_article_markdown",
 		EventID:         "evt_article_report_exported_markdown",
 		ApprovalEventID: "evt_article_report_promoted",
-		Producer:        app.Producer{Type: "user", ID: "ses_user"},
+		Producer:        ledger.Producer{Type: "user", ID: "ses_user"},
 	})
 	if err != nil {
 		t.Fatalf("ExportReportVersion markdown returned error: %v", err)
@@ -176,14 +180,14 @@ func TestReportDraftCanUseArticleASTAndExportHTML(t *testing.T) {
 		!strings.Contains(markdownText, "[^3]: `src_1`") {
 		t.Fatalf("markdown export lost AST refs:\n%s", markdownText)
 	}
-	html, err := svc.ExportReportVersion(ctx, app.ExportReportVersionRequest{
+	html, err := svc.ExportReportVersion(ctx, reportdocument.ExportReportVersionRequest{
 		ExportID:        "exp_article_html",
 		ReportVersionID: "rvn_article",
-		Target:          app.ReportExportTargetHTML,
+		Target:          reportdocument.ReportExportTargetHTML,
 		ArtifactID:      "art_article_html",
 		EventID:         "evt_article_report_exported_html",
 		ApprovalEventID: "evt_article_report_promoted",
-		Producer:        app.Producer{Type: "user", ID: "ses_user"},
+		Producer:        ledger.Producer{Type: "user", ID: "ses_user"},
 	})
 	if err != nil {
 		t.Fatalf("ExportReportVersion html returned error: %v", err)
@@ -203,19 +207,19 @@ func TestReportDraftRejectsOutOfScopeArticleASTRefs(t *testing.T) {
 	ctx := context.Background()
 	svc := newResearchTestService(t, store)
 	createApprovedClaimFixture(t, ctx, svc)
-	_, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	_, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_bad_refs",
 		ReportVersionID: "rvn_bad_refs",
 		MissionID:       "mis_1",
 		Title:           "Bad Refs",
 		FormatIntent:    "full_report",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_report"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_report"},
 		CreatedEventID:  "evt_bad_refs_report_drafted",
-		Blocks: []app.ReportBlockDraftInput{{
+		Blocks: []reportdocument.ReportBlockDraftInput{{
 			BlockType: "paragraph",
 			Content:   []byte(`{"text":"This paragraph cites a missing claim."}`),
-			SourceRefs: app.ReportBlockSourceRefs{
+			SourceRefs: reportdocument.ReportBlockSourceRefs{
 				ClaimIDs: []string{"clm_missing"},
 			},
 		}},
@@ -232,32 +236,32 @@ func TestPromoteReportVersionRequiresApprovalEvent(t *testing.T) {
 	createApprovedClaimFixture(t, ctx, svc)
 	createReportDraftFixture(t, ctx, svc)
 
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_promoted_autopilot",
 		MissionID: "mis_1",
 		EventType: "report.promoted",
-		Producer:  app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Producer:  ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		Payload:   []byte(`{"report_version_id":"rvn_1"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent bad producer returned error: %v", err)
 	}
-	if _, err := svc.PromoteReportVersion(ctx, app.PromoteReportVersionRequest{
+	if _, err := svc.PromoteReportVersion(ctx, reportdocument.PromoteReportVersionRequest{
 		ReportVersionID: "rvn_1",
 		ApprovalEventID: "evt_report_promoted_autopilot",
 	}); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected invalid promotion producer, got %v", err)
 	}
 
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_promoted_mismatch",
 		MissionID: "mis_1",
 		EventType: "report.promoted",
-		Producer:  app.Producer{Type: "user", ID: "ses_user"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_user"},
 		Payload:   []byte(`{"report_version_id":"rvn_other"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent mismatch returned error: %v", err)
 	}
-	if _, err := svc.PromoteReportVersion(ctx, app.PromoteReportVersionRequest{
+	if _, err := svc.PromoteReportVersion(ctx, reportdocument.PromoteReportVersionRequest{
 		ReportVersionID: "rvn_1",
 		ApprovalEventID: "evt_report_promoted_mismatch",
 	}); !errors.Is(err, app.ErrInvalidInput) {
@@ -283,13 +287,13 @@ func TestCreateReportDraftRejectsProposedScope(t *testing.T) {
 	svc := newResearchTestService(t, store)
 	createApprovedClaimFixture(t, ctx, svc)
 
-	_, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	_, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_proposed",
 		ReportVersionID: "rvn_proposed",
 		MissionID:       "mis_1",
 		Title:           "Proposed records",
-		Scope:           app.ReportEvidenceScope{IncludeProposed: true, ClaimIDs: []string{"clm_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_1"},
+		Scope:           reportdocument.ReportEvidenceScope{IncludeProposed: true, ClaimIDs: []string{"clm_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_1"},
 		CreatedEventID:  "evt_report_drafted_proposed",
 	})
 	if !errors.Is(err, app.ErrInvalidInput) {
@@ -303,70 +307,70 @@ func TestCreateReportDraftRejectsUnapprovedEvidence(t *testing.T) {
 	svc := newResearchTestService(t, store)
 	createResearchSource(t, ctx, svc)
 
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_evidence_unapproved",
 		MissionID: "mis_1",
 		EventType: "evidence.proposed",
-		Producer:  app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Producer:  ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		Payload:   []byte(`{"evidence_id":"evd_unapproved","proposal_id":"prp_evidence_unapproved"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent evidence returned error: %v", err)
 	}
-	if _, err := svc.CreateEvidenceRecord(ctx, app.CreateEvidenceRecordRequest{
+	if _, err := svc.CreateEvidenceRecord(ctx, researchrecords.CreateEvidenceRecordRequest{
 		EvidenceID:   "evd_unapproved",
 		MissionID:    "mis_1",
 		Summary:      "Unapproved source quote.",
 		EvidenceType: "quote",
-		SnapshotRefs: []app.SnapshotRef{{
+		SnapshotRefs: []researchrecords.SnapshotRef{{
 			SnapshotID: "src_1",
 			ArtifactID: "art_1",
 			Locator:    []byte(`{"locator_type":"text_quote","exact":"snapshot"}`),
 		}},
-		Confidence:     app.Confidence{Level: "medium"},
-		Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Confidence:     researchrecords.Confidence{Level: "medium"},
+		Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		CreatedEventID: "evt_evidence_unapproved",
 	}); err != nil {
 		t.Fatalf("CreateEvidenceRecord returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_claim_unapproved_evidence",
 		MissionID: "mis_1",
 		EventType: "claim.proposed",
-		Producer:  app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Producer:  ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		Payload:   []byte(`{"claim_id":"clm_unapproved_evidence","proposal_id":"prp_claim_unapproved_evidence"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent claim returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_claim_only_approval",
 		MissionID: "mis_1",
 		EventType: "proposal.approved",
-		Producer:  app.Producer{Type: "user", ID: "ses_user"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_user"},
 		Payload:   []byte(`{"proposal_id":"prp_claim_unapproved_evidence","approved_object_ids":["clm_unapproved_evidence"],"rejected_object_ids":[]}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent approval returned error: %v", err)
 	}
-	if _, err := svc.CreateClaimRecord(ctx, app.CreateClaimRecordRequest{
+	if _, err := svc.CreateClaimRecord(ctx, researchrecords.CreateClaimRecordRequest{
 		ClaimID:               "clm_unapproved_evidence",
 		MissionID:             "mis_1",
 		State:                 "approved",
 		Text:                  "This claim points at unapproved evidence.",
 		ClaimType:             "descriptive",
 		SupportingEvidenceIDs: []string{"evd_unapproved"},
-		Confidence:            app.Confidence{Level: "medium"},
-		Approval:              app.Approval{State: "approved", ApprovalEventID: "evt_claim_only_approval"},
+		Confidence:            researchrecords.Confidence{Level: "medium"},
+		Approval:              researchrecords.ClaimApproval{State: "approved", ApprovalEventID: "evt_claim_only_approval"},
 		CreatedEventID:        "evt_claim_unapproved_evidence",
 	}); err != nil {
 		t.Fatalf("CreateClaimRecord returned error: %v", err)
 	}
 
-	_, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	_, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_unapproved_evidence",
 		ReportVersionID: "rvn_unapproved_evidence",
 		MissionID:       "mis_1",
 		Title:           "Unapproved evidence",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_unapproved_evidence"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_1"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_unapproved_evidence"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_1"},
 		CreatedEventID:  "evt_report_drafted_unapproved_evidence",
 	})
 	if !errors.Is(err, app.ErrInvalidInput) {
@@ -377,47 +381,47 @@ func TestCreateReportDraftRejectsUnapprovedEvidence(t *testing.T) {
 func createApprovedClaimFixture(t *testing.T, ctx context.Context, svc *app.Service) {
 	t.Helper()
 	createResearchSource(t, ctx, svc)
-	if _, err := svc.CreateEvidenceRecord(ctx, app.CreateEvidenceRecordRequest{
+	if _, err := svc.CreateEvidenceRecord(ctx, researchrecords.CreateEvidenceRecordRequest{
 		EvidenceID:   "evd_1",
 		MissionID:    "mis_1",
 		Summary:      "Pinned source quote.",
 		EvidenceType: "quote",
-		SnapshotRefs: []app.SnapshotRef{{
+		SnapshotRefs: []researchrecords.SnapshotRef{{
 			SnapshotID: "src_1",
 			ArtifactID: "art_1",
 			Locator:    []byte(`{"locator_type":"text_quote","exact":"snapshot"}`),
 		}},
-		Confidence:     app.Confidence{Level: "medium", Rationale: "Source snapshot is pinned."},
-		Producer:       app.Producer{Type: "autopilot", ID: "ses_auto"},
+		Confidence:     researchrecords.Confidence{Level: "medium", Rationale: "Source snapshot is pinned."},
+		Producer:       ledger.Producer{Type: "autopilot", ID: "ses_auto"},
 		CreatedEventID: "evt_evidence",
 	}); err != nil {
 		t.Fatalf("CreateEvidenceRecord returned error: %v", err)
 	}
-	if _, err := svc.CreateClaimRecord(ctx, app.CreateClaimRecordRequest{
+	if _, err := svc.CreateClaimRecord(ctx, researchrecords.CreateClaimRecordRequest{
 		ClaimID:               "clm_1",
 		MissionID:             "mis_1",
 		State:                 "approved",
 		Text:                  "Research records must point at pinned evidence.",
 		ClaimType:             "decision",
 		SupportingEvidenceIDs: []string{"evd_1"},
-		Confidence:            app.Confidence{Level: "high"},
-		Approval:              app.Approval{State: "approved", ApprovalEventID: "evt_approval"},
+		Confidence:            researchrecords.Confidence{Level: "high"},
+		Approval:              researchrecords.ClaimApproval{State: "approved", ApprovalEventID: "evt_approval"},
 		CreatedEventID:        "evt_claim",
 	}); err != nil {
 		t.Fatalf("CreateClaimRecord returned error: %v", err)
 	}
 }
 
-func createReportDraftFixture(t *testing.T, ctx context.Context, svc *app.Service) app.ReportDraftResult {
+func createReportDraftFixture(t *testing.T, ctx context.Context, svc *app.Service) reportdocument.ReportDraftResult {
 	t.Helper()
-	result, err := svc.CreateReportDraft(ctx, app.CreateReportDraftRequest{
+	result, err := svc.CreateReportDraft(ctx, reportdocument.CreateReportDraftRequest{
 		ReportID:        "rpt_1",
 		ReportVersionID: "rvn_1",
 		MissionID:       "mis_1",
 		Title:           "Test Report",
 		FormatIntent:    "briefing",
-		Scope:           app.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
-		Producer:        app.Producer{Type: "agent_session", ID: "ses_1"},
+		Scope:           reportdocument.ReportEvidenceScope{AcceptedOnly: true, ClaimIDs: []string{"clm_1"}},
+		Producer:        ledger.Producer{Type: "agent_session", ID: "ses_1"},
 		CreatedEventID:  "evt_report_drafted",
 	})
 	if err != nil {
@@ -426,23 +430,23 @@ func createReportDraftFixture(t *testing.T, ctx context.Context, svc *app.Servic
 	return result
 }
 
-func promoteReportFixture(t *testing.T, ctx context.Context, svc *app.Service, eventID string) app.ReportVersion {
+func promoteReportFixture(t *testing.T, ctx context.Context, svc *app.Service, eventID string) reportdocument.ReportVersion {
 	t.Helper()
 	return promoteReportFixtureForVersion(t, ctx, svc, eventID, "rvn_1")
 }
 
-func promoteReportFixtureForVersion(t *testing.T, ctx context.Context, svc *app.Service, eventID string, versionID string) app.ReportVersion {
+func promoteReportFixtureForVersion(t *testing.T, ctx context.Context, svc *app.Service, eventID string, versionID string) reportdocument.ReportVersion {
 	t.Helper()
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: "mis_1",
 		EventType: "report.promoted",
-		Producer:  app.Producer{Type: "user", ID: "ses_user"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_user"},
 		Payload:   []byte(`{"report_version_id":"` + versionID + `"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent report.promoted returned error: %v", err)
 	}
-	version, err := svc.PromoteReportVersion(ctx, app.PromoteReportVersionRequest{
+	version, err := svc.PromoteReportVersion(ctx, reportdocument.PromoteReportVersionRequest{
 		ReportVersionID: versionID,
 		ApprovalEventID: eventID,
 	})
@@ -452,7 +456,7 @@ func promoteReportFixtureForVersion(t *testing.T, ctx context.Context, svc *app.
 	return version
 }
 
-func findReportBlock(t *testing.T, blocks []app.ReportBlock, blockType string) app.ReportBlock {
+func findReportBlock(t *testing.T, blocks []reportdocument.ReportBlock, blockType string) reportdocument.ReportBlock {
 	t.Helper()
 	for _, block := range blocks {
 		if block.BlockType == blockType {
@@ -460,7 +464,7 @@ func findReportBlock(t *testing.T, blocks []app.ReportBlock, blockType string) a
 		}
 	}
 	t.Fatalf("missing report block type %s in %#v", blockType, blocks)
-	return app.ReportBlock{}
+	return reportdocument.ReportBlock{}
 }
 
 func containsStringForTest(values []string, value string) bool {

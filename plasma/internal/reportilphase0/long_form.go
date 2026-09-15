@@ -300,9 +300,50 @@ func runLongFormSectionStage(
 	}
 	artifacts := make(map[string]reportilcontract.AuthorWorkspaceReceipt, len(tasks))
 	results := make([]agentexec.AgentResult, len(tasks))
+	var mu sync.Mutex
+	run := func(index int, item task) error {
+		partIndex, sectionIndex := longFormCoordinates(plan, item.part.PartKey, item.section.SectionKey)
+		if err := longFormProgress(config, LongFormProgressEvent{
+			Kind: "section", Status: "started", PartIndex: partIndex,
+			SectionIndex: sectionIndex, Title: item.section.Title,
+		}); err != nil {
+			return err
+		}
+		receipt, result, err := runLongFormSectionAuthor(
+			ctx, config, catalog, memory, memoryReceipt, plan, planReceipt, item.part, item.section,
+		)
+		mu.Lock()
+		results[index] = result
+		mu.Unlock()
+		status := "completed"
+		if err != nil {
+			status = "failed"
+		}
+		progressErr := longFormProgress(config, LongFormProgressEvent{
+			Kind: "section", Status: status, PartIndex: partIndex,
+			SectionIndex: sectionIndex, Title: item.section.Title,
+		})
+		if err != nil {
+			return err
+		}
+		if progressErr != nil {
+			return progressErr
+		}
+		mu.Lock()
+		artifacts[item.section.SectionKey] = receipt
+		mu.Unlock()
+		return nil
+	}
+	if config.ExecutionStrategy == "serial" {
+		for index, item := range tasks {
+			if err := run(index, item); err != nil {
+				return nil, results, err
+			}
+		}
+		return artifacts, results, nil
+	}
 	sem := make(chan struct{}, longFormILWorkerLimit)
 	var wg sync.WaitGroup
-	var mu sync.Mutex
 	var firstErr error
 	for index, item := range tasks {
 		index, item := index, item
@@ -311,40 +352,18 @@ func runLongFormSectionStage(
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			partIndex, sectionIndex := longFormCoordinates(plan, item.part.PartKey, item.section.SectionKey)
-			if err := longFormProgress(config, LongFormProgressEvent{
-				Kind: "section", Status: "started", PartIndex: partIndex,
-				SectionIndex: sectionIndex, Title: item.section.Title,
-			}); err != nil {
+			mu.Lock()
+			blocked := firstErr != nil
+			mu.Unlock()
+			if blocked {
+				return
+			}
+			if err := run(index, item); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = err
 				}
 				mu.Unlock()
-				return
-			}
-			receipt, result, err := runLongFormSectionAuthor(
-				ctx, config, catalog, memory, memoryReceipt, plan, planReceipt, item.part, item.section,
-			)
-			results[index] = result
-			status := "completed"
-			if err != nil {
-				status = "failed"
-			}
-			progressErr := longFormProgress(config, LongFormProgressEvent{
-				Kind: "section", Status: status, PartIndex: partIndex,
-				SectionIndex: sectionIndex, Title: item.section.Title,
-			})
-			mu.Lock()
-			defer mu.Unlock()
-			if err != nil && firstErr == nil {
-				firstErr = err
-			}
-			if progressErr != nil && firstErr == nil {
-				firstErr = progressErr
-			}
-			if err == nil && progressErr == nil {
-				artifacts[item.section.SectionKey] = receipt
 			}
 		}()
 	}
@@ -813,6 +832,14 @@ func longFormProviderValidation(err error) error {
 	return &providerStageError{reason: reportexecution.ProviderFailureReasonSemanticValidation, cause: withValidationCode(reportexecution.ProviderValidationCodeDocumentContract, err)}
 }
 
+func longFormArticleGuidance(config ProductConfig) string {
+	contract := strings.TrimSpace(config.ArticleContract)
+	if contract == "" {
+		return ""
+	}
+	return `\n\nARTICLE CONTRACT:\n` + contract + `\n\nThis is a booklet-length Article, not a report. Treat Parts as broad movements and Sections as chapters in one continuous reader journey. The plan must advance the reader from their starting state to the promised understanding, not maximize coverage. Do not use report framing, executive summaries, source inventories, requirement checklists, or mechanical recaps. Preserve source-supported facts and caveats. The final whole-manuscript editor owns one coherent voice, information-release order, cross-chapter continuity, and the ending.`
+}
+
 func longFormPlanPrompt(config ProductConfig, catalog reportilcontract.SourceCatalog, memory reportilcontract.EditorialMemory, selectionApplied bool) string {
 	objective := strings.TrimSpace(config.MissionObjective)
 	if objective == "" {
@@ -838,7 +865,7 @@ MISSION OBJECTIVE:
 ADDITIONAL DIRECTION:
 %s
 
-%s
+%s%s
 
 Submit the complete plan exactly once with plasma.report_il.long_form.plan.submit after completing the required reads. Your terminal response may only briefly confirm submission. Source selection was applied: %t. Frozen source count: %d.`,
 		config.TargetLanguage,
@@ -854,6 +881,7 @@ Submit the complete plan exactly once with plasma.report_il.long_form.plan.submi
 		objective,
 		strings.TrimSpace(config.Direction),
 		material,
+		longFormArticleGuidance(config),
 		selectionApplied,
 		len(catalog.Sources),
 	)
@@ -910,7 +938,7 @@ WORKFLOW:
 		strings.Join(section.Representations, ", "),
 		strings.TrimSpace(config.Direction),
 		materialStep,
-	)
+	) + longFormArticleGuidance(config)
 }
 
 func longFormPartEditPrompt(config ProductConfig, planned reportilcontract.LongFormPart) string {
@@ -926,7 +954,7 @@ WORKFLOW:
 4. Read the complete assembled Part from offset 0 through EOF.
 5. Apply only exact once-only replacements that improve continuity without changing structure or source bindings. Every edit invalidates the prior full read.
 6. After the final edit, reread from offset 0 through EOF.
-7. Finalize exactly once. Your terminal response may only briefly confirm finalization.`, planned.Purpose, strings.TrimSpace(config.Direction))
+7. Finalize exactly once. Your terminal response may only briefly confirm finalization.`, planned.Purpose, strings.TrimSpace(config.Direction)) + longFormArticleGuidance(config)
 }
 
 func longFormFinalEditPrompt(config ProductConfig) string {
@@ -941,5 +969,5 @@ WORKFLOW:
 4. Read the whole assembled manuscript from offset 0 through EOF.
 5. Apply only exact once-only reader-facing replacements. Never change structure or source bindings. Every edit invalidates the prior full read.
 6. After the final edit, reread the complete manuscript from offset 0 through EOF and check its opening, cross-Part continuity, chronology, and final judgment.
-7. Finalize exactly once. Your terminal response may only briefly confirm finalization.`, config.TargetLanguage, strings.TrimSpace(config.Direction))
+7. Finalize exactly once. Your terminal response may only briefly confirm finalization.`, config.TargetLanguage, strings.TrimSpace(config.Direction)) + longFormArticleGuidance(config)
 }

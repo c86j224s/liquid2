@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -27,9 +29,9 @@ func TestFailInterruptedStagingClosesOnlyOpenCandidatesAfterRestart(t *testing.T
 	archived := startRecoveryCandidate(t, ctx, svc, "archived")
 	failed := startRecoveryCandidate(t, ctx, svc, "failed")
 	staged := startRecoveryCandidate(t, ctx, svc, "staged")
-	if _, err := svc.ArchiveMission(ctx, app.MissionLifecycleChangeRequest{
+	if _, err := svc.ArchiveMission(ctx, mission.MissionLifecycleChangeRequest{
 		EventID: "evt_archived_archive", MissionID: archived.MissionID,
-		Producer: app.Producer{Type: "user", ID: "test"}, Reason: "test archived recovery",
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Reason: "test archived recovery",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +102,12 @@ func TestFailInterruptedStagingClosesOnlyOpenCandidatesAfterRestart(t *testing.T
 func startRecoveryCandidate(t *testing.T, ctx context.Context, svc *app.Service, name string) sourcecandidates.SourceCandidateStagingJob {
 	t.Helper()
 	missionID := "mis_" + name
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: name}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: name}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+	if _, err := svc.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID: "evt_" + name + "_created", MissionID: missionID, Title: name,
-		Objective: "source candidate recovery test", Producer: app.Producer{Type: "user", ID: "test"},
+		Objective: "source candidate recovery test", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func startRecoveryCandidate(t *testing.T, ctx context.Context, svc *app.Service,
 		EventID: "evt_" + name + "_started", MissionID: missionID, SessionID: "ses_" + name,
 		ProposalEventID: "evt_" + name + "_proposal", CandidateKind: "url",
 		Candidate: sourcecandidates.SourceCandidateProposal{URL: "https://example.com/" + name, Title: name},
-		Producer:  app.Producer{Type: "agent_session", ID: "agent"}, AgentExecutor: "codex",
+		Producer:  ledger.Producer{Type: "agent_session", ID: "agent"}, AgentExecutor: "codex",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +123,7 @@ func startRecoveryCandidate(t *testing.T, ctx context.Context, svc *app.Service,
 	return sourcecandidates.SourceCandidateStagingJob{
 		MissionID: missionID, SessionID: "ses_" + name, ProposalEventID: "evt_" + name + "_proposal",
 		CandidateKind: "url", Candidate: sourcecandidates.SourceCandidateProposal{URL: "https://example.com/" + name, Title: name},
-		Producer: app.Producer{Type: "agent_session", ID: "agent"}, StartedEventID: start.Event.EventID,
+		Producer: ledger.Producer{Type: "agent_session", ID: "agent"}, StartedEventID: start.Event.EventID,
 		AgentExecutor: "codex", EmitAgentExecutorInTerminalEvents: true,
 	}
 }
@@ -153,7 +155,7 @@ func assertRecoveredFailure(t *testing.T, ctx context.Context, svc *app.Service,
 		}
 		matching++
 		if recovered {
-			if event.Producer != (app.Producer{Type: "system", ID: "plasma-startup"}) ||
+			if event.Producer != (ledger.Producer{Type: "system", ID: "plasma-startup"}) ||
 				event.CausationEventID != job.StartedEventID || payload.ApprovalState != "unapproved_candidate" ||
 				payload.Message != "Plasma가 다시 시작되어 후보 원문 가져오기를 완료하지 못했습니다. 후보를 다시 제안해 주세요." {
 				t.Fatalf("unexpected recovered failure: event=%#v payload=%#v", event, payload)

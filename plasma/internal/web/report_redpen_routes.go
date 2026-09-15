@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 )
 
@@ -60,7 +62,7 @@ func (server *Server) handleReportRedpenRoute(w http.ResponseWriter, r *http.Req
 			MissionID:                 missionID,
 			SourceArtifactID:          source.ArtifactID,
 			ExpectedCurrentArtifactID: req.ExpectedCurrentArtifactID,
-			Producer:                  app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:                  ledger.Producer{Type: "user", ID: "plasma-ui"},
 			Content:                   []byte(req.Content),
 		})
 		if err != nil {
@@ -94,28 +96,28 @@ func (server *Server) downloadReportRedpenWorkcopy(w http.ResponseWriter, r *htt
 	writeRawArtifactDownload(w, reportRedpenProjectedArtifact(workcopy))
 }
 
-func (server *Server) reportRedpenSourceArtifact(w http.ResponseWriter, r *http.Request, missionID, artifactID string) (app.RawArtifact, bool) {
+func (server *Server) reportRedpenSourceArtifact(w http.ResponseWriter, r *http.Request, missionID, artifactID string) (artifactcontract.Raw, bool) {
 	artifact, err := server.service.GetRawArtifact(r.Context(), artifactID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "artifact not found")
-			return app.RawArtifact{}, false
+			return artifactcontract.Raw{}, false
 		}
 		writeAppError(w, err)
-		return app.RawArtifact{}, false
+		return artifactcontract.Raw{}, false
 	}
 	if artifact.MissionID != missionID || !isMarkdownMediaType(artifact.MediaType) {
 		writeError(w, http.StatusNotFound, "artifact not found")
-		return app.RawArtifact{}, false
+		return artifactcontract.Raw{}, false
 	}
 	eligible, err := server.isReportRedpenSource(r.Context(), missionID, artifact.ArtifactID)
 	if err != nil {
 		writeAppError(w, err)
-		return app.RawArtifact{}, false
+		return artifactcontract.Raw{}, false
 	}
 	if !eligible {
 		writeError(w, http.StatusNotFound, "artifact not found")
-		return app.RawArtifact{}, false
+		return artifactcontract.Raw{}, false
 	}
 	return artifact, true
 }
@@ -144,7 +146,7 @@ func (server *Server) isReportRedpenSource(ctx context.Context, missionID, artif
 	return false, nil
 }
 
-func reportRedpenResponse(source app.RawArtifact, workcopy app.ReportRedpenWorkcopy) map[string]any {
+func reportRedpenResponse(source artifactcontract.Raw, workcopy app.ReportRedpenWorkcopy) map[string]any {
 	response := map[string]any{
 		"exists":          workcopy.Exists,
 		"changed":         workcopy.Changed,
@@ -166,7 +168,7 @@ func reportRedpenResponse(source app.RawArtifact, workcopy app.ReportRedpenWorkc
 	return response
 }
 
-func reportRedpenProjectedArtifact(workcopy app.ReportRedpenWorkcopy) app.RawArtifact {
+func reportRedpenProjectedArtifact(workcopy app.ReportRedpenWorkcopy) artifactcontract.Raw {
 	artifact := workcopy.Artifact
 	artifact.MediaType = workcopy.MediaType
 	artifact.Filename = workcopy.Filename

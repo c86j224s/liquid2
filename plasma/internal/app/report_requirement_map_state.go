@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
@@ -18,7 +19,7 @@ func validateReportRequirementMapRequest(req ReportRequirementMapSubmissionReque
 	return nil
 }
 
-func validateReportRequirementMapSlot(events []LedgerEvent, req ReportRequirementMapSubmissionRequest) (int, int, error) {
+func validateReportRequirementMapSlot(events []ledger.Event, req ReportRequirementMapSubmissionRequest) (int, int, error) {
 	pendingIndex, planIndex := -1, -1
 	for index, event := range events {
 		if event.EventID == req.PendingEventID {
@@ -56,7 +57,7 @@ func validateReportRequirementMapSlot(events []LedgerEvent, req ReportRequiremen
 	return pendingIndex, planIndex, nil
 }
 
-func validateReviewedReportRequirementEvents(events []LedgerEvent, pendingIndex int, req ReportRequirementMapSubmissionRequest) error {
+func validateReviewedReportRequirementEvents(events []ledger.Event, pendingIndex int, req ReportRequirementMapSubmissionRequest) error {
 	eligible, err := ReportRequirementReviewEventIDs(events[:pendingIndex+1], req.PendingEventID)
 	if err != nil {
 		return err
@@ -82,7 +83,7 @@ func validateReviewedReportRequirementEvents(events []LedgerEvent, pendingIndex 
 	return nil
 }
 
-func reportStagesStartedAfterPlan(events []LedgerEvent, planIndex int, pendingEventID, planEventID string) bool {
+func reportStagesStartedAfterPlan(events []ledger.Event, planIndex int, pendingEventID, planEventID string) bool {
 	for _, event := range events[planIndex+1:] {
 		switch event.EventType {
 		case "report.section.started", "report.section.created", "report.part.created", "report.artifact.created":

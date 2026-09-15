@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcediagnostics"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
 )
@@ -38,7 +38,7 @@ func (server *Server) renderStagedURLCandidate(ctx context.Context, normalizedUR
 
 func (server *Server) renderBrowserCandidateSource(ctx context.Context, normalizedURL string, fallbackTitle string) (fetchedURLSource, error) {
 	if server.renderBrowserURLSource == nil {
-		return fetchedURLSource{}, browserRenderSourceError(app.ErrInvalidInput)
+		return fetchedURLSource{}, browserRenderSourceError(producterror.ErrInvalidInput)
 	}
 	rendered, err := server.renderBrowserURLSource(ctx, normalizedURL)
 	if err != nil {

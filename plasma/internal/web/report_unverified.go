@@ -6,11 +6,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"strings"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
@@ -70,12 +72,12 @@ func (server *Server) createUnverifiedReportDraft(ctx context.Context, missionID
 	if producerID == "" {
 		producerID = toolSessionID
 	}
-	producer := app.Producer{Type: "agent_session", ID: producerID}
-	artifact, terminal, created, err := server.service.CreateMarkdownReportArtifactIfOpen(ctx, missionID, pendingEventID, app.CreateRawArtifactRequest{
+	producer := ledger.Producer{Type: "agent_session", ID: producerID}
+	artifact, terminal, created, err := server.service.CreateMarkdownReportArtifactIfOpen(ctx, missionID, pendingEventID, artifactcontract.CreateRequest{
 		ArtifactID: unverifiedReportArtifactID(missionID, pendingEventID), MissionID: missionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: safeFilename(req.Title, ".md"),
 		Producer: producer, Content: content,
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
 		request := reporting.BuildCLIMarkdownReportArtifactCreatedAppendRequest(reporting.CLIMarkdownReportArtifactCreatedEventRequest{
 			EventID: newID("evt"), MissionID: missionID, PendingEventID: pendingEventID,
 			Title: req.Title, Artifact: artifact, AgentExecutor: "codex",
@@ -107,7 +109,7 @@ func (server *Server) createUnverifiedReportDraft(ctx context.Context, missionID
 	if string(artifact.Content) != result.Text {
 		return fmt.Errorf("stored unverified report differs from provider output")
 	}
-	_, err = reporting.CompleteReportRun(ctx, server.service, reporting.ReportCompletionRequest{MissionID: missionID, CanonicalEventID: terminal.EventID})
+	_, err = reportrun.CompleteReportRun(ctx, server.service, reportrun.ReportCompletionRequest{MissionID: missionID, CanonicalEventID: terminal.EventID})
 	return err
 }
 
@@ -135,10 +137,10 @@ func (server *Server) completeExistingUnverifiedReport(
 				reportpipeline.Unverified {
 			continue
 		}
-		_, err := reporting.CompleteReportRun(
+		_, err := reportrun.CompleteReportRun(
 			ctx,
 			server.service,
-			reporting.ReportCompletionRequest{
+			reportrun.ReportCompletionRequest{
 				MissionID:        missionID,
 				CanonicalEventID: event.EventID,
 			},

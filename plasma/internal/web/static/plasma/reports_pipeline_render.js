@@ -41,10 +41,11 @@
     const experimental = Boolean(reports.REPORT_IL_PIPELINE_FAMILY) && payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY;
     const unverified = Boolean(reports.REPORT_UNVERIFIED_PIPELINE_FAMILY) && payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
     const independent = experimental || unverified;
+    const article = payload.output_kind === "article";
     const longFormIL = experimental && payload.report_mode === "long_form";
-    const strategy = experimental ? (longFormIL ? "장문 IL 보고서" : "IL 보고서") : unverified ? "무검증 보고서" : fanout ? "장문 · 빠른 병렬" :
+    const strategy = article ? (payload.report_mode === "long_form" ? "장문 글" : "글") : experimental ? (longFormIL ? "장문 IL 보고서" : "IL 보고서") : unverified ? "무검증 보고서" : fanout ? "장문 · 빠른 병렬" :
       payload.report_mode === "long_form" ? "장문 · 순차" : "일반";
-    return { title, startedAt, attempt, strategy, fanout, experimental, longFormIL, unverified, independent, draft: eventType === "report.draft.pending" };
+    return { title, startedAt, attempt, strategy, fanout, experimental, longFormIL, unverified, independent, article, draft: eventType === "report.draft.pending" };
   }
 
   function fallbackRequestSummary(attempt) {
@@ -183,7 +184,7 @@
     const retry = progress.retry || {};
     const reason = !attempt.independent && retry.reason ? `<p id="pipelineRetryReason" class="pipeline-reason">${core.escapeHTML(retry.reason)}</p>` : "";
     const request = requestSummary || fallbackRequestSummary(attempt);
-    const pipelineTitle = attempt.experimental ? "IL 보고서 생성 파이프라인" : attempt.unverified ? "무검증 보고서 생성" : "최신 리포트 생성 파이프라인";
+    const pipelineTitle = attempt.article ? "최신 글 생성" : attempt.experimental ? "IL 보고서 생성 파이프라인" : attempt.unverified ? "무검증 보고서 생성" : "최신 리포트 생성 파이프라인";
     const experimentalGraph = attempt.longFormIL
       ? reports.pipelineGraph.longFormILProgressGraph(nodes)
       : reports.pipelineGraph.stageProgressGraph(nodes);

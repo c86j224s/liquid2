@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -25,9 +26,9 @@ func TestMissionUsageRouteIsMissionScoped(t *testing.T) {
 	firstID := nestedString(t, first, "projection", "mission_id")
 	second := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Empty"})
 	secondID := nestedString(t, second, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_usage", MissionID: firstID, EventType: "turn.agent.response",
-		Producer: app.Producer{Type: "agent", ID: "test"},
+		Producer: ledger.Producer{Type: "agent", ID: "test"},
 		Payload: mustJSON(map[string]any{"workflow_run_id": "wfr_test", "agent_usage": map[string]any{
 			"schema_version": 2, "surface": "workflow_step", "model": "gpt-test", "reasoning_effort": "high",
 			"session":        map[string]any{"agent_session_id": "session-test", "resumed": true},

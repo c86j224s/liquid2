@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 	"testing"
 )
@@ -34,11 +35,11 @@ func TestAgentProviderLockRejectsMixedProviderPartPlanAppend(t *testing.T) {
 	ctx := context.Background()
 	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
 
-	_, err := svc.AppendEvent(ctx, AppendEventRequest{
+	_, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_part_plan_claude",
 		MissionID: "mis_1",
 		EventType: "report.part_plan.created",
-		Producer:  Producer{Type: "agent_session", ID: "claude-part-owner"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "claude-part-owner"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":             "sectional_markdown_report_part_plan",
 			"pending_event_id": "evt_pending",

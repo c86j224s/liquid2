@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -172,12 +174,12 @@ func runLongFormDirectionDraft(t *testing.T, fanout bool, hint string) []AgentRe
 	defer store.Close()
 	service := app.NewService(store)
 	missionID := "mis_direction"
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Direction"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Direction"}); err != nil {
 		t.Fatal(err)
 	}
 	pendingEventID := "evt_pending_direction"
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
-		EventID: pendingEventID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"},
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
+		EventID: pendingEventID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{"kind": "report_draft_pending", "title": "Long", "report_mode": reportModeLongForm, "direction_hint": hint, "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatal(err)

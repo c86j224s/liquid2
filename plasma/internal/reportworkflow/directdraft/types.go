@@ -6,6 +6,7 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
 )
@@ -36,6 +37,8 @@ type BaseInput struct {
 	PostReportHumanize               string
 	GenerationGuidanceProfile        string
 	GenerationGuidanceSHA256         string
+	OutputKind                       string
+	ArticleIntent                    reportexecution.ArticleIntent
 }
 
 // PlannedInput은 canonical plan 이후 planned 본문 작성 단계의 typed 입력이다.

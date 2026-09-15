@@ -1,18 +1,13 @@
 package finaledit
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
-
-// SupportsFinalEditPlanEvent는 durable plan event가 현재 Runner가 실행하는
-// V1/V2/V3 final edit pipeline인지 읽기 전용으로 판정한다.
-func SupportsFinalEditPlanEvent(event ledger.Event) bool {
-	state, ok, err := reporting.FinalEditPipelineFromPlanEvent(event)
-	return err == nil && ok && supportsFinalEditPipeline(state.Pipeline)
-}
 
 // FinalEditPipeline은 canonical plan event에 저장된 final edit pipeline만 읽는다.
 func (input Input) FinalEditPipeline() string {
@@ -23,8 +18,8 @@ func (input Input) FinalEditPipeline() string {
 	return strings.TrimSpace(state.Pipeline)
 }
 
-// FinalEditAgentReasoningEffort는 final edit binding에 저장할 effort를 정규화한다.
-func (input Input) FinalEditAgentReasoningEffort() string {
+// finalEditAgentReasoningEffort는 final edit binding에 저장할 effort를 정규화한다.
+func (input Input) finalEditAgentReasoningEffort() string {
 	return LongFormFinalEditContractReasoningEffort(input.AgentReasoningEffort)
 }
 
@@ -35,7 +30,7 @@ func (input Input) LongFormFinalBinding(toolSessionID string, providerSessionID 
 		PendingEventID:               input.PendingEventID,
 		PlanEventID:                  input.PlanEvent.EventID,
 		ArtifactID:                   input.ArtifactID,
-		Filename:                     SafeFilename(input.Title, ".md"),
+		Filename:                     longformutil.SafeFilename(input.Title, ".md"),
 		Title:                        input.Title,
 		ToolSessionID:                toolSessionID,
 		IdempotencyKey:               "report-long-form-finalize:" + input.PendingEventID + ":" + input.PlanEvent.EventID,
@@ -47,7 +42,7 @@ func (input Input) LongFormFinalBinding(toolSessionID string, providerSessionID 
 		CompositionStrategy:          reporting.LongFormCompositionNarrativeEdit,
 		AgentExecutor:                input.ExecutorName,
 		AgentModel:                   input.AgentModel,
-		AgentReasoningEffort:         input.FinalEditAgentReasoningEffort(),
+		AgentReasoningEffort:         input.finalEditAgentReasoningEffort(),
 		AgentSelectionSource:         input.AgentSelectionSource,
 		MCPMode:                      input.MCPMode,
 		RigorLevel:                   input.Rigor.Level,
@@ -77,14 +72,14 @@ func (input Input) FinalEditStageBinding(stage string, sourceArtifactID string, 
 		Stage:                        stage,
 		SourceArtifactID:             sourceArtifactID,
 		EditedArtifactID:             editedArtifactID,
-		Filename:                     SafeFilename(input.Title, ".md"),
+		Filename:                     longformutil.SafeFilename(input.Title, ".md"),
 		ToolSessionID:                toolSessionID,
 		ProviderSessionID:            providerSessionID,
 		PreviousProviderSessionID:    previousProviderSessionID,
 		IdempotencyKey:               reporting.FinalEditStageIdempotencyKey(stage, input.PendingEventID, input.PlanEvent.EventID),
 		AgentExecutor:                input.ExecutorName,
 		AgentModel:                   input.AgentModel,
-		AgentReasoningEffort:         input.FinalEditAgentReasoningEffort(),
+		AgentReasoningEffort:         input.finalEditAgentReasoningEffort(),
 		AgentSelectionSource:         input.AgentSelectionSource,
 		MCPMode:                      input.MCPMode,
 		RigorLevel:                   input.Rigor.Level,

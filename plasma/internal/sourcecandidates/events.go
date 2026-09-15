@@ -6,14 +6,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcediagnostics"
 )
 
 // BuildSourceCandidateProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
-func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRequest) (app.AppendEventRequest, bool, error) {
+func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRequest) (ledger.AppendRequest, bool, error) {
 	if len(req.Candidates) == 0 {
-		return app.AppendEventRequest{}, false, nil
+		return ledger.AppendRequest{}, false, nil
 	}
 	payload := map[string]any{
 		"kind":            "source_candidate_proposed",
@@ -30,7 +31,7 @@ func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRe
 	if strings.TrimSpace(req.StrategyID) != "" {
 		payload["strategy_id"] = strings.TrimSpace(req.StrategyID)
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "source.candidate.proposed",
@@ -40,7 +41,7 @@ func BuildSourceCandidateProposalEventRequest(req SourceCandidateProposalEventRe
 }
 
 // BuildSourceCandidateMCPProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
-func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalEventRequest) (app.AppendEventRequest, error) {
+func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalEventRequest) (ledger.AppendRequest, error) {
 	sessionID := strings.TrimSpace(req.SessionID)
 	payload := map[string]any{
 		"kind":             "source_candidate_proposed",
@@ -56,7 +57,7 @@ func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalE
 	if strings.TrimSpace(req.AgentExecutor) != "" {
 		payload["agent_executor"] = strings.TrimSpace(req.AgentExecutor)
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:       strings.TrimSpace(req.EventID),
 		MissionID:     strings.TrimSpace(req.MissionID),
 		EventType:     "source.candidate.proposed",
@@ -67,9 +68,9 @@ func BuildSourceCandidateMCPProposalEventRequest(req SourceCandidateMCPProposalE
 }
 
 // BuildWorkflowSourceCandidateProposalEventRequest는 소스 후보 스테이징 경계에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
-func BuildWorkflowSourceCandidateProposalEventRequest(req WorkflowSourceCandidateProposalEventRequest) (app.AppendEventRequest, bool, error) {
+func BuildWorkflowSourceCandidateProposalEventRequest(req WorkflowSourceCandidateProposalEventRequest) (ledger.AppendRequest, bool, error) {
 	if len(req.Candidates) == 0 {
-		return app.AppendEventRequest{}, false, nil
+		return ledger.AppendRequest{}, false, nil
 	}
 	payload := map[string]any{
 		"kind":             "source_candidate_proposed",
@@ -79,7 +80,7 @@ func BuildWorkflowSourceCandidateProposalEventRequest(req WorkflowSourceCandidat
 		"agent_event_id":   strings.TrimSpace(req.AgentEventID),
 		"candidates":       req.Candidates,
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "source.candidate.proposed",
@@ -88,7 +89,7 @@ func BuildWorkflowSourceCandidateProposalEventRequest(req WorkflowSourceCandidat
 	}, true, nil
 }
 
-func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID string, artifact app.RawArtifact, title string, fetched SourceCandidateFetched) app.AppendEventRequest {
+func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID string, artifact artifactcontract.Raw, title string, fetched SourceCandidateFetched) ledger.AppendRequest {
 	sessionID := strings.TrimSpace(job.SessionID)
 	payload := map[string]any{
 		"kind":               "source_candidate_staged",
@@ -139,7 +140,7 @@ func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID st
 	if job.EmitAgentExecutorInTerminalEvents && strings.TrimSpace(job.AgentExecutor) != "" {
 		payload["agent_executor"] = strings.TrimSpace(job.AgentExecutor)
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        strings.TrimSpace(job.MissionID),
 		EventType:        "source.candidate.staged",
@@ -150,7 +151,7 @@ func sourceCandidateStagedEventRequest(job SourceCandidateStagingJob, eventID st
 	}
 }
 
-func sourceCandidateStagingFailedEventRequest(job SourceCandidateStagingJob, eventID string, cause error) app.AppendEventRequest {
+func sourceCandidateStagingFailedEventRequest(job SourceCandidateStagingJob, eventID string, cause error) ledger.AppendRequest {
 	sessionID := strings.TrimSpace(job.SessionID)
 	payload := map[string]any{
 		"kind":               "source_candidate_staging_failed",
@@ -170,7 +171,7 @@ func sourceCandidateStagingFailedEventRequest(job SourceCandidateStagingJob, eve
 	if job.EmitAgentExecutorInTerminalEvents && strings.TrimSpace(job.AgentExecutor) != "" {
 		payload["agent_executor"] = strings.TrimSpace(job.AgentExecutor)
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        strings.TrimSpace(job.MissionID),
 		EventType:        "source.candidate.staging_failed",

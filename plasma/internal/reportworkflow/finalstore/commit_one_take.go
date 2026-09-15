@@ -30,9 +30,14 @@ func (runner Runner) CommitOneTake(ctx context.Context, input OneTakeInput) (Out
 		return Output{}, err
 	}
 	producer := ledger.Producer{Type: "agent_session", ID: fallbackSessionID(candidate.ReportSessionID, candidate.ToolSessionID)}
+	filenameSuffix, completionText := ".md", "빠른 Markdown 리포트 artifact를 생성했습니다."
+	if input.Base.OutputKind == reportexecution.OutputKindArticle {
+		filenameSuffix = "-article.md"
+		completionText = "독자를 위한 글을 생성했습니다."
+	}
 	raw, event, err := runner.Service.CreateRawArtifactWithEvent(ctx, artifact.CreateRequest{
 		ArtifactID: candidate.ArtifactID, MissionID: input.Base.MissionID,
-		MediaType: markdownMediaType, Filename: safeFilename(input.Base.Title, ".md"),
+		MediaType: markdownMediaType, Filename: safeFilename(input.Base.Title, filenameSuffix),
 		Producer: producer, Content: []byte(candidate.Markdown),
 	}, func(raw artifact.Raw) ledger.AppendRequest {
 		return reporting.BuildMarkdownReportArtifactCreatedAppendRequest(reporting.MarkdownReportArtifactCreatedEventRequest{
@@ -51,8 +56,10 @@ func (runner Runner) CommitOneTake(ctx context.Context, input OneTakeInput) (Out
 				SessionChainKind: "same_session_report", PreReportResearchSessionID: candidate.PreviousSessionID,
 				ReportSessionID: candidate.ReportSessionID, CompositionStrategy: "one_take_markdown",
 				DurationMS: time.Since(candidate.StartedAt).Milliseconds(),
-				Text:       "빠른 Markdown 리포트 artifact를 생성했습니다.", AgentUsage: candidate.AgentUsage,
+				Text:       completionText, AgentUsage: candidate.AgentUsage,
 				AgentUsageSurface: "report_one_take", AgentUsageDurationMS: candidate.AgentDurationMS,
+				OutputKind: input.Base.OutputKind, ArticleAudience: input.Base.ArticleAudience,
+				ArticleReaderPromise: input.Base.ArticleReaderPromise, ArticleEmphasis: input.Base.ArticleEmphasis,
 				AgentResumed: candidate.AgentResumed, Producer: producer,
 			},
 			Artifact: raw, PlanReviewState: "not_applicable", IncludePlanReview: false,

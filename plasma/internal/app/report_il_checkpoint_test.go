@@ -7,15 +7,17 @@ import (
 	"encoding/json"
 	"testing"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 type reportILCheckpointStore struct {
 	reportILDocumentStore
-	artifacts map[string]RawArtifact
+	artifacts map[string]artifactcontract.Raw
 }
 
-func (store *reportILCheckpointStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (store *reportILCheckpointStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	return store.artifacts[artifactID], nil
 }
 
@@ -29,9 +31,9 @@ func TestLoadReportILResumeCheckpointRejectsTamperedArtifact(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{"pending_event_id": "evt_failed", "checkpoint": checkpoint})
 	store := &reportILCheckpointStore{
 		reportILDocumentStore: reportILDocumentStore{
-			events: []LedgerEvent{{EventID: "evt_checkpoint", MissionID: catalog.MissionID, EventType: reportILCheckpointEventType, CausationEventID: "evt_failed", Payload: payload}},
+			events: []ledger.Event{{EventID: "evt_checkpoint", MissionID: catalog.MissionID, EventType: reportILCheckpointEventType, CausationEventID: "evt_failed", Payload: payload}},
 		},
-		artifacts: map[string]RawArtifact{memoryArtifact.ArtifactID: memoryArtifact, documentArtifact.ArtifactID: documentArtifact},
+		artifacts: map[string]artifactcontract.Raw{memoryArtifact.ArtifactID: memoryArtifact, documentArtifact.ArtifactID: documentArtifact},
 	}
 	service := NewService(store)
 	resume, err := service.LoadReportILResumeCheckpoint(context.Background(), catalog.MissionID, "evt_failed")
@@ -91,12 +93,12 @@ func checkpointDocument(t *testing.T, catalog reportilcontract.SourceCatalog) ([
 	return content, document
 }
 
-func checkpointRawArtifact(id, missionID, mediaType, producerID string, content []byte) RawArtifact {
+func checkpointRawArtifact(id, missionID, mediaType, producerID string, content []byte) artifactcontract.Raw {
 	sum := sha256.Sum256(content)
-	return RawArtifact{ArtifactID: id, MissionID: missionID, MediaType: mediaType, ByteSize: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Producer: Producer{Type: "mcp_tool", ID: producerID}, Content: content}
+	return artifactcontract.Raw{ArtifactID: id, MissionID: missionID, MediaType: mediaType, ByteSize: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Producer: ledger.Producer{Type: "mcp_tool", ID: producerID}, Content: content}
 }
 
-func checkpointAppValue(catalog reportilcontract.SourceCatalog, memory, document RawArtifact, accounts int) reportilcontract.ProductCheckpoint {
+func checkpointAppValue(catalog reportilcontract.SourceCatalog, memory, document artifactcontract.Raw, accounts int) reportilcontract.ProductCheckpoint {
 	workspace := reportilcontract.AuthorWorkspaceReceipt{ArtifactID: document.ArtifactID, SHA256: document.SHA256, ByteSize: int(document.ByteSize), Revision: 1, Stage: "il_long_form_final"}
 	artifact := reportilcontract.CheckpointArtifact{ArtifactID: workspace.ArtifactID, SHA256: workspace.SHA256, ByteSize: workspace.ByteSize, Stage: workspace.Stage}
 	return reportilcontract.ProductCheckpoint{

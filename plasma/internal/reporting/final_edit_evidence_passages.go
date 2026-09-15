@@ -3,7 +3,7 @@ package reporting
 import (
 	"fmt"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // FinalEditEvidenceGatePassage는 final edit evidence gate가 검토할 원문 passage와 인용 위치다.
@@ -17,7 +17,7 @@ type FinalEditEvidenceGatePassage struct {
 func FinalEditEvidenceGatePassages(markdown string) ([]FinalEditEvidenceGatePassage, error) {
 	blocks := markdownNonEmptyBlockSpans(markdown)
 	if len(blocks) == 0 {
-		return nil, fmt.Errorf("%w: evidence gate report has no judgeable passages", app.ErrConflict)
+		return nil, fmt.Errorf("%w: evidence gate report has no judgeable passages", producterror.ErrConflict)
 	}
 	passages := make([]FinalEditEvidenceGatePassage, 0, len(blocks))
 	for i, block := range blocks {
@@ -44,7 +44,7 @@ func validateFinalEditEvidenceGateFindingStatementsInSource(markdown string, fin
 	}
 	for _, finding := range findings {
 		if !allowed[finding.StatementSHA256] {
-			return fmt.Errorf("%w: evidence gate statement hash is not present in the bound source artifact", app.ErrInvalidInput)
+			return fmt.Errorf("%w: evidence gate statement hash is not present in the bound source artifact", producterror.ErrInvalidInput)
 		}
 	}
 	return nil

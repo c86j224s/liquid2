@@ -3,7 +3,7 @@ package web
 import (
 	"context"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/partedit"
 	workflowplan "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
@@ -30,7 +30,7 @@ type reportPartEditorRequest struct {
 	source                       sectionalReportPartDraft
 	directionHint                string
 	requirements                 []reporting.ReportRequirement
-	requirementMapEvent          app.LedgerEvent
+	requirementMapEvent          ledger.Event
 	requirementMap               reporting.ReportRequirementMap
 	reportSessionPolicy          string
 	reportSessionPolicySelection string

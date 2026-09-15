@@ -12,7 +12,11 @@ same agent session, user/controller steering, MCP/source read tools,
 conversation results, and report artifacts.
 
 Historical evidence, claims, confidence updates, proposals, and AST-first
-reports are legacy ledger machinery. Plasma keeps their tables and read paths
+reports are legacy ledger machinery. Within the bounded research-records slice,
+`internal/researchrecords` owns evidence and claim creation identity, validation,
+and persistence ports; application services retain orchestration, callbacks, and
+transaction boundaries. This ownership statement covers evidence and claim
+creation only, not a full research-model migration. Plasma keeps their tables and read paths
 for migration and experiment work, but they are not exposed as the default
 product loop and must not become a user-facing old/new mode toggle. Source
 candidate review records are allowed in bounded workflow runs only as user
@@ -382,10 +386,12 @@ The persisted retrieval policies are:
   artifact list has a content hash.
 
 The `local_path` connector stores only a locator shaped like `root_id`,
-`relative_path`, and `path_kind`. Configured root absolute paths remain
+`relative_path`, and `path_kind`. The source-owned `LocalPathReader` port and
+observation DTOs live in `internal/source`; the filesystem/configuration adapter
+remains responsible for configured roots and OS/PDF access. Configured root absolute paths remain
 server-side configuration and must not appear in source snapshots, Web JSON,
 MCP responses, CLI output, prompts, or reports. All local path access goes
-through the local path engine, which canonicalizes configured roots, rejects
+through the local path reader port and its local path adapter, which canonicalizes configured roots, rejects
 absolute paths and traversal, rejects symlinks and special files, applies deny
 patterns and caps, and returns public DTOs with only root IDs and relative paths.
 Agent reads are source-scoped: after a user accepts a live local path file or

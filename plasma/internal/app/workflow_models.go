@@ -36,18 +36,6 @@ const WorkflowSurfaceAgentSession = workflowstate.WorkflowSurfaceAgentSession
 const WorkflowStepInstructionModeCurrent = workflowstate.WorkflowStepInstructionModeCurrent
 const WorkflowStepInstructionModeLayered = workflowstate.WorkflowStepInstructionModeLayered
 
-// RequestWorkflowRunRequest부터 WorkflowStepView까지는 workflowstate model alias다.
-//
-// app package가 외부 transport의 단일 import 경계가 될 수 있도록 재노출하지만, 실제
-// projection과 terminal event 규칙은 workflowstate/workflowruns 패키지가 소유한다.
-type RequestWorkflowRunRequest = workflowstate.RequestWorkflowRunRequest
-
-// RequestWorkflowStopRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
-type RequestWorkflowStopRequest = workflowstate.RequestWorkflowStopRequest
-
-// WorkflowRunTerminalEventRequest는 애플리케이션 서비스 계층에 전달되는 요청 값이다.
-type WorkflowRunTerminalEventRequest = workflowstate.WorkflowRunTerminalEventRequest
-
 // WorkflowRunRequestedPayload는 애플리케이션 서비스 계층에서 장부나 전송에 저장하는 payload다. 민감한 원문과 credential을 포함하지 않는 것이 계약이다.
 type WorkflowRunRequestedPayload = workflowstate.WorkflowRunRequestedPayload
 
@@ -68,9 +56,3 @@ type WorkflowStepCompletedPayload = workflowstate.WorkflowStepCompletedPayload
 
 // WorkflowRunTerminalPayload는 애플리케이션 서비스 계층에서 장부나 전송에 저장하는 payload다. 민감한 원문과 credential을 포함하지 않는 것이 계약이다.
 type WorkflowRunTerminalPayload = workflowstate.WorkflowRunTerminalPayload
-
-// WorkflowRunView는 계산한 읽기 모델이다. 원천 상태는 장부와 저장소에 남아 있다.
-type WorkflowRunView = workflowstate.WorkflowRunView
-
-// WorkflowStepView는 계산한 읽기 모델이다. 원천 상태는 장부와 저장소에 남아 있다.
-type WorkflowStepView = workflowstate.WorkflowStepView

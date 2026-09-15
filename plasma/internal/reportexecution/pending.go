@@ -11,27 +11,29 @@ import (
 
 func DraftRequestFromPendingEvent(event ledger.Event) (DraftRequest, error) {
 	var payload struct {
-		Title                        string `json:"title"`
-		DirectionHint                string `json:"direction_hint"`
-		ExecutionStrategy            string `json:"execution_strategy"`
-		AgentExecutor                string `json:"agent_executor"`
-		AgentModel                   string `json:"agent_model"`
-		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
-		AgentSelectionSource         string `json:"agent_selection_source"`
-		MCPMode                      string `json:"mcp_mode"`
-		RigorLevel                   string `json:"rigor_level"`
-		RigorLabel                   string `json:"rigor_label"`
-		ReportMode                   string `json:"report_mode"`
-		PipelineFamily               string `json:"pipeline_family"`
-		PipelineGraph                string `json:"pipeline_graph"`
-		ReportSessionPolicy          string `json:"report_session_policy"`
-		ReportSessionPolicySelection string `json:"report_session_policy_selection"`
-		PostReportHumanize           string `json:"post_report_humanize"`
-		GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
-		GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
-		RetryStrategy                string `json:"retry_strategy"`
-		RetryOfPendingEventID        string `json:"retry_of_pending_event_id"`
-		ResumeStage                  string `json:"resume_stage"`
+		Title                        string        `json:"title"`
+		DirectionHint                string        `json:"direction_hint"`
+		ExecutionStrategy            string        `json:"execution_strategy"`
+		AgentExecutor                string        `json:"agent_executor"`
+		AgentModel                   string        `json:"agent_model"`
+		AgentReasoningEffort         string        `json:"agent_reasoning_effort"`
+		AgentSelectionSource         string        `json:"agent_selection_source"`
+		MCPMode                      string        `json:"mcp_mode"`
+		RigorLevel                   string        `json:"rigor_level"`
+		RigorLabel                   string        `json:"rigor_label"`
+		ReportMode                   string        `json:"report_mode"`
+		PipelineFamily               string        `json:"pipeline_family"`
+		PipelineGraph                string        `json:"pipeline_graph"`
+		ReportSessionPolicy          string        `json:"report_session_policy"`
+		ReportSessionPolicySelection string        `json:"report_session_policy_selection"`
+		PostReportHumanize           string        `json:"post_report_humanize"`
+		GenerationGuidanceProfile    string        `json:"generation_guidance_profile"`
+		GenerationGuidanceSHA256     string        `json:"generation_guidance_sha256"`
+		RetryStrategy                string        `json:"retry_strategy"`
+		RetryOfPendingEventID        string        `json:"retry_of_pending_event_id"`
+		ResumeStage                  string        `json:"resume_stage"`
+		OutputKind                   string        `json:"output_kind"`
+		ArticleIntent                ArticleIntent `json:"article_intent"`
 	}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return DraftRequest{}, fmt.Errorf("%w: invalid report pending payload", producterror.ErrInvalidInput)
@@ -58,6 +60,8 @@ func DraftRequestFromPendingEvent(event ledger.Event) (DraftRequest, error) {
 		RetryStrategy:                strings.TrimSpace(payload.RetryStrategy),
 		RetryOfPendingEventID:        strings.TrimSpace(payload.RetryOfPendingEventID),
 		ResumeStage:                  strings.TrimSpace(payload.ResumeStage),
+		OutputKind:                   payload.OutputKind,
+		ArticleIntent:                payload.ArticleIntent,
 	}), nil
 }
 

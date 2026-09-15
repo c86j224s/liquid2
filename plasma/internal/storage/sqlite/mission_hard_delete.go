@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/missionrepo"
 )
 
@@ -20,7 +21,7 @@ func (s *Store) PreviewMissionHardDelete(ctx context.Context, missionID string) 
 }
 
 // HardDeleteMission는 SQLite 저장소 어댑터의 명시적 상태 전이를 수행한다. 결과는 SQLite 기록으로 확인한다.
-func (s *Store) HardDeleteMission(ctx context.Context, missionID string, validate func([]app.LedgerEvent) error) (app.MissionHardDeleteImpact, error) {
+func (s *Store) HardDeleteMission(ctx context.Context, missionID string, validate func([]ledger.Event) error) (app.MissionHardDeleteImpact, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return app.MissionHardDeleteImpact{}, err

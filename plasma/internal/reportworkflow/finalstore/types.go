@@ -35,20 +35,24 @@ type Runner struct {
 
 // BaseInput은 최종 report artifact event payload가 pending 요청에서 보존해야 하는 값이다.
 type BaseInput struct {
-	MissionID       string
-	PendingEventID  string
-	Title           string
-	AgentExecutor   string
-	AgentModel      string
-	ReasoningEffort string
-	SelectionSource string
-	MCPMode         string
-	Rigor           reportprompt.RigorProfile
-	SessionPolicy   string
-	PolicySelection string
-	PostHumanize    string
-	GuidanceProfile string
-	GuidanceSHA256  string
+	MissionID            string
+	PendingEventID       string
+	Title                string
+	AgentExecutor        string
+	AgentModel           string
+	ReasoningEffort      string
+	SelectionSource      string
+	MCPMode              string
+	Rigor                reportprompt.RigorProfile
+	SessionPolicy        string
+	PolicySelection      string
+	PostHumanize         string
+	GuidanceProfile      string
+	GuidanceSHA256       string
+	OutputKind           string
+	ArticleAudience      string
+	ArticleReaderPromise string
+	ArticleEmphasis      string
 }
 
 // OneTakeCandidate는 directdraft가 검증한 provider 결과와 one_take identity 예약 값이다.

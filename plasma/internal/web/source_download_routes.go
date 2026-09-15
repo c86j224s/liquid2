@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 )
 
 func (server *Server) handleSourceCandidateDownload(w http.ResponseWriter, r *http.Request, missionID, stagedEventID string) {
@@ -46,7 +47,7 @@ func writeSourceDownloadError(w http.ResponseWriter, err error) {
 	writeAppError(w, err)
 }
 
-func writeStoredArtifactDownload(w http.ResponseWriter, artifact app.RawArtifact) {
+func writeStoredArtifactDownload(w http.ResponseWriter, artifact artifactcontract.Raw) {
 	mediaType := strings.TrimSpace(artifact.MediaType)
 	if mediaType == "" || strings.ContainsAny(mediaType, "\r\n\x00") {
 		mediaType = "application/octet-stream"

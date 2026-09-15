@@ -1,5 +1,7 @@
 package legacyfinalize
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"context"
 	"fmt"
@@ -81,7 +83,7 @@ func (runner Runner) Run(ctx context.Context, input Input, executor agentexec.Ag
 	toolSessionID := core.ID("ses")
 	binding := reporting.LongFormFinalizeBinding{
 		MissionID: input.MissionID, PendingEventID: input.PendingEventID, PlanEventID: input.PlanEvent.EventID, ArtifactID: input.ArtifactID,
-		Filename: finaledit.SafeFilename(input.Title, ".md"), Title: input.Title, ToolSessionID: toolSessionID,
+		Filename: longformutil.SafeFilename(input.Title, ".md"), Title: input.Title, ToolSessionID: toolSessionID,
 		IdempotencyKey:    "report-long-form-finalize:" + input.PendingEventID + ":" + input.PlanEvent.EventID,
 		ProviderSessionID: input.FinalSessionID, PreviousProviderSessionID: input.FinalSessionID,
 		PartArtifactIDs: input.PartArtifactIDs, SectionArtifactIDs: input.SectionArtifactIDs, SectionWordCount: input.SectionWordTotal,
@@ -118,7 +120,7 @@ func (runner Runner) Run(ctx context.Context, input Input, executor agentexec.Ag
 		durationMS := time.Since(attemptStarted).Milliseconds()
 		logFinalObservation(input.MissionID, input.PendingEventID, input.PlanEvent.EventID, attempt, input.FinalSessionID, result, durationMS)
 		if runErr == nil {
-			result, runErr = finaledit.ValidatedSameSessionResult(result, input.FinalSessionID)
+			result, runErr = longformutil.ValidateSameSessionResult(result, input.FinalSessionID)
 		}
 		if runErr == nil {
 			finalResult = result

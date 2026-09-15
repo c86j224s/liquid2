@@ -3,11 +3,10 @@ package sqlite
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func TestConfluenceConnectionRoundTripDoesNotMarshalTokens(t *testing.T) {
@@ -19,16 +18,16 @@ func TestConfluenceConnectionRoundTripDoesNotMarshalTokens(t *testing.T) {
 	defer store.Close()
 
 	expiresAt := time.Date(2026, 7, 3, 3, 0, 0, 0, time.UTC)
-	err = store.UpsertConfluenceConnection(ctx, app.ConfluenceConnection{
+	err = store.UpsertConfluenceConnection(ctx, confluenceaccess.Connection{
 		ConnectionID:   "cnf_1",
 		DisplayName:    "Docs",
-		AuthType:       app.ConfluenceAuthTypeOAuth,
+		AuthType:       confluenceaccess.AuthOAuth,
 		AccountID:      "acct_1",
 		AccessToken:    "access-secret",
 		RefreshToken:   "refresh-secret",
 		TokenExpiresAt: expiresAt,
 		Scopes:         []string{"read:page:confluence"},
-		Sites: []app.ConfluenceSite{{
+		Sites: []confluenceaccess.Site{{
 			CloudID: "cloud_1",
 			Name:    "Docs",
 			URL:     "https://docs.atlassian.net",
@@ -67,10 +66,10 @@ func TestConfluenceConnectionListAndDelete(t *testing.T) {
 	defer store.Close()
 
 	for _, id := range []string{"cnf_1", "cnf_2"} {
-		if err := store.UpsertConfluenceConnection(ctx, app.ConfluenceConnection{
+		if err := store.UpsertConfluenceConnection(ctx, confluenceaccess.Connection{
 			ConnectionID: id,
 			DisplayName:  id,
-			AuthType:     app.ConfluenceAuthTypeAPIToken,
+			AuthType:     confluenceaccess.AuthAPIToken,
 			AccessToken:  "token",
 		}); err != nil {
 			t.Fatalf("upsert %s: %v", id, err)

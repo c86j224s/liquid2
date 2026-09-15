@@ -2,11 +2,10 @@ package reporting
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"strings"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 const (
@@ -24,7 +23,7 @@ type PartPlanCreatedEventRequest struct {
 
 // PartPlanResult는 part plan 제출 이벤트와 artifact를 함께 반환한다.
 type PartPlanResult struct {
-	Event             app.LedgerEvent
+	Event             ledger.Event
 	Brief             string
 	ProviderSessionID string
 	PartIndex         int
@@ -32,7 +31,7 @@ type PartPlanResult struct {
 
 // PartPlanStore는 part plan conditional append에 필요한 저장소 계약이다.
 type PartPlanStore interface {
-	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
+	AppendEventConditionally(context.Context, string, func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error)
 }
 
 // FinalizePartPlan는 part plan 제출을 검증하고 저장용 이벤트 요청으로 만든다.
@@ -40,10 +39,10 @@ func FinalizePartPlan(ctx context.Context, service PartPlanStore, req PartPlanCr
 	req.Brief = strings.TrimSpace(req.Brief)
 	base := req.MarkdownReportStageEventBase
 	if service == nil || strings.TrimSpace(base.MissionID) == "" || strings.TrimSpace(base.PendingEventID) == "" || strings.TrimSpace(base.PlanEventID) == "" || req.PartIndex < 1 || req.Brief == "" {
-		return PartPlanResult{}, fmt.Errorf("%w: Part plan is incomplete", app.ErrInvalidInput)
+		return PartPlanResult{}, fmt.Errorf("%w: Part plan is incomplete", producterror.ErrInvalidInput)
 	}
 	if len([]byte(req.Brief)) > maxPartPlanBriefBytes {
-		return PartPlanResult{}, fmt.Errorf("%w: Part plan brief is too large", app.ErrInvalidInput)
+		return PartPlanResult{}, fmt.Errorf("%w: Part plan brief is too large", producterror.ErrInvalidInput)
 	}
 	if strings.TrimSpace(base.ReportPlanSessionID) == "" ||
 		strings.TrimSpace(base.AgentSessionID) == "" ||
@@ -55,47 +54,47 @@ func FinalizePartPlan(ctx context.Context, service PartPlanStore, req PartPlanCr
 		strings.TrimSpace(base.ForkSourceAgentSessionID) != strings.TrimSpace(base.ReportPlanSessionID) ||
 		base.Producer.Type != "agent_session" ||
 		strings.TrimSpace(base.Producer.ID) != strings.TrimSpace(base.AgentSessionID) {
-		return PartPlanResult{}, fmt.Errorf("%w: Part plan provider session is invalid", app.ErrInvalidInput)
+		return PartPlanResult{}, fmt.Errorf("%w: Part plan provider session is invalid", producterror.ErrInvalidInput)
 	}
 
 	storedExpectation := StoredPartPlanExpectation{}
-	event, _, err := service.AppendEventConditionally(ctx, base.MissionID, func(events []app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error) {
+	event, _, err := service.AppendEventConditionally(ctx, base.MissionID, func(events []ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error) {
 		parent, ok, err := partPlanParent(events, base.PendingEventID, base.PlanEventID)
 		if err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		if !ok {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: Part plan parent is missing", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: Part plan parent is missing", producterror.ErrConflict)
 		}
 		if !parent.PartPlanningEnabled {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: Part planning is not enabled for this report plan", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: Part planning is not enabled for this report plan", producterror.ErrConflict)
 		}
 		if req.PartIndex > parent.PartCount {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: Part plan index is outside the report plan", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: Part plan index is outside the report plan", producterror.ErrConflict)
 		}
 		if parent.ReportPlanSessionID != strings.TrimSpace(base.ReportPlanSessionID) {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: Part plan report session does not match its parent", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: Part plan report session does not match its parent", producterror.ErrConflict)
 		}
 		expected, err := partPlanExpectationForParent(req, parent)
 		if err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
 		storedExpectation = expected
 		matches := matchingPartPlanEvents(events, base.PendingEventID, base.PlanEventID, req.PartIndex)
 		if len(matches) > 1 {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, fmt.Errorf("%w: multiple Part plans match one Part", app.ErrConflict)
+			return ledger.AppendRequest{}, ledger.Event{}, false, fmt.Errorf("%w: multiple Part plans match one Part", producterror.ErrConflict)
 		}
 		if len(matches) == 1 {
 			if err := validatePartPlanCreatedEvent(matches[0], expected); err != nil {
-				return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+				return ledger.AppendRequest{}, ledger.Event{}, false, err
 			}
-			return app.AppendEventRequest{}, matches[0], false, nil
+			return ledger.AppendRequest{}, matches[0], false, nil
 		}
 		request := BuildPartPlanCreatedAppendRequest(req)
 		if err := validatePartPlanCreatedRequest(request, expected); err != nil {
-			return app.AppendEventRequest{}, app.LedgerEvent{}, false, err
+			return ledger.AppendRequest{}, ledger.Event{}, false, err
 		}
-		return request, app.LedgerEvent{}, true, nil
+		return request, ledger.Event{}, true, nil
 	})
 	if err != nil {
 		return PartPlanResult{}, err
@@ -105,13 +104,13 @@ func FinalizePartPlan(ctx context.Context, service PartPlanStore, req PartPlanCr
 		return PartPlanResult{}, err
 	}
 	if !ok {
-		return PartPlanResult{}, fmt.Errorf("%w: finalized Part plan is invalid", app.ErrConflict)
+		return PartPlanResult{}, fmt.Errorf("%w: finalized Part plan is invalid", producterror.ErrConflict)
 	}
 	return result, nil
 }
 
 // BuildPartPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildPartPlanCreatedAppendRequest(req PartPlanCreatedEventRequest) app.AppendEventRequest {
+func BuildPartPlanCreatedAppendRequest(req PartPlanCreatedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
 	delete(payload, "artifact_id")
@@ -124,7 +123,7 @@ func BuildPartPlanCreatedAppendRequest(req PartPlanCreatedEventRequest) app.Appe
 	payload["duration_ms"] = base.DurationMS
 	payload["text"] = "장문 리포트 Part의 읽기 흐름을 계획했습니다."
 	addReportStageAgentUsage(payload, base)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(base.EventID),
 		MissionID:        strings.TrimSpace(base.MissionID),
 		EventType:        PartPlanCreatedEventType,
@@ -151,122 +150,4 @@ type PartPlanParentState struct {
 	GenerationGuidanceSHA256     string
 	SessionChainKind             string
 	ReportPlanSessionID          string
-}
-
-func partPlanExpectationForParent(req PartPlanCreatedEventRequest, parent PartPlanParentState) (StoredPartPlanExpectation, error) {
-	expected := normalizeStoredPartPlanExpectation(StoredPartPlanExpectation{
-		MissionID:                    strings.TrimSpace(req.MissionID),
-		PendingEventID:               strings.TrimSpace(req.PendingEventID),
-		PlanEventID:                  strings.TrimSpace(req.PlanEventID),
-		PartIndex:                    req.PartIndex,
-		PartCount:                    parent.PartCount,
-		AgentExecutor:                parent.AgentExecutor,
-		AgentModel:                   parent.AgentModel,
-		AgentReasoningEffort:         parent.AgentReasoningEffort,
-		AgentSelectionSource:         parent.AgentSelectionSource,
-		ReportMode:                   parent.ReportMode,
-		ReportSessionPolicy:          parent.ReportSessionPolicy,
-		ReportSessionPolicySelection: parent.ReportSessionPolicySelection,
-		GenerationGuidanceProfile:    parent.GenerationGuidanceProfile,
-		GenerationGuidanceSHA256:     parent.GenerationGuidanceSHA256,
-		SessionChainKind:             parent.SessionChainKind,
-		ReportPlanSessionID:          parent.ReportPlanSessionID,
-	})
-	request := partPlanExpectationForRequest(req, parent.PartCount)
-	if request.AgentExecutor != expected.AgentExecutor ||
-		request.AgentModel != expected.AgentModel ||
-		request.AgentReasoningEffort != expected.AgentReasoningEffort ||
-		request.AgentSelectionSource != expected.AgentSelectionSource ||
-		request.ReportMode != expected.ReportMode ||
-		request.ReportSessionPolicy != expected.ReportSessionPolicy ||
-		request.ReportSessionPolicySelection != expected.ReportSessionPolicySelection ||
-		request.GenerationGuidanceProfile != expected.GenerationGuidanceProfile ||
-		request.GenerationGuidanceSHA256 != expected.GenerationGuidanceSHA256 ||
-		request.SessionChainKind != expected.SessionChainKind ||
-		request.ReportPlanSessionID != expected.ReportPlanSessionID {
-		return StoredPartPlanExpectation{}, fmt.Errorf("%w: Part plan request provenance differs from its parent", app.ErrConflict)
-	}
-	return expected, nil
-}
-
-func partPlanParent(events []app.LedgerEvent, pendingEventID string, planEventID string) (PartPlanParentState, bool, error) {
-	for _, event := range events {
-		parent, ok, err := DecodePartPlanParent(event, pendingEventID, planEventID)
-		if err != nil || ok {
-			return parent, ok, err
-		}
-	}
-	return PartPlanParentState{}, false, nil
-}
-
-// DecodePartPlanParent는 part plan parent payload를 후속 stage 입력으로 복원한다.
-func DecodePartPlanParent(event app.LedgerEvent, pendingEventID string, planEventID string) (PartPlanParentState, bool, error) {
-	if event.EventID != strings.TrimSpace(planEventID) || event.EventType != "report.plan.created" {
-		return PartPlanParentState{}, false, nil
-	}
-	var payload struct {
-		Kind                         string `json:"kind"`
-		PendingEventID               string `json:"pending_event_id"`
-		PartEditEnabled              bool   `json:"part_edit_enabled"`
-		PartPlanningEnabled          bool   `json:"part_planning_enabled"`
-		AgentExecutor                string `json:"agent_executor"`
-		AgentModel                   string `json:"agent_model"`
-		AgentReasoningEffort         string `json:"agent_reasoning_effort"`
-		AgentSelectionSource         string `json:"agent_selection_source"`
-		ReportMode                   string `json:"report_mode"`
-		ReportSessionPolicy          string `json:"report_session_policy"`
-		ReportSessionPolicySelection string `json:"report_session_policy_selection"`
-		GenerationGuidanceProfile    string `json:"generation_guidance_profile"`
-		GenerationGuidanceSHA256     string `json:"generation_guidance_sha256"`
-		SessionChainKind             string `json:"session_chain_kind"`
-		ReportPlanSessionID          string `json:"report_plan_session_id"`
-		Plan                         struct {
-			Parts []json.RawMessage `json:"parts"`
-		} `json:"plan"`
-	}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent payload is invalid", app.ErrConflict)
-	}
-	if strings.TrimSpace(payload.PendingEventID) != strings.TrimSpace(pendingEventID) {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent pending id does not match", app.ErrConflict)
-	}
-	if strings.TrimSpace(payload.Kind) != reportPlanKind(ModeLongForm) {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent kind is invalid", app.ErrConflict)
-	}
-	if strings.TrimSpace(payload.ReportPlanSessionID) == "" {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent report session is missing", app.ErrConflict)
-	}
-	if len(payload.Plan.Parts) == 0 {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent has no Parts", app.ErrConflict)
-	}
-	if payload.PartPlanningEnabled && !payload.PartEditEnabled {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part planning requires Part edit on the parent plan", app.ErrConflict)
-	}
-	if payload.PartPlanningEnabled && strings.TrimSpace(payload.ReportMode) != ModeLongForm {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part planning requires long-form report mode", app.ErrConflict)
-	}
-	if payload.PartPlanningEnabled &&
-		(strings.TrimSpace(payload.AgentExecutor) == "" ||
-			strings.TrimSpace(payload.ReportSessionPolicy) == "") {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part plan parent provenance is incomplete", app.ErrConflict)
-	}
-	if payload.PartPlanningEnabled && strings.TrimSpace(payload.SessionChainKind) != "section_fanout_report" {
-		return PartPlanParentState{}, false, fmt.Errorf("%w: Part planning requires section_fanout lineage", app.ErrConflict)
-	}
-	return PartPlanParentState{
-		PartEditEnabled:              payload.PartEditEnabled,
-		PartPlanningEnabled:          payload.PartPlanningEnabled,
-		PartCount:                    len(payload.Plan.Parts),
-		AgentExecutor:                strings.TrimSpace(strings.ToLower(payload.AgentExecutor)),
-		AgentModel:                   strings.TrimSpace(payload.AgentModel),
-		AgentReasoningEffort:         strings.TrimSpace(payload.AgentReasoningEffort),
-		AgentSelectionSource:         strings.TrimSpace(payload.AgentSelectionSource),
-		ReportMode:                   strings.TrimSpace(payload.ReportMode),
-		ReportSessionPolicy:          strings.TrimSpace(payload.ReportSessionPolicy),
-		ReportSessionPolicySelection: strings.TrimSpace(payload.ReportSessionPolicySelection),
-		GenerationGuidanceProfile:    strings.TrimSpace(payload.GenerationGuidanceProfile),
-		GenerationGuidanceSHA256:     strings.TrimSpace(payload.GenerationGuidanceSHA256),
-		SessionChainKind:             strings.TrimSpace(payload.SessionChainKind),
-		ReportPlanSessionID:          strings.TrimSpace(payload.ReportPlanSessionID),
-	}, true, nil
 }

@@ -1,5 +1,7 @@
 package finalwrite
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"fmt"
 
@@ -36,7 +38,7 @@ Final-writer responsibilities:
 - Submit unchanged only after a full read finds no justified final-writing edit.
 
 Do not call research or source tools. Do not expose IDs in the manuscript.%s`,
-		input.Title, input.MissionID, finaledit.AgentReportAnyJSON(map[string]any{"writing_contract": input.Plan.WritingContract}), finaledit.AgentReportAnyJSON(binding),
+		input.Title, input.MissionID, longformutil.AnyJSON(map[string]any{"writing_contract": input.Plan.WritingContract}), longformutil.AnyJSON(binding),
 		mcptools.ToolReportLongFormFinalWriteStart, draftID,
 		mcptools.ToolReportLongFormFinalWriteRead, mcptools.ToolReportLongFormFinalWritePatch,
 		mcptools.ToolReportLongFormFinalWriteSubmit, finaledit.StageSubmittedSentinel, finaledit.RetryNote(attempt))

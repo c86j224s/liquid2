@@ -67,11 +67,43 @@ func classifyViolation(edge importEdge) (string, bool) {
 	webImport := moduleImportPath + "/internal/web"
 	mcpImport := moduleImportPath + "/internal/mcp"
 	researchMCPImport := moduleImportPath + "/internal/mcp/research"
+	missionMCPImport := moduleImportPath + "/internal/mcp/mission"
+	workflowMCPImport := moduleImportPath + "/internal/mcp/workflow"
+	workflowStateImport := moduleImportPath + "/internal/workflowstate"
 	wireMCPImport := moduleImportPath + "/internal/mcp/wire"
+	researchCatalogImport := moduleImportPath + "/internal/researchcatalog"
+	researchRecordsImport := moduleImportPath + "/internal/researchrecords"
+	researchInspectionImport := moduleImportPath + "/internal/researchinspection"
 	internalImport := moduleImportPath + "/internal"
+	articleExperimentProductErrorImport := moduleImportPath + "/internal/producterror"
+	productErrorImport := moduleImportPath + "/internal/producterror"
+	confluenceSourceImport := moduleImportPath + "/internal/source/confluencesource"
+	reportrunAllowedImports := []string{
+		moduleImportPath + "/internal/agentusage",
+		moduleImportPath + "/internal/ledger",
+		moduleImportPath + "/internal/mission",
+		moduleImportPath + "/internal/reportusage",
+		moduleImportPath + "/internal/reportilcontract",
+	}
+	reportUsageAllowedImports := []string{
+		moduleImportPath + "/internal/agentusage",
+		moduleImportPath + "/internal/ledger",
+		productErrorImport,
+	}
+	researchCatalogAllowedImports := []string{
+		moduleImportPath + "/internal/artifact",
+		moduleImportPath + "/internal/ledger",
+		moduleImportPath + "/internal/source",
+		moduleImportPath + "/internal/mission",
+		moduleImportPath + "/internal/researchrecords",
+		productErrorImport,
+	}
 	researchMCPAllowedImports := []string{
 		appImport,
+		moduleImportPath + "/internal/source/confluencesource",
 		wireMCPImport,
+		researchInspectionImport,
+		researchCatalogImport,
 		moduleImportPath + "/internal/mcptools",
 		moduleImportPath + "/internal/researchproposal",
 	}
@@ -90,18 +122,79 @@ func classifyViolation(edge importEdge) (string, bool) {
 	}
 
 	switch {
+	case pathWithin(edge.file, "internal/reportilphase0") && (importMatches(edge.importPath, moduleImportPath+"/internal/reportilpdf") || importMatches(edge.importPath, moduleImportPath+"/internal/web") || importMatches(edge.importPath, moduleImportPath+"/internal/app") || importMatches(edge.importPath, moduleImportPath+"/internal/mcp") || strings.Contains(edge.importPath, "/chromedp")):
+		return "reportilphase0-boundary", true
+	case pathWithin(edge.file, "internal/reportilpdf") && (importMatches(edge.importPath, moduleImportPath+"/internal/app") || importMatches(edge.importPath, moduleImportPath+"/internal/web") || importMatches(edge.importPath, moduleImportPath+"/internal/reporting")):
+		return "reportilpdf-boundary", true
+	case pathWithin(edge.file, "internal/articleexperiment") && importMatches(edge.importPath, internalImport) && edge.importPath != articleExperimentProductErrorImport:
+		return "article-experiment-boundary", true
+	case pathWithin(edge.file, "internal/reportusage") && importMatches(edge.importPath, internalImport) && !containsExact(reportUsageAllowedImports, edge.importPath):
+		return "reportusage-boundary", true
+	case pathWithin(edge.file, "internal/reportrun") && importMatches(edge.importPath, internalImport) && !containsExact(reportrunAllowedImports, edge.importPath):
+		return "reportrun-boundary", true
+	case pathWithin(edge.file, "internal/researchrecords") &&
+		importMatches(edge.importPath, internalImport) &&
+		!containsExact([]string{
+			moduleImportPath + "/internal/ledger",
+			moduleImportPath + "/internal/producterror",
+			moduleImportPath + "/internal/source",
+		}, edge.importPath):
+		return "research-records-boundary", true
 	case importMatchesAny(edge.importPath, sqliteChildRepoImports) && filepath.Dir(edge.file) != "internal/storage/sqlite":
 		return "sqlite-child-repo-boundary", true
 	case importMatches(edge.importPath, researchMCPImport) && filepath.Dir(edge.file) != "internal/mcp":
 		return "research-mcp-inbound", true
+	case importMatches(edge.importPath, missionMCPImport) && filepath.Dir(edge.file) != "internal/mcp":
+		return "mission-mcp-inbound", true
+	case importMatches(edge.importPath, workflowMCPImport) && filepath.Dir(edge.file) != "internal/mcp":
+		return "workflow-mcp-inbound", true
+	case pathWithin(edge.file, "internal/mcp/workflow") && importMatches(edge.importPath, internalImport) && !containsExact([]string{
+		wireMCPImport, moduleImportPath + "/internal/mcptools", productErrorImport, workflowStateImport,
+	}, edge.importPath):
+		return "workflow-mcp-boundary", true
+	case pathWithin(edge.file, "internal/mcp/mission") && importMatches(edge.importPath, internalImport) && !containsExact([]string{
+		wireMCPImport, moduleImportPath + "/internal/ledger", moduleImportPath + "/internal/mission",
+		moduleImportPath + "/internal/source", researchRecordsImport, productErrorImport,
+		moduleImportPath + "/internal/mcptools",
+	}, edge.importPath):
+		return "mission-mcp-boundary", true
+	case pathWithin(edge.file, "internal/mcp/research") && strings.HasPrefix(edge.importPath, researchCatalogImport+"/"):
+		return "research-mcp-boundary", true
+	case pathWithin(edge.file, "internal/mcp/research") && strings.HasPrefix(edge.importPath, researchRecordsImport+"/"):
+		return "research-mcp-boundary", true
+	case pathWithin(edge.file, "internal/mcp/research") && strings.HasPrefix(edge.importPath, researchInspectionImport+"/"):
+		return "research-mcp-boundary", true
 	case pathWithin(edge.file, "internal/mcp/research") &&
 		importMatches(edge.importPath, internalImport) &&
+		edge.importPath != moduleImportPath+"/internal/ledger" &&
+		edge.importPath != researchRecordsImport &&
 		!importMatchesAny(edge.importPath, researchMCPAllowedImports):
 		return "research-mcp-boundary", true
+	case pathWithin(edge.file, "internal/mcp/wire") && strings.HasPrefix(edge.importPath, researchCatalogImport+"/"):
+		return "mcp-wire-boundary", true
 	case pathWithin(edge.file, "internal/mcp/wire") &&
 		importMatches(edge.importPath, internalImport) &&
-		edge.importPath != appImport:
+		edge.importPath != appImport && edge.importPath != researchCatalogImport &&
+		edge.importPath != moduleImportPath+"/internal/ledger":
 		return "mcp-wire-boundary", true
+	case pathWithin(edge.file, "internal/researchcatalog") &&
+		importMatches(edge.importPath, internalImport) && !containsExact(researchCatalogAllowedImports, edge.importPath):
+		return "research-catalog-boundary", true
+	case pathWithin(edge.file, "internal/researchproposal") &&
+		importMatches(edge.importPath, internalImport) && !containsExact([]string{
+		moduleImportPath + "/internal/ledger",
+		moduleImportPath + "/internal/producterror",
+		researchCatalogImport,
+		researchRecordsImport,
+	}, edge.importPath):
+		return "research-proposal-boundary", true
+	case pathWithin(edge.file, "internal/source/confluencesource") && importMatches(edge.importPath, internalImport):
+		if edge.importPath == productErrorImport || edge.importPath == moduleImportPath+"/internal/source" {
+			return "", false
+		}
+		return "confluence-source-boundary", true
+	case pathWithin(edge.file, "internal/source") && importMatches(edge.importPath, confluenceSourceImport):
+		return "source-boundary", true
 	case importMatches(edge.importPath, appImport) && !pathWithin(edge.file, "internal/app") &&
 		!pathWithin(edge.file, "internal/storage/sqlite") &&
 		!pathWithinAny(edge.file, []string{"internal/mcp/research", "internal/mcp/wire"}) &&
@@ -129,6 +222,29 @@ func classifyViolation(edge importEdge) (string, bool) {
 		return "capability-to-adapter", true
 	default:
 		return "", false
+	}
+}
+
+func TestReportExecutionRecoveryLineageBoundary(t *testing.T) {
+	for _, importPath := range []string{
+		moduleImportPath + "/internal/ledger",
+		moduleImportPath + "/internal/producterror",
+	} {
+		if rule, ok := classifyViolation(importEdge{file: "internal/reportexecution/recovery_lineage.go", importPath: importPath}); ok {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want allowed", importPath, rule, ok)
+		}
+	}
+	for _, tc := range []struct {
+		importPath string
+		wantRule   string
+	}{
+		{importPath: moduleImportPath + "/internal/web", wantRule: "capability-to-transport"},
+		{importPath: moduleImportPath + "/internal/app", wantRule: "app-hub"},
+	} {
+		rule, ok := classifyViolation(importEdge{file: "internal/reportexecution/recovery_lineage.go", importPath: tc.importPath})
+		if !ok || rule != tc.wantRule {
+			t.Fatalf("classifyViolation(%q) = %q, %v; want %s", tc.importPath, rule, ok, tc.wantRule)
+		}
 	}
 }
 
@@ -165,6 +281,19 @@ func importMatches(importPath, prefix string) bool {
 func importMatchesAny(importPath string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		if importMatches(importPath, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func isStandardLibraryImport(importPath string) bool {
+	return !strings.Contains(importPath, ".")
+}
+
+func containsExact(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
 			return true
 		}
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
@@ -141,7 +141,7 @@ func TestPartAssemblyBindingReachesCodexAndClaudeMCPConfigs(t *testing.T) {
 	binding := reporting.PartAssemblyBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_part",
 		ProviderSessionID: "provider-1", PartIndex: 1, SectionCount: 3, AgentExecutor: "codex",
-		Producer: app.Producer{Type: "agent_session", ID: "ses_part"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "ses_part"},
 	}
 	req := AgentRequest{
 		MissionID: binding.MissionID, ToolSessionID: binding.ToolSessionID, AgentExecutor: "codex",

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportil"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 func TestReportILAuthorDocumentWorkspaceRequiresRereadAfterEdit(t *testing.T) {
@@ -46,7 +48,7 @@ func TestReportILAuthorDocumentWorkspaceRequiresRereadAfterEdit(t *testing.T) {
 		t.Fatalf("finalize before read = %#v", beforeRead)
 	}
 	read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})})
 	if read.Error != nil || read.Content.(reportILDocumentReadOutput).Truncated {
 		t.Fatalf("full read = %#v", read)
@@ -62,7 +64,7 @@ func TestReportILAuthorDocumentWorkspaceRequiresRereadAfterEdit(t *testing.T) {
 		t.Fatalf("finalize after edit without reread = %#v", staleRead)
 	}
 	if reread := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); reread.Error != nil {
 		t.Fatalf("reread = %#v", reread)
 	}
@@ -127,7 +129,7 @@ func TestReportILAuthorDocumentWorkspaceAllowsBoundedTextDeletion(t *testing.T) 
 	if deleted.Error != nil || deleted.Content.(reportILDocumentStateOutput).Replacements != 1 {
 		t.Fatalf("delete = %#v", deleted)
 	}
-	workspace := server.reportILDocumentWorkspaces[workspaceID]
+	workspace := server.reportILState.Documents.Workspaces[workspaceID]
 	if got := workspace.Document.Sections[0].Blocks[0].Prose; got != "Alpha fact gives the direct answer." {
 		t.Fatalf("deleted prose = %q", got)
 	}
@@ -153,10 +155,10 @@ func TestReportILPublicationEditTextTargetsOneProseBlockAndLeavesEquationImmutab
 		},
 	}
 	content := append(mustArgs(t, document), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_reader_structured", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -174,7 +176,7 @@ func TestReportILPublicationEditTextTargetsOneProseBlockAndLeavesEquationImmutab
 	}
 	workspaceID := opened.Content.(reportILDocumentStateOutput).WorkspaceID
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("read reader document: %#v", read)
 	}
@@ -186,7 +188,7 @@ func TestReportILPublicationEditTextTargetsOneProseBlockAndLeavesEquationImmutab
 	if edited.Error != nil {
 		t.Fatalf("block-scoped publication edit: %#v", edited)
 	}
-	workspace := server.reportILDocumentWorkspaces[workspaceID]
+	workspace := server.reportILState.Documents.Workspaces[workspaceID]
 	if got := workspace.Document.Parts[0].Sections[0].Blocks[0].Prose; got != "Repeated token stays here." {
 		t.Fatalf("edited prose = %q", got)
 	}
@@ -228,7 +230,7 @@ func TestReportILPublicationEditTextScopesRepeatedTextToNamedBlock(t *testing.T)
 			{SectionKey: "section_002", Title: "Judgment", Blocks: []reportilcontract.AuthorBlock{{BlockKey: "section_002.block_001", Kind: "prose", Prose: "Repeated transition."}}},
 		},
 	}
-	if !editUniqueReportILDocumentReaderText(&document, "block_text", "section_002.block_001", "Repeated transition.", "Sharper judgment.") {
+	if !reportil.EditUniqueReportILDocumentReaderText(&document, "block_text", "section_002.block_001", "Repeated transition.", "Sharper judgment.") {
 		t.Fatal("block-scoped edit rejected a unique target-local occurrence")
 	}
 	if document.Sections[0].Blocks[0].Prose != "Repeated transition." || document.Sections[1].Blocks[0].Prose != "Sharper judgment." {
@@ -302,7 +304,7 @@ func TestReportILAuthorDocumentWorkspaceRejectsMutationWhileFinalizing(t *testin
 		}
 	}
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}
@@ -380,7 +382,7 @@ func TestReportILAuthorDocumentWorkspaceResetsFinalizingAfterPersistenceFailure(
 		}
 	}
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}
@@ -422,11 +424,11 @@ func bindReportILEditorialMemory(
 	}
 	memoryArtifact := reportILEditorialMemoryArtifactFixture(memory)
 	content := append(mustArgs(t, memoryArtifact), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_editorial_memory", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.EditorialMemoryMediaType,
 		Filename:  "report-il-editorial-memory.json",
-		Producer:  app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer:  ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -462,7 +464,7 @@ func readBoundReportILEditorialMemory(t *testing.T, server *Server) {
 	result := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILEditorialMemoryRead,
 		Arguments: mustArgs(t, map[string]any{
-			"offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+			"offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if result.Error != nil || result.Content.(reportILEditorialMemoryReadOutput).Truncated {
@@ -490,15 +492,15 @@ type blockingArtifactMCPService struct {
 	createErr     error
 }
 
-func (service *blockingArtifactMCPService) CreateRawArtifact(ctx context.Context, request app.CreateRawArtifactRequest) (app.RawArtifact, error) {
+func (service *blockingArtifactMCPService) CreateRawArtifact(ctx context.Context, request artifactcontract.CreateRequest) (artifactcontract.Raw, error) {
 	close(service.createStarted)
 	select {
 	case <-service.releaseCreate:
 	case <-ctx.Done():
-		return app.RawArtifact{}, ctx.Err()
+		return artifactcontract.Raw{}, ctx.Err()
 	}
 	if service.createErr != nil {
-		return app.RawArtifact{}, service.createErr
+		return artifactcontract.Raw{}, service.createErr
 	}
 	return service.fakeMCPService.CreateRawArtifact(ctx, request)
 }
@@ -528,10 +530,10 @@ func TestReportILContinuityWorkspaceMakesMinimalCausativeSentenceCorrection(t *t
 		}},
 	}
 	memoryContent := append(mustArgs(t, memoryArtifact), '\n')
-	storedMemory, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	storedMemory, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_editorial_memory", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.EditorialMemoryMediaType, Filename: "report-il-editorial-memory.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: memoryContent,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: memoryContent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -553,10 +555,10 @@ func TestReportILContinuityWorkspaceMakesMinimalCausativeSentenceCorrection(t *t
 		},
 	}
 	documentContent := append(mustArgs(t, document), '\n')
-	storedDocument, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	storedDocument, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_publication_document", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: documentContent,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: documentContent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -576,7 +578,7 @@ func TestReportILContinuityWorkspaceMakesMinimalCausativeSentenceCorrection(t *t
 	}
 	workspaceID := opened.Content.(reportILDocumentStateOutput).WorkspaceID
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}
@@ -589,7 +591,7 @@ func TestReportILContinuityWorkspaceMakesMinimalCausativeSentenceCorrection(t *t
 		t.Fatalf("minimal causative correction = %#v", revised)
 	}
 	if reread := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); reread.Error != nil {
 		t.Fatalf("document reread = %#v", reread)
 	}
@@ -620,7 +622,7 @@ func TestReportILPublicationWorkspaceRevisesBlockTextAndSourceBindings(t *testin
 	binding.Catalog.Sources = append(binding.Catalog.Sources, reportilcontract.SourceCatalogEntry{
 		SourceKey: "source_002", SnapshotID: "src_hyogo",
 		SnapshotReceipt: reportilcontract.SourceSnapshotReceipt("src_hyogo", secondHash),
-		ContentHash:     secondHash, RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly,
+		ContentHash:     secondHash, RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 		Artifacts: []reportilcontract.SourceCatalogArtifact{{
 			ArtifactID: "art_hyogo", SHA256: secondHash, ByteSize: int64(len(secondContent)), MediaType: "text/plain",
 		}},
@@ -631,13 +633,13 @@ func TestReportILPublicationWorkspaceRevisesBlockTextAndSourceBindings(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.sources = append(service.sources, app.SourceSnapshot{
+	service.sources = append(service.sources, sourcecontract.Snapshot{
 		SnapshotID: "src_hyogo", MissionID: binding.Catalog.MissionID, ArtifactIDs: []string{"art_hyogo"},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: secondHash},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
-		State:       app.SourceState{State: app.SourceStateActive},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: secondHash},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
+		State:       sourcecontract.State{State: sourcecontract.StateActive},
 	})
-	service.artifacts["art_hyogo"] = app.RawArtifact{
+	service.artifacts["art_hyogo"] = artifactcontract.Raw{
 		ArtifactID: "art_hyogo", MissionID: binding.Catalog.MissionID, MediaType: "text/plain",
 		ByteSize: int64(len(secondContent)), SHA256: secondHash, Content: secondContent,
 	}
@@ -661,10 +663,10 @@ func TestReportILPublicationWorkspaceRevisesBlockTextAndSourceBindings(t *testin
 		},
 	}
 	content := append(mustArgs(t, document), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_author_chronology", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -682,7 +684,7 @@ func TestReportILPublicationWorkspaceRevisesBlockTextAndSourceBindings(t *testin
 	}
 	workspaceID := opened.Content.(reportILDocumentStateOutput).WorkspaceID
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}
@@ -701,7 +703,7 @@ func TestReportILPublicationWorkspaceRevisesBlockTextAndSourceBindings(t *testin
 		t.Fatalf("finalize without reread = %#v", stale)
 	}
 	if reread := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": workspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); reread.Error != nil {
 		t.Fatalf("reread = %#v", reread)
 	}
@@ -746,10 +748,10 @@ func TestReportILPublicationWorkspaceRejectsTamperedBoundArtifactBytes(t *testin
 		},
 	}
 	content := append(mustArgs(t, document), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_author_tampered", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -783,10 +785,10 @@ func TestReportILContinuityWorkspaceCanFinalizeUnchangedByReusingBaseArtifact(t 
 		},
 	}
 	content := append(mustArgs(t, document), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_continuity_base", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -804,7 +806,7 @@ func TestReportILContinuityWorkspaceCanFinalizeUnchangedByReusingBaseArtifact(t 
 	}
 	state := opened.Content.(reportILDocumentStateOutput)
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": state.WorkspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": state.WorkspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}
@@ -831,10 +833,10 @@ func TestReportILPublicationWorkspaceOpensBoundArtifactAndCanFinalizeUnchanged(t
 		},
 	}
 	content := append(mustArgs(t, document), '\n')
-	artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_author_base", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.AuthorDocumentMediaType, Filename: "report-il-author-document.json",
-		Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+		Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -855,7 +857,7 @@ func TestReportILPublicationWorkspaceOpensBoundArtifactAndCanFinalizeUnchanged(t
 		t.Fatalf("open state = %#v", state)
 	}
 	if read := server.Call(context.Background(), ToolCall{Name: ToolReportILDocumentRead, Arguments: mustArgs(t, map[string]any{
-		"workspace_id": state.WorkspaceID, "offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+		"workspace_id": state.WorkspaceID, "offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 	})}); read.Error != nil {
 		t.Fatalf("document read = %#v", read)
 	}

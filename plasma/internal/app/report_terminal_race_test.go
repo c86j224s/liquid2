@@ -1,14 +1,19 @@
 package app_test
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -23,25 +28,25 @@ func TestAppendReportTerminalIfOpenClosesPendingOnceConcurrently(t *testing.T) {
 
 	svc := app.NewService(store)
 	const missionID = "mis_terminal_race"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "terminal race"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "terminal race"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{{
 		EventID:   "evt_pending",
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload:   jsonPayload(map[string]any{"report_mode": "long_form"}),
 	}}); err != nil {
 		t.Fatal(err)
 	}
 
-	terminal := func(id, kind string) []app.AppendEventRequest {
-		return []app.AppendEventRequest{{
+	terminal := func(id, kind string) []ledger.AppendRequest {
+		return []ledger.AppendRequest{{
 			EventID:   id,
 			MissionID: missionID,
 			EventType: "report.draft.failed",
-			Producer:  app.Producer{Type: "agent", ID: kind},
+			Producer:  ledger.Producer{Type: "agent", ID: kind},
 			Payload:   jsonPayload(map[string]any{"kind": kind, "pending_event_id": "evt_pending"}),
 		}}
 	}
@@ -97,12 +102,12 @@ func TestCreateMarkdownReportArtifactIfOpenCommitsOneArtifactAndTerminalConcurre
 		pendingID  = "evt_unverified_artifact_race_pending"
 		artifactID = "art_unverified_race_fixture"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "unverified artifact race"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "unverified artifact race"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload:  jsonPayload(map[string]any{"pipeline_family": "report_unverified"}),
 	}); err != nil {
 		t.Fatal(err)
@@ -122,17 +127,17 @@ func TestCreateMarkdownReportArtifactIfOpenCommitsOneArtifactAndTerminalConcurre
 				ctx,
 				missionID,
 				pendingID,
-				app.CreateRawArtifactRequest{
+				artifactcontract.CreateRequest{
 					ArtifactID: artifactID, MissionID: missionID,
 					MediaType: "text/markdown; charset=utf-8", Filename: "report.md",
-					Producer: app.Producer{Type: "agent_session", ID: "ses_unverified"},
+					Producer: ledger.Producer{Type: "agent_session", ID: "ses_unverified"},
 					Content:  []byte("# exact provider output\n"),
 				},
-				func(artifact app.RawArtifact) app.AppendEventRequest {
-					return app.AppendEventRequest{
+				func(artifact artifactcontract.Raw) ledger.AppendRequest {
+					return ledger.AppendRequest{
 						EventID:   "evt_unverified_artifact_race_terminal_" + string(rune('a'+index)),
 						MissionID: missionID, EventType: "report.artifact.created",
-						Producer: app.Producer{Type: "agent_session", ID: "ses_unverified"},
+						Producer: ledger.Producer{Type: "agent_session", ID: "ses_unverified"},
 						Payload: jsonPayload(map[string]any{
 							"kind": "markdown_report_artifact", "pending_event_id": pendingID,
 							"pipeline_family": "report_unverified", "artifact_id": artifact.ArtifactID,
@@ -183,27 +188,27 @@ func TestAppendReportTerminalIfOpenRejectsWrongPendingTypeAndCorrelation(t *test
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_terminal_validation"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "terminal validation"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "terminal validation"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent", ID: "codex"},
+		Producer:   ledger.Producer{Type: "agent", ID: "codex"},
 		Content:    []byte("report"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_design_pending", MissionID: missionID, EventType: "report.design.pending", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"source_artifact_id": "art_1"})}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_design_pending", MissionID: missionID, EventType: "report.design.pending", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"source_artifact_id": "art_1"})}); err != nil {
 		t.Fatal(err)
 	}
-	for _, req := range []app.AppendEventRequest{
-		{EventID: "evt_wrong_type", MissionID: missionID, EventType: "report.patch.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_design_pending"})},
-		{EventID: "evt_wrong_correlation", MissionID: missionID, EventType: "report.design.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_other"})},
+	for _, req := range []ledger.AppendRequest{
+		{EventID: "evt_wrong_type", MissionID: missionID, EventType: "report.patch.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_design_pending"})},
+		{EventID: "evt_wrong_correlation", MissionID: missionID, EventType: "report.design.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_other"})},
 	} {
-		if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_design_pending", []app.AppendEventRequest{req}); err == nil {
+		if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_design_pending", []ledger.AppendRequest{req}); err == nil {
 			t.Fatalf("expected conditional terminal validation error for %s", req.EventID)
 		}
 	}
@@ -225,15 +230,15 @@ func TestAppendReportTerminalIfOpenRejectsILCompanionForClassicPending(t *testin
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_classic_il_companion"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "classic"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "classic"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form"})}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form"})}); err != nil {
 		t.Fatal(err)
 	}
-	stage := app.AppendEventRequest{EventID: "evt_stage", MissionID: missionID, EventType: "report.source_packet.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, CorrelationID: "evt_terminal", Payload: jsonPayload(map[string]any{"pending_event_id": "evt_pending", "stage_kind": "source_packet", "stage_id": "source_packet", "terminal_event_id": "evt_terminal"})}
-	terminal := app.AppendEventRequest{EventID: "evt_terminal", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_pending", "kind": "report_draft_failed", "failed_stage_kind": "source_packet", "failed_stage_id": "source_packet", "stage_failure_event_id": "evt_stage"})}
-	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []app.AppendEventRequest{stage, terminal}); err == nil {
+	stage := ledger.AppendRequest{EventID: "evt_stage", MissionID: missionID, EventType: "report.source_packet.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, CorrelationID: "evt_terminal", Payload: jsonPayload(map[string]any{"pending_event_id": "evt_pending", "stage_kind": "source_packet", "stage_id": "source_packet", "terminal_event_id": "evt_terminal"})}
+	terminal := ledger.AppendRequest{EventID: "evt_terminal", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_pending", "kind": "report_draft_failed", "failed_stage_kind": "source_packet", "failed_stage_id": "source_packet", "stage_failure_event_id": "evt_stage"})}
+	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []ledger.AppendRequest{stage, terminal}); err == nil {
 		t.Fatal("classic pending accepted experimental source companion")
 	}
 }
@@ -247,24 +252,24 @@ func TestAppendReportTerminalIfOpenRejectsExperimentalFamilyForClassicPending(t 
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_classic_il_terminal"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "classic IL terminal"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "classic IL terminal"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_classic_pending", MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "planned"}),
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "planned"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	terminal := app.AppendEventRequest{
+	terminal := ledger.AppendRequest{
 		EventID: "evt_il_family_terminal", MissionID: missionID, EventType: "report.artifact.created",
-		Producer: app.Producer{Type: "agent", ID: "codex"},
+		Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: jsonPayload(map[string]any{
 			"kind": "markdown_report_artifact", "pending_event_id": "evt_classic_pending",
 			"pipeline_family": "report_il_experimental", "artifact_id": "art_markdown",
 		}),
 	}
-	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_classic_pending", []app.AppendEventRequest{terminal}); err == nil || !strings.Contains(err.Error(), "family") {
+	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_classic_pending", []ledger.AppendRequest{terminal}); err == nil || !strings.Contains(err.Error(), "family") {
 		t.Fatalf("expected mismatched terminal family rejection, got %v", err)
 	}
 	events, err := svc.ListEvents(ctx, missionID)
@@ -285,25 +290,25 @@ func TestAppendReportTerminalIfOpenRejectsUnknownPendingFamilyAsClassic(t *testi
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_unknown_report_family"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "unknown family"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "unknown family"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_unknown_pending", MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload:  jsonPayload(map[string]any{"pipeline_family": "report_unknown"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	terminal := app.AppendEventRequest{
+	terminal := ledger.AppendRequest{
 		EventID: "evt_familyless_terminal", MissionID: missionID, EventType: "report.artifact.created",
-		Producer: app.Producer{Type: "agent", ID: "codex"},
+		Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: jsonPayload(map[string]any{
 			"kind": "markdown_report_artifact", "pending_event_id": "evt_unknown_pending",
 			"artifact_id": "art_unknown_family",
 		}),
 	}
-	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_unknown_pending", []app.AppendEventRequest{terminal}); err == nil || !strings.Contains(err.Error(), "unsupported") {
+	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_unknown_pending", []ledger.AppendRequest{terminal}); err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("expected unknown pending family rejection, got %v", err)
 	}
 	events, err := svc.ListEvents(ctx, missionID)
@@ -324,29 +329,29 @@ func TestAppendReportTerminalIfOpenRejectsExperimentalSuccessOutsideAtomicBundle
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_il_terminal_bypass"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "IL terminal bypass"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "IL terminal bypass"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_il_pending",
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   jsonPayload(map[string]any{"pipeline_family": "report_il_experimental"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	terminal := app.AppendEventRequest{
+	terminal := ledger.AppendRequest{
 		EventID:   "evt_il_terminal",
 		MissionID: missionID,
 		EventType: "report.artifact.created",
-		Producer:  app.Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: jsonPayload(map[string]any{
 			"kind": "markdown_report_artifact", "pending_event_id": "evt_il_pending",
 			"pipeline_family": "report_il_experimental", "artifact_id": "art_markdown",
 		}),
 	}
-	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_il_pending", []app.AppendEventRequest{terminal}); err == nil || !strings.Contains(err.Error(), "atomic bundle") {
+	if _, _, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_il_pending", []ledger.AppendRequest{terminal}); err == nil || !strings.Contains(err.Error(), "atomic bundle") {
 		t.Fatalf("expected non-atomic IL success rejection, got %v", err)
 	}
 	events, err := svc.ListEvents(ctx, missionID)
@@ -369,33 +374,33 @@ func TestAppendReportTerminalIfOpenAcceptsLongFormILCompanions(t *testing.T) {
 			defer store.Close()
 			svc := app.NewService(store)
 			const missionID = "mis_long_form_il_companion"
-			if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "long-form IL companion"}); err != nil {
+			if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "long-form IL companion"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{
+			if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{{
 				EventID: "evt_pending", MissionID: missionID, EventType: "report.draft.pending",
-				Producer: app.Producer{Type: "agent", ID: "codex"},
+				Producer: ledger.Producer{Type: "agent", ID: "codex"},
 				Payload:  jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"}),
 			}}); err != nil {
 				t.Fatal(err)
 			}
-			stage := app.AppendEventRequest{
+			stage := ledger.AppendRequest{
 				EventID: "evt_stage", MissionID: missionID, EventType: "report." + kind + ".failed",
-				Producer: app.Producer{Type: "agent", ID: "codex"}, CorrelationID: "evt_terminal",
+				Producer: ledger.Producer{Type: "agent", ID: "codex"}, CorrelationID: "evt_terminal",
 				Payload: jsonPayload(map[string]any{
 					"pending_event_id": "evt_pending", "stage_kind": kind, "stage_id": kind,
 					"terminal_event_id": "evt_terminal",
 				}),
 			}
-			terminal := app.AppendEventRequest{
+			terminal := ledger.AppendRequest{
 				EventID: "evt_terminal", MissionID: missionID, EventType: "report.draft.failed",
-				Producer: app.Producer{Type: "agent", ID: "codex"},
+				Producer: ledger.Producer{Type: "agent", ID: "codex"},
 				Payload: jsonPayload(map[string]any{
 					"pending_event_id": "evt_pending", "kind": "report_draft_failed",
 					"failed_stage_kind": kind, "failed_stage_id": kind, "stage_failure_event_id": "evt_stage",
 				}),
 			}
-			appended, ok, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []app.AppendEventRequest{stage, terminal})
+			appended, ok, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []ledger.AppendRequest{stage, terminal})
 			if err != nil || !ok || len(appended) != 2 {
 				t.Fatalf("long-form IL companion append = %#v, ok=%t err=%v", appended, ok, err)
 			}
@@ -421,41 +426,41 @@ func TestAppendReportTerminalIfOpenAcceptsRequirementsAndPartEditCompanions(t *t
 			defer store.Close()
 			svc := app.NewService(store)
 			const missionID = "mis_terminal_companion"
-			if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "terminal companion"}); err != nil {
+			if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "terminal companion"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{
+			if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{{
 				EventID:   "evt_pending",
 				MissionID: missionID,
 				EventType: "report.draft.pending",
-				Producer:  app.Producer{Type: "agent", ID: "codex"},
+				Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 				Payload:   jsonPayload(map[string]any{"report_mode": "long_form"}),
 			}}); err != nil {
 				t.Fatal(err)
 			}
 			stageEventType := "report." + tc.kind + ".failed"
-			stage := app.AppendEventRequest{
+			stage := ledger.AppendRequest{
 				EventID:       "evt_stage",
 				MissionID:     missionID,
 				EventType:     stageEventType,
-				Producer:      app.Producer{Type: "agent", ID: "codex"},
+				Producer:      ledger.Producer{Type: "agent", ID: "codex"},
 				CorrelationID: "evt_terminal",
 				Payload: jsonPayload(map[string]any{
 					"pending_event_id": "evt_pending", "stage_kind": tc.kind, "stage_id": tc.stageID,
 					"part_index": tc.partIndex, "terminal_event_id": "evt_terminal",
 				}),
 			}
-			terminal := app.AppendEventRequest{
+			terminal := ledger.AppendRequest{
 				EventID:   "evt_terminal",
 				MissionID: missionID,
 				EventType: "report.draft.failed",
-				Producer:  app.Producer{Type: "agent", ID: "codex"},
+				Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 				Payload: jsonPayload(map[string]any{
 					"pending_event_id": "evt_pending", "kind": "report_draft_failed",
 					"failed_stage_kind": tc.kind, "failed_stage_id": tc.stageID, "stage_failure_event_id": "evt_stage",
 				}),
 			}
-			appended, ok, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []app.AppendEventRequest{stage, terminal})
+			appended, ok, err := svc.AppendReportTerminalIfOpen(ctx, missionID, "evt_pending", []ledger.AppendRequest{stage, terminal})
 			if err != nil || !ok {
 				t.Fatalf("expected companion terminal append to succeed, ok=%t err=%v", ok, err)
 			}
@@ -480,16 +485,16 @@ func TestRequestReportRetryAllowsExperimentalLongFormRestart(t *testing.T) {
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_retry_il"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "IL retry"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "IL retry"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
-		{EventID: "evt_il_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
-		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_il_pending", "kind": "report_draft_failed"})},
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
+		{EventID: "evt_il_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
+		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_il_pending", "kind": "report_draft_failed"})},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	retry, err := svc.RequestReportRetry(ctx, app.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: "evt_il_pending", Strategy: "restart", RetryRequestID: "retry-il", Producer: app.Producer{Type: "user", ID: "test"}})
+	retry, err := svc.RequestReportRetry(ctx, reportexecution.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: "evt_il_pending", Strategy: "restart", RetryRequestID: "retry-il", Producer: ledger.Producer{Type: "user", ID: "test"}})
 	if err != nil || retry.EventID != "evt_il_retry" {
 		t.Fatalf("expected experimental restart, retry=%#v err=%v", retry, err)
 	}
@@ -515,19 +520,19 @@ func TestRequestReportRetryAllowsRecoverableLegacyExperimentalResume(t *testing.
 			},
 		}
 	}
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "IL legacy retry"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "IL legacy retry"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
-		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
-		{EventID: "evt_memory", MissionID: missionID, EventType: "mcp.tool.called", Producer: app.Producer{Type: "agent_session", ID: "ses_memory"}, Payload: jsonPayload(finalizePayload(reportilcontract.EditorialMemoryFinalizeTool, "il_editorial_memory", "art_memory", 1))},
-		{EventID: "evt_final_tool", MissionID: missionID, EventType: "mcp.tool.called", Producer: app.Producer{Type: "agent_session", ID: "ses_final"}, Payload: jsonPayload(finalizePayload(reportilcontract.LongFormDocumentFinalizeTool, "il_long_form_final", "art_final", 0))},
-		{EventID: "evt_final_done", MissionID: missionID, EventType: "report.il_long_form_final.completed", Producer: app.Producer{Type: "system", ID: "report-il"}, Payload: jsonPayload(map[string]any{"pending_event_id": pendingID})},
-		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": pendingID, "kind": "report_draft_failed", "failed_stage_kind": "il_reader"})},
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
+		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
+		{EventID: "evt_memory", MissionID: missionID, EventType: "mcp.tool.called", Producer: ledger.Producer{Type: "agent_session", ID: "ses_memory"}, Payload: jsonPayload(finalizePayload(reportilcontract.EditorialMemoryFinalizeTool, "il_editorial_memory", "art_memory", 1))},
+		{EventID: "evt_final_tool", MissionID: missionID, EventType: "mcp.tool.called", Producer: ledger.Producer{Type: "agent_session", ID: "ses_final"}, Payload: jsonPayload(finalizePayload(reportilcontract.LongFormDocumentFinalizeTool, "il_long_form_final", "art_final", 0))},
+		{EventID: "evt_final_done", MissionID: missionID, EventType: "report.il_long_form_final.completed", Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: jsonPayload(map[string]any{"pending_event_id": pendingID})},
+		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": pendingID, "kind": "report_draft_failed", "failed_stage_kind": "il_reader"})},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	retry, err := svc.RequestReportRetry(ctx, app.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: pendingID, Strategy: "resume_failed", RetryRequestID: "retry-il-legacy", Producer: app.Producer{Type: "user", ID: "test"}})
+	retry, err := svc.RequestReportRetry(ctx, reportexecution.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: pendingID, Strategy: "resume_failed", RetryRequestID: "retry-il-legacy", Producer: ledger.Producer{Type: "user", ID: "test"}})
 	if err != nil || retry.EventID != "evt_il_retry" {
 		t.Fatalf("expected recoverable legacy retry, retry=%#v err=%v", retry, err)
 	}
@@ -542,16 +547,16 @@ func TestRequestReportRetryRejectsExperimentalResumeWithoutCheckpoint(t *testing
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_retry_il_checkpoint"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "IL retry"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "IL retry"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
-		{EventID: "evt_il_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
-		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_il_pending", "kind": "report_draft_failed"})},
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
+		{EventID: "evt_il_pending", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: jsonPayload(map[string]any{"report_mode": "long_form", "pipeline_family": "report_il_experimental"})},
+		{EventID: "evt_il_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: jsonPayload(map[string]any{"pending_event_id": "evt_il_pending", "kind": "report_draft_failed"})},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, err = svc.RequestReportRetry(ctx, app.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: "evt_il_pending", Strategy: "resume_failed", RetryRequestID: "retry-il", Producer: app.Producer{Type: "user", ID: "test"}})
+	_, err = svc.RequestReportRetry(ctx, reportexecution.ReportRetryRequest{EventID: "evt_il_retry", MissionID: missionID, FailedPendingEventID: "evt_il_pending", Strategy: "resume_failed", RetryRequestID: "retry-il", Producer: ledger.Producer{Type: "user", ID: "test"}})
 	if err == nil || !strings.Contains(err.Error(), "checkpoint") {
 		t.Fatalf("expected missing checkpoint rejection, got %v", err)
 	}

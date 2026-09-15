@@ -113,7 +113,7 @@ func ValidateProductCheckpoint(checkpoint ProductCheckpoint, missionID string) e
 		return fmt.Errorf("report IL checkpoint envelope is invalid")
 	}
 	switch checkpoint.Stage {
-	case "il_long_form_parts", "il_long_form_final", "il_reader", "il_continuity":
+	case "il_source_selection", "il_long_form_parts", "il_long_form_final", "il_reader", "il_continuity":
 	default:
 		return fmt.Errorf("report IL checkpoint stage is invalid")
 	}
@@ -146,6 +146,21 @@ func ValidateProductCheckpoint(checkpoint ProductCheckpoint, missionID string) e
 		return fmt.Errorf("report IL checkpoint source selection counts are inconsistent")
 	}
 	memory := checkpoint.EditorialMemory
+	if checkpoint.Stage == "il_source_selection" {
+		if selection.AcceptedSources < 1 || len(selection.Dispositions) != selection.AcceptedSources || len(selection.DispositionSHA256) != 64 {
+			return fmt.Errorf("report IL source-selection checkpoint receipt is incomplete")
+		}
+		workspace := checkpoint.AuthorWorkspace
+		longForm := checkpoint.LongFormAuthoring
+		reader := checkpoint.ReaderFinalization
+		if checkpoint.ArtifactID != "" || memory.ArtifactID != "" || memory.SHA256 != "" || memory.ByteSize != 0 || memory.Revision != 0 || memory.Accounts != 0 ||
+			workspace.ArtifactID != "" || workspace.SHA256 != "" || workspace.ByteSize != 0 || workspace.Revision != 0 || workspace.Stage != "" ||
+			longForm.Plan.ArtifactID != "" || len(longForm.SectionArtifacts) != 0 || len(longForm.PartArtifacts) != 0 || len(longForm.Finalizations) != 0 || longForm.Final.ArtifactID != "" || longForm.Parts != 0 || longForm.Sections != 0 || longForm.SectionAuthors != 0 || longForm.PartEditors != 0 || longForm.FinalEdits != 0 ||
+			reader.ContinuityPatches != 0 || reader.PublicationPatches != 0 || reader.ProposedPatches != 0 || reader.AcceptedPatches != 0 || reader.RejectedPatches != 0 || reader.Applied {
+			return fmt.Errorf("report IL source-selection checkpoint lineage is invalid")
+		}
+		return nil
+	}
 	if !strings.HasPrefix(memory.ArtifactID, "art_") || len(memory.SHA256) != 64 ||
 		memory.ByteSize < 1 || memory.Revision < 1 || memory.Accounts < 1 {
 		return fmt.Errorf("report IL checkpoint editorial memory is invalid")

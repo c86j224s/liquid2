@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptrace"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
 )
 
 func (server *Server) recordToolCall(ctx context.Context, call ToolCall, result ToolResult, started time.Time) (string, error) {
@@ -38,9 +40,9 @@ func (server *Server) recordToolCall(ctx context.Context, call ToolCall, result 
 		return "", nil
 	}
 	finished := time.Now().UTC()
-	producer := app.Producer{Type: "mcp_server", ID: "plasma"}
+	producer := ledger.Producer{Type: "mcp_server", ID: "plasma"}
 	if binding.AgentSessionID != "" {
-		producer = app.Producer{Type: "agent_session", ID: binding.AgentSessionID}
+		producer = ledger.Producer{Type: "agent_session", ID: binding.AgentSessionID}
 	}
 	argumentSummary := summarizeToolArguments(call.Arguments)
 	resultSummary := summarizeToolResult(result)
@@ -292,12 +294,12 @@ func addReportILSourceQuoteIOMetrics(metrics map[string]any, result ToolResult) 
 	}
 	metrics["read_kind"] = "report_il_source_quote"
 	metrics["source_receipt"] = content.SourceReceipt
-	metrics["source_key"] = content.sourceKey
-	metrics["source_offset"] = content.offset
-	metrics["source_byte_size"] = content.byteSize
-	metrics["source_sha256"] = content.sha256
-	metrics["catalog_sha256"] = content.catalogSHA256
-	metrics["report_il_stage"] = content.stage
+	metrics["source_key"] = content.SourceKey
+	metrics["source_offset"] = content.Offset
+	metrics["source_byte_size"] = content.ByteSize
+	metrics["source_sha256"] = content.Sha256
+	metrics["catalog_sha256"] = content.CatalogSHA256
+	metrics["report_il_stage"] = content.Stage
 }
 
 func reportILDocumentTool(name string) bool {
@@ -513,7 +515,7 @@ func addResearchReadIOMetrics(metrics map[string]any, args json.RawMessage, resu
 		metrics["requested_max_bytes"] = input.MaxBytes
 		metrics["requested_limit"] = input.Limit
 	}
-	content, ok := result.Content.(app.ResearchIDEObjectRead)
+	content, ok := result.Content.(researchinspection.ObjectRead)
 	if !ok {
 		return
 	}
@@ -685,7 +687,7 @@ func idempotencyKey(call ToolCall) (string, string, error) {
 		return "", missionID, err
 	}
 	if key == "" {
-		return "", missionID, fmt.Errorf("%w: idempotency_key is required", app.ErrInvalidInput)
+		return "", missionID, fmt.Errorf("%w: idempotency_key is required", producterror.ErrInvalidInput)
 	}
 	return call.Name + "\x00" + missionID + "\x00" + sessionID + "\x00" + key, missionID, nil
 }
@@ -698,11 +700,11 @@ func canonicalArgumentsHash(args json.RawMessage) (string, error) {
 	decoder.UseNumber()
 	var value any
 	if err := decoder.Decode(&value); err != nil {
-		return "", fmt.Errorf("%w: decode idempotency arguments: %v", app.ErrInvalidInput, err)
+		return "", fmt.Errorf("%w: decode idempotency arguments: %v", producterror.ErrInvalidInput, err)
 	}
 	encoded, err := json.Marshal(value)
 	if err != nil {
-		return "", fmt.Errorf("%w: encode idempotency arguments: %v", app.ErrInvalidInput, err)
+		return "", fmt.Errorf("%w: encode idempotency arguments: %v", producterror.ErrInvalidInput, err)
 	}
 	sum := sha256.Sum256(encoded)
 	return fmt.Sprintf("%x", sum[:]), nil

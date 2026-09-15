@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 	"testing"
 	"time"
@@ -11,24 +12,24 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
-func appendReportTerminalFixture(svc *Service, ctx context.Context, pendingID string, req AppendEventRequest) error {
-	_, _, err := svc.AppendReportTerminalIfOpen(ctx, "mis_1", pendingID, []AppendEventRequest{req})
+func appendReportTerminalFixture(svc *Service, ctx context.Context, pendingID string, req ledger.AppendRequest) error {
+	_, _, err := svc.AppendReportTerminalIfOpen(ctx, "mis_1", pendingID, []ledger.AppendRequest{req})
 	return err
 }
 
 type workflowStore struct {
 	fakeStore
-	events []LedgerEvent
+	events []ledger.Event
 }
 
-func (s *workflowStore) AppendLedgerEvent(_ context.Context, event LedgerEvent) (LedgerEvent, error) {
+func (s *workflowStore) AppendLedgerEvent(_ context.Context, event ledger.Event) (ledger.Event, error) {
 	event.Sequence = int64(len(s.events) + 1)
 	s.events = append(s.events, event)
 	return event, nil
 }
 
-func (s *workflowStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	var events []LedgerEvent
+func (s *workflowStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	var events []ledger.Event
 	for _, event := range s.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -37,7 +38,7 @@ func (s *workflowStore) ListLedgerEvents(_ context.Context, missionID string) ([
 	return events, nil
 }
 
-func (s *workflowStore) AppendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]LedgerEvent) ([]LedgerEvent, error)) ([]LedgerEvent, error) {
+func (s *workflowStore) AppendLedgerEventsConditionally(ctx context.Context, missionID string, build func([]ledger.Event) ([]ledger.Event, error)) ([]ledger.Event, error) {
 	events, err := s.ListLedgerEvents(ctx, missionID)
 	if err != nil {
 		return nil, err
@@ -46,7 +47,7 @@ func (s *workflowStore) AppendLedgerEventsConditionally(ctx context.Context, mis
 	if err != nil {
 		return nil, err
 	}
-	appended := make([]LedgerEvent, 0, len(toAppend))
+	appended := make([]ledger.Event, 0, len(toAppend))
 	for _, event := range toAppend {
 		stored, err := s.AppendLedgerEvent(ctx, event)
 		if err != nil {
@@ -61,7 +62,7 @@ func TestRequestWorkflowRunAppendsRequestedEventAndProjectsQueuedRun(t *testing.
 	store := &workflowStore{}
 	svc := NewService(store)
 
-	view, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:       "wfr_test",
 		MissionID:           "mis_1",
 		RequestedBySurface:  WorkflowSurfaceWeb,
@@ -113,7 +114,7 @@ func TestRequestWorkflowRunDefaultsBudgetAndUsesLayeredInstructionMode(t *testin
 	store := &workflowStore{}
 	svc := NewService(store)
 
-	view, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_default_budget",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -147,7 +148,7 @@ func TestRequestWorkflowRunDefaultsBudgetAndUsesLayeredInstructionMode(t *testin
 
 func TestRequestWorkflowRunRejectsNegativeDuration(t *testing.T) {
 	svc := NewService(&workflowStore{})
-	_, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_negative_duration",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -164,15 +165,15 @@ func TestRequestWorkflowRunRejectsNegativeDuration(t *testing.T) {
 func TestRequestWorkflowRunRejectsBudgetValuesAboveServerBounds(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		req  RequestWorkflowRunRequest
+		req  workflowstate.RequestWorkflowRunRequest
 	}{
 		{
 			name: "max steps",
-			req:  RequestWorkflowRunRequest{MaxSteps: 21},
+			req:  workflowstate.RequestWorkflowRunRequest{MaxSteps: 21},
 		},
 		{
 			name: "max duration",
-			req:  RequestWorkflowRunRequest{MaxDurationMS: 86_400_001},
+			req:  workflowstate.RequestWorkflowRunRequest{MaxDurationMS: 86_400_001},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -193,7 +194,7 @@ func TestRequestWorkflowRunRejectsBudgetValuesAboveServerBounds(t *testing.T) {
 }
 
 func TestRequestWorkflowRunAcceptsServerBudgetUpperBounds(t *testing.T) {
-	view, err := NewService(&workflowStore{}).RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	view, err := NewService(&workflowStore{}).RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_budget_upper_bounds",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -215,7 +216,7 @@ func TestRequestWorkflowRunTreatsCurrentModeAsLayeredCompatibilityInput(t *testi
 	store := &workflowStore{}
 	svc := NewService(store)
 
-	view, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:       "wfr_legacy_current",
 		MissionID:           "mis_1",
 		RequestedBySurface:  WorkflowSurfaceWeb,
@@ -241,7 +242,7 @@ func TestRequestWorkflowRunRejectsExistingNonTerminalRun(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_first",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -253,7 +254,7 @@ func TestRequestWorkflowRunRejectsExistingNonTerminalRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("first RequestWorkflowRun returned error: %v", err)
 	}
-	_, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_second",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceCLI,
@@ -275,7 +276,7 @@ func TestRequestWorkflowRunAllowsNewRunAfterTerminalEvent(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_first",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -287,11 +288,11 @@ func TestRequestWorkflowRunAllowsNewRunAfterTerminalEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("first RequestWorkflowRun returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_first_completed",
 		MissionID: "mis_1",
 		EventType: WorkflowRunCompletedEvent,
-		Producer:  Producer{Type: "workflow", ID: "wfr_first"},
+		Producer:  ledger.Producer{Type: "workflow", ID: "wfr_first"},
 		Payload: mustJSONRaw(WorkflowRunTerminalPayload{
 			WorkflowRunID: "wfr_first",
 			MissionID:     "mis_1",
@@ -300,7 +301,7 @@ func TestRequestWorkflowRunAllowsNewRunAfterTerminalEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append terminal event returned error: %v", err)
 	}
-	view, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:             "wfr_second",
 		MissionID:                 "mis_1",
 		RequestedBySurface:        WorkflowSurfaceCLI,
@@ -329,7 +330,7 @@ func TestRequestWorkflowRunAllowsNewRunAfterTerminalEvent(t *testing.T) {
 func TestRequestWorkflowRunRejectsInvalidStartAfterEvent(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
-	_, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_invalid_start_after",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceMCP,
@@ -349,25 +350,25 @@ func TestRequestWorkflowRunAcceptsOpenTurnStartAfterEvent(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_user_open",
 		MissionID: "mis_1",
 		EventType: "turn.user",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "user_turn", "text": "start"}),
 	}); err != nil {
 		t.Fatalf("append turn.user returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_pending_open",
 		MissionID: "mis_1",
 		EventType: "turn.agent.pending",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload:   mustJSONRaw(map[string]any{"user_event_id": "evt_user_open", "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatalf("append pending returned error: %v", err)
 	}
-	view, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_open_start_after",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceMCP,
@@ -390,7 +391,7 @@ func TestRequestWorkflowStopClosesQueuedRunImmediately(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_queued_stop",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -402,7 +403,7 @@ func TestRequestWorkflowStopClosesQueuedRunImmediately(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RequestWorkflowRun returned error: %v", err)
 	}
-	view, err := svc.RequestWorkflowStop(ctx, RequestWorkflowStopRequest{
+	view, err := svc.RequestWorkflowStop(ctx, workflowstate.RequestWorkflowStopRequest{
 		WorkflowRunID:      "wfr_queued_stop",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -421,7 +422,7 @@ func TestRequestWorkflowStopClosesQueuedRunImmediately(t *testing.T) {
 
 func TestBuildWorkflowRunTerminalAppendRequestBuildsStoppedEvent(t *testing.T) {
 	now := time.Now().UTC()
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, now, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_1",
 			MissionID:          "mis_1",
@@ -439,7 +440,7 @@ func TestBuildWorkflowRunTerminalAppendRequestBuildsStoppedEvent(t *testing.T) {
 			Decision:       "continue",
 		}),
 	}
-	req, ok, err := BuildWorkflowRunTerminalAppendRequest(events, WorkflowRunTerminalEventRequest{
+	req, ok, err := BuildWorkflowRunTerminalAppendRequest(events, workflowstate.WorkflowRunTerminalEventRequest{
 		WorkflowRunID: "wfr_1",
 		MissionID:     "mis_1",
 		EventType:     WorkflowRunStoppedEvent,
@@ -465,7 +466,7 @@ func TestBuildWorkflowRunTerminalAppendRequestBuildsStoppedEvent(t *testing.T) {
 
 func TestBuildWorkflowRunTerminalAppendRequestSkipsExistingTerminalEvent(t *testing.T) {
 	now := time.Now().UTC()
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, now, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_1",
 			MissionID:          "mis_1",
@@ -482,7 +483,7 @@ func TestBuildWorkflowRunTerminalAppendRequestSkipsExistingTerminalEvent(t *test
 			Reason:        "already done",
 		}),
 	}
-	req, ok, err := BuildWorkflowRunTerminalAppendRequest(events, WorkflowRunTerminalEventRequest{
+	req, ok, err := BuildWorkflowRunTerminalAppendRequest(events, workflowstate.WorkflowRunTerminalEventRequest{
 		WorkflowRunID: "wfr_1",
 		MissionID:     "mis_1",
 		EventType:     WorkflowRunStoppedEvent,
@@ -497,7 +498,7 @@ func TestClaimWorkflowRunStartOnlyClaimsOnce(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_claim",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceWeb,
@@ -532,25 +533,25 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenAgentTurn(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_user_open",
 		MissionID: "mis_1",
 		EventType: "turn.user",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "user_turn", "text": "open"}),
 	}); err != nil {
 		t.Fatalf("append turn.user returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_pending_open",
 		MissionID: "mis_1",
 		EventType: "turn.agent.pending",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload:   mustJSONRaw(map[string]any{"user_event_id": "evt_user_open", "agent_executor": "codex"}),
 	}); err != nil {
 		t.Fatalf("append turn.agent.pending returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open agent turn rejection, got %v", err)
 	}
@@ -563,16 +564,16 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportDraft(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_pending",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "markdown_report_artifact_pending"}),
 	}); err != nil {
 		t.Fatalf("append report.draft.pending returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report draft rejection, got %v", err)
 	}
@@ -585,24 +586,24 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportDesign(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_design_pending",
 		MissionID: "mis_1",
 		EventType: "report.design.pending",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "designed_html_report_pending", "source_artifact_id": "art_report"}),
 	}); err != nil {
 		t.Fatalf("append report.design.pending returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report design rejection, got %v", err)
 	}
-	if err := appendReportTerminalFixture(svc, ctx, "evt_report_design_pending", AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_design_pending", ledger.AppendRequest{
 		EventID:   "evt_report_design_done",
 		MissionID: "mis_1",
 		EventType: "report.artifact.exported",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":             "designed_html_report_artifact",
 			"pending_event_id": "evt_report_design_pending",
@@ -612,7 +613,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportDesign(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append report.artifact.exported returned error: %v", err)
 	}
-	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_after_design")})
+	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_after_design")})
 	if err != nil {
 		t.Fatalf("expected completed report design not to block active work, got %v", err)
 	}
@@ -625,11 +626,11 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportHumanize(t *testing.T) 
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_humanize_pending",
 		MissionID: "mis_1",
 		EventType: "report.humanize.pending",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":                    "humanized_markdown_report_pending",
 			"pending_event_id":        "evt_report_humanize_pending",
@@ -640,15 +641,15 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportHumanize(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("append report.humanize.pending returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report humanize rejection, got %v", err)
 	}
-	if err := appendReportTerminalFixture(svc, ctx, "evt_report_humanize_pending", AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_humanize_pending", ledger.AppendRequest{
 		EventID:   "evt_report_humanize_done",
 		MissionID: "mis_1",
 		EventType: "report.humanize.skipped",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":               "humanized_markdown_report_skipped",
 			"pending_event_id":   "evt_report_humanize_pending",
@@ -658,7 +659,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportHumanize(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("append report.humanize.skipped returned error: %v", err)
 	}
-	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_after_humanize")})
+	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_after_humanize")})
 	if err != nil {
 		t.Fatalf("expected completed report humanize not to block active work, got %v", err)
 	}
@@ -671,11 +672,11 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportPatch(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_patch_pending",
 		MissionID: "mis_1",
 		EventType: "report.patch.pending",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":             "markdown_report_patch_pending",
 			"pending_event_id": "evt_report_patch_pending",
@@ -685,15 +686,15 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportPatch(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append report.patch.pending returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected open report patch rejection, got %v", err)
 	}
-	if err := appendReportTerminalFixture(svc, ctx, "evt_report_patch_pending", AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_patch_pending", ledger.AppendRequest{
 		EventID:   "evt_report_patch_failed",
 		MissionID: "mis_1",
 		EventType: "report.patch.failed",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":             "report_patch_failed",
 			"pending_event_id": "evt_report_patch_pending",
@@ -704,7 +705,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsOpenReportPatch(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append report.patch.failed returned error: %v", err)
 	}
-	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_after_patch")})
+	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_after_patch")})
 	if err != nil {
 		t.Fatalf("expected completed report patch not to block active work, got %v", err)
 	}
@@ -717,20 +718,20 @@ func TestAppendEventsIfNoActiveAgentWorkAllowsCompletedLegacyReportDraft(t *test
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_pending",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "report_draft_pending"}),
 	}); err != nil {
 		t.Fatalf("append report.draft.pending returned error: %v", err)
 	}
-	if err := appendReportTerminalFixture(svc, ctx, "evt_report_pending", AppendEventRequest{
+	if err := appendReportTerminalFixture(svc, ctx, "evt_report_pending", ledger.AppendRequest{
 		EventID:   "evt_report_drafted",
 		MissionID: "mis_1",
 		EventType: "report.drafted",
-		Producer:  Producer{Type: "agent", ID: "codex"},
+		Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSONRaw(map[string]any{
 			"report_version_id": "rvn_1",
 			"generation":        map[string]any{"pending_event_id": "evt_report_pending"},
@@ -738,7 +739,7 @@ func TestAppendEventsIfNoActiveAgentWorkAllowsCompletedLegacyReportDraft(t *test
 	}); err != nil {
 		t.Fatalf("append report.drafted returned error: %v", err)
 	}
-	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	appended, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if err != nil {
 		t.Fatalf("expected completed report draft not to block active work, got %v", err)
 	}
@@ -751,7 +752,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsActiveWorkflow(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	if _, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_active",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceCLI,
@@ -763,7 +764,7 @@ func TestAppendEventsIfNoActiveAgentWorkRejectsActiveWorkflow(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("RequestWorkflowRun returned error: %v", err)
 	}
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{testTurnUserEventRequest("evt_user_next")})
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{testTurnUserEventRequest("evt_user_next")})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected active workflow rejection, got %v", err)
 	}
@@ -776,16 +777,16 @@ func TestRequestWorkflowRunRejectsOpenReportDraft(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_report_pending",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "markdown_report_artifact_pending"}),
 	}); err != nil {
 		t.Fatalf("append report.draft.pending returned error: %v", err)
 	}
-	_, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_after_report",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceCLI,
@@ -806,13 +807,13 @@ func TestAgentProviderLockRejectsMixedProviderTurnAppend(t *testing.T) {
 	ctx := context.Background()
 	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
 
-	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []AppendEventRequest{
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{
 		agentTurnUserEventRequest("evt_user_claude", "claude"),
 		{
 			EventID:   "evt_pending_claude",
 			MissionID: "mis_1",
 			EventType: "turn.agent.pending",
-			Producer:  Producer{Type: "agent", ID: "claude"},
+			Producer:  ledger.Producer{Type: "agent", ID: "claude"},
 			Payload: mustJSONRaw(map[string]any{
 				"kind":           "agent_pending",
 				"user_event_id":  "evt_user_claude",
@@ -837,7 +838,7 @@ func TestAgentProviderLockRejectsMixedProviderWorkflowRequest(t *testing.T) {
 	ctx := context.Background()
 	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
 
-	_, err := svc.RequestWorkflowRun(ctx, RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_claude",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceCLI,
@@ -864,11 +865,11 @@ func TestAgentProviderLockRejectsMixedProviderDirectEvent(t *testing.T) {
 	ctx := context.Background()
 	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
 
-	_, err := svc.AppendEvent(ctx, AppendEventRequest{
+	_, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_claude_response",
 		MissionID: "mis_1",
 		EventType: "turn.agent.response",
-		Producer:  Producer{Type: "agent", ID: "claude"},
+		Producer:  ledger.Producer{Type: "agent", ID: "claude"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "agent_response", "agent_executor": "claude", "text": "no"}),
 	})
 	if !errors.Is(err, ErrInvalidInput) {
@@ -883,11 +884,11 @@ func TestAgentProviderLockRejectsInvalidExplicitProviderAppend(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 
-	_, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+	_, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_unknown_response",
 		MissionID: "mis_1",
 		EventType: "turn.agent.response",
-		Producer:  Producer{Type: "agent", ID: "unknown"},
+		Producer:  ledger.Producer{Type: "agent", ID: "unknown"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "agent_response", "agent_executor": "unknown", "text": "no"}),
 	})
 	if !errors.Is(err, ErrInvalidInput) {
@@ -902,7 +903,7 @@ func TestRequestWorkflowRunRejectsInvalidProvider(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 
-	_, err := svc.RequestWorkflowRun(context.Background(), RequestWorkflowRunRequest{
+	_, err := svc.RequestWorkflowRun(context.Background(), workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_unknown",
 		MissionID:          "mis_1",
 		RequestedBySurface: WorkflowSurfaceCLI,
@@ -926,11 +927,11 @@ func appendCompletedAgentTurn(t *testing.T, svc *Service, ctx context.Context, m
 	if _, err := svc.AppendEvent(ctx, agentTurnUserEventRequest(userEventID, executor)); err != nil {
 		t.Fatalf("append %s turn.user returned error: %v", executor, err)
 	}
-	if _, err := svc.AppendEvent(ctx, AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_response_" + executor,
 		MissionID: missionID,
 		EventType: "turn.agent.response",
-		Producer:  Producer{Type: "agent", ID: executor},
+		Producer:  ledger.Producer{Type: "agent", ID: executor},
 		Payload: mustJSONRaw(map[string]any{
 			"kind":           "agent_response",
 			"user_event_id":  userEventID,
@@ -942,33 +943,33 @@ func appendCompletedAgentTurn(t *testing.T, svc *Service, ctx context.Context, m
 	}
 }
 
-func agentTurnUserEventRequest(eventID string, executor string) AppendEventRequest {
-	return AppendEventRequest{
+func agentTurnUserEventRequest(eventID string, executor string) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: "mis_1",
 		EventType: "turn.user",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "user_turn", "text": "next", "agent_executor": executor}),
 	}
 }
 
-func testTurnUserEventRequest(eventID string) AppendEventRequest {
-	return AppendEventRequest{
+func testTurnUserEventRequest(eventID string) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: "mis_1",
 		EventType: "turn.user",
-		Producer:  Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSONRaw(map[string]any{"kind": "user_turn", "text": "next"}),
 	}
 }
 
 func TestAppendWorkflowEventValidatesPayloadContract(t *testing.T) {
 	svc := NewService(&workflowStore{})
-	_, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+	_, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_bad_workflow",
 		MissionID: "mis_1",
 		EventType: WorkflowRunRequestedEvent,
-		Producer:  Producer{Type: "workflow", ID: "web"},
+		Producer:  ledger.Producer{Type: "workflow", ID: "web"},
 		Payload: mustJSONRaw(map[string]any{
 			"workflow_run_id":      "bad",
 			"mission_id":           "mis_1",
@@ -987,11 +988,11 @@ func TestAppendWorkflowEventValidatesPayloadContract(t *testing.T) {
 
 func TestAppendWorkflowRunRequestedEventAcceptsZeroDuration(t *testing.T) {
 	svc := NewService(&workflowStore{})
-	_, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+	_, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_zero_duration",
 		MissionID: "mis_1",
 		EventType: WorkflowRunRequestedEvent,
-		Producer:  Producer{Type: "workflow", ID: "web"},
+		Producer:  ledger.Producer{Type: "workflow", ID: "web"},
 		Payload: mustJSONRaw(map[string]any{
 			"workflow_run_id":      "wfr_zero_duration",
 			"mission_id":           "mis_1",
@@ -1018,11 +1019,11 @@ func TestAppendWorkflowRunRequestedEventRejectsBudgetValuesOutsideBounds(t *test
 		{name: "duration above limit", maxSteps: 1, maxDurationMS: 86_400_001},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewService(&workflowStore{}).AppendEvent(context.Background(), AppendEventRequest{
+			_, err := NewService(&workflowStore{}).AppendEvent(context.Background(), ledger.AppendRequest{
 				EventID:   "evt_invalid_budget",
 				MissionID: "mis_1",
 				EventType: WorkflowRunRequestedEvent,
-				Producer:  Producer{Type: "workflow", ID: "web"},
+				Producer:  ledger.Producer{Type: "workflow", ID: "web"},
 				Payload: mustJSONRaw(map[string]any{
 					"workflow_run_id":      "wfr_invalid_budget",
 					"mission_id":           "mis_1",
@@ -1041,7 +1042,7 @@ func TestAppendWorkflowRunRequestedEventRejectsBudgetValuesOutsideBounds(t *test
 	}
 }
 
-func workflowEventTypes(events []LedgerEvent) []string {
+func workflowEventTypes(events []ledger.Event) []string {
 	types := make([]string, 0, len(events))
 	for _, event := range events {
 		types = append(types, event.EventType)
@@ -1063,7 +1064,7 @@ func equalStrings(left []string, right []string) bool {
 
 func TestWorkflowProjectionStatusTransitionsAndStopRequest(t *testing.T) {
 	now := time.Now().UTC()
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, now, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_1",
 			MissionID:          "mis_1",
@@ -1116,7 +1117,7 @@ func TestWorkflowProjectionStatusTransitionsAndStopRequest(t *testing.T) {
 
 func TestWorkflowTerminalEventTakesPrecedenceOverStopRequest(t *testing.T) {
 	now := time.Now().UTC()
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, now, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_1",
 			MissionID:          "mis_1",
@@ -1148,7 +1149,7 @@ func TestWorkflowTerminalEventTakesPrecedenceOverStopRequest(t *testing.T) {
 
 func TestWorkflowProjectionPausedRunCarriesContinuationInstruction(t *testing.T) {
 	now := time.Now().UTC()
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, now, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_1",
 			MissionID:          "mis_1",
@@ -1181,7 +1182,7 @@ func TestWorkflowProjectionPausedRunCarriesContinuationInstruction(t *testing.T)
 
 func TestWorkflowProjectionMarksStaleRunningRunInterrupted(t *testing.T) {
 	old := time.Now().UTC().Add(-2 * workflowStaleAfter)
-	events := []LedgerEvent{
+	events := []ledger.Event{
 		workflowEvent("evt_req", WorkflowRunRequestedEvent, old, WorkflowRunRequestedPayload{
 			WorkflowRunID:      "wfr_stale",
 			MissionID:          "mis_1",
@@ -1203,13 +1204,13 @@ func TestWorkflowProjectionMarksStaleRunningRunInterrupted(t *testing.T) {
 	}
 }
 
-func workflowEvent(eventID string, eventType string, createdAt time.Time, payload any) LedgerEvent {
-	return LedgerEvent{
+func workflowEvent(eventID string, eventType string, createdAt time.Time, payload any) ledger.Event {
+	return ledger.Event{
 		EventID:   eventID,
 		MissionID: "mis_1",
 		Sequence:  int64(len(eventID)),
 		EventType: eventType,
-		Producer:  Producer{Type: "workflow", ID: "test"},
+		Producer:  ledger.Producer{Type: "workflow", ID: "test"},
 		Payload:   mustJSONRaw(payload),
 		CreatedAt: createdAt,
 	}

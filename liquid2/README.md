@@ -109,6 +109,17 @@ cd liquid2/client
 flutter run -d macos --dart-define=LIQUID2_API_BASE_URL=http://localhost:8080
 ```
 
+## Open a Saved Page on Another Device
+
+Open a saved or scraped document and choose **Show QR code** beside **Open
+source**. Scan the code with another device to open the original page. The dialog
+also displays selectable URL text and a **Close** button.
+
+The code uses the source URL, falling back to the canonical URL just like **Open
+source**. Neither action appears without a usable HTTP(S) URL. QR codes are
+created locally; the URL is not sent to a QR service. URLs exceeding QR capacity
+remain visible as text with an explanation instead of a code.
+
 ## Core Concepts
 
 - Document: the item a user saves and organizes.

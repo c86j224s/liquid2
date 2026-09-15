@@ -62,6 +62,22 @@ func (p *recordingProvider) Run(_ context.Context, req agentexec.AgentRequest) (
 	return agentexec.AgentResult{Text: p.outputs[index]}, nil
 }
 
+type recordingPDFRenderer struct {
+	contexts []context.Context
+	html     [][]byte
+	result   PDFResult
+	err      error
+}
+
+func (r *recordingPDFRenderer) RenderPDF(ctx context.Context, html []byte) (PDFResult, error) {
+	r.contexts = append(r.contexts, ctx)
+	r.html = append(r.html, append([]byte(nil), html...))
+	if r.err != nil {
+		return PDFResult{}, r.err
+	}
+	return r.result, nil
+}
+
 type acceptingSourceReadVerifier struct {
 	calls        []string
 	sourceQuotes map[string]reportilcontract.SourceQuoteReceipt

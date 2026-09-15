@@ -33,9 +33,9 @@ func (runner Runner) RunMarkdown(ctx context.Context, input Input) (Output, erro
 	var planResult agentexec.AgentResult
 	var returnedPlanSessionID string
 	var planDurationMS int64
-	lifecycle, err := runner.Lifecycle.RunReportPlanLifecycle(ctx, reporting.ReportPlanLifecycleRequest{
+	lifecycle, err := runner.RunReportPlanLifecycle(ctx, ReportPlanLifecycleRequest{
 		MissionID: input.MissionID, PendingEventID: input.PendingEventID, ReportMode: reportexecution.ModePlanned, AgentExecutor: input.AgentExecutor, AgentModel: input.AgentModel, AgentReasoningEffort: input.AgentReasoningEffort, PreviousProviderSessionID: reportStartSessionID,
-		Invoke: func(ctx context.Context, binding reporting.ReportPlanLifecycleBinding) (reporting.ReportPlanLifecycleAgentResult, error) {
+		Invoke: func(ctx context.Context, binding ReportPlanLifecycleBinding) (ReportPlanLifecycleAgentResult, error) {
 			planStarted := time.Now()
 			result, runErr := runner.Executor.Run(ctx, agentexec.AgentRequest{
 				UserText: "plan markdown report artifact", Prompt: reportprompt.WithReportDirection(reportprompt.MarkdownReportPlanPrompt(input.Title, input.MissionID, binding.ToolSessionID, input.PendingEventID, binding.IdempotencyKey, input.Rigor, input.GenerationGuidanceProfile), input.DirectionHint),
@@ -45,17 +45,17 @@ func (runner Runner) RunMarkdown(ctx context.Context, input Input) (Output, erro
 			planDurationMS = time.Since(planStarted).Milliseconds()
 			planResult = result
 			if runErr != nil {
-				return reporting.ReportPlanLifecycleAgentResult{}, fmt.Errorf("report planning agent failed: %w", reportAgentFailure(runErr, result, "report_plan", planDurationMS, reportStartSessionID))
+				return ReportPlanLifecycleAgentResult{}, fmt.Errorf("report planning agent failed: %w", reportAgentFailure(runErr, result, "report_plan", planDurationMS, reportStartSessionID))
 			}
 			returnedPlanSessionID = strings.TrimSpace(result.SessionID)
 			validated, validateErr := validateSameSessionResult(result, reportStartSessionID)
 			if validateErr != nil {
-				return reporting.ReportPlanLifecycleAgentResult{}, reportAgentFailure(validateErr, result, "report_plan", planDurationMS, reportStartSessionID)
+				return ReportPlanLifecycleAgentResult{}, reportAgentFailure(validateErr, result, "report_plan", planDurationMS, reportStartSessionID)
 			}
 			planResult = validated
-			return reporting.ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
+			return ReportPlanLifecycleAgentResult{Text: validated.Text, SessionID: validated.SessionID}, nil
 		},
-		BuildCanonical: func(value any, _ reporting.ReportPlanSubmissionSelection, binding reporting.ReportPlanLifecycleBinding) (ledger.AppendRequest, error) {
+		BuildCanonical: func(value any, _ reporting.ReportPlanSubmissionSelection, binding ReportPlanLifecycleBinding) (ledger.AppendRequest, error) {
 			valuePlan, ok := value.(reporting.ReportPlan)
 			if !ok {
 				return ledger.AppendRequest{}, fmt.Errorf("%w: invalid planned report plan", producterror.ErrInvalidInput)

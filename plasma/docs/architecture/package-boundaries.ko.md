@@ -96,7 +96,10 @@ Issue #66은 넓은 `internal/app`, `internal/web`, `internal/mcp`, `internal/re
 현재 이 package들이 존재한다는 사실은 같은 형태의 새 의존을 허용하지 않습니다.
 
 첫 이관 단계에서는 ledger, mission, artifact, source, 안정된 오류 model, 일부 report 실행 경계를 좁은
-package로 옮겼습니다. #111부터 `internal/reportworkflow`가 제품 고정 report topology, typed stage 연결,
+package로 옮겼습니다. #483의 source/artifact/mission slice는 기능 소유 정책 contract를
+`internal/app` 밖에 두며, app에는 application I/O 조율과 workflow, research, reporting, connector facade가
+남아 있습니다. 이는 완료된 slice이지 전체 application 경계 refactoring 완료를 뜻하지 않습니다. Question과 option record model, 생성 validation, normalization, builder contract는 이제 `internal/researchrecords`가 소유하며, app에는 mission-event 조회, persistence 조율과 application-facing service method가 남습니다.
+#111부터 `internal/reportworkflow`가 제품 고정 report topology, typed stage 연결,
 장문 prefix stage, final edit stage, legacy finalization stage를 소유합니다. 각 stage package는 자기 prompt,
 MCP allowlist, provider 실행, 검증, durable replay 경계를 맡고, `internal/reporting`은 durable final-edit
 계약과 artifact lineage를 유지합니다. `internal/app`의 호환 alias는 이행용 표면이며 새 소유 경계가 아닙니다.

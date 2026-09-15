@@ -1,5 +1,7 @@
 package finaledit
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"context"
 	"fmt"
@@ -39,7 +41,7 @@ func (runner Runner) RunStage(ctx context.Context, input Input, progress reporti
 		})
 		durationMS := time.Since(started).Milliseconds()
 		if runErr == nil {
-			result, runErr = ValidatedSameSessionResult(result, binding.ProviderSessionID)
+			result, runErr = longformutil.ValidateSameSessionResult(result, binding.ProviderSessionID)
 		}
 		stage, stageOK, stageErr := reporting.LoadFinalEditStageSubmission(context.WithoutCancel(ctx), runner.Store, binding)
 		if stageErr != nil {

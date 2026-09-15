@@ -4,7 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
+	"github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/version"
 )
 
@@ -16,8 +18,9 @@ type Store interface {
 	Health(context.Context) error
 	MigrationVersions(context.Context) ([]string, error)
 	MissionStore
-	ProjectionStore
-	ArtifactStore
+	mission.ProjectionStore
+	artifact.Store
+	source.Store
 	ResearchRecordStore
 	ReportStore
 }
@@ -30,7 +33,7 @@ type Store interface {
 type Service struct {
 	store      Store
 	workflowMu sync.Mutex
-	localPaths *localpath.Engine
+	localPaths source.LocalPathReader
 }
 
 // Health는 저장소 마이그레이션 상태와 빌드 버전을 포함한 서버 상태 view다.
@@ -47,7 +50,7 @@ func NewService(store Store) *Service {
 
 // NewServiceWithLocalPathEngine은 local path source 기능까지 연결한 애플리케이션
 // 서비스를 만든다.
-func NewServiceWithLocalPathEngine(store Store, engine *localpath.Engine) *Service {
+func NewServiceWithLocalPathEngine(store Store, engine source.LocalPathReader) *Service {
 	return &Service{store: store, localPaths: engine}
 }
 
@@ -55,7 +58,7 @@ func NewServiceWithLocalPathEngine(store Store, engine *localpath.Engine) *Servi
 //
 // 일반 서버 구성에서는 생성 시점 주입을 선호하고, 이 메서드는 테스트나 embedding
 // 조립용으로만 사용한다.
-func (s *Service) SetLocalPathEngine(engine *localpath.Engine) {
+func (s *Service) SetLocalPathEngine(engine source.LocalPathReader) {
 	s.localPaths = engine
 }
 

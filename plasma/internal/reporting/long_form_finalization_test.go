@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -248,10 +251,10 @@ func TestFinalizeNarrativeEditedLongFormReplayAfterSQLiteRestart(t *testing.T) {
 func TestFinalizeLongFormRejectsDuplicateAndOutOfRangeStageLineage(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
-		request app.AppendEventRequest
+		request ledger.AppendRequest
 	}{
-		{name: "duplicate part", request: app.AppendEventRequest{EventID: "evt_part_duplicate", EventType: "report.part.created", Payload: testJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_part", "part_index": 1})}},
-		{name: "out of range section", request: app.AppendEventRequest{EventID: "evt_section_out_of_range", EventType: "report.section.created", Payload: testJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_section", "part_index": 2, "section_index": 1})}},
+		{name: "duplicate part", request: ledger.AppendRequest{EventID: "evt_part_duplicate", EventType: "report.part.created", Payload: testJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_part", "part_index": 1})}},
+		{name: "out of range section", request: ledger.AppendRequest{EventID: "evt_section_out_of_range", EventType: "report.section.created", Payload: testJSON(map[string]any{"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_section", "part_index": 2, "section_index": 1})}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -359,7 +362,7 @@ func TestReaderStyleGatePipelineStagesAreDurableAndOnlyGateCreatesCanonical(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source.Filename != binding.Filename || source.Producer != (app.Producer{Type: "system", ID: "reporting_reader_assembly"}) || string(source.Content) != readerMarkdown {
+	if source.Filename != binding.Filename || source.Producer != (ledger.Producer{Type: "system", ID: "reporting_reader_assembly"}) || string(source.Content) != readerMarkdown {
 		t.Fatalf("reader source artifact differs: %#v", source)
 	}
 	reader, err := reporting.SubmitFinalEditStage(ctx, svc, readerBinding, "evt_reader_submit", readerMarkdown, 0)
@@ -628,17 +631,17 @@ func TestFinalizeLongFormRejectsMalformedPartEditOutcomeWithMatchingSourceTuple(
 	svc, closeStore := newLongFormFinalizeFixtureWithPartEditFlag(t, ctx, true)
 	defer closeStore()
 	binding := longFormFinalizeBinding()
-	fakeArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	fakeArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_part_edit_fake", MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "fake-edited.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-fake"}, Content: []byte("# Part 1\n\nFake same-mission Markdown.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-fake"}, Content: []byte("# Part 1\n\nFake same-mission Markdown.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_part_edit_fake", MissionID: binding.MissionID, EventType: reporting.PartEditedEventType,
-		Producer:         app.Producer{Type: "agent_session", ID: "provider-fake"},
+		Producer:         ledger.Producer{Type: "agent_session", ID: "provider-fake"},
 		CausationEventID: "evt_part", CorrelationID: "wrong-part-edit-key",
 		Payload: testJSON(map[string]any{
 			"kind":                            reporting.PartEditedKind,
@@ -728,8 +731,8 @@ func TestFinalizeLongFormAndFailureClosureAreMutuallyExclusive(t *testing.T) {
 	}()
 	go func() {
 		<-start
-		_, closed, err := svc.AppendReportTerminalIfOpen(ctx, binding.MissionID, binding.PendingEventID, []app.AppendEventRequest{{
-			EventID: "evt_failed", MissionID: binding.MissionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"},
+		_, closed, err := svc.AppendReportTerminalIfOpen(ctx, binding.MissionID, binding.PendingEventID, []ledger.AppendRequest{{
+			EventID: "evt_failed", MissionID: binding.MissionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"},
 			Payload: testJSON(map[string]any{"kind": "worker_failed", "pending_event_id": binding.PendingEventID}),
 		}})
 		failureResult <- struct {
@@ -815,14 +818,14 @@ func seedLongFormFinalizeFixtureWithPartEditFlag(t *testing.T, ctx context.Conte
 func seedLongFormFinalizeFixtureWithOptions(t *testing.T, ctx context.Context, svc *app.Service, options longFormFinalizeFixtureOptions) {
 	t.Helper()
 	binding := longFormFinalizeBinding()
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "finalize"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "finalize"}); err != nil {
 		t.Fatal(err)
 	}
-	part, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: binding.PartArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: binding.Producer, Content: []byte("# Part 1\n\nPreserved body.\n")})
+	part, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: binding.PartArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: binding.Producer, Content: []byte("# Part 1\n\nPreserved body.\n")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "section.md", Producer: binding.Producer, Content: []byte("# Section 1\n\nPreserved body.\n")}); err != nil {
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: binding.SectionArtifactIDs[0], MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: "section.md", Producer: binding.Producer, Content: []byte("# Section 1\n\nPreserved body.\n")}); err != nil {
 		t.Fatal(err)
 	}
 	planPayload := map[string]any{
@@ -838,8 +841,8 @@ func seedLongFormFinalizeFixtureWithOptions(t *testing.T, ctx context.Context, s
 	if strings.TrimSpace(options.PostReportHumanize) != "" {
 		planPayload["post_report_humanize"] = strings.TrimSpace(options.PostReportHumanize)
 	}
-	requests := []app.AppendEventRequest{
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form"})},
+	requests := []ledger.AppendRequest{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form"})},
 		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: binding.Producer, Payload: testJSON(planPayload)},
 		{EventID: "evt_part", MissionID: binding.MissionID, EventType: "report.part.created", Producer: binding.Producer, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": part.ArtifactID, "part_index": 1})},
 		{EventID: "evt_section", MissionID: binding.MissionID, EventType: "report.section.created", Producer: binding.Producer, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SectionArtifactIDs[0], "part_index": 1, "section_index": 1})},
@@ -870,7 +873,7 @@ func longFormFinalEditStageBinding(binding reporting.LongFormFinalizeBinding, st
 		ReportSessionPolicy: binding.ReportSessionPolicy, ReportSessionPolicySelection: binding.ReportSessionPolicySelection,
 		PostReportHumanize: binding.PostReportHumanize, GenerationGuidanceProfile: binding.GenerationGuidanceProfile, GenerationGuidanceSHA256: binding.GenerationGuidanceSHA256,
 		SessionChainKind: binding.SessionChainKind, PreReportResearchSessionID: binding.PreReportResearchSessionID, ReportPlanSessionID: binding.ReportPlanSessionID,
-		ForkSourceAgentSessionID: binding.ReportPlanSessionID, Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		ForkSourceAgentSessionID: binding.ReportPlanSessionID, Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 }
 
@@ -940,7 +943,7 @@ func longFormFinalizeBinding() reporting.LongFormFinalizeBinding {
 		RigorLevel: "standard", RigorLabel: "Standard", ReportSessionPolicy: "same_session", ReportSessionPolicySelection: "default",
 		PostReportHumanize: "h5", GenerationGuidanceProfile: "default", GenerationGuidanceSHA256: "guidance-sha",
 		SessionChainKind: "same_session_report", PreReportResearchSessionID: "provider-research", ReportPlanSessionID: "provider-session",
-		ForkSourceAgentSessionID: "", PlanToolSessionID: "ses_plan", Producer: app.Producer{Type: "agent_session", ID: "provider-session"},
+		ForkSourceAgentSessionID: "", PlanToolSessionID: "ses_plan", Producer: ledger.Producer{Type: "agent_session", ID: "provider-session"},
 	}
 }
 
@@ -952,11 +955,11 @@ func longFormFinalizeBindingForFinalEditPipeline(postReportHumanize string) repo
 	binding.PreviousProviderSessionID = "provider-corrective-gate"
 	binding.PostReportHumanize = postReportHumanize
 	binding.ForkSourceAgentSessionID = binding.ReportPlanSessionID
-	binding.Producer = app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
+	binding.Producer = ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}
 	return binding
 }
 
-func resultsPayload(events []app.LedgerEvent, eventType string) json.RawMessage {
+func resultsPayload(events []ledger.Event, eventType string) json.RawMessage {
 	for _, event := range events {
 		if event.EventType == eventType {
 			return event.Payload
@@ -965,7 +968,7 @@ func resultsPayload(events []app.LedgerEvent, eventType string) json.RawMessage 
 	return nil
 }
 
-func countEventType(events []app.LedgerEvent, eventType string) int {
+func countEventType(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {

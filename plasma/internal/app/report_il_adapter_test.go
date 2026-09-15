@@ -3,12 +3,14 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
-	"github.com/c86j224s/liquid2/plasma/internal/source"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestAppendReportILLongFormProgressPersistsPlanAndConcurrentCoordinates(t *testing.T) {
@@ -120,17 +122,17 @@ func TestAppendReportILLongFormProgressRejectsMalformedEvents(t *testing.T) {
 }
 
 func TestReportILSourceAdapterPreservesHostOnlyCitationMetadata(t *testing.T) {
-	store := &reportILAdapterFakeStore{sources: []SourceSnapshot{{
+	store := &reportILAdapterFakeStore{sources: []sourcecontract.Snapshot{{
 		SnapshotID: "src_public",
 		MissionID:  "mis_public",
 		Title:      "Public source title",
-		Connector: ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorType: "url",
 			ExternalURI:   "https://example.com/report",
 		},
 		ArtifactIDs: []string{"art_public"},
-		ContentHash: ContentHash{Value: "snapshot-hash"},
-		Access: SourceAccess{
+		ContentHash: sourcecontract.ContentHash{Value: "snapshot-hash"},
+		Access: sourcecontract.Access{
 			RetrievalPolicy: source.RetrievalPolicySnapshotOnly,
 		},
 	}}}
@@ -148,10 +150,10 @@ func TestReportILSourceAdapterPreservesHostOnlyCitationMetadata(t *testing.T) {
 type reportILProgressStore struct {
 	fakeStore
 	mu     sync.Mutex
-	events []LedgerEvent
+	events []ledger.Event
 }
 
-func (s *reportILProgressStore) AppendLedgerEvent(_ context.Context, event LedgerEvent) (LedgerEvent, error) {
+func (s *reportILProgressStore) AppendLedgerEvent(_ context.Context, event ledger.Event) (ledger.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	event.Sequence = int64(len(s.events) + 1)
@@ -159,10 +161,10 @@ func (s *reportILProgressStore) AppendLedgerEvent(_ context.Context, event Ledge
 	return event, nil
 }
 
-func (s *reportILProgressStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
+func (s *reportILProgressStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	events := make([]LedgerEvent, 0, len(s.events))
+	events := make([]ledger.Event, 0, len(s.events))
 	for _, event := range s.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -173,9 +175,9 @@ func (s *reportILProgressStore) ListLedgerEvents(_ context.Context, missionID st
 
 type reportILAdapterFakeStore struct {
 	fakeStore
-	sources []SourceSnapshot
+	sources []sourcecontract.Snapshot
 }
 
-func (f *reportILAdapterFakeStore) ListSourceSnapshots(context.Context, string) ([]SourceSnapshot, error) {
-	return append([]SourceSnapshot(nil), f.sources...), nil
+func (f *reportILAdapterFakeStore) ListSourceSnapshots(context.Context, string) ([]sourcecontract.Snapshot, error) {
+	return append([]sourcecontract.Snapshot(nil), f.sources...), nil
 }

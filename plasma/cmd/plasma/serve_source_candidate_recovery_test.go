@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -22,13 +24,13 @@ func TestRunServeRecoversInterruptedSourceCandidateBeforeListening(t *testing.T)
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_recovery", Title: "Recovery"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_recovery", Title: "Recovery"}); err != nil {
 		t.Fatal(err)
 	}
 	started, err := sourcecandidates.StartStaging(ctx, svc, sourcecandidates.SourceCandidateStagingStartRequest{
 		EventID: "evt_recovery_started", MissionID: "mis_recovery", SessionID: "ses_recovery",
 		Candidate: sourcecandidates.SourceCandidateProposal{URL: "https://example.com/recovery", Title: "Recovery"},
-		Producer:  app.Producer{Type: "agent_session", ID: "agent"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "agent"},
 	})
 	if err != nil {
 		t.Fatal(err)

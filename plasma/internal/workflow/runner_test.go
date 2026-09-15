@@ -4,13 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 type fakeAgent struct {
@@ -83,21 +88,21 @@ type failFirstAgentErrorService struct {
 	delay    time.Duration
 }
 
-func (svc *failFirstAgentErrorService) AppendEvent(ctx context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+func (svc *failFirstAgentErrorService) AppendEvent(ctx context.Context, req ledger.AppendRequest) (ledger.Event, error) {
 	if req.EventType == "turn.agent.response" {
 		var payload map[string]any
 		if json.Unmarshal(req.Payload, &payload) == nil && payload["kind"] == "agent_error" {
 			svc.attempts++
 			if svc.attempts == 1 {
 				time.Sleep(svc.delay)
-				return app.LedgerEvent{}, errors.New("injected agent_error append failure")
+				return ledger.Event{}, errors.New("injected agent_error append failure")
 			}
 		}
 	}
 	return svc.Service.AppendEvent(ctx, req)
 }
 
-func (svc *delayedAgentErrorService) AppendEvent(ctx context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+func (svc *delayedAgentErrorService) AppendEvent(ctx context.Context, req ledger.AppendRequest) (ledger.Event, error) {
 	if req.EventType == "turn.agent.response" {
 		var payload map[string]any
 		if json.Unmarshal(req.Payload, &payload) == nil && payload["kind"] == "agent_error" {
@@ -129,7 +134,7 @@ func TestRunnerDefersUntilCurrentTurnTerminalExists(t *testing.T) {
 	mission := createWorkflowMission(t, svc)
 	appendRawEvent(t, svc, mission.MissionID, "evt_user_active", "turn.user", map[string]any{"kind": "user_turn", "text": "start later"})
 	appendRawEvent(t, svc, mission.MissionID, "evt_pending_active", "turn.agent.pending", map[string]any{"user_event_id": "evt_user_active", "agent_executor": "codex"})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:     "wfr_deferred",
 		StartAfterEventID: "evt_user_active",
 		MaxSteps:          1,
@@ -171,7 +176,7 @@ func TestRunnerResumesLatestProviderSession(t *testing.T) {
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_resume", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_resume", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "resumed step\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"}}}
 	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_resume")
@@ -200,7 +205,7 @@ func TestRunnerReorientsOnlyFirstStepOfNewRunWhenResumingProviderSession(t *test
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID: "wfr_reorient",
 		Instruction:   "Investigate the current user request.",
 		MaxSteps:      2,
@@ -236,11 +241,11 @@ func TestRunnerStopsBeforeNextStepAfterStopRequest(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_stop", MaxSteps: 3})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_stop", MaxSteps: 3})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "first step\n" + controlMarker + ` {"decision":"continue","reason":"more"}`, SessionID: "agent-session-1"}}}
 	agent.onRun = func() {
-		if _, err := svc.RequestWorkflowStop(ctx, app.RequestWorkflowStopRequest{
+		if _, err := svc.RequestWorkflowStop(ctx, workflowstate.RequestWorkflowStopRequest{
 			WorkflowRunID:      "wfr_stop",
 			MissionID:          mission.MissionID,
 			RequestedBySurface: app.WorkflowSurfaceWeb,
@@ -262,34 +267,34 @@ func TestRunnerSkipsSourceRemovedDuringWorkflowOnNextStep(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_workflow_source",
 		MissionID:  mission.MissionID,
 		MediaType:  "text/plain; charset=utf-8",
 		Filename:   "source.txt",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("source body"),
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	source, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	source, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_workflow_source",
 		MissionID:  mission.MissionID,
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "manual",
 			ConnectorType:    "manual",
 			ExternalSourceID: "source.txt",
 		},
 		Title:       "Workflow source",
 		ArtifactIDs: []string{artifact.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	})
 	if err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 	}
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_removed_source", MaxSteps: 2})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_removed_source", MaxSteps: 2})
 
 	agent := &fakeAgent{responses: []AgentResult{
 		{Text: "first step\n" + controlMarker + ` {"decision":"continue","reason":"source changed","next_instruction":"continue without removed source"}`, SessionID: "agent-session-1"},
@@ -300,7 +305,7 @@ func TestRunnerSkipsSourceRemovedDuringWorkflowOnNextStep(t *testing.T) {
 			MissionID:  mission.MissionID,
 			SnapshotID: source.SnapshotID,
 			Reason:     "removed during workflow",
-			Producer:   app.Producer{Type: "user", ID: "test"},
+			Producer:   ledger.Producer{Type: "user", ID: "test"},
 		}); err != nil {
 			t.Fatalf("RemoveSource returned error: %v", err)
 		}
@@ -337,7 +342,7 @@ func TestRunnerPausesAtMaxStepsWhenAgentWantsToContinue(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_max", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_max", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "step result\n" + controlMarker + ` {"decision":"continue","reason":"could continue","next_instruction":"read primary source"}`, SessionID: "agent-session-1"}}}
 	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_max")
@@ -356,7 +361,7 @@ func TestRunnerPausesAtMaxDurationWhenAgentWantsToContinue(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID: "wfr_duration",
 		MaxSteps:      3,
 		MaxDurationMS: 1000,
@@ -385,7 +390,7 @@ func TestRunnerUnlimitedDurationDoesNotUseRunWideBudget(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_unlimited", MaxSteps: 2})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_unlimited", MaxSteps: 2})
 
 	now := time.Date(2026, 6, 24, 12, 0, 0, 0, time.UTC)
 	agent := &fakeAgent{responses: []AgentResult{
@@ -407,7 +412,7 @@ func TestRunnerUnlimitedDurationDoesNotUseRunWideBudget(t *testing.T) {
 func TestRunnerDefaultStepTimeoutIsTwentyFiveMinutes(t *testing.T) {
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_default_step_timeout", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_default_step_timeout", MaxSteps: 1})
 	agent := &fakeAgent{responses: []AgentResult{{Text: "done\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"}}}
 	before := time.Now()
 	view, err := testRunner(svc, agent).Run(context.Background(), mission.MissionID, "wfr_default_step_timeout")
@@ -426,7 +431,7 @@ func TestRunnerDefaultStepTimeoutIsTwentyFiveMinutes(t *testing.T) {
 func TestRunnerStepTimeoutDurablyClosesPendingTurnAndWorkflow(t *testing.T) {
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_step_timeout", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_step_timeout", MaxSteps: 1})
 	agent := &blockingAgent{}
 	var startedUserEventID string
 	var finishedUserEventID string
@@ -508,7 +513,7 @@ func TestRunnerRejectsSuccessReturnedAfterAgentDeadline(t *testing.T) {
 				})
 			}
 			workflowRunID := "wfr_late_success_" + tc.name
-			requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: workflowRunID, MaxSteps: 1})
+			requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: workflowRunID, MaxSteps: 1})
 			agent := &deadlineIgnoringAgent{expireOnCall: tc.expireOnCall}
 			view, err := (Runner{Service: svc, Agent: agent, StepTimeout: 10 * time.Millisecond}).Run(context.Background(), mission.MissionID, workflowRunID)
 			if err != nil {
@@ -552,7 +557,7 @@ func TestRunnerDoesNotDuplicateAgentErrorWhenRecordedAppendOutlivesStepDeadline(
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, baseService, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_delayed_agent_error", MaxSteps: 1})
+	requestWorkflow(t, baseService, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_delayed_agent_error", MaxSteps: 1})
 
 	agent := &fakeAgent{
 		responses: []AgentResult{
@@ -602,7 +607,7 @@ func TestRunnerFallsBackWhenAutoCompactionAgentErrorAppendFails(t *testing.T) {
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, baseService, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_agent_error_fallback", MaxSteps: 1})
+	requestWorkflow(t, baseService, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_agent_error_fallback", MaxSteps: 1})
 
 	agent := &fakeAgent{
 		responses: []AgentResult{
@@ -648,7 +653,7 @@ func TestRunnerProposesExplicitSourceCandidatesFromWorkflowResponse(t *testing.T
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_candidates", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_candidates", MaxSteps: 1})
 
 	response := strings.Join([]string{
 		"새 원자료 후보를 찾았습니다.",
@@ -715,7 +720,7 @@ func TestRunnerFailsOnInvalidControlDecision(t *testing.T) {
 	ctx := context.Background()
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_invalid", MaxSteps: 2})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_invalid", MaxSteps: 2})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "visible result without control", SessionID: "agent-session-1"}}}
 	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_invalid")
@@ -745,7 +750,7 @@ func TestRunnerAutoCompactsAndRetriesWhenContextWindowIsFull(t *testing.T) {
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_compact", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_compact", MaxSteps: 1})
 
 	agent := &fakeAgent{
 		responses: []AgentResult{
@@ -841,7 +846,7 @@ func TestRunnerFailsOnDifferentReturnedSession(t *testing.T) {
 		"agent_executor":   "codex",
 		"agent_session_id": "agent-session-1",
 	})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_session", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_session", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "bad session\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-2"}}}
 	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_session")
@@ -854,7 +859,7 @@ func TestRunnerFailsOnDifferentReturnedSession(t *testing.T) {
 }
 
 func TestLatestAgentSessionIDIncludesReportArtifactCreated(t *testing.T) {
-	events := []app.LedgerEvent{{
+	events := []ledger.Event{{
 		EventType: "report.artifact.created",
 		Payload:   json.RawMessage(`{"agent_executor":"codex","agent_session_id":"report-session-1"}`),
 	}}
@@ -864,7 +869,7 @@ func TestLatestAgentSessionIDIncludesReportArtifactCreated(t *testing.T) {
 }
 
 func TestLatestAgentSessionIDKeepsPreReportResearchSessionForIsolatedReport(t *testing.T) {
-	events := []app.LedgerEvent{{
+	events := []ledger.Event{{
 		EventType: "turn.agent.response",
 		Payload:   json.RawMessage(`{"kind":"agent_response","agent_executor":"codex","agent_session_id":"research-session-1"}`),
 	}, {
@@ -877,7 +882,7 @@ func TestLatestAgentSessionIDKeepsPreReportResearchSessionForIsolatedReport(t *t
 }
 
 func TestStepPromptUsesLayeredShapeForLegacyCurrentMode(t *testing.T) {
-	prompt := StepPrompt(app.WorkflowRunView{
+	prompt := StepPrompt(workflowstate.WorkflowRunView{
 		MissionID:          "mis_1",
 		UserInstructionRaw: "다각도로 조사",
 		RunGoal:            "여러 가능성을 열어둔 조사",
@@ -935,7 +940,7 @@ func TestStepPromptUsesLayeredShapeForLegacyCurrentMode(t *testing.T) {
 }
 
 func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
-	prompt := StepPrompt(app.WorkflowRunView{
+	prompt := StepPrompt(workflowstate.WorkflowRunView{
 		MissionID:           "mis_1",
 		StepInstructionMode: app.WorkflowStepInstructionModeLayered,
 		UserInstructionRaw:  "다각도로 조사",
@@ -970,7 +975,7 @@ func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
 }
 
 func TestStepPromptRequiresOutlineOrientationForEveryWorkflowRunFirstStep(t *testing.T) {
-	firstStep := app.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
+	firstStep := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
 	fresh := StepPrompt(firstStep, "첫 단계", "ses_tool", false)
 	resumed := StepPrompt(firstStep, "새 실행의 첫 단계", "ses_tool", true)
 
@@ -994,7 +999,7 @@ func TestStepPromptRequiresOutlineOrientationForEveryWorkflowRunFirstStep(t *tes
 }
 
 func TestStepPromptSkipsRepeatedOutlineOrientationAfterWorkflowRunFirstStep(t *testing.T) {
-	view := app.WorkflowRunView{MissionID: "mis_1", Instruction: "조사", CompletedStepCount: 1}
+	view := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사", CompletedStepCount: 1}
 	resumed := StepPrompt(view, "같은 실행의 다음 단계", "ses_tool", true)
 
 	if strings.Contains(resumed, "Start with plasma.research.outline") {
@@ -1029,16 +1034,16 @@ func newWorkflowTestService(t *testing.T) *app.Service {
 	return app.NewService(store)
 }
 
-func createWorkflowMission(t *testing.T, svc *app.Service) app.Mission {
+func createWorkflowMission(t *testing.T, svc *app.Service) mission.Mission {
 	t.Helper()
-	mission, err := svc.CreateMission(context.Background(), app.CreateMissionRequest{MissionID: "mis_workflow", Title: "Workflow mission"})
+	mission, err := svc.CreateMission(context.Background(), mission.CreateRequest{MissionID: "mis_workflow", Title: "Workflow mission"})
 	if err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	return mission
 }
 
-func requestWorkflow(t *testing.T, svc *app.Service, missionID string, req app.RequestWorkflowRunRequest) app.WorkflowRunView {
+func requestWorkflow(t *testing.T, svc *app.Service, missionID string, req workflowstate.RequestWorkflowRunRequest) workflowstate.WorkflowRunView {
 	t.Helper()
 	req.MissionID = missionID
 	req.RequestedBySurface = app.WorkflowSurfaceWeb
@@ -1072,18 +1077,18 @@ func appendRawEvent(t *testing.T, svc *app.Service, missionID string, eventID st
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(context.Background(), app.AppendEventRequest{
+	if _, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   eventID,
 		MissionID: missionID,
 		EventType: eventType,
-		Producer:  app.Producer{Type: "test", ID: "test"},
+		Producer:  ledger.Producer{Type: "test", ID: "test"},
 		Payload:   encoded,
 	}); err != nil {
 		t.Fatalf("AppendEvent %s returned error: %v", eventID, err)
 	}
 }
 
-func countEvents(events []app.LedgerEvent, eventType string) int {
+func countEvents(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {

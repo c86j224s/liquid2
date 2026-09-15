@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ const (
 )
 
 // RequestWorkflowRun은 워크플로우 실행 요청 이벤트를 장부에 남긴다. 실제 실행은 runner가 별도로 claim한다.
-func (s *Service) RequestWorkflowRun(ctx context.Context, req RequestWorkflowRunRequest) (WorkflowRunView, error) {
+func (s *Service) RequestWorkflowRun(ctx context.Context, req workflowstate.RequestWorkflowRunRequest) (workflowstate.WorkflowRunView, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
 
@@ -29,7 +30,7 @@ func (s *Service) RequestWorkflowRun(ctx context.Context, req RequestWorkflowRun
 }
 
 // RequestWorkflowStop은 실행 중인 워크플로우에 대한 중단 요청 이벤트를 기록한다.
-func (s *Service) RequestWorkflowStop(ctx context.Context, req RequestWorkflowStopRequest) (WorkflowRunView, error) {
+func (s *Service) RequestWorkflowStop(ctx context.Context, req workflowstate.RequestWorkflowStopRequest) (workflowstate.WorkflowRunView, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
 
@@ -38,16 +39,16 @@ func (s *Service) RequestWorkflowStop(ctx context.Context, req RequestWorkflowSt
 }
 
 // BuildWorkflowRunTerminalAppendRequest는 애플리케이션 서비스 계층에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildWorkflowRunTerminalAppendRequest(events []LedgerEvent, req WorkflowRunTerminalEventRequest) (AppendEventRequest, bool, error) {
+func BuildWorkflowRunTerminalAppendRequest(events []ledger.Event, req workflowstate.WorkflowRunTerminalEventRequest) (ledger.AppendRequest, bool, error) {
 	eventReq, ok, err := workflowruns.BuildTerminalAppendRequest(workflowEventsFromApp(events), req, newAppID, time.Now().UTC())
 	if err != nil || !ok {
-		return AppendEventRequest{}, ok, translateWorkflowRunError(err)
+		return ledger.AppendRequest{}, ok, translateWorkflowRunError(err)
 	}
 	return workflowAppendRequestToApp(eventReq), true, nil
 }
 
 // ClaimWorkflowRunStart는 workflow run 시작 claim 결과를 app view로 변환한다.
-func (s *Service) ClaimWorkflowRunStart(ctx context.Context, missionID string, workflowRunID string, startedAt time.Time) (WorkflowRunView, bool, error) {
+func (s *Service) ClaimWorkflowRunStart(ctx context.Context, missionID string, workflowRunID string, startedAt time.Time) (workflowstate.WorkflowRunView, bool, error) {
 	s.workflowMu.Lock()
 	defer s.workflowMu.Unlock()
 
@@ -56,22 +57,22 @@ func (s *Service) ClaimWorkflowRunStart(ctx context.Context, missionID string, w
 }
 
 // ListWorkflowRuns는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) ListWorkflowRuns(ctx context.Context, missionID string) ([]WorkflowRunView, error) {
+func (s *Service) ListWorkflowRuns(ctx context.Context, missionID string) ([]workflowstate.WorkflowRunView, error) {
 	runs, err := workflowruns.ListRuns(ctx, workflowRunStore{service: s}, missionID)
 	return runs, translateWorkflowRunError(err)
 }
 
 // GetWorkflowRun는 애플리케이션 서비스 계층의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
-func (s *Service) GetWorkflowRun(ctx context.Context, missionID string, workflowRunID string) (WorkflowRunView, error) {
+func (s *Service) GetWorkflowRun(ctx context.Context, missionID string, workflowRunID string) (workflowstate.WorkflowRunView, error) {
 	view, err := workflowruns.GetRun(ctx, workflowRunStore{service: s}, missionID, workflowRunID)
 	return view, translateWorkflowRunError(err)
 }
 
-func projectWorkflowRuns(events []LedgerEvent) []WorkflowRunView {
+func projectWorkflowRuns(events []ledger.Event) []workflowstate.WorkflowRunView {
 	return workflowstate.ProjectRuns(workflowEventsFromApp(events))
 }
 
-func workflowEventsFromApp(events []LedgerEvent) []workflowstate.Event {
+func workflowEventsFromApp(events []ledger.Event) []workflowstate.Event {
 	converted := make([]workflowstate.Event, 0, len(events))
 	for _, event := range events {
 		converted = append(converted, workflowstate.Event{
@@ -90,15 +91,15 @@ func validateWorkflowEventPayload(eventType string, missionID string, payload js
 	return translateWorkflowRunError(workflowruns.ValidateEventPayload(strings.TrimSpace(eventType), strings.TrimSpace(missionID), payload))
 }
 
-func workflowHasOpenAgentPending(events []LedgerEvent) bool {
+func workflowHasOpenAgentPending(events []ledger.Event) bool {
 	return ledgerstate.HasOpenAgentPending(ledgerStateEventsFromApp(events))
 }
 
-func workflowHasAgentTerminalEventForUser(events []LedgerEvent, userEventID string) bool {
+func workflowHasAgentTerminalEventForUser(events []ledger.Event, userEventID string) bool {
 	return ledgerstate.HasAgentTerminalEventForUser(ledgerStateEventsFromApp(events), userEventID)
 }
 
-func validateWorkflowStartAfterEvent(events []LedgerEvent, startAfterEventID string) error {
+func validateWorkflowStartAfterEvent(events []ledger.Event, startAfterEventID string) error {
 	message := ledgerstate.ValidateWorkflowStartAfterEvent(ledgerStateEventsFromApp(events), startAfterEventID)
 	if message == "" {
 		return nil
@@ -124,12 +125,12 @@ func (store workflowRunStore) ListEvents(ctx context.Context, missionID string) 
 
 // AppendRequestsConditionally는 조건 함수가 승인한 append 요청만 장부에 반영한다.
 func (store workflowRunStore) AppendRequestsConditionally(ctx context.Context, missionID string, build func([]workflowruns.Event) ([]workflowruns.AppendEventRequest, error)) ([]workflowruns.Event, error) {
-	appended, err := store.service.appendLedgerEventsConditionally(ctx, missionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	appended, err := store.service.appendLedgerEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		workflowRequests, err := build(workflowEventsFromApp(events))
 		if err != nil {
 			return nil, err
 		}
-		toAppend := make([]LedgerEvent, 0, len(workflowRequests))
+		toAppend := make([]ledger.Event, 0, len(workflowRequests))
 		for _, workflowRequest := range workflowRequests {
 			event, err := buildLedgerEvent(workflowAppendRequestToApp(workflowRequest))
 			if err != nil {
@@ -148,12 +149,12 @@ func (store workflowRunStore) AppendRequestsConditionally(ctx context.Context, m
 	return workflowEventsFromApp(appended), nil
 }
 
-func workflowAppendRequestToApp(req workflowruns.AppendEventRequest) AppendEventRequest {
-	return AppendEventRequest{
+func workflowAppendRequestToApp(req workflowruns.AppendEventRequest) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:          req.EventID,
 		MissionID:        req.MissionID,
 		EventType:        req.EventType,
-		Producer:         Producer{Type: req.Producer.Type, ID: req.Producer.ID},
+		Producer:         ledger.Producer{Type: req.Producer.Type, ID: req.Producer.ID},
 		CausationEventID: req.CausationEventID,
 		CorrelationID:    req.CorrelationID,
 		Payload:          req.Payload,

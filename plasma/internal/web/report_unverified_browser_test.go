@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	cdpbrowser "github.com/chromedp/cdproto/browser"
@@ -120,6 +121,7 @@ func TestUnverifiedReportBrowserDogfood(t *testing.T) {
 	writeUnverifiedBrowserScreenshot(t, browserCtx, "desktop-failed.png", &receipt)
 
 	if err := chromedp.Run(browserCtx,
+		chromedp.Click(`#reportCreationTab`, chromedp.ByID),
 		chromedp.Evaluate(`document.querySelector('#reportDirectionHint').value = '자료에 맞춰 자유롭게 작성'; document.querySelector('#reportRigor').value = 'unverified'`, nil),
 		chromedp.Click(`#draftQuickReport`, chromedp.ByID),
 		chromedp.Poll(`document.querySelector('.report-card:not(.report-il-card)')?.textContent.includes('무검증 보고서')`, nil, chromedp.WithPollingTimeout(15*time.Second)),
@@ -168,9 +170,9 @@ func TestUnverifiedReportBrowserDogfood(t *testing.T) {
 
 func seedUnverifiedBrowserFailure(t *testing.T, ctx context.Context, service *app.Service, missionID, pendingID string) {
 	t.Helper()
-	_, closed, err := service.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []app.AppendEventRequest{{
+	_, closed, err := service.AppendReportTerminalIfOpen(ctx, missionID, pendingID, []ledger.AppendRequest{{
 		EventID: "evt_unverified_browser_failed_terminal", MissionID: missionID,
-		EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"},
+		EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Payload: mustJSON(map[string]any{
 			"kind": "report_draft_failed", "pending_event_id": pendingID,
 			"pipeline_family":  reportpipeline.Unverified,
@@ -234,8 +236,8 @@ func assertUnverifiedBrowserCompletedLayout(t *testing.T, layout unverifiedBrows
 	if layout.DocumentScrollWidth > layout.DocumentClientWidth+1 {
 		t.Fatalf("completed unverified layout overflowed: %+v", layout)
 	}
-	if mobile && layout.ActionWidth < float64(layout.DocumentClientWidth)-48 {
-		t.Fatalf("mobile report actions are not full width: %+v", layout)
+	if mobile && layout.ActionWidth < float64(layout.DocumentClientWidth)-96 {
+		t.Fatalf("mobile report actions do not fill their nested output card: %+v", layout)
 	}
 }
 

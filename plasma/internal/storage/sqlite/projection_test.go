@@ -4,25 +4,27 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestProjectionRoundTrip(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Initial"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Initial"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 
-	projection := app.MissionProjection{
+	projection := mission.Projection{
 		MissionID:             "mis_1",
 		LastEventID:           "evt_2",
 		LastSequence:          2,
 		Title:                 "Projected",
 		Objective:             "Build projection",
-		Scope:                 app.MissionScope{Included: []string{"ledger"}, Excluded: []string{"auth"}},
+		Scope:                 mission.Scope{Included: []string{"ledger"}, Excluded: []string{"auth"}},
 		ActiveSessionIDs:      []string{"ses_1"},
 		AcceptedClaimIDs:      []string{"clm_1"},
 		OpenQuestionIDs:       []string{"qst_1"},
@@ -48,7 +50,7 @@ func TestProjectionRoundTrip(t *testing.T) {
 
 func TestSaveMissionProjectionMissingMissionReturnsError(t *testing.T) {
 	store := newTestStore(t)
-	err := store.SaveMissionProjection(context.Background(), app.MissionProjection{
+	err := store.SaveMissionProjection(context.Background(), mission.Projection{
 		MissionID:      "mis_missing",
 		LifecycleState: "active",
 	})
@@ -60,11 +62,11 @@ func TestSaveMissionProjectionMissingMissionReturnsError(t *testing.T) {
 func TestSaveMissionProjectionRejectsStaleSequence(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Initial"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Initial"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 
-	if err := store.SaveMissionProjection(ctx, app.MissionProjection{
+	if err := store.SaveMissionProjection(ctx, mission.Projection{
 		MissionID:      "mis_1",
 		LastEventID:    "evt_2",
 		LastSequence:   2,
@@ -73,7 +75,7 @@ func TestSaveMissionProjectionRejectsStaleSequence(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveMissionProjection fresh returned error: %v", err)
 	}
-	err := store.SaveMissionProjection(ctx, app.MissionProjection{
+	err := store.SaveMissionProjection(ctx, mission.Projection{
 		MissionID:      "mis_1",
 		LastEventID:    "evt_1",
 		LastSequence:   1,
@@ -97,23 +99,23 @@ func TestServiceRebuildProjectionPersistsCache(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{"title":"Mission","objective":"Projection"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_2",
 		MissionID: "mis_1",
 		EventType: "session.attached",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{"session_id":"ses_1"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent returned error: %v", err)

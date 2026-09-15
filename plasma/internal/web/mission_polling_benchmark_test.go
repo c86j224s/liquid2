@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -36,19 +37,19 @@ func TestMissionPollingLargeFixtureMetrics(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	largePayload := `{"note":"` + strings.Repeat("evidence ", 160) + `"}`
 	for index := 0; index < largePollingFixtureEvents; index++ {
-		if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+		if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 			EventID:   fmt.Sprintf("evt_polling_fixture_%03d", index),
 			MissionID: missionID,
 			EventType: "mission.note",
-			Producer:  app.Producer{Type: "test", ID: "polling-fixture"},
+			Producer:  ledger.Producer{Type: "test", ID: "polling-fixture"},
 			Payload:   []byte(largePayload),
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_polling_fixture_pending", MissionID: missionID, EventType: "turn.agent.pending",
-		Producer: app.Producer{Type: "test", ID: "polling-fixture"}, Payload: []byte(`{"user_event_id":"evt_polling_fixture_user"}`),
+		Producer: ledger.Producer{Type: "test", ID: "polling-fixture"}, Payload: []byte(`{"user_event_id":"evt_polling_fixture_user"}`),
 	}); err != nil {
 		t.Fatal(err)
 	}

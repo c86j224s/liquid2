@@ -3,6 +3,7 @@ package sourceingest
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
@@ -11,7 +12,7 @@ import (
 // CreateTextSourceWithEvent는 사용자가 붙여넣은 텍스트를 artifact와 manual
 // source snapshot으로 저장한다. 외부 URI가 없으면 snapshot ID 기반 manual 식별자로
 // 같은 미션 안의 저장 식별자를 만든다.
-func CreateTextSourceWithEvent(ctx context.Context, store Store, req CreateTextSourceWithEventRequest) (SourceSnapshotWithEventResult, error) {
+func CreateTextSourceWithEvent(ctx context.Context, store Store, req CreateTextSourceWithEventRequest) (source.SourceSnapshotWithEventResult, error) {
 	title := strings.TrimSpace(req.Source.Title)
 	if title == "" {
 		title = "Pasted text source"
@@ -22,7 +23,7 @@ func CreateTextSourceWithEvent(ctx context.Context, store Store, req CreateTextS
 	if externalID == "" {
 		externalID = "manual:" + req.SnapshotID
 	}
-	return store.CreateSourceSnapshotWithEvent(ctx, CreateSourceSnapshotWithEventRequest{
+	return store.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
 		Artifact: CreateRawArtifactRequest{
 			ArtifactID: req.ArtifactID,
 			MissionID:  req.MissionID,

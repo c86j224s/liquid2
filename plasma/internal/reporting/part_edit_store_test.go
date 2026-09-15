@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -160,7 +163,7 @@ func TestFinalizePartEditReplaysCanonicalWinnerAcrossChangedNoOpRace(t *testing.
 	if countEventType(events, reporting.PartEditedEventType) != 1 {
 		t.Fatalf("canonical Part edit event count differs: %#v", events)
 	}
-	var canonical app.LedgerEvent
+	var canonical ledger.Event
 	for _, event := range events {
 		if event.EventType == reporting.PartEditedEventType {
 			canonical = event
@@ -179,16 +182,16 @@ func TestFinalizePartEditReusesAncestorPartOnlyForResumeFailed(t *testing.T) {
 	svc, closeStore, binding := newPartEditFixture(t, ctx)
 	defer closeStore()
 
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_root_failed", MissionID: binding.MissionID, EventType: "report.draft.failed",
-		Producer: app.Producer{Type: "agent", ID: "codex"},
+		Producer: ledger.Producer{Type: "agent", ID: "codex"},
 		Payload:  testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "kind": "report_draft_failed"}),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_pending_resume", MissionID: binding.MissionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: testJSON(map[string]any{
 			"report_mode": "long_form", "origin_pending_event_id": binding.PendingEventID,
 			"retry_of_pending_event_id": binding.PendingEventID, "retry_strategy": "resume_failed", "attempt_number": 2,
@@ -205,9 +208,9 @@ func TestFinalizePartEditReusesAncestorPartOnlyForResumeFailed(t *testing.T) {
 		t.Fatalf("resume_failed should reuse ancestor Part: %v", err)
 	}
 
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_pending_restart", MissionID: binding.MissionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: testJSON(map[string]any{
 			"report_mode": "long_form", "origin_pending_event_id": binding.PendingEventID,
 			"retry_of_pending_event_id": binding.PendingEventID, "retry_strategy": "restart", "attempt_number": 2,
@@ -233,20 +236,20 @@ func newPartEditFixture(t *testing.T, ctx context.Context) (*app.Service, func()
 	}
 	svc := app.NewService(store)
 	binding := partEditBinding()
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: binding.MissionID, Title: "part edit"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: binding.MissionID, Title: "part edit"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.SourceArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "part-1.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Content: []byte(partEditSourceMarkdown),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Content: []byte(partEditSourceMarkdown),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, request := range []app.AppendEventRequest{
-		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form"})},
-		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "report_mode": "long_form", "artifact_id": "art_final"})},
-		{EventID: binding.SourcePartEventID, MissionID: binding.MissionID, EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SourceArtifactID, "part_index": binding.PartIndex})},
+	for _, request := range []ledger.AppendRequest{
+		{EventID: binding.PendingEventID, MissionID: binding.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form"})},
+		{EventID: binding.PlanEventID, MissionID: binding.MissionID, EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "report_mode": "long_form", "artifact_id": "art_final"})},
+		{EventID: binding.SourcePartEventID, MissionID: binding.MissionID, EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Payload: testJSON(map[string]any{"pending_event_id": binding.PendingEventID, "plan_event_id": binding.PlanEventID, "artifact_id": binding.SourceArtifactID, "part_index": binding.PartIndex})},
 	} {
 		if _, err := svc.AppendEvent(ctx, request); err != nil {
 			t.Fatal(err)
@@ -275,7 +278,7 @@ func partEditBinding() reporting.PartEditBinding {
 	}
 }
 
-func partEditedPayload(t *testing.T, event app.LedgerEvent) map[string]any {
+func partEditedPayload(t *testing.T, event ledger.Event) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

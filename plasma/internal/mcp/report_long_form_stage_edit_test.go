@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportfinaledit"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func TestReportLongFormStageEditToolPartitionAndClosedConfig(t *testing.T) {
@@ -308,7 +310,7 @@ func TestReportLongFormStyleDiagnosesPreserveMCPPatchOrder(t *testing.T) {
 
 func TestReportLongFormStylePatchSummaryRequiresExactCategoryFormat(t *testing.T) {
 	valid := "category: unnatural_collocation; awkward Korean collocation"
-	if category, reason, err := validateStyleStagePatchSummary(valid); err != nil || category != "unnatural_collocation" || reason != "awkward Korean collocation" {
+	if category, reason, err := reportfinaledit.ValidateStyleStagePatchSummary(valid); err != nil || category != "unnatural_collocation" || reason != "awkward Korean collocation" {
 		t.Fatalf("valid summary rejected: %v", err)
 	}
 	for name, summary := range map[string]string{
@@ -318,7 +320,7 @@ func TestReportLongFormStylePatchSummaryRequiresExactCategoryFormat(t *testing.T
 		"duplicate_marker": "category: unnatural_collocation; category: awkward Korean collocation",
 		"extra_category":   "category: unnatural_collocation; also vague_reference",
 	} {
-		if _, _, err := validateStyleStagePatchSummary(summary); err == nil {
+		if _, _, err := reportfinaledit.ValidateStyleStagePatchSummary(summary); err == nil {
 			t.Fatalf("%s summary was accepted: %q", name, summary)
 		}
 	}
@@ -476,7 +478,7 @@ func TestReportLongFormStyleSubmitFallsBackToSourceArtifactOnStructuralDrift(t *
 	finalForGate.ToolSessionID = "ses_gate"
 	finalForGate.ProviderSessionID = "provider-gate"
 	finalForGate.PreviousProviderSessionID = "provider-style"
-	finalForGate.Producer = app.Producer{Type: "agent_session", ID: "provider-gate"}
+	finalForGate.Producer = ledger.Producer{Type: "agent_session", ID: "provider-gate"}
 	gate := testFinalEditStageBinding(finalForGate, reporting.FinalEditStageGate, "art_reader_edit", finalForGate.ArtifactID, finalForGate.ToolSessionID, finalForGate.ProviderSessionID, finalForGate.PreviousProviderSessionID, finalForGate.ForkSourceAgentSessionID)
 	gateServer := NewServer(service,
 		WithBinding(stageMCPBinding(gate)),
@@ -532,7 +534,7 @@ func TestReportLongFormStyleSubmitSourceLoadFailureIsHardError(t *testing.T) {
 		t.Fatalf("missing source unexpectedly submitted style event: %#v", service.ledgerEvents)
 	}
 	server.mu.Lock()
-	finalizing := server.longFormStageEditDrafts["rfe_missing_source"].Finalizing
+	finalizing := server.reportFinalEditState.StageDrafts["rfe_missing_source"].Finalizing
 	server.mu.Unlock()
 	if finalizing {
 		t.Fatal("style draft remained finalizing after source load failure")
@@ -571,7 +573,7 @@ func TestReportLongFormNoOpStyleAndGateSubmitUseDurableSourceArtifacts(t *testin
 	finalForGate.ToolSessionID = "ses_gate"
 	finalForGate.ProviderSessionID = "provider-gate"
 	finalForGate.PreviousProviderSessionID = "provider-style"
-	finalForGate.Producer = app.Producer{Type: "agent_session", ID: "provider-gate"}
+	finalForGate.Producer = ledger.Producer{Type: "agent_session", ID: "provider-gate"}
 	gate := testFinalEditStageBinding(finalForGate, reporting.FinalEditStageGate, "art_reader_edit", finalForGate.ArtifactID, finalForGate.ToolSessionID, finalForGate.ProviderSessionID, finalForGate.PreviousProviderSessionID, finalForGate.ForkSourceAgentSessionID)
 	gateServer := NewServer(service,
 		WithBinding(stageMCPBinding(gate)),
@@ -620,7 +622,7 @@ func TestReportLongFormStyleReviewReadIsByteBoundedAndRequiredBeforeChangedStyle
 	finalForGate.ToolSessionID = "ses_gate"
 	finalForGate.ProviderSessionID = "provider-gate"
 	finalForGate.PreviousProviderSessionID = "provider-style"
-	finalForGate.Producer = app.Producer{Type: "agent_session", ID: "provider-gate"}
+	finalForGate.Producer = ledger.Producer{Type: "agent_session", ID: "provider-gate"}
 	styleArtifactID := styleResult.Content.(map[string]any)["artifact_id"].(string)
 	gate := testFinalEditStageBinding(finalForGate, reporting.FinalEditStageGate, styleArtifactID, finalForGate.ArtifactID, finalForGate.ToolSessionID, finalForGate.ProviderSessionID, finalForGate.PreviousProviderSessionID, finalForGate.ForkSourceAgentSessionID)
 	server := NewServer(service,
@@ -720,7 +722,7 @@ func TestReportLongFormGateStageRequiresFindingsAndDoesNotPersistRawStatement(t 
 	finalBinding.ToolSessionID = "ses_gate"
 	finalBinding.ProviderSessionID = "provider-gate"
 	finalBinding.PreviousProviderSessionID = "provider-reader"
-	finalBinding.Producer = app.Producer{Type: "agent_session", ID: "provider-gate"}
+	finalBinding.Producer = ledger.Producer{Type: "agent_session", ID: "provider-gate"}
 	gate := testFinalEditStageBinding(finalBinding, reporting.FinalEditStageGate, "art_reader_edit", finalBinding.ArtifactID, "ses_gate", "provider-gate", "provider-reader", "provider-plan")
 	disabledServer := NewServer(service, WithBinding(stageMCPBinding(gate)), WithFinalEditStageBinding(gate), WithLongFormFinalizeBinding(finalBinding), WithEnabledTools([]string{ToolReportLongFormStyleReviewRead}))
 	if containsString(toolNames(disabledServer.ListTools()), ToolReportLongFormStyleReviewRead) {
@@ -744,7 +746,7 @@ func TestReportLongFormGateStageRequiresFindingsAndDoesNotPersistRawStatement(t 
 	if semanticRejected.Error == nil || semanticRejected.Error.ErrorKind != "validation" || !strings.Contains(semanticRejected.Error.Message, "post_report_humanize") {
 		t.Fatalf("disabled gate accepted non-empty semantic acceptance: %#v", semanticRejected)
 	}
-	service.evidence = []app.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: finalBinding.MissionID, State: "approved"}}
+	service.evidence = []researchrecords.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: finalBinding.MissionID, State: "approved"}}
 	statement := "This external fact must be checked."
 	findings := []map[string]any{{
 		"statement": statement, "classification": reporting.FinalEditGateClassUnverifiedExternalFact,
@@ -863,23 +865,23 @@ func gateFinalBindingForStage(binding reporting.FinalEditStageBinding) reporting
 func seededFinalEditStageService(t *testing.T, humanize string) (*fakeMCPService, reporting.LongFormFinalizeBinding) {
 	t.Helper()
 	final := testFinalEditBaseBinding(humanize)
-	producer := app.Producer{Type: "agent_session", ID: "provider-plan"}
-	parts := []app.RawArtifact{
+	producer := ledger.Producer{Type: "agent_session", ID: "provider-plan"}
+	parts := []artifactcontract.Raw{
 		testRawArtifact("art_part_1", final.MissionID, final.Filename, "# Part 1\n\nAlpha body.\n", producer),
 		testRawArtifact("art_part_2", final.MissionID, final.Filename, "# Part 2\n\nBeta body.\n", producer),
 	}
-	sections := []app.RawArtifact{
+	sections := []artifactcontract.Raw{
 		testRawArtifact("art_section_1", final.MissionID, final.Filename, "# Section 1\n\nAlpha source.\n", producer),
 		testRawArtifact("art_section_2", final.MissionID, final.Filename, "# Section 2\n\nBeta source.\n", producer),
 	}
-	artifacts := map[string]app.RawArtifact{}
+	artifacts := map[string]artifactcontract.Raw{}
 	for _, artifact := range append(parts, sections...) {
 		artifacts[artifact.ArtifactID] = artifact
 	}
 	return &fakeMCPService{
 		artifacts: artifacts,
-		ledgerEvents: []app.LedgerEvent{
-			{EventID: final.PendingEventID, MissionID: final.MissionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": reporting.ModeLongForm})},
+		ledgerEvents: []ledger.Event{
+			{EventID: final.PendingEventID, MissionID: final.MissionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": reporting.ModeLongForm})},
 			{EventID: final.PlanEventID, MissionID: final.MissionID, EventType: "report.plan.created", Producer: producer, Payload: mustJSON(map[string]any{
 				"pending_event_id": final.PendingEventID, "report_mode": reporting.ModeLongForm, "artifact_id": final.ArtifactID,
 				"final_edit_pipeline": reporting.FinalEditPipelineReaderStyleGateV1, "post_report_humanize": humanize,
@@ -924,7 +926,7 @@ func testFinalEditBaseBinding(humanize string) reporting.LongFormFinalizeBinding
 		ReportSessionPolicy: "reuse", ReportSessionPolicySelection: "auto", PostReportHumanize: humanize,
 		GenerationGuidanceProfile: "reader-style-gate", GenerationGuidanceSHA256: strings.Repeat("a", 64), SessionChainKind: "report_final_edit",
 		PreReportResearchSessionID: "provider-research", ReportPlanSessionID: "provider-plan", ForkSourceAgentSessionID: "provider-plan",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-gate"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-gate"},
 	}
 }
 
@@ -940,7 +942,7 @@ func testFinalEditStageBinding(final reporting.LongFormFinalizeBinding, stage, s
 		GenerationGuidanceProfile: final.GenerationGuidanceProfile, GenerationGuidanceSHA256: final.GenerationGuidanceSHA256,
 		SessionChainKind: final.SessionChainKind, PreReportResearchSessionID: final.PreReportResearchSessionID,
 		ReportPlanSessionID: final.ReportPlanSessionID, ForkSourceAgentSessionID: forkSource,
-		Producer: app.Producer{Type: "agent_session", ID: providerSessionID},
+		Producer: ledger.Producer{Type: "agent_session", ID: providerSessionID},
 	}
 }
 
@@ -964,9 +966,9 @@ func stageStartArgs(binding reporting.FinalEditStageBinding, draftID string, key
 	return args
 }
 
-func testRawArtifact(artifactID string, missionID string, filename string, content string, producer app.Producer) app.RawArtifact {
+func testRawArtifact(artifactID string, missionID string, filename string, content string, producer ledger.Producer) artifactcontract.Raw {
 	sum := sha256.Sum256([]byte(content))
-	return app.RawArtifact{
+	return artifactcontract.Raw{
 		ArtifactID: artifactID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
 		Filename: filename, Producer: producer, Content: []byte(content), SHA256: hex.EncodeToString(sum[:]),
 	}
@@ -982,9 +984,9 @@ func canonicalEventCount(service *fakeMCPService) int {
 	return count
 }
 
-func onlyCanonicalEvent(t *testing.T, service *fakeMCPService) app.LedgerEvent {
+func onlyCanonicalEvent(t *testing.T, service *fakeMCPService) ledger.Event {
 	t.Helper()
-	var found app.LedgerEvent
+	var found ledger.Event
 	count := 0
 	for _, event := range service.ledgerEvents {
 		if event.EventType == "report.artifact.created" {
@@ -998,7 +1000,7 @@ func onlyCanonicalEvent(t *testing.T, service *fakeMCPService) app.LedgerEvent {
 	return found
 }
 
-func finalEditStageTestPayload(t *testing.T, event app.LedgerEvent) map[string]any {
+func finalEditStageTestPayload(t *testing.T, event ledger.Event) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
@@ -1007,7 +1009,7 @@ func finalEditStageTestPayload(t *testing.T, event app.LedgerEvent) map[string]a
 	return payload
 }
 
-func lastEventOfType(t *testing.T, service *fakeMCPService, eventType string) app.LedgerEvent {
+func lastEventOfType(t *testing.T, service *fakeMCPService, eventType string) ledger.Event {
 	t.Helper()
 	for i := len(service.ledgerEvents) - 1; i >= 0; i-- {
 		if service.ledgerEvents[i].EventType == eventType {
@@ -1015,7 +1017,7 @@ func lastEventOfType(t *testing.T, service *fakeMCPService, eventType string) ap
 		}
 	}
 	t.Fatalf("event type %s not found", eventType)
-	return app.LedgerEvent{}
+	return ledger.Event{}
 }
 
 func mustMarshalString(t *testing.T, value any) string {

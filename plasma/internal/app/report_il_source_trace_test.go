@@ -4,24 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 type reportILSourceTraceStore struct {
 	fakeStore
-	events []LedgerEvent
+	events []ledger.Event
 }
 
-func (store reportILSourceTraceStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
-	return append([]LedgerEvent(nil), store.events...), nil
+func (store reportILSourceTraceStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
+	return append([]ledger.Event(nil), store.events...), nil
 }
 
 func TestVerifyReportILSourceReadAcceptsCompleteFlowBatches(t *testing.T) {
 	catalog := reportILSourceVerifierCatalog(t, 17, 5)
-	service := NewService(reportILSourceTraceStore{events: []LedgerEvent{
+	service := NewService(reportILSourceTraceStore{events: []ledger.Event{
 		reportILSourceVerifierBatchEvent(
 			"evt_flow_1", "ses_flow", "il_flow", catalog.SHA256,
 			[]map[string]any{
@@ -51,7 +53,7 @@ func TestVerifyReportILSourceReadAcceptsCompleteFlowBatches(t *testing.T) {
 
 func TestVerifyReportILSourceReadRecordsCompactFlowRanges(t *testing.T) {
 	catalog := reportILSourceVerifierCatalog(t, 40)
-	service := NewService(reportILSourceTraceStore{events: []LedgerEvent{
+	service := NewService(reportILSourceTraceStore{events: []ledger.Event{
 		reportILSourceVerifierBatchEvent(
 			"evt_flow_span_1", "ses_flow_span", "il_flow", catalog.SHA256,
 			[]map[string]any{
@@ -76,7 +78,7 @@ func TestVerifyReportILSourceReadRecordsCompactFlowRanges(t *testing.T) {
 
 func TestVerifyReportILSourceReadAcceptsSelectionBatches(t *testing.T) {
 	catalog := reportILSourceVerifierCatalog(t, 17, 19)
-	service := NewService(reportILSourceTraceStore{events: []LedgerEvent{
+	service := NewService(reportILSourceTraceStore{events: []ledger.Event{
 		reportILSourceVerifierBatchEvent(
 			"evt_selection",
 			"ses_selection",
@@ -112,7 +114,7 @@ func TestVerifyReportILSourceReadAcceptsCompleteBatchContinuation(t *testing.T) 
 		t.Run(stage, func(t *testing.T) {
 			catalog := reportILSourceVerifierCatalog(t, 17, 5)
 			sessionID := "ses_" + strings.TrimPrefix(stage, "il_")
-			service := NewService(reportILSourceTraceStore{events: []LedgerEvent{
+			service := NewService(reportILSourceTraceStore{events: []ledger.Event{
 				reportILSourceVerifierBatchEvent(
 					"evt_"+stage+"_1", sessionID, stage, catalog.SHA256,
 					[]map[string]any{
@@ -165,7 +167,7 @@ func TestVerifyReportILSourceReadAcceptsBoundQuoteReceipts(t *testing.T) {
 				"evt_quote", sessionID, stage, catalog.SHA256,
 				quoteReceipt, "source_001", 4, 5, quoteSHA,
 			)
-			service := NewService(reportILSourceTraceStore{events: []LedgerEvent{read, quote}})
+			service := NewService(reportILSourceTraceStore{events: []ledger.Event{read, quote}})
 			receipt, err := service.VerifyReportILSourceRead(
 				context.Background(), catalog.MissionID, sessionID, stage, catalog,
 			)
@@ -176,27 +178,27 @@ func TestVerifyReportILSourceReadAcceptsBoundQuoteReceipts(t *testing.T) {
 				t.Fatalf("source quote receipt = %#v", receipt.SourceQuotes)
 			}
 
-			quoteBeforeReadService := NewService(reportILSourceTraceStore{events: []LedgerEvent{quote, read}})
+			quoteBeforeReadService := NewService(reportILSourceTraceStore{events: []ledger.Event{quote, read}})
 			if _, err := quoteBeforeReadService.VerifyReportILSourceRead(
 				context.Background(), catalog.MissionID, sessionID, stage, catalog,
 			); err == nil {
 				t.Fatal("source quote trace before complete catalog read was accepted")
 			}
 
-			for name, mutate := range map[string]func(*LedgerEvent){
-				"forged receipt": func(event *LedgerEvent) {
+			for name, mutate := range map[string]func(*ledger.Event){
+				"forged receipt": func(event *ledger.Event) {
 					var payload map[string]any
 					_ = json.Unmarshal(event.Payload, &payload)
 					payload["io_metrics"].(map[string]any)["source_receipt"] = "quote_" + strings.Repeat("f", 64)
 					event.Payload, _ = json.Marshal(payload)
 				},
-				"wrong stage": func(event *LedgerEvent) {
+				"wrong stage": func(event *ledger.Event) {
 					var payload map[string]any
 					_ = json.Unmarshal(event.Payload, &payload)
 					payload["io_metrics"].(map[string]any)["report_il_stage"] = "il_flow"
 					event.Payload, _ = json.Marshal(payload)
 				},
-				"wrong source": func(event *LedgerEvent) {
+				"wrong source": func(event *ledger.Event) {
 					var payload map[string]any
 					_ = json.Unmarshal(event.Payload, &payload)
 					payload["io_metrics"].(map[string]any)["source_key"] = "source_999"
@@ -206,7 +208,7 @@ func TestVerifyReportILSourceReadAcceptsBoundQuoteReceipts(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					invalidQuote := quote
 					mutate(&invalidQuote)
-					invalidService := NewService(reportILSourceTraceStore{events: []LedgerEvent{read, invalidQuote}})
+					invalidService := NewService(reportILSourceTraceStore{events: []ledger.Event{read, invalidQuote}})
 					if _, err := invalidService.VerifyReportILSourceRead(
 						context.Background(), catalog.MissionID, sessionID, stage, catalog,
 					); err == nil {
@@ -228,7 +230,7 @@ func TestVerifyReportILSourceReadIgnoresFailedExtraRead(t *testing.T) {
 		"evt_failed", "ses_exact", reportilcontract.SourceReadTool, "",
 		"source_001", "", 17, 0, 17, false, 0, false,
 	)
-	service := NewService(reportILSourceTraceStore{events: []LedgerEvent{valid, failed}})
+	service := NewService(reportILSourceTraceStore{events: []ledger.Event{valid, failed}})
 	receipt, err := service.VerifyReportILSourceRead(
 		context.Background(), catalog.MissionID, "ses_exact", "il_flow", catalog,
 	)
@@ -242,7 +244,7 @@ func TestVerifyReportILSourceReadIgnoresFailedExtraRead(t *testing.T) {
 
 func TestVerifyReportILSourceReadRejectsMalformedStageAndContinuation(t *testing.T) {
 	catalog := reportILSourceVerifierCatalog(t, 17, 5)
-	validNarrative := func(eventID, sourceKey string, offset, returnedBytes, contentLength int, truncated bool, nextOffset int) LedgerEvent {
+	validNarrative := func(eventID, sourceKey string, offset, returnedBytes, contentLength int, truncated bool, nextOffset int) ledger.Event {
 		return reportILSourceVerifierEvent(
 			eventID, "ses_trace", reportilcontract.SourceReadTool, "il_narrative",
 			sourceKey, catalog.SHA256, offset, returnedBytes, contentLength, truncated,
@@ -252,25 +254,25 @@ func TestVerifyReportILSourceReadRejectsMalformedStageAndContinuation(t *testing
 	cases := []struct {
 		name          string
 		expectedStage string
-		events        []LedgerEvent
+		events        []ledger.Event
 	}{
 		{
 			name: "missing stage", expectedStage: "il_narrative",
-			events: []LedgerEvent{reportILSourceVerifierBatchEvent(
+			events: []ledger.Event{reportILSourceVerifierBatchEvent(
 				"evt_trace", "ses_trace", "", catalog.SHA256,
 				[]map[string]any{reportILSourceVerifierRead("source_001", 0, 17, 17, false, 0)}, true,
 			)},
 		},
 		{
 			name: "wrong stage", expectedStage: "il_narrative",
-			events: []LedgerEvent{reportILSourceVerifierBatchEvent(
+			events: []ledger.Event{reportILSourceVerifierBatchEvent(
 				"evt_trace", "ses_trace", "il_source_selection", catalog.SHA256,
 				[]map[string]any{reportILSourceVerifierRead("source_001", 0, 17, 17, false, 0)}, true,
 			)},
 		},
 		{
 			name: "missing truncation", expectedStage: "il_narrative",
-			events: []LedgerEvent{reportILSourceVerifierBatchEvent(
+			events: []ledger.Event{reportILSourceVerifierBatchEvent(
 				"evt_trace", "ses_trace", "il_narrative", catalog.SHA256,
 				[]map[string]any{{
 					"source_key": "source_001", "returned_offset": 0,
@@ -280,43 +282,43 @@ func TestVerifyReportILSourceReadRejectsMalformedStageAndContinuation(t *testing
 		},
 		{
 			name: "truncated next offset mismatch", expectedStage: "il_narrative",
-			events: []LedgerEvent{validNarrative("evt_trace", "source_001", 0, 8, 17, true, 7)},
+			events: []ledger.Event{validNarrative("evt_trace", "source_001", 0, 8, 17, true, 7)},
 		},
 		{
 			name: "truncated at eof", expectedStage: "il_narrative",
-			events: []LedgerEvent{validNarrative("evt_trace", "source_001", 0, 17, 17, true, 17)},
+			events: []ledger.Event{validNarrative("evt_trace", "source_001", 0, 17, 17, true, 17)},
 		},
 		{
 			name: "false eof followed by continuation", expectedStage: "il_narrative",
-			events: []LedgerEvent{
+			events: []ledger.Event{
 				validNarrative("evt_trace_1", "source_001", 0, 8, 17, false, 0),
 				validNarrative("evt_trace_2", "source_001", 8, 9, 17, false, 0),
 			},
 		},
 		{
 			name: "continuation gap", expectedStage: "il_narrative",
-			events: []LedgerEvent{
+			events: []ledger.Event{
 				validNarrative("evt_trace_1", "source_001", 0, 8, 17, true, 8),
 				validNarrative("evt_trace_2", "source_001", 9, 8, 17, false, 0),
 			},
 		},
 		{
 			name: "batch read for keyed stage", expectedStage: "il_narrative",
-			events: []LedgerEvent{reportILSourceVerifierBatchEvent(
+			events: []ledger.Event{reportILSourceVerifierBatchEvent(
 				"evt_trace", "ses_trace", "il_narrative", catalog.SHA256,
 				[]map[string]any{reportILSourceVerifierRead("source_001", 0, 17, 17, false, 0)}, true,
 			)},
 		},
 		{
 			name: "single read for flow batch stage", expectedStage: "il_flow",
-			events: []LedgerEvent{reportILSourceVerifierEvent(
+			events: []ledger.Event{reportILSourceVerifierEvent(
 				"evt_trace", "ses_trace", reportilcontract.SourceReadTool, "il_flow",
 				"source_001", catalog.SHA256, 0, 17, 17, false, 0, true,
 			)},
 		},
 		{
 			name: "invalid expected stage", expectedStage: "il_unknown",
-			events: []LedgerEvent{validNarrative("evt_trace", "source_001", 0, 17, 17, false, 0)},
+			events: []ledger.Event{validNarrative("evt_trace", "source_001", 0, 17, 17, false, 0)},
 		},
 	}
 	for _, tc := range cases {
@@ -342,23 +344,23 @@ func TestVerifyReportILSourceReadRejectsMissingOrMismatchedTrace(t *testing.T) {
 		returnedBytes,
 		contentLength int,
 		success bool,
-	) []LedgerEvent {
+	) []ledger.Event {
 		if toolName == reportilcontract.SourceReadTool {
-			return []LedgerEvent{reportILSourceVerifierBatchEvent(
+			return []ledger.Event{reportILSourceVerifierBatchEvent(
 				"evt_trace", sessionID, "il_flow", catalogSHA,
 				[]map[string]any{reportILSourceVerifierRead(
 					sourceKey, offset, returnedBytes, contentLength, false, 0,
 				)}, success,
 			)}
 		}
-		return []LedgerEvent{reportILSourceVerifierEvent(
+		return []ledger.Event{reportILSourceVerifierEvent(
 			"evt_trace", sessionID, toolName, "il_flow", sourceKey, catalogSHA,
 			offset, returnedBytes, contentLength, false, 0, success,
 		)}
 	}
 	cases := []struct {
 		name   string
-		events []LedgerEvent
+		events []ledger.Event
 	}{
 		{name: "missing"},
 		{name: "wrong session", events: valid("ses_other", reportilcontract.SourceReadTool, "source_001", catalog.SHA256, 0, 17, 17, true)},
@@ -370,7 +372,7 @@ func TestVerifyReportILSourceReadRejectsMissingOrMismatchedTrace(t *testing.T) {
 		{name: "out of range span", events: valid("ses_exact", reportilcontract.SourceReadTool, "source_001", catalog.SHA256, 1, 17, 17, true)},
 		{name: "zero bytes", events: valid("ses_exact", reportilcontract.SourceReadTool, "source_001", catalog.SHA256, 0, 0, 17, true)},
 		{name: "failed", events: valid("ses_exact", reportilcontract.SourceReadTool, "source_001", catalog.SHA256, 0, 17, 17, false)},
-		{name: "malformed", events: []LedgerEvent{{EventID: "evt_trace", MissionID: catalog.MissionID, EventType: "mcp.tool.called", CorrelationID: "ses_exact", Payload: json.RawMessage(`{"broken":`)}}},
+		{name: "malformed", events: []ledger.Event{{EventID: "evt_trace", MissionID: catalog.MissionID, EventType: "mcp.tool.called", CorrelationID: "ses_exact", Payload: json.RawMessage(`{"broken":`)}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -397,7 +399,7 @@ func reportILSourceVerifierCatalog(t *testing.T, sizes ...int) reportilcontract.
 			SnapshotID:      snapshotID,
 			SnapshotReceipt: reportilcontract.SourceSnapshotReceipt(snapshotID, contentHash),
 			ContentHash:     contentHash,
-			RetrievalPolicy: SourceRetrievalPolicySnapshotOnly,
+			RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly,
 			Artifacts: []reportilcontract.SourceCatalogArtifact{{
 				ArtifactID: artifactID, SHA256: contentHash, ByteSize: int64(size), MediaType: "text/plain",
 			}},
@@ -427,7 +429,7 @@ func reportILSourceVerifierRead(sourceKey string, offset, returnedBytes, content
 	}
 }
 
-func reportILSourceVerifierBatchEvent(eventID, sessionID, stage, catalogSHA string, reads []map[string]any, success bool) LedgerEvent {
+func reportILSourceVerifierBatchEvent(eventID, sessionID, stage, catalogSHA string, reads []map[string]any, success bool) ledger.Event {
 	returnedBytes := 0
 	for _, read := range reads {
 		returnedBytes += read["returned_content_bytes"].(int)
@@ -439,7 +441,7 @@ func reportILSourceVerifierBatchEvent(eventID, sessionID, stage, catalogSHA stri
 			"returned_content_bytes": returnedBytes, "source_reads": reads,
 		},
 	})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: "mis_trace", EventType: "mcp.tool.called",
 		CorrelationID: sessionID, Payload: payload,
 	}
@@ -455,7 +457,7 @@ func reportILSourceVerifierQuoteEvent(
 	offset,
 	byteSize int,
 	quoteSHA string,
-) LedgerEvent {
+) ledger.Event {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":       reportilcontract.SourceQuoteRegisterTool,
 		"tool_session_id": sessionID,
@@ -470,7 +472,7 @@ func reportILSourceVerifierQuoteEvent(
 			"report_il_stage":  stage,
 		},
 	})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: "mis_trace", EventType: "mcp.tool.called",
 		CorrelationID: sessionID, Payload: payload,
 	}
@@ -489,7 +491,7 @@ func reportILSourceVerifierEvent(
 	truncated bool,
 	nextOffset int,
 	success bool,
-) LedgerEvent {
+) ledger.Event {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": toolName, "tool_session_id": sessionID, "success": success,
 		"io_metrics": map[string]any{
@@ -503,7 +505,7 @@ func reportILSourceVerifierEvent(
 			"next_offset":            nextOffset,
 		},
 	})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: "mis_trace", EventType: "mcp.tool.called",
 		CorrelationID: sessionID, Payload: payload,
 	}

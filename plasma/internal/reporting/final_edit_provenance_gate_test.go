@@ -1,6 +1,7 @@
 package reporting_test
 
 import (
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -129,12 +130,12 @@ func TestFinalEditRepairActionOrderIsStable(t *testing.T) {
 	}
 }
 
-type finalEditGateEvidenceStore map[string]app.EvidenceRecord
+type finalEditGateEvidenceStore map[string]researchrecords.EvidenceRecord
 
-func (s finalEditGateEvidenceStore) GetEvidenceRecord(_ context.Context, evidenceID string) (app.EvidenceRecord, error) {
+func (s finalEditGateEvidenceStore) GetEvidenceRecord(_ context.Context, evidenceID string) (researchrecords.EvidenceRecord, error) {
 	record, ok := s[evidenceID]
 	if !ok {
-		return app.EvidenceRecord{}, errors.New("missing evidence")
+		return researchrecords.EvidenceRecord{}, errors.New("missing evidence")
 	}
 	return record, nil
 }

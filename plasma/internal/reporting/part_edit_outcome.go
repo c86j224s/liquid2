@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // LoadPartEditOutcome는 part edit outcome artifact와 lineage 정보를 장부에서 복원한다.
@@ -29,12 +30,12 @@ func LoadPartEditOutcome(ctx context.Context, store PartEditOutcomeStore, contra
 		return PartEditResult{}, false, nil
 	}
 	if len(outcomes) != 1 {
-		return PartEditResult{}, false, fmt.Errorf("%w: multiple valid part edit outcomes match binding", app.ErrConflict)
+		return PartEditResult{}, false, fmt.Errorf("%w: multiple valid part edit outcomes match binding", producterror.ErrConflict)
 	}
 	return outcomes[0], true, nil
 }
 
-func validPartEditOutcomes(ctx context.Context, store PartEditOutcomeStore, events []app.LedgerEvent, acceptedPending map[string]bool, contract PartEditOutcomeContract) ([]PartEditResult, error) {
+func validPartEditOutcomes(ctx context.Context, store PartEditOutcomeStore, events []ledger.Event, acceptedPending map[string]bool, contract PartEditOutcomeContract) ([]PartEditResult, error) {
 	contract = normalizePartEditOutcomeContract(contract)
 	if err := validatePartEditOutcomeContract(contract); err != nil {
 		return nil, err
@@ -55,7 +56,7 @@ func validPartEditOutcomes(ctx context.Context, store PartEditOutcomeStore, even
 	return results, nil
 }
 
-func validatePartEditOutcome(ctx context.Context, store PartEditOutcomeStore, events []app.LedgerEvent, acceptedPending map[string]bool, contract PartEditOutcomeContract, event app.LedgerEvent) (PartEditResult, bool, error) {
+func validatePartEditOutcome(ctx context.Context, store PartEditOutcomeStore, events []ledger.Event, acceptedPending map[string]bool, contract PartEditOutcomeContract, event ledger.Event) (PartEditResult, bool, error) {
 	binding, ok := partEditBindingFromEditedEvent(event)
 	if !ok {
 		return PartEditResult{}, false, nil

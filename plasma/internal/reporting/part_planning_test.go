@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -65,7 +67,7 @@ func TestFinalizePartPlanRejectsDisabledMissingParentWrongPartAndProviderSession
 		}, want: app.ErrInvalidInput},
 		{name: "report plan session reuse", enabled: true, partCount: 1, mutate: func(req *reporting.PartPlanCreatedEventRequest) {
 			req.AgentSessionID = req.ReportPlanSessionID
-			req.Producer = app.Producer{Type: "agent_session", ID: req.AgentSessionID}
+			req.Producer = ledger.Producer{Type: "agent_session", ID: req.AgentSessionID}
 		}, want: app.ErrInvalidInput},
 		{name: "wrong fork source", enabled: true, partCount: 1, mutate: func(req *reporting.PartPlanCreatedEventRequest) {
 			req.ForkSourceAgentSessionID = "wrong-source"
@@ -159,10 +161,10 @@ func TestFinalizePartPlanRejectsMalformedAndDuplicateStoredPlans(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name   string
-		events []app.AppendEventRequest
+		events []ledger.AppendRequest
 	}{
-		{name: "malformed canonical", events: []app.AppendEventRequest{partPlanStoredEvent("evt_existing", 1, "", "part-owner-session-1")}},
-		{name: "duplicate canonical", events: []app.AppendEventRequest{
+		{name: "malformed canonical", events: []ledger.AppendRequest{partPlanStoredEvent("evt_existing", 1, "", "part-owner-session-1")}},
+		{name: "duplicate canonical", events: []ledger.AppendRequest{
 			partPlanStoredEvent("evt_existing_1", 1, "brief one", "part-owner-session-1"),
 			partPlanStoredEvent("evt_existing_2", 1, "brief two", "part-owner-session-2"),
 		}},
@@ -192,7 +194,7 @@ func newPartPlanFixtureWithParentMutation(t *testing.T, ctx context.Context, par
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_part_plan", Title: "Part plan"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_part_plan", Title: "Part plan"}); err != nil {
 		t.Fatal(err)
 	}
 	parts := make([]map[string]any, partCount)
@@ -221,9 +223,9 @@ func newPartPlanFixtureWithParentMutation(t *testing.T, ctx context.Context, par
 	if mutateParent != nil {
 		mutateParent(planPayload)
 	}
-	if _, err := svc.AppendEvents(ctx, "mis_part_plan", []app.AppendEventRequest{
-		{EventID: "evt_pending", MissionID: "mis_part_plan", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form", "agent_executor": "codex"})},
-		{EventID: "evt_plan", MissionID: "mis_part_plan", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "report-plan-session"}, Payload: testJSON(planPayload)},
+	if _, err := svc.AppendEvents(ctx, "mis_part_plan", []ledger.AppendRequest{
+		{EventID: "evt_pending", MissionID: "mis_part_plan", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: testJSON(map[string]any{"report_mode": "long_form", "agent_executor": "codex"})},
+		{EventID: "evt_plan", MissionID: "mis_part_plan", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "report-plan-session"}, Payload: testJSON(planPayload)},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -243,20 +245,20 @@ func partPlanRequest(partIndex int) reporting.PartPlanCreatedEventRequest {
 			GenerationGuidanceProfile: "narrative-contract", GenerationGuidanceSHA256: "guidance-sha",
 			SessionChainKind: "section_fanout_report", ReportPlanSessionID: "report-plan-session",
 			ReportSessionID: sessionID, ForkSourceAgentSessionID: "report-plan-session",
-			Producer: app.Producer{Type: "agent_session", ID: sessionID},
+			Producer: ledger.Producer{Type: "agent_session", ID: sessionID},
 		},
 		PartIndex: partIndex,
 		Brief:     "독자가 따라갈 Part의 흐름",
 	}
 }
 
-func partPlanStoredEvent(eventID string, partIndex int, brief string, sessionID string) app.AppendEventRequest {
+func partPlanStoredEvent(eventID string, partIndex int, brief string, sessionID string) ledger.AppendRequest {
 	req := partPlanRequest(partIndex)
 	req.EventID = eventID
 	req.Brief = brief
 	req.AgentSessionID = sessionID
 	req.PreviousAgentSessionID = sessionID
 	req.ReturnedAgentSessionID = sessionID
-	req.Producer = app.Producer{Type: "agent_session", ID: sessionID}
+	req.Producer = ledger.Producer{Type: "agent_session", ID: sessionID}
 	return reporting.BuildPartPlanCreatedAppendRequest(req)
 }

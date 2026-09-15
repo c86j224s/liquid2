@@ -309,6 +309,8 @@ finalizes a new report artifact version. The base artifact is kept unchanged.
 - [Automatic Investigation](docs/automatic-investigation.md)
 - [Product Architecture](docs/product-architecture.md)
 - [Product Architecture Korean](docs/product-architecture.ko.md)
+- [Article IL Design](docs/article-il-design.md)
+- [Article IL Design Korean](docs/article-il-design.ko.md)
 - [Media Source Implementation Design](docs/media-source-implementation-design.md)
 - [Confluence Cloud Source 연동 기록](docs/confluence-source-integration.md)
 - [Confluence live validation checklist](docs/confluence-live-validation-checklist.md)

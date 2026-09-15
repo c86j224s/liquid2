@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/url"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 type webConfluenceSnapshotSiteIdentity struct {
@@ -15,7 +18,7 @@ type webConfluenceSnapshotSiteIdentity struct {
 	SiteURL string
 }
 
-func (server *Server) confluenceUpdateConnector(ctx context.Context, missionID string, connectionID string, snapshotID string) (app.ConfluenceSourceConnector, error) {
+func (server *Server) confluenceUpdateConnector(ctx context.Context, missionID string, connectionID string, snapshotID string) (confluencesource.ConfluenceSourceConnector, error) {
 	snapshotSite, err := server.confluenceSnapshotSiteIdentity(ctx, missionID, snapshotID)
 	if err != nil {
 		return nil, err
@@ -49,11 +52,11 @@ func (server *Server) confluenceSnapshotSiteIdentity(ctx context.Context, missio
 		return webConfluenceSnapshotSiteIdentity{}, err
 	}
 	if strings.TrimSpace(snapshot.MissionID) != strings.TrimSpace(missionID) {
-		return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence snapshot belongs to another mission", app.ErrInvalidInput)
+		return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence snapshot belongs to another mission", producterror.ErrInvalidInput)
 	}
-	if snapshot.Connector.ConnectorID != app.ConfluenceConnectorID ||
-		snapshot.Connector.ConnectorType != app.ConfluenceConnectorType {
-		return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence snapshot connector is required", app.ErrInvalidInput)
+	if snapshot.Connector.ConnectorID != confluencesource.ConfluenceConnectorID ||
+		snapshot.Connector.ConnectorType != confluencesource.ConfluenceConnectorType {
+		return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence snapshot connector is required", producterror.ErrInvalidInput)
 	}
 	identity := webConfluenceSnapshotSiteIdentity{}
 	var locators []struct {
@@ -94,13 +97,13 @@ func (server *Server) confluenceSnapshotSiteIdentity(ctx context.Context, missio
 	if identity.CloudID != "" {
 		return identity, nil
 	}
-	return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence cloud id is required", app.ErrInvalidInput)
+	return webConfluenceSnapshotSiteIdentity{}, fmt.Errorf("%w: confluence cloud id is required", producterror.ErrInvalidInput)
 }
 
-func (server *Server) confluenceSnapshotArtifactSiteIdentity(ctx context.Context, snapshot app.SourceSnapshot) webConfluenceSnapshotSiteIdentity {
+func (server *Server) confluenceSnapshotArtifactSiteIdentity(ctx context.Context, snapshot sourcecontract.Snapshot) webConfluenceSnapshotSiteIdentity {
 	for _, artifactID := range snapshot.ArtifactIDs {
 		artifact, err := server.service.GetRawArtifact(ctx, artifactID)
-		if err != nil || artifact.MediaType != app.ConfluenceSnapshotMediaType {
+		if err != nil || artifact.MediaType != confluencesource.ConfluenceSnapshotMediaType {
 			continue
 		}
 		var payload struct {
@@ -123,10 +126,10 @@ func (server *Server) confluenceSnapshotArtifactSiteIdentity(ctx context.Context
 	return webConfluenceSnapshotSiteIdentity{}
 }
 
-func webConfluenceConnectionCloudIDForSnapshot(connection app.ConfluenceConnection, snapshot webConfluenceSnapshotSiteIdentity) (string, error) {
+func webConfluenceConnectionCloudIDForSnapshot(connection confluenceaccess.Connection, snapshot webConfluenceSnapshotSiteIdentity) (string, error) {
 	snapshot.CloudID = strings.TrimSpace(snapshot.CloudID)
 	if snapshot.CloudID == "" {
-		return "", fmt.Errorf("%w: confluence cloud id is required", app.ErrInvalidInput)
+		return "", fmt.Errorf("%w: confluence cloud id is required", producterror.ErrInvalidInput)
 	}
 	if webConfluenceCachedSiteURL(connection, snapshot.CloudID) != "" || len(connection.Sites) == 0 {
 		return snapshot.CloudID, nil
@@ -139,12 +142,12 @@ func webConfluenceConnectionCloudIDForSnapshot(connection app.ConfluenceConnecti
 			if siteCloudID == "" || siteHost == "" || siteHost != snapshotHost {
 				continue
 			}
-			if connection.AuthType == app.ConfluenceAuthTypeAPIToken &&
+			if connection.AuthType == confluenceaccess.AuthAPIToken &&
 				!webConfluenceAPITokenCloudIDMatchesSiteURL(snapshot.CloudID, snapshot.SiteURL) &&
 				webConfluenceAPITokenCloudIDMatchesSiteURL(siteCloudID, site.URL) {
 				return siteCloudID, nil
 			}
-			if connection.AuthType == app.ConfluenceAuthTypeOAuth &&
+			if connection.AuthType == confluenceaccess.AuthOAuth &&
 				webConfluenceAPITokenCloudIDMatchesSiteURL(snapshot.CloudID, snapshot.SiteURL) &&
 				webConfluenceOAuthDiscoveredSite(site) {
 				return siteCloudID, nil
@@ -152,13 +155,13 @@ func webConfluenceConnectionCloudIDForSnapshot(connection app.ConfluenceConnecti
 		}
 	}
 	if snapshotHost == "" {
-		return "", fmt.Errorf("%w: confluence snapshot site URL is required to use a different connection site", app.ErrInvalidInput)
+		return "", fmt.Errorf("%w: confluence snapshot site URL is required to use a different connection site", producterror.ErrInvalidInput)
 	}
-	return "", fmt.Errorf("%w: confluence snapshot site URL is not available in the selected connection", app.ErrInvalidInput)
+	return "", fmt.Errorf("%w: confluence snapshot site URL is not available in the selected connection", producterror.ErrInvalidInput)
 }
 
 func webConfluenceAPITokenCloudIDMatchesSiteURL(cloudID string, siteURL string) bool {
-	derived, err := app.ConfluenceAPITokenSiteCloudID(siteURL)
+	derived, err := confluenceaccess.ConfluenceAPITokenSiteCloudID(siteURL)
 	return err == nil && strings.TrimSpace(cloudID) == derived
 }
 
@@ -174,7 +177,7 @@ func webConfluenceSyntheticSiteURL(cloudID string) string {
 	return ""
 }
 
-func webConfluenceOAuthDiscoveredSite(site app.ConfluenceSite) bool {
+func webConfluenceOAuthDiscoveredSite(site confluenceaccess.Site) bool {
 	return strings.TrimSpace(site.CloudID) != "" &&
 		!webConfluenceAPITokenCloudIDMatchesSiteURL(site.CloudID, site.URL) &&
 		len(site.Scopes) > 0

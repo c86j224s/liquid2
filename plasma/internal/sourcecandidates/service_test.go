@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestSourceCandidateStageRejectsUnrelatedRawArtifactReuse(t *testing.T) {
@@ -19,14 +21,14 @@ func TestSourceCandidateStageRejectsUnrelatedRawArtifactReuse(t *testing.T) {
 	sum := sha256.Sum256(content)
 	sha := hex.EncodeToString(sum[:])
 	store := &sourceCandidateServiceStore{
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_report": {
 				ArtifactID: "art_report",
 				MissionID:  "mis_1",
 				MediaType:  "text/markdown; charset=utf-8",
 				SHA256:     sha,
 				Content:    content,
-				Producer:   app.Producer{Type: "agent_session", ID: "ses_report"},
+				Producer:   ledger.Producer{Type: "agent_session", ID: "ses_report"},
 			},
 		},
 	}
@@ -41,7 +43,7 @@ func TestSourceCandidateStageRejectsUnrelatedRawArtifactReuse(t *testing.T) {
 				Reason: "Candidate body",
 				State:  "proposed",
 			},
-			Producer:       app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:       ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			StartedEventID: "evt_started",
 		},
 		Fetcher: func(context.Context, string) (SourceCandidateFetched, error) {
@@ -67,7 +69,7 @@ func TestSourceCandidateStageRejectsUnrelatedRawArtifactReuse(t *testing.T) {
 		t.Fatalf("unrelated raw artifact must not be reused, events=%#v", store.events)
 	}
 
-	store.events = append(store.events, app.LedgerEvent{
+	store.events = append(store.events, ledger.Event{
 		EventID:   "evt_existing_staged",
 		MissionID: "mis_1",
 		Sequence:  int64(len(store.events) + 1),
@@ -89,7 +91,7 @@ func TestSourceCandidateStageRejectsUnrelatedRawArtifactReuse(t *testing.T) {
 				Reason: "Candidate body",
 				State:  "proposed",
 			},
-			Producer:       app.Producer{Type: "agent_session", ID: "ses_1"},
+			Producer:       ledger.Producer{Type: "agent_session", ID: "ses_1"},
 			StartedEventID: "evt_started_2",
 		},
 		Fetcher: func(context.Context, string) (SourceCandidateFetched, error) {
@@ -123,7 +125,7 @@ func TestSourceCandidateDecisionEventsPreservePayload(t *testing.T) {
 		MissionID: "mis_1",
 		URL:       "HTTPS://Example.com/source#fragment",
 		Reason:    "이미 더 좋은 공식 문서를 소스로 붙였습니다.",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("RejectSourceCandidate returned error: %v", err)
@@ -142,7 +144,7 @@ func TestSourceCandidateDecisionEventsPreservePayload(t *testing.T) {
 		EventID:   "evt_restore",
 		MissionID: "mis_1",
 		URL:       "https://example.com/source#ignored",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("RestoreSourceCandidate returned error: %v", err)
@@ -165,7 +167,7 @@ func TestSourceCandidateDecisionURLValidationPreservesWebErrorMessages(t *testin
 		EventID:   "evt_reject",
 		MissionID: "mis_1",
 		URL:       "ftp://example.com/source",
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err == nil {
 		t.Fatalf("RejectSourceCandidate returned nil error")
@@ -177,13 +179,13 @@ func TestSourceCandidateDecisionURLValidationPreservesWebErrorMessages(t *testin
 }
 
 type sourceCandidateServiceStore struct {
-	events    []app.LedgerEvent
-	artifacts map[string]app.RawArtifact
-	sources   []app.SourceSnapshot
+	events    []ledger.Event
+	artifacts map[string]artifactcontract.Raw
+	sources   []sourcecontract.Snapshot
 }
 
-func (s *sourceCandidateServiceStore) ListEvents(_ context.Context, missionID string) ([]app.LedgerEvent, error) {
-	events := make([]app.LedgerEvent, 0, len(s.events))
+func (s *sourceCandidateServiceStore) ListEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	events := make([]ledger.Event, 0, len(s.events))
 	for _, event := range s.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -192,8 +194,8 @@ func (s *sourceCandidateServiceStore) ListEvents(_ context.Context, missionID st
 	return events, nil
 }
 
-func (s *sourceCandidateServiceStore) ListRawArtifacts(_ context.Context, missionID string) ([]app.RawArtifact, error) {
-	artifacts := make([]app.RawArtifact, 0, len(s.artifacts))
+func (s *sourceCandidateServiceStore) ListRawArtifacts(_ context.Context, missionID string) ([]artifactcontract.Raw, error) {
+	artifacts := make([]artifactcontract.Raw, 0, len(s.artifacts))
 	for _, artifact := range s.artifacts {
 		if artifact.MissionID == missionID {
 			artifacts = append(artifacts, artifact)
@@ -202,15 +204,15 @@ func (s *sourceCandidateServiceStore) ListRawArtifacts(_ context.Context, missio
 	return artifacts, nil
 }
 
-func (s *sourceCandidateServiceStore) GetRawArtifact(_ context.Context, artifactID string) (app.RawArtifact, error) {
+func (s *sourceCandidateServiceStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if artifact, ok := s.artifacts[artifactID]; ok {
 		return artifact, nil
 	}
-	return app.RawArtifact{}, fmt.Errorf("missing artifact %s", artifactID)
+	return artifactcontract.Raw{}, fmt.Errorf("missing artifact %s", artifactID)
 }
 
-func (s *sourceCandidateServiceStore) ListSourceSnapshotsWithState(_ context.Context, req app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error) {
-	sources := make([]app.SourceSnapshot, 0, len(s.sources))
+func (s *sourceCandidateServiceStore) ListSourceSnapshotsWithState(_ context.Context, req sourcecontract.ListRequest) ([]sourcecontract.Snapshot, error) {
+	sources := make([]sourcecontract.Snapshot, 0, len(s.sources))
 	for _, source := range s.sources {
 		if source.MissionID == req.MissionID {
 			sources = append(sources, source)
@@ -219,8 +221,8 @@ func (s *sourceCandidateServiceStore) ListSourceSnapshotsWithState(_ context.Con
 	return sources, nil
 }
 
-func (s *sourceCandidateServiceStore) AppendEvent(_ context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
-	event := app.LedgerEvent{
+func (s *sourceCandidateServiceStore) AppendEvent(_ context.Context, req ledger.AppendRequest) (ledger.Event, error) {
+	event := ledger.Event{
 		EventID:          req.EventID,
 		MissionID:        req.MissionID,
 		Sequence:         int64(len(s.events) + 1),
@@ -235,11 +237,11 @@ func (s *sourceCandidateServiceStore) AppendEvent(_ context.Context, req app.App
 	return event, nil
 }
 
-func (s *sourceCandidateServiceStore) CreateRawArtifactWithEvent(_ context.Context, req app.CreateRawArtifactRequest, build func(app.RawArtifact) app.AppendEventRequest) (app.RawArtifact, app.LedgerEvent, error) {
+func (s *sourceCandidateServiceStore) CreateRawArtifactWithEvent(_ context.Context, req artifactcontract.CreateRequest, build func(artifactcontract.Raw) ledger.AppendRequest) (artifactcontract.Raw, ledger.Event, error) {
 	if s.artifacts == nil {
-		s.artifacts = map[string]app.RawArtifact{}
+		s.artifacts = map[string]artifactcontract.Raw{}
 	}
-	artifact := app.RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: req.ArtifactID,
 		MissionID:  req.MissionID,
 		MediaType:  req.MediaType,

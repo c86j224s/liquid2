@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestLoadLongFormFinalizationRejectsMissingPipelineMarkerForBoundPlan(t *testing.T) {
@@ -22,7 +24,7 @@ func TestLoadLongFormFinalizationRejectsMissingPipelineMarkerForBoundPlan(t *tes
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
 	manuscript := "# Report\n\nCorrected canonical content.\n"
-	finalArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	finalArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte(manuscript),
@@ -53,7 +55,7 @@ func TestLoadLongFormFinalizationRejectsCanonicalArtifactSHAMismatch(t *testing.
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
 	manuscript := "# Report\n\nCorrected canonical content.\n"
-	finalArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	finalArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte(manuscript),
@@ -93,7 +95,7 @@ func TestLoadLongFormFinalizationRejectsSecondMatchingGateSubmission(t *testing.
 		t.Fatalf("gate start created=%t err=%v", created, err)
 	}
 	manuscript := "# Report\n\nCorrected canonical content.\n"
-	finalArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	finalArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: binding.ArtifactID, MissionID: binding.MissionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename,
 		Producer: binding.Producer, Content: []byte(manuscript),
@@ -166,7 +168,7 @@ func TestLoadLongFormFinalizationRejectsTamperedV3EvidenceCanonicalPayload(t *te
 	}
 }
 
-func finalEditCanonicalReplayMutatePayload(t *testing.T, request *app.AppendEventRequest, mutate func(map[string]any)) {
+func finalEditCanonicalReplayMutatePayload(t *testing.T, request *ledger.AppendRequest, mutate func(map[string]any)) {
 	t.Helper()
 	payload := map[string]any{}
 	if err := json.Unmarshal(request.Payload, &payload); err != nil {

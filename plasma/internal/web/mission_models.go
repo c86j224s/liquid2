@@ -1,10 +1,18 @@
 package web
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 type sourceCandidate struct {
@@ -15,36 +23,36 @@ type sourceCandidate struct {
 }
 
 type missionDetailResponse struct {
-	Projection          app.MissionProjection `json:"projection"`
-	ActivityCursor      missionActivityCursor `json:"activity_cursor"`
-	Events              []app.LedgerEvent     `json:"events"`
-	Sources             []app.SourceSnapshot  `json:"sources"`
-	Records             recordsResponse       `json:"records"`
-	Reports             []app.Report          `json:"reports"`
-	ReportVersions      []app.ReportVersion   `json:"report_versions"`
-	WorkflowRuns        []app.WorkflowRunView `json:"workflow_runs"`
-	Recall              recallPreview         `json:"recall"`
-	AgentExecutors      []agentExecutorStatus `json:"agent_executors"`
-	LockedAgentExecutor string                `json:"locked_agent_executor,omitempty"`
-	ActiveWork          app.ActiveWorkState   `json:"active_work"`
-	ReportProgress      app.ReportProgress    `json:"report_progress"`
+	Projection          mission.Projection              `json:"projection"`
+	ActivityCursor      missionActivityCursor           `json:"activity_cursor"`
+	Events              []ledger.Event                  `json:"events"`
+	Sources             []sourcecontract.Snapshot       `json:"sources"`
+	Records             recordsResponse                 `json:"records"`
+	Reports             []reportdocument.Report         `json:"reports"`
+	ReportVersions      []reportdocument.ReportVersion  `json:"report_versions"`
+	WorkflowRuns        []workflowstate.WorkflowRunView `json:"workflow_runs"`
+	Recall              recallPreview                   `json:"recall"`
+	AgentExecutors      []agentExecutorStatus           `json:"agent_executors"`
+	LockedAgentExecutor string                          `json:"locked_agent_executor,omitempty"`
+	ActiveWork          mission.ActiveWorkState         `json:"active_work"`
+	ReportProgress      app.ReportProgress              `json:"report_progress"`
 }
 
 type recordsResponse struct {
-	Evidence        []app.EvidenceRecord  `json:"evidence"`
-	Claims          []app.ClaimRecord     `json:"claims"`
-	ClaimConfidence []claimConfidenceView `json:"claim_confidence"`
-	Questions       []app.QuestionRecord  `json:"questions"`
-	Options         []app.OptionRecord    `json:"options"`
-	Proposals       []app.ProposalBundle  `json:"proposals"`
+	Evidence        []researchrecords.EvidenceRecord  `json:"evidence"`
+	Claims          []researchrecords.ClaimRecord     `json:"claims"`
+	ClaimConfidence []claimConfidenceView             `json:"claim_confidence"`
+	Questions       []researchrecords.QuestionRecord  `json:"questions"`
+	Options         []researchrecords.OptionRecord    `json:"options"`
+	Proposals       []researchproposal.ProposalBundle `json:"proposals"`
 
 	approvedObjectIDsByDecisionEventID map[string]map[string]struct{}
 }
 
 type claimConfidenceView struct {
 	ClaimID           string                        `json:"claim_id"`
-	InitialConfidence app.Confidence                `json:"initial_confidence"`
-	CurrentConfidence app.Confidence                `json:"current_confidence"`
+	InitialConfidence researchrecords.Confidence    `json:"initial_confidence"`
+	CurrentConfidence researchrecords.Confidence    `json:"current_confidence"`
 	CurrentEventID    string                        `json:"current_event_id,omitempty"`
 	Direction         string                        `json:"direction"`
 	UpdatedAt         string                        `json:"updated_at,omitempty"`
@@ -53,30 +61,30 @@ type claimConfidenceView struct {
 }
 
 type claimConfidenceHistoryEntry struct {
-	EventID           string       `json:"event_id"`
-	Sequence          int64        `json:"sequence"`
-	PreviousLevel     string       `json:"previous_level,omitempty"`
-	Level             string       `json:"level"`
-	Direction         string       `json:"direction"`
-	Rationale         string       `json:"rationale"`
-	OpenRisks         []string     `json:"open_risks,omitempty"`
-	NeedsVerification bool         `json:"needs_verification"`
-	BasisEvidenceIDs  []string     `json:"basis_evidence_ids,omitempty"`
-	Origin            string       `json:"origin"`
-	Producer          app.Producer `json:"producer"`
-	CreatedAt         string       `json:"created_at,omitempty"`
+	EventID           string          `json:"event_id"`
+	Sequence          int64           `json:"sequence"`
+	PreviousLevel     string          `json:"previous_level,omitempty"`
+	Level             string          `json:"level"`
+	Direction         string          `json:"direction"`
+	Rationale         string          `json:"rationale"`
+	OpenRisks         []string        `json:"open_risks,omitempty"`
+	NeedsVerification bool            `json:"needs_verification"`
+	BasisEvidenceIDs  []string        `json:"basis_evidence_ids,omitempty"`
+	Origin            string          `json:"origin"`
+	Producer          ledger.Producer `json:"producer"`
+	CreatedAt         string          `json:"created_at,omitempty"`
 }
 
 type recallPreview struct {
-	SchemaVersion        string               `json:"schema_version"`
-	Mission              recallMission        `json:"mission"`
-	Sources              []app.SourceSnapshot `json:"sources"`
-	OpenQuestionIDs      []string             `json:"open_question_ids"`
-	SavedEvidence        []app.EvidenceRecord `json:"saved_evidence"`
-	SavedClaims          []app.ClaimRecord    `json:"saved_claims"`
-	AllowedTools         []string             `json:"allowed_tools"`
-	InvestigationAllowed bool                 `json:"investigation_allowed"`
-	SourceSearchAllowed  bool                 `json:"source_search_allowed"`
+	SchemaVersion        string                           `json:"schema_version"`
+	Mission              recallMission                    `json:"mission"`
+	Sources              []sourcecontract.Snapshot        `json:"sources"`
+	OpenQuestionIDs      []string                         `json:"open_question_ids"`
+	SavedEvidence        []researchrecords.EvidenceRecord `json:"saved_evidence"`
+	SavedClaims          []researchrecords.ClaimRecord    `json:"saved_claims"`
+	AllowedTools         []string                         `json:"allowed_tools"`
+	InvestigationAllowed bool                             `json:"investigation_allowed"`
+	SourceSearchAllowed  bool                             `json:"source_search_allowed"`
 }
 
 type agentExecutorStatus struct {
@@ -100,13 +108,13 @@ type agentModelCapability struct {
 }
 
 type recallMission struct {
-	MissionID string           `json:"mission_id"`
-	Title     string           `json:"title"`
-	Objective string           `json:"objective"`
-	Scope     app.MissionScope `json:"scope"`
+	MissionID string        `json:"mission_id"`
+	Title     string        `json:"title"`
+	Objective string        `json:"objective"`
+	Scope     mission.Scope `json:"scope"`
 }
 
-func approvedEvidence(records recordsResponse) []app.EvidenceRecord {
+func approvedEvidence(records recordsResponse) []researchrecords.EvidenceRecord {
 	ids := approvedEvidenceIDs(records)
 	if len(ids) == 0 {
 		return nil
@@ -115,7 +123,7 @@ func approvedEvidence(records recordsResponse) []app.EvidenceRecord {
 	for _, id := range ids {
 		allowed[id] = struct{}{}
 	}
-	var approved []app.EvidenceRecord
+	var approved []researchrecords.EvidenceRecord
 	for _, record := range records.Evidence {
 		if _, ok := allowed[record.EvidenceID]; ok {
 			approved = append(approved, record)
@@ -133,7 +141,7 @@ func approvedEvidenceIDs(records recordsResponse) []string {
 	}
 	for _, proposal := range records.Proposals {
 		for _, ref := range proposal.ObjectRefs {
-			if ref.ObjectKind == app.EvidenceRecordObjectKind {
+			if ref.ObjectKind == researchrecords.EvidenceRecordObjectKind {
 				addApprovedProposalRefID(&ids, proposal, ref.ObjectID, records.approvedObjectIDsByDecisionEventID)
 			}
 		}
@@ -141,7 +149,7 @@ func approvedEvidenceIDs(records recordsResponse) []string {
 	return ids
 }
 
-func approvedClaimsByProposal(records recordsResponse) []app.ClaimRecord {
+func approvedClaimsByProposal(records recordsResponse) []researchrecords.ClaimRecord {
 	ids := approvedClaimIDs(records)
 	if len(ids) == 0 {
 		return nil
@@ -150,7 +158,7 @@ func approvedClaimsByProposal(records recordsResponse) []app.ClaimRecord {
 	for _, id := range ids {
 		allowed[id] = struct{}{}
 	}
-	var approved []app.ClaimRecord
+	var approved []researchrecords.ClaimRecord
 	for _, claim := range records.Claims {
 		if _, ok := allowed[claim.ClaimID]; ok {
 			approved = append(approved, claim)
@@ -168,7 +176,7 @@ func approvedClaimIDs(records recordsResponse) []string {
 	}
 	for _, proposal := range records.Proposals {
 		for _, ref := range proposal.ObjectRefs {
-			if ref.ObjectKind == app.ClaimRecordObjectKind {
+			if ref.ObjectKind == researchrecords.ClaimRecordObjectKind {
 				addApprovedProposalRefID(&ids, proposal, ref.ObjectID, records.approvedObjectIDsByDecisionEventID)
 			}
 		}
@@ -176,7 +184,7 @@ func approvedClaimIDs(records recordsResponse) []string {
 	return ids
 }
 
-func addApprovedProposalRefID(ids *[]string, proposal app.ProposalBundle, objectID string, approvedByDecisionEventID map[string]map[string]struct{}) {
+func addApprovedProposalRefID(ids *[]string, proposal researchproposal.ProposalBundle, objectID string, approvedByDecisionEventID map[string]map[string]struct{}) {
 	objectID = strings.TrimSpace(objectID)
 	if objectID == "" {
 		return
@@ -195,7 +203,7 @@ func addApprovedProposalRefID(ids *[]string, proposal app.ProposalBundle, object
 	}
 }
 
-func approvedObjectIDsByDecisionEventID(events []app.LedgerEvent) map[string]map[string]struct{} {
+func approvedObjectIDsByDecisionEventID(events []ledger.Event) map[string]map[string]struct{} {
 	approvedByEvent := map[string]map[string]struct{}{}
 	for _, event := range events {
 		if event.EventType != "proposal.approved" && event.EventType != "proposal.partially_approved" {
@@ -228,7 +236,7 @@ func approvedObjectIDsByDecisionEventID(events []app.LedgerEvent) map[string]map
 	return approvedByEvent
 }
 
-func isProposalDecisionProducer(producer app.Producer) bool {
+func isProposalDecisionProducer(producer ledger.Producer) bool {
 	return producer.Type == "user" || producer.Type == "steering_chat"
 }
 

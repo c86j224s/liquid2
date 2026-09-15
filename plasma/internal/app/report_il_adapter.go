@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
@@ -15,13 +17,13 @@ func (s *Service) ReportILSourceReader() reportilcontract.SourceReader {
 }
 
 func (r reportILSourceAdapter) ListSourceSnapshots(ctx context.Context, missionID string) ([]reportilcontract.SourceSnapshot, error) {
-	items, err := r.service.ListSourceSnapshotsWithState(ctx, ListSourceSnapshotsRequest{MissionID: missionID})
+	items, err := r.service.ListSourceSnapshotsWithState(ctx, source.ListRequest{MissionID: missionID})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]reportilcontract.SourceSnapshot, 0, len(items))
 	for _, item := range items {
-		out = append(out, reportilcontract.SourceSnapshot{SnapshotID: item.SnapshotID, MissionID: item.MissionID, Title: item.Title, ArtifactIDs: append([]string(nil), item.ArtifactIDs...), ContentHash: item.ContentHash.Value, RetrievalPolicy: item.Access.RetrievalPolicy, ConnectorType: item.Connector.ConnectorType, ExternalURI: item.Connector.ExternalURI, Locators: append([]byte(nil), item.Locators...), Active: !item.State.Removed && !item.State.Superseded && (item.State.State == "" || item.State.State == SourceStateActive)})
+		out = append(out, reportilcontract.SourceSnapshot{SnapshotID: item.SnapshotID, MissionID: item.MissionID, Title: item.Title, ArtifactIDs: append([]string(nil), item.ArtifactIDs...), ContentHash: item.ContentHash.Value, RetrievalPolicy: item.Access.RetrievalPolicy, ConnectorType: item.Connector.ConnectorType, ExternalURI: item.Connector.ExternalURI, Locators: append([]byte(nil), item.Locators...), Active: !item.State.Removed && !item.State.Superseded && (item.State.State == "" || item.State.State == source.StateActive)})
 	}
 	return out, nil
 }
@@ -35,7 +37,7 @@ func (r reportILSourceAdapter) GetArtifact(ctx context.Context, artifactID strin
 }
 
 func (r reportILSourceAdapter) ReadLive(ctx context.Context, missionID, snapshotID string, maxBytes int64) (reportilcontract.LocalRead, error) {
-	item, err := r.service.ReadLocalPathSource(ctx, ReadLocalPathSourceRequest{MissionID: missionID, SnapshotID: snapshotID, MaxBytes: maxBytes, Producer: Producer{Type: "report_il", ID: "source-catalog"}})
+	item, err := r.service.ReadLocalPathSource(ctx, ReadLocalPathSourceRequest{MissionID: missionID, SnapshotID: snapshotID, MaxBytes: maxBytes, Producer: ledger.Producer{Type: "report_il", ID: "source-catalog"}})
 	if err != nil {
 		return reportilcontract.LocalRead{}, err
 	}
@@ -47,7 +49,7 @@ func (r reportILSourceAdapter) ReadLive(ctx context.Context, missionID, snapshot
 }
 
 func (s *Service) AppendReportILProgress(ctx context.Context, missionID, pendingID, stage, status string) error {
-	_, err := s.AppendEvent(ctx, AppendEventRequest{EventID: newAppID("evt"), MissionID: missionID, EventType: "report." + stage + "." + status, Producer: Producer{Type: "system", ID: "report-il"}, Payload: mustMarshalJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": pendingID, "pipeline_family": reportilcontract.PipelineFamily, "stage": stage, "status": status})})
+	_, err := s.AppendEvent(ctx, ledger.AppendRequest{EventID: newAppID("evt"), MissionID: missionID, EventType: "report." + stage + "." + status, Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: mustMarshalJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": pendingID, "pipeline_family": reportilcontract.PipelineFamily, "stage": stage, "status": status})})
 	return err
 }
 
@@ -111,9 +113,9 @@ func (s *Service) AppendReportILLongFormProgress(
 		}
 		payload["plan"] = map[string]any{"parts": parts}
 	}
-	_, err := s.AppendEvent(ctx, AppendEventRequest{
+	_, err := s.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: newAppID("evt"), MissionID: missionID, EventType: eventType,
-		Producer:         Producer{Type: "system", ID: "report-il"},
+		Producer:         ledger.Producer{Type: "system", ID: "report-il"},
 		CausationEventID: pendingID, CorrelationID: pendingID,
 		Payload: mustMarshalJSON(payload),
 	})

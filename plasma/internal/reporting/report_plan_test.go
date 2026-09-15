@@ -1,11 +1,11 @@
 package reporting
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"fmt"
 	"reflect"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func TestNormalizeReportPlanPreservesPlannedWhitespaceSemantics(t *testing.T) {
@@ -50,7 +50,7 @@ func TestNormalizeSectionalReportPlanPreservesNormalizationAndRejectsSynthesis(t
 		Summary: " summary ",
 		Parts: []ReportPlanPart{
 			{},
-			{Title: " part ", Purpose: " purpose ", Sections: []ReportPlanSection{{}, {Title: " section ", Purpose: " detail ", TargetRefs: app.ReportBlockSourceRefs{QuestionIDs: []string{"qst_1"}, OptionIDs: []string{"opt_1"}}}}},
+			{Title: " part ", Purpose: " purpose ", Sections: []ReportPlanSection{{}, {Title: " section ", Purpose: " detail ", TargetRefs: reportdocument.ReportBlockSourceRefs{QuestionIDs: []string{"qst_1"}, OptionIDs: []string{"opt_1"}}}}},
 		},
 		CoverageNotes: []string{"", " coverage "}, PlannedOmissions: []string{" omission ", ""},
 	}
@@ -79,7 +79,7 @@ func TestNormalizeSectionalReportPlanPreservesNormalizationAndRejectsSynthesis(t
 }
 
 func TestReportPlanHashIsDeterministicAndIncludesAllRefKinds(t *testing.T) {
-	plan := ReportPlan{Summary: "summary", Sections: []ReportPlanSection{{Title: "section", TargetRefs: app.ReportBlockSourceRefs{ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}, SnapshotIDs: []string{"src_1"}, QuestionIDs: []string{"qst_1"}, OptionIDs: []string{"opt_1"}}}}}
+	plan := ReportPlan{Summary: "summary", Sections: []ReportPlanSection{{Title: "section", TargetRefs: reportdocument.ReportBlockSourceRefs{ClaimIDs: []string{"clm_1"}, EvidenceIDs: []string{"evd_1"}, SnapshotIDs: []string{"src_1"}, QuestionIDs: []string{"qst_1"}, OptionIDs: []string{"opt_1"}}}}}
 	first, _, err := ReportPlanHash(plan)
 	if err != nil {
 		t.Fatal(err)

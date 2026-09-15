@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestRawArtifactRoundTrip(t *testing.T) {
@@ -15,12 +19,12 @@ func TestRawArtifactRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
 
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain",
 		Filename:   "source.txt",
-		Producer:   app.Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte("snapshot body"),
 	})
 	if err != nil {
@@ -43,21 +47,21 @@ func TestSourceSnapshotReferencesArtifacts(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "application/json",
-		Producer:   app.Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte(`{"id":"doc_1"}`),
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
 
-	snapshot, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	snapshot, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_1",
 		MissionID:  "mis_1",
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "liquid2",
 			ConnectorType:    "liquid2",
 			ExternalSourceID: "doc_1",
@@ -65,7 +69,7 @@ func TestSourceSnapshotReferencesArtifacts(t *testing.T) {
 		},
 		Title:       "Liquid2 source",
 		ArtifactIDs: []string{"art_1"},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: artifact.SHA256},
 		Locators:    []byte(`[{"locator_type":"text_position","start":0,"end":4,"artifact_id":"art_1"}]`),
 	})
 	if err != nil {
@@ -87,10 +91,10 @@ func TestSourceSnapshotRejectsUnknownArtifact(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	_, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	_, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   app.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
 		ArtifactIDs: []string{"art_missing"},
 	})
 	if err == nil {
@@ -102,21 +106,21 @@ func TestSourceSnapshotRejectsHashMismatch(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain",
-		Producer:   app.Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte("snapshot body"),
 	}); err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	_, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	_, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   app.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
 		ArtifactIDs: []string{"art_1"},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: strings.Repeat("b", 64)},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: strings.Repeat("b", 64)},
 	})
 	if !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -127,19 +131,19 @@ func TestLiveLocalPathSourceSnapshotAllowsZeroArtifacts(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	snapshot, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	snapshot, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_live",
 		MissionID:  "mis_1",
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "local_path",
-			ConnectorType:    app.SourceConnectorTypeLocalPath,
+			ConnectorType:    sourcecontract.ConnectorTypeLocalPath,
 			ExternalSourceID: "docs:guide.md",
 			ConnectorVersion: "plasma.local_path.v1",
 		},
 		Title:       "Guide",
 		ArtifactIDs: nil,
 		Locators:    json.RawMessage(`[{"locator_type":"local_path","root_id":"docs","relative_path":"guide.md","path_kind":"file"}]`),
-		Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
+		Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
 	})
 	if err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
@@ -161,7 +165,7 @@ func TestLiveLocalPathSourceSnapshotAllowsZeroArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSourceSnapshot returned error: %v", err)
 	}
-	if got.Access.RetrievalPolicy != app.SourceRetrievalPolicyLiveReference || got.Connector.ConnectorType != app.SourceConnectorTypeLocalPath {
+	if got.Access.RetrievalPolicy != sourcecontract.RetrievalPolicyLiveReference || got.Connector.ConnectorType != sourcecontract.ConnectorTypeLocalPath {
 		t.Fatalf("unexpected live source round trip: %#v", got)
 	}
 }
@@ -170,15 +174,15 @@ func TestZeroArtifactSnapshotRequiresLiveLocalPath(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	_, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	_, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID: "src_bad",
 		MissionID:  "mis_1",
-		Connector: app.ConnectorRef{
+		Connector: sourcecontract.ConnectorRef{
 			ConnectorID:      "manual",
 			ConnectorType:    "text",
 			ExternalSourceID: "manual:src_bad",
 		},
-		Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	})
 	if !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput, got %v", err)
@@ -189,29 +193,29 @@ func TestSourceRemovedAndRestoredProjection(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	svc := newArtifactTestService(t, store)
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("body"),
 	})
 	if err != nil {
 		t.Fatalf("CreateRawArtifact returned error: %v", err)
 	}
-	if _, err := svc.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{
+	if _, err := svc.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   app.ConnectorRef{ConnectorID: "manual", ConnectorType: "text", ExternalSourceID: "manual:src_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "manual", ConnectorType: "text", ExternalSourceID: "manual:src_1"},
 		ArtifactIDs: []string{artifact.ArtifactID},
 	}); err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_removed",
 		MissionID: "mis_1",
 		EventType: app.SourceRemovedEvent,
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   json.RawMessage(`{"snapshot_id":"src_1","reason":"wrong source"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent source.removed returned error: %v", err)
@@ -223,18 +227,18 @@ func TestSourceRemovedAndRestoredProjection(t *testing.T) {
 	if len(active) != 0 {
 		t.Fatalf("removed source should be hidden by default: %#v", active)
 	}
-	withRemoved, err := svc.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{MissionID: "mis_1", IncludeRemoved: true})
+	withRemoved, err := svc.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{MissionID: "mis_1", IncludeRemoved: true})
 	if err != nil {
 		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", err)
 	}
 	if len(withRemoved) != 1 || !withRemoved[0].State.Removed || withRemoved[0].State.RemovedEventID != "evt_removed" {
 		t.Fatalf("expected removed source state, got %#v", withRemoved)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_restored",
 		MissionID: "mis_1",
 		EventType: app.SourceRestoredEvent,
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   json.RawMessage(`{"snapshot_id":"src_1"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent source.restored returned error: %v", err)
@@ -251,7 +255,7 @@ func TestSourceRemovedAndRestoredProjection(t *testing.T) {
 func newArtifactTestService(t *testing.T, store *Store) *app.Service {
 	t.Helper()
 	svc := app.NewService(store)
-	if _, err := svc.CreateMission(context.Background(), app.CreateMissionRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if _, err := svc.CreateMission(context.Background(), mission.CreateRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	return svc

@@ -4,18 +4,18 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateQuestionRecord stores one question record.
-func (r *Repository) CreateQuestionRecord(ctx context.Context, record app.QuestionRecord) error {
+func (r *Repository) CreateQuestionRecord(ctx context.Context, record researchrecords.QuestionRecord) error {
 	return InsertQuestionRecordTx(ctx, r.db, record)
 }
 
 // GetQuestionRecord reads one question record by stable ID.
-func (r *Repository) GetQuestionRecord(ctx context.Context, questionID string) (app.QuestionRecord, error) {
-	var record app.QuestionRecord
+func (r *Repository) GetQuestionRecord(ctx context.Context, questionID string) (researchrecords.QuestionRecord, error) {
+	var record researchrecords.QuestionRecord
 	var blocking int
 	var evidenceJSON string
 	var claimJSON string
@@ -40,24 +40,24 @@ WHERE question_id = ?`, questionID).Scan(
 		&record.CreatedEventID,
 		&createdAt)
 	if err != nil {
-		return app.QuestionRecord{}, err
+		return researchrecords.QuestionRecord{}, err
 	}
 	record.Blocking = blocking != 0
 	if err := sqlitevalue.UnmarshalJSON(evidenceJSON, &record.RelatedEvidenceIDs); err != nil {
-		return app.QuestionRecord{}, err
+		return researchrecords.QuestionRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(claimJSON, &record.RelatedClaimIDs); err != nil {
-		return app.QuestionRecord{}, err
+		return researchrecords.QuestionRecord{}, err
 	}
 	record.CreatedAt, err = parseRequiredTime(createdAt)
 	if err != nil {
-		return app.QuestionRecord{}, err
+		return researchrecords.QuestionRecord{}, err
 	}
 	return record, nil
 }
 
 // ListQuestionRecords reads mission question records ordered by creation time.
-func (r *Repository) ListQuestionRecords(ctx context.Context, missionID string) ([]app.QuestionRecord, error) {
+func (r *Repository) ListQuestionRecords(ctx context.Context, missionID string) ([]researchrecords.QuestionRecord, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT question_id
 FROM plasma_question_records
@@ -68,7 +68,7 @@ ORDER BY created_at DESC, question_id`, missionID)
 	}
 	defer rows.Close()
 
-	var records []app.QuestionRecord
+	var records []researchrecords.QuestionRecord
 	for rows.Next() {
 		var questionID string
 		if err := rows.Scan(&questionID); err != nil {
@@ -86,7 +86,7 @@ ORDER BY created_at DESC, question_id`, missionID)
 // InsertQuestionRecordTx inserts a question inside a caller-owned transaction or queryer.
 func InsertQuestionRecordTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, record app.QuestionRecord) error {
+}, record researchrecords.QuestionRecord) error {
 	evidenceJSON, err := sqlitevalue.MarshalJSON(record.RelatedEvidenceIDs)
 	if err != nil {
 		return err

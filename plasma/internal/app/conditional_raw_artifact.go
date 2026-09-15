@@ -4,47 +4,50 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 type conditionalRawArtifactStore interface {
 	CommitRawArtifactWithEventConditionally(
 		context.Context,
-		RawArtifact,
-		func([]LedgerEvent) (LedgerEvent, bool, error),
-	) (RawArtifact, LedgerEvent, bool, error)
+		artifactcontract.Raw,
+		func([]ledger.Event) (ledger.Event, bool, error),
+	) (artifactcontract.Raw, ledger.Event, bool, error)
 }
 
 type conditionalDesignedReportHTMLExportStore interface {
 	CommitDesignedReportHTMLExportConditionally(
 		context.Context,
 		string,
-		RawArtifact,
-		RawArtifact,
-		func([]LedgerEvent) ([]LedgerEvent, bool, error),
-	) (RawArtifact, RawArtifact, LedgerEvent, bool, error)
+		artifactcontract.Raw,
+		artifactcontract.Raw,
+		func([]ledger.Event) ([]ledger.Event, bool, error),
+	) (artifactcontract.Raw, artifactcontract.Raw, ledger.Event, bool, error)
 }
 
 // CreateRawArtifactWithEventConditionally는 조건이 맞을 때 raw artifact와 이벤트를 함께 기록한다.
 func (s *Service) CreateRawArtifactWithEventConditionally(
 	ctx context.Context,
-	artifactReq CreateRawArtifactRequest,
-	eventReqForEvents func([]LedgerEvent, RawArtifact) (AppendEventRequest, LedgerEvent, bool, error),
-) (RawArtifact, LedgerEvent, bool, error) {
+	artifactReq artifactcontract.CreateRequest,
+	eventReqForEvents func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error),
+) (artifactcontract.Raw, ledger.Event, bool, error) {
 	if eventReqForEvents == nil {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: conditional event builder is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: conditional event builder is required", ErrInvalidInput)
 	}
 	store, ok := s.store.(conditionalRawArtifactStore)
 	if !ok {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: conditional raw artifact store is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: conditional raw artifact store is required", ErrInvalidInput)
 	}
-	artifact, err := buildRawArtifact(artifactReq)
+	artifact, err := artifactcontract.Build(artifactReq)
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
-	return store.CommitRawArtifactWithEventConditionally(ctx, artifact, func(events []LedgerEvent) (LedgerEvent, bool, error) {
+	return store.CommitRawArtifactWithEventConditionally(ctx, artifact, func(events []ledger.Event) (ledger.Event, bool, error) {
 		req, existing, create, err := eventReqForEvents(events, artifact)
 		if err != nil {
-			return LedgerEvent{}, false, err
+			return ledger.Event{}, false, err
 		}
 		if !create {
 			return existing, false, nil
@@ -60,37 +63,37 @@ func (s *Service) CreateMarkdownReportArtifactIfOpen(
 	ctx context.Context,
 	missionID string,
 	pendingEventID string,
-	artifactReq CreateRawArtifactRequest,
-	eventReqForArtifact func(RawArtifact) AppendEventRequest,
-) (RawArtifact, LedgerEvent, bool, error) {
+	artifactReq artifactcontract.CreateRequest,
+	eventReqForArtifact func(artifactcontract.Raw) ledger.AppendRequest,
+) (artifactcontract.Raw, ledger.Event, bool, error) {
 	if eventReqForArtifact == nil {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: Markdown report terminal event builder is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: Markdown report terminal event builder is required", ErrInvalidInput)
 	}
 	if err := validateID("mis_", missionID); err != nil {
-		return RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	pendingEventID = strings.TrimSpace(pendingEventID)
 	if pendingEventID == "" {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: pending event is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: pending event is required", ErrInvalidInput)
 	}
 	store, ok := s.store.(conditionalRawArtifactStore)
 	if !ok {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: conditional raw artifact store is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: conditional raw artifact store is required", ErrInvalidInput)
 	}
-	artifact, err := buildRawArtifact(artifactReq)
+	artifact, err := artifactcontract.Build(artifactReq)
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	if artifact.MissionID != missionID {
-		return RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: artifact mission_id must match %s", ErrInvalidInput, missionID)
+		return artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: artifact mission_id must match %s", ErrInvalidInput, missionID)
 	}
-	return store.CommitRawArtifactWithEventConditionally(ctx, artifact, func(events []LedgerEvent) (LedgerEvent, bool, error) {
-		built, open, err := buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, []AppendEventRequest{eventReqForArtifact(artifact)})
+	return store.CommitRawArtifactWithEventConditionally(ctx, artifact, func(events []ledger.Event) (ledger.Event, bool, error) {
+		built, open, err := buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, []ledger.AppendRequest{eventReqForArtifact(artifact)})
 		if err != nil || !open {
-			return LedgerEvent{}, false, err
+			return ledger.Event{}, false, err
 		}
 		if len(built) != 1 {
-			return LedgerEvent{}, false, fmt.Errorf("%w: Markdown report closure requires one terminal event", ErrInvalidInput)
+			return ledger.Event{}, false, fmt.Errorf("%w: Markdown report closure requires one terminal event", ErrInvalidInput)
 		}
 		return built[0], true, nil
 	})
@@ -104,37 +107,37 @@ func (s *Service) CreateDesignedReportHTMLExportIfOpen(
 	ctx context.Context,
 	missionID string,
 	pendingEventID string,
-	contentModelReq CreateRawArtifactRequest,
-	htmlReq CreateRawArtifactRequest,
-	eventReqForArtifacts func(RawArtifact, RawArtifact) AppendEventRequest,
-) (RawArtifact, RawArtifact, LedgerEvent, bool, error) {
+	contentModelReq artifactcontract.CreateRequest,
+	htmlReq artifactcontract.CreateRequest,
+	eventReqForArtifacts func(artifactcontract.Raw, artifactcontract.Raw) ledger.AppendRequest,
+) (artifactcontract.Raw, artifactcontract.Raw, ledger.Event, bool, error) {
 	if eventReqForArtifacts == nil {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: designed HTML terminal event builder is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: designed HTML terminal event builder is required", ErrInvalidInput)
 	}
 	if err := validateID("mis_", missionID); err != nil {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	pendingEventID = strings.TrimSpace(pendingEventID)
 	if pendingEventID == "" {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: pending event is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: pending event is required", ErrInvalidInput)
 	}
 	store, ok := s.store.(conditionalDesignedReportHTMLExportStore)
 	if !ok {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: designed HTML conditional store is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: designed HTML conditional store is required", ErrInvalidInput)
 	}
-	contentModel, err := buildRawArtifact(contentModelReq)
+	contentModel, err := artifactcontract.Build(contentModelReq)
 	if err != nil {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
-	html, err := buildRawArtifact(htmlReq)
+	html, err := artifactcontract.Build(htmlReq)
 	if err != nil {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	if contentModel.MissionID != missionID || html.MissionID != missionID {
-		return RawArtifact{}, RawArtifact{}, LedgerEvent{}, false, fmt.Errorf("%w: artifact mission_id must match %s", ErrInvalidInput, missionID)
+		return artifactcontract.Raw{}, artifactcontract.Raw{}, ledger.Event{}, false, fmt.Errorf("%w: artifact mission_id must match %s", ErrInvalidInput, missionID)
 	}
-	return store.CommitDesignedReportHTMLExportConditionally(ctx, missionID, contentModel, html, func(events []LedgerEvent) ([]LedgerEvent, bool, error) {
+	return store.CommitDesignedReportHTMLExportConditionally(ctx, missionID, contentModel, html, func(events []ledger.Event) ([]ledger.Event, bool, error) {
 		terminalReq := eventReqForArtifacts(contentModel, html)
-		return buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, []AppendEventRequest{terminalReq})
+		return buildReportTerminalEventsIfOpen(events, missionID, pendingEventID, []ledger.AppendRequest{terminalReq})
 	})
 }

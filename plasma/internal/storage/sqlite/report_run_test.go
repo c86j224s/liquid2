@@ -4,12 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestReportRunNativeMembershipAndDeletePurgesOwnedArtifacts(t *testing.T) {
@@ -66,35 +70,35 @@ func TestReportRunArtifactMembershipPromotesIntermediateToFinal(t *testing.T) {
 	missionID := "mis_rr_promote"
 	pendingID := "evt_rr_promote_pending"
 	artifactID := "art_rr_promoted"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, missionID, artifactID, []byte("promoted final"))
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"title":"Promoted report"}`),
 	})
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_patch_finalized",
 		MissionID: missionID,
 		EventType: "report.patch.finalized",
-		Producer:  app.Producer{Type: "agent", ID: "test"},
+		Producer:  ledger.Producer{Type: "agent", ID: "test"},
 		Payload:   []byte(`{"pending_event_id":"` + pendingID + `","artifact_id":"` + artifactID + `"}`),
 	})
 	assertArtifactMembership(t, ctx, store, pendingID, artifactID, reportrun.ArtifactRoleIntermediate, reportrun.OwnershipCreated)
 
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_promoted_final",
 		MissionID: missionID,
 		EventType: "report.artifact.created",
-		Producer:  app.Producer{Type: "agent", ID: "test"},
+		Producer:  ledger.Producer{Type: "agent", ID: "test"},
 		Payload:   []byte(`{"pending_event_id":"` + pendingID + `","artifact_id":"` + artifactID + `"}`),
 	})
 	assertArtifactMembership(t, ctx, store, pendingID, artifactID, reportrun.ArtifactRoleFinal, reportrun.OwnershipCreated)
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{EventID: "evt_report_run_completed_" + strings.TrimPrefix(pendingID, "evt_"), MissionID: missionID, EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_rr_promoted_final", CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"evt_rr_promoted_final","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
+	appendLedgerEvent(t, ctx, store, ledger.Event{EventID: "evt_report_run_completed_" + strings.TrimPrefix(pendingID, "evt_"), MissionID: missionID, EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"}, CausationEventID: "evt_rr_promoted_final", CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"evt_rr_promoted_final","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
 
 	facts, err := store.LoadReportRunDeleteFacts(ctx, missionID, artifactID)
 	if err != nil {
@@ -121,16 +125,16 @@ func TestReportRunBackfillSkipsPurgedRunMemberships(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_purged_backfill", "evt_rr_purged_backfill_pending", "evt_rr_purged_backfill_final", "art_rr_purged_backfill_final")
-	if err := store.CreateSourceSnapshot(ctx, app.SourceSnapshot{
+	if err := store.CreateSourceSnapshot(ctx, sourcecontract.Snapshot{
 		SnapshotID:  "src_rr_purged_backfill",
 		MissionID:   final.MissionID,
-		Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: app.SourceConnectorTypeFileUpload},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 		Title:       "Preserved final",
 		CapturedAt:  time.Now().UTC(),
 		ArtifactIDs: []string{final.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: final.SHA256},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: final.SHA256},
 		Locators:    []byte(`[]`),
-		Access:      app.SourceAccess{Visibility: "private", License: "unknown", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access:      sourcecontract.Access{Visibility: "private", License: "unknown", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 	}
@@ -217,19 +221,19 @@ func TestReportRunNativeRegistrationRejectsPurgedRootReuse(t *testing.T) {
 		t.Fatalf("DeleteReportRun returned error: %v", err)
 	}
 	svc := app.NewService(store)
-	_, _, err = svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	_, _, err = svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_purged_native_reuse",
 		MissionID:  final.MissionID,
 		MediaType:  "text/markdown",
 		Filename:   "reuse.md",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("reuse"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_purged_native_reuse",
 			MissionID: final.MissionID,
 			EventType: "report.artifact.created",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload:   []byte(`{"pending_event_id":"evt_rr_purged_native_pending","artifact_id":"` + artifact.ArtifactID + `"}`),
 		}
 	})
@@ -248,11 +252,11 @@ func TestReportRunDeleteRevisionConflictAndSharedArtifactPreservation(t *testing
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_shared", "evt_rr_shared_pending", "evt_rr_shared_final", "art_rr_shared_final")
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_shared_reference",
 		MissionID: final.MissionID,
 		EventType: "mission.note",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"artifact_id":"art_rr_shared_final"}`),
 	})
 
@@ -287,14 +291,14 @@ func TestReportRunCrossMissionLedgerReferencePreservesArtifact(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_cross_ref", "evt_rr_cross_pending", "evt_rr_cross_final", "art_rr_cross_final")
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_cross_ref_other", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_cross_ref_other", Title: "Other"}); err != nil {
 		t.Fatalf("CreateMission other returned error: %v", err)
 	}
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_cross_reference",
 		MissionID: "mis_rr_cross_ref_other",
 		EventType: "mission.note",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"artifact_id":"` + final.ArtifactID + `"}`),
 	})
 
@@ -328,16 +332,16 @@ func TestReportRunDeleteFactsHashConflictsWhenExternalFactsChange(t *testing.T) 
 		if err != nil {
 			t.Fatalf("LoadReportRunDeleteFacts returned error: %v", err)
 		}
-		if err := store.CreateSourceSnapshot(ctx, app.SourceSnapshot{
+		if err := store.CreateSourceSnapshot(ctx, sourcecontract.Snapshot{
 			SnapshotID:  "src_rr_hash_source",
 			MissionID:   final.MissionID,
-			Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: app.SourceConnectorTypeFileUpload},
+			Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 			Title:       "Shared final",
 			CapturedAt:  time.Now().UTC(),
 			ArtifactIDs: []string{final.ArtifactID},
-			ContentHash: app.ContentHash{Algorithm: "sha256", Value: final.SHA256},
+			ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: final.SHA256},
 			Locators:    []byte(`[]`),
-			Access:      app.SourceAccess{Visibility: "private", License: "unknown", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+			Access:      sourcecontract.Access{Visibility: "private", License: "unknown", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		}); err != nil {
 			t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 		}
@@ -360,7 +364,7 @@ func TestReportRunDeleteFactsHashConflictsWhenExternalFactsChange(t *testing.T) 
 			NewWorkcopyID:    "rwc_rr_hash_other",
 			MissionID:        final.MissionID,
 			SourceArtifactID: final.ArtifactID,
-			Producer:         app.Producer{Type: "user", ID: "test"},
+			Producer:         ledger.Producer{Type: "user", ID: "test"},
 			Content:          []byte("redpen shared later"),
 		})
 		if err != nil {
@@ -396,11 +400,11 @@ func TestReportRunDeleteFactsHashConflictsWhenExternalFactsChange(t *testing.T) 
 		ctx := context.Background()
 		store := newTestStore(t)
 		final := seedCompletedReportRun(t, ctx, store, "mis_rr_hash_ledger", "evt_rr_hash_ledger_pending", "evt_rr_hash_ledger_final", "art_rr_hash_ledger_final")
-		appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+		appendLedgerEvent(t, ctx, store, ledger.Event{
 			EventID:   "evt_rr_hash_ledger_reference",
 			MissionID: final.MissionID,
 			EventType: "mission.note",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload:   []byte(`{"artifact_id":"` + final.ArtifactID + `"}`),
 		})
 		before, err := store.LoadReportRunDeleteFacts(ctx, final.MissionID, final.ArtifactID)
@@ -473,7 +477,7 @@ func TestReportRunMalformedOutOfRunPayloadRelevance(t *testing.T) {
 		ctx := context.Background()
 		store := newTestStore(t)
 		final := seedCompletedReportRun(t, ctx, store, "mis_rr_cross_malformed", "evt_rr_cross_malformed_pending", "evt_rr_cross_malformed_final", "art_rr_cross_malformed_final")
-		if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_rr_cross_malformed_other", Title: "Other"}); err != nil {
+		if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_rr_cross_malformed_other", Title: "Other"}); err != nil {
 			t.Fatalf("CreateMission other returned error: %v", err)
 		}
 		insertLedgerPayloadDirect(t, ctx, store, "mis_rr_cross_malformed_other", "evt_rr_cross_malformed_other", "mission.note", `{"note":`)
@@ -494,19 +498,19 @@ func TestReportRunDeleteRequiresFinalMarkdownTarget(t *testing.T) {
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_target", "evt_rr_target_pending", "evt_rr_target_final", "art_rr_target_final")
 	svc := app.NewService(store)
-	derivative, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	derivative, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_target_html",
 		MissionID:  final.MissionID,
 		MediaType:  "text/html; charset=utf-8",
 		Filename:   "target.html",
-		Producer:   app.Producer{Type: "plasma", ID: "test"},
+		Producer:   ledger.Producer{Type: "plasma", ID: "test"},
 		Content:    []byte("<html></html>"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_target_html",
 			MissionID: final.MissionID,
 			EventType: "report.artifact.exported",
-			Producer:  app.Producer{Type: "plasma", ID: "test"},
+			Producer:  ledger.Producer{Type: "plasma", ID: "test"},
 			Payload:   []byte(`{"pending_event_id":"evt_rr_target_pending","source_artifact_id":"` + final.ArtifactID + `","artifact_id":"` + artifact.ArtifactID + `","kind":"self_contained_html","target":"self_contained_html"}`),
 		}
 	})
@@ -531,22 +535,22 @@ func TestReportRunUnknownArtifactEventCannotMakeArtifactDeletable(t *testing.T) 
 	store := newTestStore(t)
 	missionID := "mis_rr_unknown_owner"
 	artifactID := "art_rr_unknown_existing"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	createStoredArtifact(t, ctx, store, missionID, artifactID, []byte("existing"))
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_unknown_pending",
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"title":"Unknown owner"}`),
 	})
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_unknown_artifact",
 		MissionID: missionID,
 		EventType: "report.future.created",
-		Producer:  app.Producer{Type: "agent", ID: "test"},
+		Producer:  ledger.Producer{Type: "agent", ID: "test"},
 		Payload:   []byte(`{"pending_event_id":"evt_rr_unknown_pending","artifact_id":"` + artifactID + `"}`),
 	})
 	assertArtifactMembership(t, ctx, store, "evt_rr_unknown_pending", artifactID, reportrun.ArtifactRoleIntermediate, reportrun.OwnershipReferenced)
@@ -577,7 +581,7 @@ func TestReportRunRedpenCommitUpdatesRevisionAndDeletesWithRun(t *testing.T) {
 		NewWorkcopyID:    "rwc_rr_redpen",
 		MissionID:        final.MissionID,
 		SourceArtifactID: final.ArtifactID,
-		Producer:         app.Producer{Type: "user", ID: "test"},
+		Producer:         ledger.Producer{Type: "user", ID: "test"},
 		Content:          []byte("redpen final"),
 	})
 	if err != nil {
@@ -618,12 +622,12 @@ func TestReportRunDeletePreservesReusedRedpenArtifact(t *testing.T) {
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_redpen_reuse", "evt_rr_redpen_reuse_pending", "evt_rr_redpen_reuse_final", "art_rr_redpen_reuse_final")
 	svc := app.NewService(store)
-	reused, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	reused, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_redpen_generic",
 		MissionID:  final.MissionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   "generic.md",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("# Generic\n\nReusable redpen content.\n"),
 	})
 	if err != nil {
@@ -635,7 +639,7 @@ func TestReportRunDeletePreservesReusedRedpenArtifact(t *testing.T) {
 		NewWorkcopyID:    "rwc_rr_redpen_reuse",
 		MissionID:        final.MissionID,
 		SourceArtifactID: final.ArtifactID,
-		Producer:         app.Producer{Type: "user", ID: "test"},
+		Producer:         ledger.Producer{Type: "user", ID: "test"},
 		Content:          append([]byte(nil), reused.Content...),
 	})
 	if err != nil {
@@ -670,32 +674,32 @@ func TestReportRunInvalidRetryDoesNotAllowCrossRunDeletion(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	missionID := "mis_rr_invalid_retry_delete"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	rootA := seedCompletedReportAttempt(t, ctx, store, missionID, "evt_rr_root_a", "evt_rr_root_a_final", "art_rr_root_a")
 	rootB := seedCompletedReportAttempt(t, ctx, store, missionID, "evt_rr_root_b", "evt_rr_root_b_final", "art_rr_root_b")
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_invalid_retry",
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"origin_pending_event_id":"evt_rr_root_a","retry_of_pending_event_id":"evt_rr_root_b","retry_strategy":"resume_failed"}`),
 	})
 	svc := app.NewService(store)
-	retryArtifact, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	retryArtifact, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_invalid_retry",
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		Filename:   "invalid-retry.md",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("invalid retry"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_invalid_retry_final",
 			MissionID: missionID,
 			EventType: "report.artifact.created",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload:   []byte(`{"pending_event_id":"evt_rr_invalid_retry","artifact_id":"` + artifact.ArtifactID + `"}`),
 		}
 	})
@@ -729,15 +733,15 @@ func TestReportRunRegistrationSkipsGenericWrites(t *testing.T) {
 		ctx := context.Background()
 		store := newTestStore(t)
 		missionID := "mis_rr_guard_ledger"
-		if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+		if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 			t.Fatalf("CreateMission returned error: %v", err)
 		}
 		insertLedgerPayloadDirect(t, ctx, store, missionID, "evt_rr_guard_pending", "report.draft.pending", `{"title":"guard"}`)
-		appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+		appendLedgerEvent(t, ctx, store, ledger.Event{
 			EventID:   "evt_rr_guard_note",
 			MissionID: missionID,
 			EventType: "mission.note",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload:   []byte(`{"note":"generic"}`),
 		})
 		if got := countRows(t, ctx, store, `SELECT COUNT(*) FROM plasma_report_runs WHERE mission_id = ?`, missionID); got != 0 {
@@ -748,24 +752,24 @@ func TestReportRunRegistrationSkipsGenericWrites(t *testing.T) {
 		ctx := context.Background()
 		store := newTestStore(t)
 		missionID := "mis_rr_guard_atomic"
-		if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+		if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 			t.Fatalf("CreateMission returned error: %v", err)
 		}
 		insertLedgerPayloadDirect(t, ctx, store, missionID, "evt_rr_guard_atomic_pending", "report.draft.pending", `{"title":"guard"}`)
 		svc := app.NewService(store)
-		if _, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+		if _, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 			ArtifactID: "art_rr_guard_atomic",
 			MissionID:  missionID,
 			MediaType:  "text/plain",
 			Filename:   "generic.txt",
-			Producer:   app.Producer{Type: "user", ID: "test"},
+			Producer:   ledger.Producer{Type: "user", ID: "test"},
 			Content:    []byte("generic"),
-		}, func(artifact app.RawArtifact) app.AppendEventRequest {
-			return app.AppendEventRequest{
+		}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+			return ledger.AppendRequest{
 				EventID:   "evt_rr_guard_atomic_note",
 				MissionID: missionID,
 				EventType: "mission.note",
-				Producer:  app.Producer{Type: "user", ID: "test"},
+				Producer:  ledger.Producer{Type: "user", ID: "test"},
 				Payload:   []byte(`{"artifact_id":"` + artifact.ArtifactID + `"}`),
 			}
 		}); err != nil {
@@ -781,31 +785,31 @@ func TestReportCanvasEventsDoNotCreateReportRuns(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	missionID := "mis_rr_canvas_events"
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   "evt_rr_canvas_promoted",
 		MissionID: missionID,
 		EventType: "report.promoted",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"report_id":"rpt_canvas","report_version_id":"rvn_canvas"}`),
 	})
 	svc := app.NewService(store)
-	if _, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	if _, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_rr_canvas_export",
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		Filename:   "canvas-export.md",
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		Content:    []byte("canvas export"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_rr_canvas_exported",
 			MissionID: missionID,
 			EventType: "report.exported",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload:   []byte(`{"report_id":"rpt_canvas","report_version_id":"rvn_canvas","artifact_id":"` + artifact.ArtifactID + `"}`),
 		}
 	}); err != nil {
@@ -820,16 +824,16 @@ func TestReportRunDeleteRollsBackWhenArtifactDeleteFails(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	final := seedCompletedReportRun(t, ctx, store, "mis_rr_rollback", "evt_rr_rollback_pending", "evt_rr_rollback_final", "art_rr_rollback_final")
-	if err := store.CreateSourceSnapshot(ctx, app.SourceSnapshot{
+	if err := store.CreateSourceSnapshot(ctx, sourcecontract.Snapshot{
 		SnapshotID:  "src_rr_rollback",
 		MissionID:   final.MissionID,
-		Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: app.SourceConnectorTypeFileUpload},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 		Title:       "Linked report",
 		CapturedAt:  time.Now().UTC(),
 		ArtifactIDs: []string{final.ArtifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: final.SHA256},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: final.SHA256},
 		Locators:    []byte(`[]`),
-		Access:      app.SourceAccess{Visibility: "private", License: "unknown", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access:      sourcecontract.Access{Visibility: "private", License: "unknown", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatalf("CreateSourceSnapshot returned error: %v", err)
 	}
@@ -879,37 +883,37 @@ func TestMissionHardDeleteRemovesReportRunRows(t *testing.T) {
 	}
 }
 
-func seedCompletedReportRun(t *testing.T, ctx context.Context, store *Store, missionID, pendingID, finalEventID, artifactID string) app.RawArtifact {
+func seedCompletedReportRun(t *testing.T, ctx context.Context, store *Store, missionID, pendingID, finalEventID, artifactID string) artifactcontract.Raw {
 	t.Helper()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	return seedCompletedReportAttempt(t, ctx, store, missionID, pendingID, finalEventID, artifactID)
 }
 
-func seedCompletedReportAttempt(t *testing.T, ctx context.Context, store *Store, missionID, pendingID, finalEventID, artifactID string) app.RawArtifact {
+func seedCompletedReportAttempt(t *testing.T, ctx context.Context, store *Store, missionID, pendingID, finalEventID, artifactID string) artifactcontract.Raw {
 	t.Helper()
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{
+	appendLedgerEvent(t, ctx, store, ledger.Event{
 		EventID:   pendingID,
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"title":"Report"}`),
 	})
 	svc := app.NewService(store)
-	artifact, _, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	artifact, _, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: artifactID,
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		Filename:   artifactID + ".md",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("final md " + artifactID),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   finalEventID,
 			MissionID: missionID,
 			EventType: "report.artifact.created",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload:   []byte(`{"kind":"markdown_report_artifact","pending_event_id":"` + pendingID + `","artifact_id":"` + artifact.ArtifactID + `","agent_usage":{"provider_usage":{"input_tokens":4,"output_tokens":5,"total_tokens":9}}}`),
 		}
 	})
@@ -917,11 +921,11 @@ func seedCompletedReportAttempt(t *testing.T, ctx context.Context, store *Store,
 		t.Fatalf("CreateRawArtifactWithEvent returned error: %v", err)
 	}
 	completionID := "evt_report_run_completed_" + strings.TrimPrefix(pendingID, "evt_")
-	appendLedgerEvent(t, ctx, store, app.LedgerEvent{EventID: completionID, MissionID: missionID, EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"}, CausationEventID: finalEventID, CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"` + finalEventID + `","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
+	appendLedgerEvent(t, ctx, store, ledger.Event{EventID: completionID, MissionID: missionID, EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"}, CausationEventID: finalEventID, CorrelationID: pendingID, Payload: []byte(`{"kind":"report_run_completed","schema_version":"plasma.report_run_completion.v1","run_id":"` + pendingID + `","pending_event_id":"` + pendingID + `","canonical_event_id":"` + finalEventID + `","artifact_id":"` + artifactID + `","delayed_usage_target_count":0,"usage_recorded_count":0,"usage_unavailable_count":0}`)})
 	return artifact
 }
 
-func appendLedgerEvent(t *testing.T, ctx context.Context, store *Store, event app.LedgerEvent) {
+func appendLedgerEvent(t *testing.T, ctx context.Context, store *Store, event ledger.Event) {
 	t.Helper()
 	if _, err := store.AppendLedgerEvent(ctx, event); err != nil {
 		t.Fatalf("AppendLedgerEvent %s returned error: %v", event.EventID, err)
@@ -930,13 +934,13 @@ func appendLedgerEvent(t *testing.T, ctx context.Context, store *Store, event ap
 
 func createStoredArtifact(t *testing.T, ctx context.Context, store *Store, missionID string, artifactID string, content []byte) {
 	t.Helper()
-	if err := store.CreateRawArtifact(ctx, app.RawArtifact{
+	if err := store.CreateRawArtifact(ctx, artifactcontract.Raw{
 		ArtifactID: artifactID,
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		ByteSize:   int64(len(content)),
 		SHA256:     "sha_" + artifactID,
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		CreatedAt:  time.Now().UTC(),
 		Content:    content,
 		Filename:   artifactID + ".md",

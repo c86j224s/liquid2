@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -23,7 +26,7 @@ func TestReportRedpenRouteCreatesUpdatesDownloadsAndProtectsSource(t *testing.T)
 	defer store.Close()
 	svc := app.NewService(store)
 	missionID := "mis_redpen"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Redpen mission"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Redpen mission"}); err != nil {
 		t.Fatal(err)
 	}
 	source := createReportRedpenSource(t, ctx, svc, missionID)
@@ -116,7 +119,7 @@ func TestReportRedpenRouteCreatesUpdatesDownloadsAndProtectsSource(t *testing.T)
 		t.Fatalf("redpen artifact must not become a new redpen source, got %d", status)
 	}
 	otherMissionID := "mis_redpen_other"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: otherMissionID, Title: "Other"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: otherMissionID, Title: "Other"}); err != nil {
 		t.Fatal(err)
 	}
 	status, _ = getJSONFailure(t, server.URL+"/api/missions/"+otherMissionID+"/artifacts/"+source.ArtifactID+"/redpen")
@@ -143,19 +146,19 @@ func TestReportRedpenRouteCreatesUpdatesDownloadsAndProtectsSource(t *testing.T)
 	}
 }
 
-func createReportRedpenSource(t *testing.T, ctx context.Context, svc *app.Service, missionID string) app.RawArtifact {
+func createReportRedpenSource(t *testing.T, ctx context.Context, svc *app.Service, missionID string) artifactcontract.Raw {
 	t.Helper()
-	artifact, event, err := svc.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	artifact, event, err := svc.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_redpen_source", MissionID: missionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "report.md",
-		Producer: app.Producer{Type: "agent", ID: "reporter"}, Content: []byte("# 보고서\n\n원문 문장입니다.\n"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
+		Producer: ledger.Producer{Type: "agent", ID: "reporter"}, Content: []byte("# 보고서\n\n원문 문장입니다.\n"),
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
 		payload, _ := json.Marshal(map[string]any{
 			"kind": "markdown_report_artifact", "artifact_id": artifact.ArtifactID, "title": "보고서",
 		})
-		return app.AppendEventRequest{
+		return ledger.AppendRequest{
 			EventID: "evt_redpen_source", MissionID: missionID, EventType: "report.artifact.created",
-			Producer: app.Producer{Type: "agent", ID: "reporter"}, Payload: payload,
+			Producer: ledger.Producer{Type: "agent", ID: "reporter"}, Payload: payload,
 		}
 	})
 	if err != nil {

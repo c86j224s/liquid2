@@ -8,6 +8,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
 )
 
 func TestRunDraftObservesFinalStoreAfterOneTakeDraft(t *testing.T) {
@@ -42,7 +43,7 @@ func TestRunDraftObservesFinalStoreAfterPlannedDraft(t *testing.T) {
 		},
 	}
 	executor := &workflowExecutor{results: []agentexec.AgentResult{
-		{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
+		{Text: plan.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"},
 		{Text: "# Planned\n\nBody.", SessionID: "plan-session-1"},
 	}}
 	observer := &workflowObserver{}

@@ -3,6 +3,8 @@ package research
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -58,7 +60,7 @@ func (handler *Handler) CallList(ctx context.Context, call wire.ToolCall) wire.T
 	if err := handler.validateRead(missionID, input.Legacy, input.Legacy); err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}
-	var page app.ResearchIDEPage
+	var page researchcatalog.Page
 	var err error
 	if input.Legacy {
 		page, err = handler.legacyReader.ListMissionObjectsLegacy(ctx, missionID, input.ObjectKind, input.Limit, input.Cursor)
@@ -80,7 +82,7 @@ func (handler *Handler) CallRead(ctx context.Context, call wire.ToolCall) wire.T
 	if err := handler.validateRead(missionID, input.Legacy, false); err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}
-	read, err := handler.reader.ReadMissionObject(ctx, app.ResearchIDEReadRequest{
+	read, err := handler.reader.ReadMissionObject(ctx, researchinspection.ReadRequest{
 		MissionID:  missionID,
 		ObjectKind: input.ObjectKind,
 		ObjectID:   input.ObjectID,
@@ -105,7 +107,7 @@ func (handler *Handler) CallGrep(ctx context.Context, call wire.ToolCall) wire.T
 	if err := handler.validateRead(missionID, input.Legacy, input.Legacy); err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}
-	var result app.ResearchIDEGrepResult
+	var result researchinspection.GrepResult
 	var err error
 	if input.Legacy {
 		result, err = handler.legacyReader.GrepMissionObjectsLegacy(ctx, missionID, input.Query, input.Limit, input.Cursor)
@@ -127,7 +129,7 @@ func (handler *Handler) CallReferences(ctx context.Context, call wire.ToolCall) 
 	if err := handler.validateRead(missionID, input.Legacy, input.Legacy); err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}
-	var refs app.ResearchIDEReferences
+	var refs researchcatalog.References
 	var err error
 	if input.Legacy {
 		refs, err = handler.legacyReader.ListObjectReferencesLegacy(ctx, missionID, input.ObjectKind, input.ObjectID, input.Limit, input.Cursor)

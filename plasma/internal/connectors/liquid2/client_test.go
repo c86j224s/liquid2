@@ -2,12 +2,11 @@ package liquid2
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func TestClientSearchLiquid2SourcesUsesPublicDocumentsEndpoint(t *testing.T) {
@@ -42,11 +41,11 @@ func TestClientSearchLiquid2SourcesUsesPublicDocumentsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	result, err := client.SearchLiquid2Sources(context.Background(), app.Liquid2SourceSearchRequest{
+	result, err := client.SearchLiquid2Sources(context.Background(), liquid2source.Liquid2SourceSearchRequest{
 		MissionID: "mis_1",
 		Query:     "sqlite",
 		Limit:     5,
-		Filters:   app.Liquid2SourceFilters{Tag: "storage", IncludeTrash: true},
+		Filters:   liquid2source.Liquid2SourceFilters{Tag: "storage", IncludeTrash: true},
 	})
 	if err != nil {
 		t.Fatalf("SearchLiquid2Sources returned error: %v", err)
@@ -109,13 +108,13 @@ func TestClientReadLiquid2SourceUsesPublicDocumentDetailEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	document, err := client.ReadLiquid2Source(context.Background(), app.Liquid2SourceReadRequest{
+	document, err := client.ReadLiquid2Source(context.Background(), liquid2source.Liquid2SourceReadRequest{
 		ExternalSourceID: "doc_1",
 	})
 	if err != nil {
 		t.Fatalf("ReadLiquid2Source returned error: %v", err)
 	}
-	if document.Connector.ConnectorID != app.Liquid2ConnectorID ||
+	if document.Connector.ConnectorID != liquid2source.Liquid2ConnectorID ||
 		document.Connector.ConnectorVersion != "liquid2-http.test" ||
 		document.SourceURI != "https://example.com/source" {
 		t.Fatalf("unexpected connector metadata: %#v", document)
@@ -143,7 +142,7 @@ func TestClientReturnsHTTPStatusErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	_, err = client.ReadLiquid2Source(context.Background(), app.Liquid2SourceReadRequest{ExternalSourceID: "doc_missing"})
+	_, err = client.ReadLiquid2Source(context.Background(), liquid2source.Liquid2SourceReadRequest{ExternalSourceID: "doc_missing"})
 	if err == nil || !strings.Contains(err.Error(), "returned 404") {
 		t.Fatalf("expected status error, got %v", err)
 	}
@@ -176,9 +175,62 @@ func TestClientReadRejectsMismatchedDocumentID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}
-	_, err = client.ReadLiquid2Source(context.Background(), app.Liquid2SourceReadRequest{ExternalSourceID: "doc_1"})
+	_, err = client.ReadLiquid2Source(context.Background(), liquid2source.Liquid2SourceReadRequest{ExternalSourceID: "doc_1"})
 	if err == nil || !strings.Contains(err.Error(), "document id mismatch") {
 		t.Fatalf("expected mismatch error, got %v", err)
+	}
+}
+
+func TestClientCandidatePreservesSlashInDocumentURI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"items": [{"id": "doc/1", "title": "Slash document", "updatedAt": 1781583600000}],
+			"totalCount": 1
+		}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+	result, err := client.SearchLiquid2Sources(context.Background(), liquid2source.Liquid2SourceSearchRequest{})
+	if err != nil {
+		t.Fatalf("SearchLiquid2Sources returned error: %v", err)
+	}
+	if len(result.Candidates) != 1 {
+		t.Fatalf("unexpected candidates: %#v", result.Candidates)
+	}
+	candidate := result.Candidates[0]
+	if candidate.Connector.ExternalSourceID != "doc/1" || candidate.Connector.ExternalURI != "liquid2://documents/doc/1" {
+		t.Fatalf("unexpected candidate connector: %#v", candidate.Connector)
+	}
+}
+
+func TestClientDocumentMetadataPreservesSlashInDocumentURI(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/documents/doc%2F1" {
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"document": {"id": "doc/1", "title": "Slash document", "updatedAt": 1781583600000},
+			"folderPath": [], "contents": [], "tags": [], "blobs": []
+		}`))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+	document, err := client.ReadLiquid2Source(context.Background(), liquid2source.Liquid2SourceReadRequest{ExternalSourceID: "doc/1"})
+	if err != nil {
+		t.Fatalf("ReadLiquid2Source returned error: %v", err)
+	}
+	if document.Connector.ExternalSourceID != "doc/1" || document.Connector.ExternalURI != "liquid2://documents/doc/1" {
+		t.Fatalf("unexpected document connector: %#v", document.Connector)
 	}
 }
 

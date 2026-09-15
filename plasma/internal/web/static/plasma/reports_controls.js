@@ -15,6 +15,18 @@
   const missionLifecycleWriteBlocked = () => reports.call("missionLifecycleWriteBlocked");
   const selectedAgentModel = () => reports.call("selectedAgentModel");
   const selectedAgentReasoningEffort = () => reports.call("selectedAgentReasoningEffort");
+
+function activateCreationTab(panelID) {
+  const tabs = Array.from(document.querySelectorAll("[data-report-creation-tab]"));
+  for (const tab of tabs) {
+    const selected = tab.dataset.reportCreationTab === panelID;
+    tab.classList.toggle("active", selected);
+    tab.setAttribute("aria-selected", selected ? "true" : "false");
+    const panel = document.getElementById(tab.dataset.reportCreationTab);
+    if (panel) panel.hidden = !selected;
+  }
+}
+
 async function draftReport(reportMode = "one_take", options) {
   options = options || {};
   if (!requireMission()) return;
@@ -22,24 +34,35 @@ async function draftReport(reportMode = "one_take", options) {
   const owner = captureMissionSelection();
   const missionId = owner.missionId;
   const requestedFamily = String(options.pipelineFamily || "").trim();
-  const validation = String($("reportRigor").value || "strict").trim() || "strict";
+  const article = options.outputKind === "article";
+  const rigorControl = article ? $("articleRigor") : $("reportRigor");
+  const validation = String(rigorControl.value || "strict").trim() || "strict";
   const ilReport = requestedFamily === reports.REPORT_IL_PIPELINE_FAMILY;
-  const pipelineFamily = ilReport
+  const longArticle = article && reportMode === "long_form";
+  const pipelineFamily = longArticle
     ? reports.REPORT_IL_PIPELINE_FAMILY
-    : validation === "unverified"
-      ? reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
-      : "";
+    : article
+      ? ""
+      : ilReport
+        ? reports.REPORT_IL_PIPELINE_FAMILY
+        : validation === "unverified"
+          ? reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
+          : "";
   const unverified = pipelineFamily === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
-  const independent = ilReport || unverified;
+  const independent = ilReport || longArticle || unverified;
   const longFormIL = ilReport && reportMode === "long_form";
   const familyTitle = longFormIL ? " 장문 IL" : ilReport ? " IL" : unverified ? " 무검증" : "";
-  const title = `${state.detail?.projection?.title || "미션"}${familyTitle} 리포트`;
-  const reportSelection = independent
+  const title = longArticle ? `${state.detail?.projection?.title || "미션"} 장문 글` : article ? `${state.detail?.projection?.title || "미션"} 글` : `${state.detail?.projection?.title || "미션"}${familyTitle} 리포트`;
+  const modelControl = article ? $("articleAgentModel") : $("reportAgentModel");
+  const effortControl = article ? $("articleAgentReasoningEffort") : $("reportAgentReasoningEffort");
+  const reportSelection = unverified
     ? { agent_model: "gpt-5.6-luna", agent_reasoning_effort: "xhigh" }
-    : reports.modelSelection.payload($("reportAgentModel").value, $("reportAgentReasoningEffort").value);
-  const executionStrategy = independent ? "" : reportMode === "long_form"
-    ? ($("reportLongFormExecutionStrategy")?.value || "serial")
-    : "serial";
+    : reports.modelSelection.payload(modelControl.value, effortControl.value);
+  const executionStrategy = longArticle
+    ? ($("articleLongFormExecutionStrategy")?.value || "serial")
+    : independent ? "" : reportMode === "long_form"
+      ? ($("reportLongFormExecutionStrategy")?.value || "serial")
+      : "serial";
   const generationGuidanceProfile = independent ? "" : reports.selectedReportGenerationGuidance(reportMode);
   const postReportHumanize = independent ? "disabled" : reportMode === "long_form" ? "enabled" : "disabled";
   const pendingPayload = {
@@ -52,7 +75,8 @@ async function draftReport(reportMode = "one_take", options) {
     rigor_level: unverified ? "unverified" : validation,
     agent_model: reportSelection.agent_model,
     agent_reasoning_effort: reportSelection.agent_reasoning_effort,
-    direction_hint: typeof reports.direction.current === "function" ? reports.direction.current() : ""
+    direction_hint: typeof reports.direction.current === "function" ? reports.direction.current(article ? "article" : "report") : "",
+    ...(article ? { output_kind: "article", article_intent: options.articleIntent } : {})
   };
   reports.setReportBusy(true);
   reports.setReportNotice(reports.reportPendingMessage({ Payload: pendingPayload }));
@@ -74,7 +98,7 @@ async function draftReport(reportMode = "one_take", options) {
     return;
   }
 	if (!ownsMissionSelection(owner)) return;
-	if (typeof reports.direction.clear === "function") reports.direction.clear();
+	if (typeof reports.direction.clear === "function") reports.direction.clear(article ? "article" : "report");
   reports.setReportNotice(result.pending_event
     ? reports.reportPendingMessage(result.pending_event)
     : reports.reportPendingMessage({ Payload: pendingPayload }));
@@ -84,6 +108,22 @@ async function draftReport(reportMode = "one_take", options) {
     showError(err);
     schedulePendingPoll();
   }
+}
+
+async function draftArticle(reportMode = "one_take") {
+  const audience = String($("articleAudience").value || "").trim();
+  const readerPromise = String($("articleReaderPromise").value || "").trim();
+  const emphasis = String($("articleEmphasis").value || "").trim();
+  if (!audience || !readerPromise) {
+    const err = new Error("글을 읽을 사람과 읽고 나서 얻어갈 것을 입력하세요.");
+    err.userMessage = err.message;
+    showError(err);
+    return;
+  }
+  await draftReport(reportMode, {
+    outputKind: "article",
+    articleIntent: { audience, reader_promise: readerPromise, ...(emphasis ? { emphasis } : {}) }
+  });
 }
 
 async function patchReportArtifact(artifactID, currentTitle = "") {
@@ -220,6 +260,8 @@ function setReportBusy(busy) {
   window.Plasma.ui.setButtonText("draftLongReport", busy ? "생성 중" : "장문 보고서");
   window.Plasma.ui.setButtonText("draftExperimentalReport", busy ? "생성 중" : "IL 보고서");
   window.Plasma.ui.setButtonText("draftLongExperimentalReport", busy ? "생성 중" : "장문 IL 보고서");
+  window.Plasma.ui.setButtonText("draftArticle", busy ? "생성 중" : "일반 글");
+  window.Plasma.ui.setButtonText("draftLongArticle", busy ? "생성 중" : "장문 글");
 }
 
 function syncReportControls() {
@@ -228,10 +270,17 @@ function syncReportControls() {
 	window.Plasma.ui.setElementDisabled("reportAgentModel", blocked);
 	window.Plasma.ui.setElementDisabled("reportAgentReasoningEffort", blocked);
 	window.Plasma.ui.setElementDisabled("reportLongFormExecutionStrategy", blocked);
+	window.Plasma.ui.setElementDisabled("articleRigor", blocked);
+	window.Plasma.ui.setElementDisabled("articleAgentModel", blocked);
+	window.Plasma.ui.setElementDisabled("articleAgentReasoningEffort", blocked);
+	window.Plasma.ui.setElementDisabled("articleLongFormExecutionStrategy", blocked);
+	window.Plasma.ui.setElementDisabled("articleDirectionHint", blocked);
 	window.Plasma.ui.setElementDisabled("draftQuickReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftLongReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftExperimentalReport", blocked);
 	window.Plasma.ui.setElementDisabled("draftLongExperimentalReport", blocked);
+	window.Plasma.ui.setElementDisabled("draftArticle", blocked);
+	window.Plasma.ui.setElementDisabled("draftLongArticle", blocked);
 }
-  Object.assign(reports, { draftReport, patchReportArtifact, deleteReportArtifact, cancelReport, setReportBusy, syncReportControls });
+  Object.assign(reports, { activateCreationTab, draftReport, draftArticle, patchReportArtifact, deleteReportArtifact, cancelReport, setReportBusy, syncReportControls });
 })(window);

@@ -166,6 +166,10 @@ Supported checkpoint stages:
 - `il_reader`
 - `il_continuity`
 
+### Retry checkpoint resolution
+
+The Web retry boundary lists events once, then `reportilphase0.ResolveRetryCheckpoint` owns Report IL checkpoint resolution. It walks the retry pending chain in parent order (capped at 64 entries; cycles produce a nil resume without normal report-execution lineage validation), stops at the first stored checkpoint, and reads no later lineage entries after a hit. Stored-load errors other than `no durable checkpoint` stop immediately. When no stored checkpoint exists, the helper tries source-selection recovery, then Parts recovery, and finally legacy recovery. Recovered source-selection and Parts checkpoints are appended before reuse; legacy recovery is reused without appending a new checkpoint. The storage port is `LoadReportILResumeCheckpoint(ctx, missionID, pendingID)` plus `AppendReportILCheckpoint(ctx, missionID, checkpoint)`, and the document port uses `ReadReportILLongFormPlan`.
+
 ### Parts checkpoint
 
 After every planned Section and Part has finalized and passed validation, the product writes `il_long_form_parts` before the complete-manuscript final-author pass. A retry can therefore reuse:

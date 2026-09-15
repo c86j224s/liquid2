@@ -135,6 +135,10 @@ func publicationTableShapeEqual(left, right *Table) bool {
 }
 
 func validatePublicationStructuredPayloads(original, edited Document) error {
+	return validateStructuredPayloads(original, edited, false)
+}
+
+func validateStructuredPayloads(original, edited Document, continuity bool) error {
 	if len(original.Blocks) != len(edited.Blocks) {
 		return fmt.Errorf("publication reader changed the document block inventory")
 	}
@@ -154,7 +158,7 @@ func validatePublicationStructuredPayloads(original, edited Document) error {
 				return fmt.Errorf("publication reader changed table block %d", index)
 			}
 		case "list":
-			if !reflect.DeepEqual(left.Items, right.Items) {
+			if !continuity && !reflect.DeepEqual(left.Items, right.Items) {
 				return fmt.Errorf("publication reader changed list block %d", index)
 			}
 		}
@@ -210,11 +214,14 @@ func runContinuityPatchStage(
 			cause:  withValidationCode(reportexecution.ProviderValidationCodeDocumentContract, err),
 		}
 	}
-	edited, err := compilePublicationAuthorDocument(
-		authored, document, config.AuthoringMode, config.MissionObjective, catalog, citations,
+	edited, err := compileAuthorDocumentCandidate(
+		authored, document, config.AuthoringMode, config.MissionObjective, catalog, citations, true,
 	)
 	if err != nil {
 		return Document{}, ReaderFinalizationReceipt{}, reportilcontract.AuthorWorkspaceReceipt{}, results, err
+	}
+	if err := validateReaderFacingDocument(edited, config.MissionObjective); err != nil {
+		return Document{}, ReaderFinalizationReceipt{}, reportilcontract.AuthorWorkspaceReceipt{}, results, &providerStageError{reason: reportexecution.ProviderFailureReasonSemanticValidation, cause: err}
 	}
 	finalization := readerWorkspaceFinalization("il_continuity", workspaceReceipt)
 	return edited, finalization, workspaceReceipt, results, nil
@@ -357,6 +364,18 @@ func compilePublicationAuthorDocumentCandidate(
 	catalog reportilcontract.SourceCatalog,
 	citations map[int]SourceCitation,
 ) (Document, error) {
+	return compileAuthorDocumentCandidate(authored, original, authoringMode, missionObjective, catalog, citations, false)
+}
+
+func compileAuthorDocumentCandidate(
+	authored reportilcontract.AuthorDocument,
+	original Document,
+	authoringMode,
+	missionObjective string,
+	catalog reportilcontract.SourceCatalog,
+	citations map[int]SourceCitation,
+	continuity bool,
+) (Document, error) {
 	var edited Document
 	var err error
 	if authored.SchemaVersion == reportilcontract.LongFormAuthorDocumentSchemaVersion {
@@ -384,7 +403,7 @@ func compilePublicationAuthorDocumentCandidate(
 	if err := validatePublicationDocumentStructure(original, edited); err != nil {
 		return Document{}, readerDocumentContractFailure(err)
 	}
-	if err := validatePublicationStructuredPayloads(original, edited); err != nil {
+	if err := validateStructuredPayloads(original, edited, continuity); err != nil {
 		return Document{}, readerDocumentContractFailure(err)
 	}
 	return edited, nil
@@ -443,7 +462,7 @@ WORKFLOW:
 
 An account repair is editorial judgment, not a coverage exercise: do not force every memory account into the report, do not create a source tour, and do not expose tools, account keys, source keys, prompts, schemas, validators, pipelines, or writing stages in reader-facing text.
 
-Frozen source catalog SHA-256: %s`, objective, readerDirection(config), catalog.SHA256)
+Frozen source catalog SHA-256: %s`, objective, readerDirection(config), catalog.SHA256) + longFormArticleGuidance(config)
 }
 
 func publicationReaderRepairPrompt(config ProductConfig, catalog reportilcontract.SourceCatalog, code reportexecution.ProviderValidationCode) string {
@@ -483,5 +502,5 @@ PUBLICATION STANDARD:
 - Do not mention tools, source keys, prompts, schemas, validators, pipelines, or writing stages in reader-facing text.
 - If the report already reads naturally and accurately from beginning to end, make no replacement. Finalize the unchanged workspace after the complete read.
 
-Frozen source catalog SHA-256: %s`, objective, readerDirection(config), catalog.SHA256)
+Frozen source catalog SHA-256: %s`, objective, readerDirection(config), catalog.SHA256) + longFormArticleGuidance(config)
 }

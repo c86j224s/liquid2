@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 const (
@@ -34,12 +35,12 @@ func (client *Client) getJSON(ctx context.Context, endpoint string, query url.Va
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return app.NewConfluenceTransportError(safeOperation(http.MethodGet, endpoint), err)
+		return confluencesource.NewConfluenceTransportError(safeOperation(http.MethodGet, endpoint), err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return app.NewConfluenceHTTPError(response.StatusCode, response.Header.Get("Retry-After"), safeOperation(http.MethodGet, endpoint))
+		return confluencesource.NewConfluenceHTTPError(response.StatusCode, response.Header.Get("Retry-After"), safeOperation(http.MethodGet, endpoint))
 	}
 	decoder := json.NewDecoder(response.Body)
 	if err := decoder.Decode(target); err != nil {
@@ -90,33 +91,33 @@ func (client *Client) endpoint(endpoint string, query url.Values) string {
 func parseHTTPURL(value string, label string) (*url.URL, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return nil, fmt.Errorf("%w: %s is required", app.ErrInvalidInput, label)
+		return nil, fmt.Errorf("%w: %s is required", producterror.ErrInvalidInput, label)
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid %s", app.ErrInvalidInput, label)
+		return nil, fmt.Errorf("%w: invalid %s", producterror.ErrInvalidInput, label)
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("%w: %s must include scheme and host", app.ErrInvalidInput, label)
+		return nil, fmt.Errorf("%w: %s must include scheme and host", producterror.ErrInvalidInput, label)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("%w: %s must use http or https", app.ErrInvalidInput, label)
+		return nil, fmt.Errorf("%w: %s must use http or https", producterror.ErrInvalidInput, label)
 	}
 	return parsed, nil
 }
 
 func rejectSensitiveURLParts(parsed *url.URL, label string) error {
 	if parsed == nil {
-		return fmt.Errorf("%w: %s is required", app.ErrInvalidInput, label)
+		return fmt.Errorf("%w: %s is required", producterror.ErrInvalidInput, label)
 	}
 	if parsed.User != nil {
-		return fmt.Errorf("%w: %s must not include credentials", app.ErrInvalidInput, label)
+		return fmt.Errorf("%w: %s must not include credentials", producterror.ErrInvalidInput, label)
 	}
 	if strings.TrimSpace(parsed.RawQuery) != "" {
-		return fmt.Errorf("%w: %s must not include query parameters", app.ErrInvalidInput, label)
+		return fmt.Errorf("%w: %s must not include query parameters", producterror.ErrInvalidInput, label)
 	}
 	if strings.TrimSpace(parsed.Fragment) != "" {
-		return fmt.Errorf("%w: %s must not include a fragment", app.ErrInvalidInput, label)
+		return fmt.Errorf("%w: %s must not include a fragment", producterror.ErrInvalidInput, label)
 	}
 	return nil
 }

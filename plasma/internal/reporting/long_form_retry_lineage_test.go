@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestLongFormPendingLineageAcceptsResumeFailedOnlyWhenParentDraftFailed(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		longFormRetryLineageEvent(t, "evt_root", "report.draft.pending", map[string]any{
 			"origin_pending_event_id": "evt_root",
 			"retry_strategy":          "initial",
@@ -36,28 +37,28 @@ func TestLongFormPendingLineageAcceptsResumeFailedOnlyWhenParentDraftFailed(t *t
 func TestLongFormPendingLineageRejectsNonFailedRetryParentTerminals(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
-		terminal []app.LedgerEvent
+		terminal []ledger.Event
 	}{
 		{name: "missing"},
-		{name: "final_failed_only", terminal: []app.LedgerEvent{
+		{name: "final_failed_only", terminal: []ledger.Event{
 			longFormRetryLineageEvent(t, "evt_root_final_failed", "report.final.failed", map[string]any{"pending_event_id": "evt_root"}),
 		}},
-		{name: "canceled", terminal: []app.LedgerEvent{
+		{name: "canceled", terminal: []ledger.Event{
 			longFormRetryLineageEvent(t, "evt_root_canceled", "report.draft.failed", map[string]any{"pending_event_id": "evt_root", "kind": "report_draft_canceled"}),
 		}},
-		{name: "drafted", terminal: []app.LedgerEvent{
+		{name: "drafted", terminal: []ledger.Event{
 			longFormRetryLineageEvent(t, "evt_root_drafted", "report.drafted", map[string]any{"pending_event_id": "evt_root"}),
 		}},
-		{name: "artifact_created", terminal: []app.LedgerEvent{
+		{name: "artifact_created", terminal: []ledger.Event{
 			longFormRetryLineageEvent(t, "evt_root_artifact", "report.artifact.created", map[string]any{"pending_event_id": "evt_root"}),
 		}},
-		{name: "multiple", terminal: []app.LedgerEvent{
+		{name: "multiple", terminal: []ledger.Event{
 			longFormRetryLineageEvent(t, "evt_root_failed", "report.draft.failed", map[string]any{"pending_event_id": "evt_root"}),
 			longFormRetryLineageEvent(t, "evt_root_artifact", "report.artifact.created", map[string]any{"pending_event_id": "evt_root"}),
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			events := append([]app.LedgerEvent{
+			events := append([]ledger.Event{
 				longFormRetryLineageEvent(t, "evt_root", "report.draft.pending", map[string]any{
 					"origin_pending_event_id": "evt_root",
 					"retry_strategy":          "initial",
@@ -76,7 +77,7 @@ func TestLongFormPendingLineageRejectsNonFailedRetryParentTerminals(t *testing.T
 }
 
 func TestLongFormPendingLineageRestartRequiresFailedParentButDoesNotAcceptIt(t *testing.T) {
-	events := []app.LedgerEvent{
+	events := []ledger.Event{
 		longFormRetryLineageEvent(t, "evt_root", "report.draft.pending", map[string]any{
 			"origin_pending_event_id": "evt_root",
 			"retry_strategy":          "initial",
@@ -99,11 +100,11 @@ func TestLongFormPendingLineageRestartRequiresFailedParentButDoesNotAcceptIt(t *
 	}
 }
 
-func longFormRetryLineageEvent(t *testing.T, eventID, eventType string, payload map[string]any) app.LedgerEvent {
+func longFormRetryLineageEvent(t *testing.T, eventID, eventType string, payload map[string]any) ledger.Event {
 	t.Helper()
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return app.LedgerEvent{EventID: eventID, MissionID: "mis_retry_lineage", EventType: eventType, Payload: encoded}
+	return ledger.Event{EventID: eventID, MissionID: "mis_retry_lineage", EventType: eventType, Payload: encoded}
 }

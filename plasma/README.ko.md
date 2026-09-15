@@ -253,6 +253,8 @@ report artifact를 도구로 읽고 수정한 뒤 새 report artifact version을
 - [Automatic Investigation](docs/automatic-investigation.md)
 - [Product Architecture](docs/product-architecture.md)
 - [Product Architecture Korean](docs/product-architecture.ko.md)
+- [Article IL Design](docs/article-il-design.md)
+- [Article IL 설계](docs/article-il-design.ko.md)
 - [Media Source Implementation Design](docs/media-source-implementation-design.md)
 - [Confluence Cloud Source 연동 기록](docs/confluence-source-integration.md)
 - [Confluence live validation checklist](docs/confluence-live-validation-checklist.md)

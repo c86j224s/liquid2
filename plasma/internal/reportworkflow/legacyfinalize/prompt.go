@@ -1,12 +1,13 @@
 package legacyfinalize
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"fmt"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
-	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/finaledit"
 )
 
 // PromptWithRequirements는 legacy finalizer prompt bytes를 기존 Web 구현과 동일하게 만든다.
@@ -25,7 +26,7 @@ func PromptWithRequirements(input Input, binding reporting.LongFormFinalizeBindi
 			retry += " The canonical report already exists: replay the same tool call with identical opening_markdown and closing_markdown, then return the sentinel."
 		}
 		if hint.Available {
-			retry += fmt.Sprintf("\nUse these recovered values only as writing hints when making the tool call:\nopening_markdown hint: %s\nclosing_markdown hint: %s", finaledit.AgentReportAnyJSON(hint.OpeningMarkdown), finaledit.AgentReportAnyJSON(hint.ClosingMarkdown))
+			retry += fmt.Sprintf("\nUse these recovered values only as writing hints when making the tool call:\nopening_markdown hint: %s\nclosing_markdown hint: %s", longformutil.AnyJSON(hint.OpeningMarkdown), longformutil.AnyJSON(hint.ClosingMarkdown))
 		}
 	}
 	return fmt.Sprintf(`Finalize a Korean long-form Plasma report through the dedicated MCP command.
@@ -62,7 +63,7 @@ Rules:
 - %s
 - The server owns ordered Part assembly. Do not submit Part bodies, artifact IDs, title, full Markdown, or metadata.
 - After the tool succeeds or durably replays, return exactly REPORT_FINALIZED as the entire response. Do not add text or fences.
-- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, input.Title, input.MissionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, finaledit.AgentReportAnyJSON(binding.ToolSessionID), partInventoryJSON(input.Parts), finaledit.AgentReportAnyJSON(input.Plan), input.Rigor.Level, input.Rigor.Label, input.Rigor.Description, input.Rigor.Instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
+- Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.`, input.Title, input.MissionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, binding.IdempotencyKey, longformutil.AnyJSON(binding.ToolSessionID), partInventoryJSON(input.Parts), longformutil.AnyJSON(input.Plan), input.Rigor.Level, input.Rigor.Label, input.Rigor.Description, input.Rigor.Instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
 }
 
 func finalEditPrompt(input Input, binding reporting.LongFormFinalizeBinding, attempt int, canonical bool) string {
@@ -116,7 +117,7 @@ Editorial responsibilities:
 - Do not add new researched facts, call source/research tools, mutate Part or Section artifacts, or expose artifact IDs in the report.
 - Keep valid Mermaid blocks intact unless an exact edit is necessary; any edited or added Mermaid block must follow this rule: %s
 - Do not mention prompts, experiments, internal run labels, tool session IDs, or temporary implementation details.
-- Return no report body in the response.`, input.Title, input.MissionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, finaledit.AgentReportAnyJSON(binding.ToolSessionID), finaledit.AgentReportAnyJSON(binding.IdempotencyKey), finaledit.AgentReportAnyJSON(input.Plan), finaledit.AgentReportAnyJSON(ownerBoundRequirements), input.Rigor.Level, input.Rigor.Label, input.Rigor.Description, input.Rigor.Instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
+- Return no report body in the response.`, input.Title, input.MissionID, binding.ToolSessionID, binding.PendingEventID, binding.PlanEventID, longformutil.AnyJSON(binding.ToolSessionID), longformutil.AnyJSON(binding.IdempotencyKey), longformutil.AnyJSON(input.Plan), longformutil.AnyJSON(ownerBoundRequirements), input.Rigor.Level, input.Rigor.Label, input.Rigor.Description, input.Rigor.Instructions, guidance, retry, reportprompt.MermaidValidationRuleText)
 }
 
 func partInventoryJSON(parts []Part) string {
@@ -129,5 +130,5 @@ func partInventoryJSON(parts []Part) string {
 			"word_count":  part.WordCount,
 		})
 	}
-	return finaledit.AgentReportAnyJSON(items)
+	return longformutil.AnyJSON(items)
 }

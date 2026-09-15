@@ -3,11 +3,13 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mcp/reportil"
+	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
 func TestReportILAssembleLongFormInputsMergesSectionsInPlanOrder(t *testing.T) {
@@ -21,7 +23,7 @@ func TestReportILAssembleLongFormInputsMergesSectionsInPlanOrder(t *testing.T) {
 		testLongFormAssemblyFragment("part_001", "part_001.section_002", "Section 2"),
 		testLongFormAssemblyFragment("part_001", "part_001.section_003", "Section 3"),
 	}
-	parts, err := reportILAssembleLongFormInputs(binding, plan, fragments)
+	parts, err := reportil.ReportILAssembleLongFormInputs(binding, plan, fragments)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +48,7 @@ func TestReportILAssembleLongFormInputsRejectsPartSectionReordering(t *testing.T
 		testLongFormAssemblyFragment("part_001", "part_001.section_001", "Section 1"),
 		testLongFormAssemblyFragment("part_001", "part_001.section_003", "Section 3"),
 	}
-	if _, err := reportILAssembleLongFormInputs(binding, plan, fragments); err == nil {
+	if _, err := reportil.ReportILAssembleLongFormInputs(binding, plan, fragments); err == nil {
 		t.Fatal("reordered Section artifacts were accepted")
 	}
 }
@@ -58,7 +60,7 @@ func TestReportILAssembleLongFormInputsRejectsFinalPartReordering(t *testing.T) 
 		testLongFormAssemblyPartFragment(plan.Parts[1]),
 		testLongFormAssemblyPartFragment(plan.Parts[0]),
 	}
-	if _, err := reportILAssembleLongFormInputs(binding, plan, fragments); err == nil {
+	if _, err := reportil.ReportILAssembleLongFormInputs(binding, plan, fragments); err == nil {
 		t.Fatal("reordered Part artifacts were accepted")
 	}
 }
@@ -90,7 +92,7 @@ func TestReportILLongFormDocumentStartRequiresCompletePlanRead(t *testing.T) {
 func TestReportILLongFormSectionFinalizeRejectsEmptySection(t *testing.T) {
 	service, binding := testLongFormDocumentServerFixture(t, false)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -114,7 +116,7 @@ func TestReportILLongFormSectionFinalizeRejectsEmptySection(t *testing.T) {
 func TestReportILLongFormSectionAppendsEquationBlock(t *testing.T) {
 	service, binding := testLongFormDocumentServerFixture(t, false)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -176,7 +178,7 @@ func TestReportILLongFormSectionCorrectBlockDeletesScratchTableAndCompactsKeys(t
 		[]string{reportilcontract.LongFormRepresentationTable},
 	)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -244,7 +246,7 @@ func TestReportILLongFormSectionCorrectBlockDeletesScratchTableAndCompactsKeys(t
 	if corrected.Error != nil || corrected.Content.(reportILDocumentStateOutput).Replacements != 1 {
 		t.Fatalf("delete scratch block: %#v", corrected)
 	}
-	workspace := server.reportILDocumentWorkspaces[state.WorkspaceID]
+	workspace := server.reportILState.Documents.Workspaces[state.WorkspaceID]
 	got := workspace.Document.Parts[0].Sections[0].Blocks
 	if len(got) != 2 || got[1].BlockKey != binding.LongFormSectionKey+".block_002" || got[1].Table == nil ||
 		got[1].Table.Caption == nil || *got[1].Table.Caption != "Useful comparison" {
@@ -267,7 +269,7 @@ func TestReportILLongFormSectionCorrectBlockReplacesScratchTable(t *testing.T) {
 		[]string{reportilcontract.LongFormRepresentationTable},
 	)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name:      ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{"title": "Long report", "language": "en"}),
@@ -320,7 +322,7 @@ func TestReportILLongFormSectionCorrectBlockReplacesScratchTable(t *testing.T) {
 	if corrected.Error != nil {
 		t.Fatalf("replace scratch table: %#v", corrected)
 	}
-	block := server.reportILDocumentWorkspaces[state.WorkspaceID].Document.Parts[0].Sections[0].Blocks[1]
+	block := server.reportILState.Documents.Workspaces[state.WorkspaceID].Document.Parts[0].Sections[0].Blocks[1]
 	if block.BlockKey != binding.LongFormSectionKey+".block_002" || block.Table == nil ||
 		block.Table.Caption == nil || *block.Table.Caption != "Useful comparison" {
 		t.Fatalf("replaced block = %#v", block)
@@ -342,7 +344,7 @@ func TestReportILLongFormSectionFinalizeRejectsMissingConcreteRepresentation(t *
 		[]string{reportilcontract.LongFormRepresentationEquation},
 	)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -379,7 +381,7 @@ func TestReportILLongFormSectionRejectsOffPlanMemoryAccount(t *testing.T) {
 	service, binding := testLongFormDocumentServerFixture(t, true)
 	server := newLongFormDocumentTestServer(service, binding)
 	readBoundReportILEditorialMemory(t, server)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -408,7 +410,7 @@ func TestReportILLongFormSectionRejectsOffPlanMemoryAccount(t *testing.T) {
 func TestReportILLongFormFinalizeRejectsPlanTitleMutation(t *testing.T) {
 	service, binding := testLongFormDocumentServerFixture(t, false)
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	started := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -566,7 +568,7 @@ func TestReportILLongFormPlanSubmitRejectsUnboundCatalogSource(t *testing.T) {
 	binding.MaxCallBytes = reportilcontract.DefaultSourceReadMaxBytes
 	binding.MaxReadBytes = reportilcontract.DefaultSourceAttemptReadBytes
 	server := newLongFormDocumentTestServer(service, binding)
-	server.reportILSourceComplete["source_001"] = true
+	server.reportILState.Source.Complete["source_001"] = true
 	plan := testLongFormAssemblyPlan()
 	plan.Parts[0].Sections[0].EvidenceSourceKeys = []string{"source_002"}
 	parts := make([]map[string]any, 0, len(plan.Parts))
@@ -601,7 +603,7 @@ func TestReportILLongFormSectionRejectsPlanLanguageOutsideRequestBinding(t *test
 	read := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormPlanRead,
 		Arguments: mustArgs(t, map[string]any{
-			"offset": 0, "max_bytes": reportILDocumentMaxReadBytes,
+			"offset": 0, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 		}),
 	})
 	if read.Error == nil || !strings.Contains(read.Error.Message, "target language differs") {
@@ -612,7 +614,7 @@ func TestReportILLongFormSectionRejectsPlanLanguageOutsideRequestBinding(t *test
 func TestReportILLongFormFinalRejectsSectionArtifactSubstitution(t *testing.T) {
 	service, sectionBinding := testLongFormDocumentServerFixture(t, false)
 	sectionServer := newLongFormDocumentTestServer(service, sectionBinding)
-	readLongFormPlanCompletely(t, sectionServer, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, sectionServer, reportil.ReportILDocumentMaxReadBytes)
 	started := sectionServer.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -655,7 +657,7 @@ func TestReportILLongFormFinalRejectsSectionArtifactSubstitution(t *testing.T) {
 	binding.LongFormInputArtifactIDs = []string{sectionArtifact.ArtifactID}
 	binding.LongFormInputSHA256s = []string{sectionArtifact.SHA256}
 	server := newLongFormDocumentTestServer(service, binding)
-	readLongFormPlanCompletely(t, server, reportILDocumentMaxReadBytes)
+	readLongFormPlanCompletely(t, server, reportil.ReportILDocumentMaxReadBytes)
 	opened := server.Call(context.Background(), ToolCall{
 		Name: ToolReportILLongFormDocumentStart,
 		Arguments: mustArgs(t, map[string]any{
@@ -697,10 +699,10 @@ func testLongFormDocumentServerFixtureWithRepresentations(
 			},
 		}
 		content := append(mustArgs(t, reportILEditorialMemoryArtifactFixture(memory)), '\n')
-		artifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+		artifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 			ArtifactID: "art_editorial_memory", MissionID: binding.Catalog.MissionID,
 			MediaType: reportilcontract.EditorialMemoryMediaType, Filename: "report-il-editorial-memory.json",
-			Producer: app.Producer{Type: "test", ID: "fixture"}, Content: content,
+			Producer: ledger.Producer{Type: "test", ID: "fixture"}, Content: content,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -712,10 +714,10 @@ func testLongFormDocumentServerFixtureWithRepresentations(
 		binding.MaxReadBytes = 0
 	}
 	planContent := append(mustArgs(t, plan), '\n')
-	planArtifact, err := service.CreateRawArtifact(context.Background(), app.CreateRawArtifactRequest{
+	planArtifact, err := service.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_long_form_plan", MissionID: binding.Catalog.MissionID,
 		MediaType: reportilcontract.LongFormPlanMediaType, Filename: "report-il-long-form-plan.json",
-		Producer: app.Producer{Type: "mcp_tool", ID: ToolReportILLongFormPlanSubmit}, Content: planContent,
+		Producer: ledger.Producer{Type: "mcp_tool", ID: ToolReportILLongFormPlanSubmit}, Content: planContent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -730,7 +732,7 @@ func testLongFormDocumentServerFixtureWithRepresentations(
 		binding.MaxCallBytes = reportilcontract.DefaultSourceReadMaxBytes
 		binding.MaxReadBytes = reportilcontract.DefaultSourceAttemptReadBytes
 	}
-	service.sources[0].ContentHash = app.ContentHash{Algorithm: "sha256", Value: sha256Hex([]byte(sourceText))}
+	service.sources[0].ContentHash = sourcecontract.ContentHash{Algorithm: "sha256", Value: sha256Hex([]byte(sourceText))}
 	if err := reportilcontract.ValidateSourceAccessBinding(binding); err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +746,7 @@ func newLongFormDocumentTestServer(service *fakeMCPService, binding reportilcont
 		WithReportILSourceBinding(binding),
 	)
 	if binding.Stage == "il_long_form_section" && binding.MaxReadBytes > 0 {
-		server.reportILSourceComplete["source_001"] = true
+		server.reportILState.Source.Complete["source_001"] = true
 	}
 	return server
 }
@@ -775,7 +777,7 @@ func readLongFormDocumentCompletely(t *testing.T, server *Server, workspaceID st
 		read := server.Call(context.Background(), ToolCall{
 			Name: ToolReportILLongFormDocumentRead,
 			Arguments: mustArgs(t, map[string]any{
-				"workspace_id": workspaceID, "offset": offset, "max_bytes": reportILDocumentMaxReadBytes,
+				"workspace_id": workspaceID, "offset": offset, "max_bytes": reportil.ReportILDocumentMaxReadBytes,
 			}),
 		})
 		if read.Error != nil {

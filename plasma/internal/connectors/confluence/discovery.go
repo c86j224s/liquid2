@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
 )
 
@@ -146,12 +146,12 @@ func (client *DiscoveryClient) getJSON(ctx context.Context, endpoint string, tar
 	}
 	response, err := client.httpClient.Do(request)
 	if err != nil {
-		return app.NewConfluenceTransportError(confluenceDiscoveryOperation, err)
+		return confluencesource.NewConfluenceTransportError(confluenceDiscoveryOperation, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-		return app.NewConfluenceHTTPError(response.StatusCode, response.Header.Get("Retry-After"), confluenceDiscoveryOperation)
+		return confluencesource.NewConfluenceHTTPError(response.StatusCode, response.Header.Get("Retry-After"), confluenceDiscoveryOperation)
 	}
 	decoder := json.NewDecoder(response.Body)
 	if err := decoder.Decode(target); err != nil {

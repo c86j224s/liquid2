@@ -4,20 +4,21 @@ import (
 	"context"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidateevents"
 )
 
-func reusableArtifactBySHA(ctx context.Context, store Store, missionID string, sha string) (app.RawArtifact, bool, error) {
+func reusableArtifactBySHA(ctx context.Context, store Store, missionID string, sha string) (artifactcontract.Raw, bool, error) {
 	artifacts, err := store.ListRawArtifacts(ctx, missionID)
 	if err != nil {
-		return app.RawArtifact{}, false, err
+		return artifactcontract.Raw{}, false, err
 	}
 	for _, artifact := range artifacts {
 		if strings.EqualFold(strings.TrimSpace(artifact.SHA256), strings.TrimSpace(sha)) {
 			reusable, err := artifactReusable(ctx, store, missionID, artifact.ArtifactID)
 			if err != nil {
-				return app.RawArtifact{}, false, err
+				return artifactcontract.Raw{}, false, err
 			}
 			if !reusable {
 				continue
@@ -25,7 +26,7 @@ func reusableArtifactBySHA(ctx context.Context, store Store, missionID string, s
 			return artifact, true, nil
 		}
 	}
-	return app.RawArtifact{}, false, nil
+	return artifactcontract.Raw{}, false, nil
 }
 
 func artifactReusable(ctx context.Context, store Store, missionID string, artifactID string) (bool, error) {
@@ -34,7 +35,7 @@ func artifactReusable(ctx context.Context, store Store, missionID string, artifa
 	if err != nil {
 		return false, err
 	}
-	snapshots, err := store.ListSourceSnapshotsWithState(ctx, app.ListSourceSnapshotsRequest{
+	snapshots, err := store.ListSourceSnapshotsWithState(ctx, sourcecontract.ListRequest{
 		MissionID:         missionID,
 		IncludeRemoved:    true,
 		IncludeSuperseded: true,
@@ -49,7 +50,7 @@ func artifactReusable(ctx context.Context, store Store, missionID string, artifa
 	) || artifactIsAttachedToAnySnapshot(snapshots, artifactID), nil
 }
 
-func artifactIsAttachedToAnySnapshot(snapshots []app.SourceSnapshot, artifactID string) bool {
+func artifactIsAttachedToAnySnapshot(snapshots []sourcecontract.Snapshot, artifactID string) bool {
 	for _, snapshot := range snapshots {
 		for _, snapshotArtifactID := range snapshot.ArtifactIDs {
 			if strings.TrimSpace(snapshotArtifactID) == artifactID {

@@ -27,7 +27,7 @@ func TestRunMarkdownFreshPlanUsesEmptyPreviousSession(t *testing.T) {
 			Plan: mustJSON(reporting.ReportPlan{Summary: "Plan", Sections: []reporting.ReportPlanSection{{Title: "Section"}}}),
 		},
 	}
-	executor := &fakePlanExecutor{results: []agentexec.AgentResult{{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "plan-session-1"}}}
+	executor := &fakePlanExecutor{results: []agentexec.AgentResult{{Text: ReportPlanSubmittedSentinel, SessionID: "plan-session-1"}}}
 	runner := Runner{
 		Service: service, Executor: executor, NewID: sequenceID(),
 		Lifecycle:       reporting.Runner(reportexecution.Runner{Service: service, NewID: sequenceID()}),

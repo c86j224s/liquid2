@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"io"
 	"net/http"
 	"net/url"
@@ -11,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 // Client는 Liquid2 HTTP API를 Plasma source connector port로 변환하는 adapter다.
@@ -49,22 +51,22 @@ func WithConnectorVersion(version string) Option {
 func NewClient(baseURL string, options ...Option) (*Client, error) {
 	trimmed := strings.TrimSpace(baseURL)
 	if trimmed == "" {
-		return nil, fmt.Errorf("%w: liquid2 base URL is required", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: liquid2 base URL is required", producterror.ErrInvalidInput)
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid liquid2 base URL", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: invalid liquid2 base URL", producterror.ErrInvalidInput)
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("%w: liquid2 base URL must include scheme and host", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: liquid2 base URL must include scheme and host", producterror.ErrInvalidInput)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("%w: liquid2 base URL must use http or https", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: liquid2 base URL must use http or https", producterror.ErrInvalidInput)
 	}
 	client := &Client{
 		baseURL:          parsed,
 		httpClient:       http.DefaultClient,
-		connectorVersion: app.Liquid2HTTPConnectorV1,
+		connectorVersion: liquid2source.Liquid2HTTPConnectorV1,
 	}
 	for _, option := range options {
 		option(client)
@@ -75,8 +77,8 @@ func NewClient(baseURL string, options ...Option) (*Client, error) {
 // SearchLiquid2Sources는 Liquid2 문서 목록 API를 Plasma source 후보 목록으로 변환한다.
 func (client *Client) SearchLiquid2Sources(
 	ctx context.Context,
-	req app.Liquid2SourceSearchRequest,
-) (app.Liquid2SourceSearchResult, error) {
+	req liquid2source.Liquid2SourceSearchRequest,
+) (liquid2source.Liquid2SourceSearchResult, error) {
 	query := url.Values{}
 	if req.Query != "" {
 		query.Set("q", req.Query)
@@ -111,9 +113,9 @@ func (client *Client) SearchLiquid2Sources(
 
 	var response liquid2DocumentList
 	if err := client.getJSON(ctx, "/api/v1/documents", query, &response); err != nil {
-		return app.Liquid2SourceSearchResult{}, err
+		return liquid2source.Liquid2SourceSearchResult{}, err
 	}
-	candidates := make([]app.Liquid2SourceCandidate, 0, len(response.Items))
+	candidates := make([]liquid2source.Liquid2SourceCandidate, 0, len(response.Items))
 	for _, item := range response.Items {
 		candidates = append(candidates, client.candidate(item))
 	}
@@ -121,7 +123,7 @@ func (client *Client) SearchLiquid2Sources(
 	if response.NextCursor != nil {
 		nextCursor = *response.NextCursor
 	}
-	return app.Liquid2SourceSearchResult{
+	return liquid2source.Liquid2SourceSearchResult{
 		MissionID:  req.MissionID,
 		Candidates: candidates,
 		NextCursor: nextCursor,
@@ -131,15 +133,15 @@ func (client *Client) SearchLiquid2Sources(
 // ReadLiquid2Source는 Liquid2 문서 하나를 snapshot 가능한 문서 모델로 읽는다.
 func (client *Client) ReadLiquid2Source(
 	ctx context.Context,
-	req app.Liquid2SourceReadRequest,
-) (app.Liquid2SourceDocument, error) {
+	req liquid2source.Liquid2SourceReadRequest,
+) (liquid2source.Liquid2SourceDocument, error) {
 	externalSourceID := strings.TrimSpace(req.ExternalSourceID)
 	if externalSourceID == "" {
-		return app.Liquid2SourceDocument{}, fmt.Errorf("%w: liquid2 external source id is required", app.ErrInvalidInput)
+		return liquid2source.Liquid2SourceDocument{}, fmt.Errorf("%w: liquid2 external source id is required", producterror.ErrInvalidInput)
 	}
 	var response liquid2DocumentDetail
 	if err := client.getJSON(ctx, "/api/v1/documents/"+url.PathEscape(externalSourceID), nil, &response); err != nil {
-		return app.Liquid2SourceDocument{}, err
+		return liquid2source.Liquid2SourceDocument{}, err
 	}
 	metadata, err := json.Marshal(liquid2DocumentMetadataEnvelope{
 		Document:   response.Document,
@@ -148,11 +150,11 @@ func (client *Client) ReadLiquid2Source(
 		Blobs:      response.Blobs,
 	})
 	if err != nil {
-		return app.Liquid2SourceDocument{}, err
+		return liquid2source.Liquid2SourceDocument{}, err
 	}
-	contents := make([]app.Liquid2SourceContent, 0, len(response.Contents))
+	contents := make([]liquid2source.Liquid2SourceContent, 0, len(response.Contents))
 	for _, content := range response.Contents {
-		contents = append(contents, app.Liquid2SourceContent{
+		contents = append(contents, liquid2source.Liquid2SourceContent{
 			ContentID: content.ID,
 			Role:      content.Role,
 			Format:    content.Format,
@@ -164,14 +166,14 @@ func (client *Client) ReadLiquid2Source(
 	if documentID == "" {
 		documentID = externalSourceID
 	} else if documentID != externalSourceID {
-		return app.Liquid2SourceDocument{}, fmt.Errorf("%w: liquid2 document id mismatch", app.ErrInvalidInput)
+		return liquid2source.Liquid2SourceDocument{}, fmt.Errorf("%w: liquid2 document id mismatch", producterror.ErrInvalidInput)
 	}
-	return app.Liquid2SourceDocument{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.Liquid2ConnectorID,
-			ConnectorType:    app.Liquid2ConnectorType,
+	return liquid2source.Liquid2SourceDocument{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      liquid2source.Liquid2ConnectorID,
+			ConnectorType:    liquid2source.Liquid2ConnectorType,
 			ExternalSourceID: documentID,
-			ExternalURI:      liquid2DocumentURI(documentID),
+			ExternalURI:      liquid2source.DocumentURI(documentID),
 			ExternalVersion:  strconv.FormatInt(response.Document.UpdatedAt, 10),
 			ConnectorVersion: client.connectorVersion,
 		},
@@ -216,13 +218,13 @@ func (client *Client) endpoint(endpoint string, query url.Values) string {
 	return u.String()
 }
 
-func (client *Client) candidate(item liquid2DocumentSummary) app.Liquid2SourceCandidate {
-	return app.Liquid2SourceCandidate{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.Liquid2ConnectorID,
-			ConnectorType:    app.Liquid2ConnectorType,
+func (client *Client) candidate(item liquid2DocumentSummary) liquid2source.Liquid2SourceCandidate {
+	return liquid2source.Liquid2SourceCandidate{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      liquid2source.Liquid2ConnectorID,
+			ConnectorType:    liquid2source.Liquid2ConnectorType,
 			ExternalSourceID: item.ID,
-			ExternalURI:      liquid2DocumentURI(item.ID),
+			ExternalURI:      liquid2source.DocumentURI(item.ID),
 			ExternalVersion:  strconv.FormatInt(item.UpdatedAt, 10),
 			ConnectorVersion: client.connectorVersion,
 		},
@@ -232,10 +234,6 @@ func (client *Client) candidate(item liquid2DocumentSummary) app.Liquid2SourceCa
 		UpdatedAt:   unixMillisTime(item.UpdatedAt),
 		CanSnapshot: true,
 	}
-}
-
-func liquid2DocumentURI(externalSourceID string) string {
-	return "liquid2://documents/" + strings.TrimSpace(externalSourceID)
 }
 
 func sourceURI(canonicalURL *string, sourceURL *string) string {

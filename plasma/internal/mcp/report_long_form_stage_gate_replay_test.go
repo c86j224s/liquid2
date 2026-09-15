@@ -2,11 +2,11 @@ package mcp
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 	"testing"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 func TestReportLongFormGateReplayRecoversCanonicalWithDurableOperationCount(t *testing.T) {
@@ -71,7 +71,7 @@ func TestReportLongFormGateReplayRejectsRevokedEvidenceWithoutCanonical(t *testi
 	if start := server.Call(context.Background(), ToolCall{Name: ToolReportLongFormEditStart, Arguments: mustArgs(t, stageStartArgs(gate, "rfe_revoked", "revoked-start"))}); start.Error != nil {
 		t.Fatalf("recovery start failed: %#v", start.Error)
 	}
-	service.evidence = []app.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: gate.MissionID, State: "rejected"}}
+	service.evidence = []researchrecords.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: gate.MissionID, State: "rejected"}}
 	result := submitGateDraft(t, server, gate, "rfe_revoked", "revoked-submit", findings)
 	if result.Error == nil || canonicalEventCount(service) != 0 {
 		t.Fatalf("revoked evidence was accepted: result=%#v canonical=%d", result, canonicalEventCount(service))
@@ -104,7 +104,7 @@ func prepareInterruptedGateSubmission(t *testing.T) (*fakeMCPService, reporting.
 		t.Fatalf("reader setup failed: %#v", result.Error)
 	}
 	gate := testFinalEditStageBinding(finalBinding, reporting.FinalEditStageGate, "art_reader_edit", finalBinding.ArtifactID, finalBinding.ToolSessionID, finalBinding.ProviderSessionID, finalBinding.PreviousProviderSessionID, finalBinding.ForkSourceAgentSessionID)
-	service.evidence = []app.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: gate.MissionID, State: "approved"}}
+	service.evidence = []researchrecords.EvidenceRecord{{EvidenceID: "evd_gate", MissionID: gate.MissionID, State: "approved"}}
 	statement := "This external fact must be checked."
 	findings := []map[string]any{{
 		"statement": statement, "classification": reporting.FinalEditGateClassUnverifiedExternalFact,
@@ -130,7 +130,7 @@ func submitGateDraft(t *testing.T, server *Server, gate reporting.FinalEditStage
 	return server.Call(context.Background(), ToolCall{Name: ToolReportLongFormEditSubmit, Arguments: mustArgs(t, args)})
 }
 
-func withoutEventsOfType(events []app.LedgerEvent, eventType string) []app.LedgerEvent {
+func withoutEventsOfType(events []ledger.Event, eventType string) []ledger.Event {
 	out := events[:0]
 	for _, event := range events {
 		if event.EventType != eventType {

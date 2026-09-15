@@ -2,6 +2,8 @@ package research
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
@@ -25,14 +27,14 @@ func (handler *Handler) CallEvidencePropose(ctx context.Context, call wire.ToolC
 	}
 	proposalWrite := researchproposal.BuildProposalSubmitted(researchproposal.ProposalSubmittedRequest{
 		ProposalID: input.ProposalID, EventID: input.ProposalEventID, MissionID: common.MissionID,
-		Title: input.ProposalTitle, ObjectRefs: []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: input.EvidenceID}},
+		Title: input.ProposalTitle, ObjectRefs: []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: input.EvidenceID}},
 		Producer: producer, IncludeObjectRefsInPayload: true,
 	})
-	result, err := handler.proposalWriter.CreateEvidenceProposal(ctx, app.CreateEvidenceProposalRequest{
+	result, err := handler.proposalWriter.CreateEvidenceProposal(ctx, researchproposal.CreateEvidenceProposalRequest{
 		EvidenceEvent: researchproposal.BuildEvidenceProposedAppendRequest(researchproposal.EvidenceProposedEventRequest{
 			EventID: input.EventID, MissionID: common.MissionID, EvidenceID: input.EvidenceID, ProposalID: input.ProposalID, Producer: producer,
 		}),
-		Evidence: app.CreateEvidenceRecordRequest{
+		Evidence: researchrecords.CreateEvidenceRecordRequest{
 			EvidenceID: input.EvidenceID, MissionID: common.MissionID, State: "proposed", Summary: input.Summary,
 			EvidenceType: input.EvidenceType, SnapshotRefs: input.SnapshotRefs, Confidence: input.Confidence, Producer: producer, CreatedEventID: input.EventID,
 		},
@@ -61,14 +63,14 @@ func (handler *Handler) CallQuestionsPropose(ctx context.Context, call wire.Tool
 	}
 	proposalWrite := researchproposal.BuildProposalSubmitted(researchproposal.ProposalSubmittedRequest{
 		ProposalID: input.ProposalID, EventID: input.ProposalEventID, MissionID: common.MissionID,
-		Title: input.ProposalTitle, ObjectRefs: []app.ObjectRef{{ObjectKind: app.QuestionRecordObjectKind, ObjectID: input.QuestionID}},
+		Title: input.ProposalTitle, ObjectRefs: []researchcatalog.ObjectRef{{ObjectKind: researchrecords.QuestionRecordObjectKind, ObjectID: input.QuestionID}},
 		Producer: producer, IncludeObjectRefsInPayload: true,
 	})
-	result, err := handler.proposalWriter.CreateQuestionProposal(ctx, app.CreateQuestionProposalRequest{
+	result, err := handler.proposalWriter.CreateQuestionProposal(ctx, researchproposal.CreateQuestionProposalRequest{
 		QuestionEvent: researchproposal.BuildQuestionProposedAppendRequest(researchproposal.QuestionProposedEventRequest{
 			EventID: input.EventID, MissionID: common.MissionID, QuestionID: input.QuestionID, ProposalID: input.ProposalID, Producer: producer,
 		}),
-		Question: app.CreateQuestionRecordRequest{
+		Question: researchrecords.CreateQuestionRecordRequest{
 			QuestionID: input.QuestionID, MissionID: common.MissionID, State: "open", Text: input.Text, Priority: input.Priority,
 			Blocking: input.Blocking, RelatedEvidenceIDs: input.RelatedEvidenceIDs, RelatedClaimIDs: input.RelatedClaimIDs, CreatedEventID: input.EventID,
 		},
@@ -97,18 +99,18 @@ func (handler *Handler) CallClaimsPropose(ctx context.Context, call wire.ToolCal
 	}
 	proposalWrite := researchproposal.BuildProposalSubmitted(researchproposal.ProposalSubmittedRequest{
 		ProposalID: input.ProposalID, EventID: input.ProposalEventID, MissionID: common.MissionID,
-		Title: input.ProposalTitle, ObjectRefs: []app.ObjectRef{{ObjectKind: app.ClaimRecordObjectKind, ObjectID: input.ClaimID}},
+		Title: input.ProposalTitle, ObjectRefs: []researchcatalog.ObjectRef{{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: input.ClaimID}},
 		Producer: producer, IncludeObjectRefsInPayload: true,
 	})
-	result, err := handler.proposalWriter.CreateClaimProposal(ctx, app.CreateClaimProposalRequest{
+	result, err := handler.proposalWriter.CreateClaimProposal(ctx, researchproposal.CreateClaimProposalRequest{
 		ClaimEvent: researchproposal.BuildClaimProposedAppendRequest(researchproposal.ClaimProposedEventRequest{
 			EventID: input.EventID, MissionID: common.MissionID, ClaimID: input.ClaimID, ProposalID: input.ProposalID, Producer: producer,
 		}),
-		Claim: app.CreateClaimRecordRequest{
+		Claim: researchrecords.CreateClaimRecordRequest{
 			ClaimID: input.ClaimID, MissionID: common.MissionID, State: "proposed", Text: input.Text, ClaimType: input.ClaimType,
 			SupportingEvidenceIDs: input.SupportingEvidenceIDs, OpposingEvidenceIDs: input.OpposingEvidenceIDs,
 			DependsOnQuestionIDs: input.DependsOnQuestionIDs, UserAssertionEventID: input.UserAssertionEventID,
-			Confidence: input.Confidence, Approval: app.Approval{State: "pending", Required: true}, CreatedEventID: input.EventID,
+			Confidence: input.Confidence, Approval: researchrecords.ClaimApproval{State: "pending", Required: true}, CreatedEventID: input.EventID,
 		},
 		ProposalEvent: proposalWrite.Event, Proposal: proposalWrite.Bundle,
 	})
@@ -133,7 +135,7 @@ func (handler *Handler) CallClaimConfidence(ctx context.Context, call wire.ToolC
 	if result, ok := handler.mutationReadyResult(call.Name, common.MissionID); !ok {
 		return result
 	}
-	event, err := handler.proposalWriter.UpdateClaimConfidence(ctx, app.UpdateClaimConfidenceRequest{
+	event, err := handler.proposalWriter.UpdateClaimConfidence(ctx, researchrecords.UpdateClaimConfidenceRequest{
 		EventID: input.EventID, MissionID: common.MissionID, ClaimID: input.ClaimID, Confidence: input.Confidence,
 		BasisEvidenceIDs: input.BasisEvidenceIDs, Origin: "agent", Producer: producer,
 		CausationEventID: input.CausationEventID, CorrelationID: input.CorrelationID,
@@ -170,6 +172,6 @@ func (handler *Handler) CallProposalsSubmit(ctx context.Context, call wire.ToolC
 	return proposalToolResult(call.Name, common.MissionID, result.Proposal.ProposalID, []string{result.ProposalEvent.EventID}, result.Proposal.ObjectRefs)
 }
 
-func proposalToolResult(toolName, missionID, proposalID string, eventIDs []string, refs []app.ObjectRef) wire.ToolResult {
+func proposalToolResult(toolName, missionID, proposalID string, eventIDs []string, refs []researchcatalog.ObjectRef) wire.ToolResult {
 	return wire.ToolResult{ToolName: toolName, MissionID: missionID, CreatedEventIDs: eventIDs, ProposalID: proposalID, CreatedRecords: refs, RequiresUserApproval: true}
 }

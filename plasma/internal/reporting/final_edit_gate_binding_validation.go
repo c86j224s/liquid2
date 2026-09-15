@@ -3,7 +3,7 @@ package reporting
 import (
 	"fmt"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // ValidateFinalEditGateBindingsCompatible는 final evidence/corrective gate와 canonical
@@ -18,7 +18,7 @@ func ValidateFinalEditGateBindingsCompatible(stage FinalEditStageBinding, final 
 		return err
 	}
 	if (stage.Stage != FinalEditStageGate && stage.Stage != FinalEditStageEvidenceGate) || final.CompositionStrategy != LongFormCompositionNarrativeEdit {
-		return fmt.Errorf("%w: final edit gate requires narrative final edit bindings", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final edit gate requires narrative final edit bindings", producterror.ErrInvalidInput)
 	}
 	if stage.MissionID != final.MissionID ||
 		stage.PendingEventID != final.PendingEventID ||
@@ -46,7 +46,7 @@ func ValidateFinalEditGateBindingsCompatible(stage FinalEditStageBinding, final 
 		stage.SessionChainKind != final.SessionChainKind ||
 		stage.PreReportResearchSessionID != final.PreReportResearchSessionID ||
 		stage.ReportPlanSessionID != final.ReportPlanSessionID {
-		return fmt.Errorf("%w: corrective gate binding differs from final binding", app.ErrConflict)
+		return fmt.Errorf("%w: corrective gate binding differs from final binding", producterror.ErrConflict)
 	}
 	return nil
 }

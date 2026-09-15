@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"io"
 	"mime"
 	"net/http"
@@ -14,6 +15,9 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -25,20 +29,20 @@ func TestSourceDownloadRoutesServeExactBytesAndUniformFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := app.NewService(store)
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Downloads"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Downloads"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_2", Title: "Other"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_2", Title: "Other"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_html", MissionID: "mis_1", MediaType: "text/html; charset=utf-8", Filename: "page.html", Producer: app.Producer{Type: "test", ID: "test"}, Content: []byte("<html>stored</html>")}); err != nil {
+	if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_html", MissionID: "mis_1", MediaType: "text/html; charset=utf-8", Filename: "page.html", Producer: ledger.Producer{Type: "test", ID: "test"}, Content: []byte("<html>stored</html>")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_pdf", MissionID: "mis_1", MediaType: "application/pdf", Filename: "paper.pdf", Producer: app.Producer{Type: "test", ID: "test"}, Content: []byte("%PDF-stored")}); err != nil {
+	if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_pdf", MissionID: "mis_1", MediaType: "application/pdf", Filename: "paper.pdf", Producer: ledger.Producer{Type: "test", ID: "test"}, Content: []byte("%PDF-stored")}); err != nil {
 		t.Fatal(err)
 	}
-	appendEvent(t, store, app.LedgerEvent{EventID: "evt_staged", MissionID: "mis_1", EventType: "source.candidate.staged", Payload: json.RawMessage(`{"url":"https://example.com/doc","artifact_id":"art_html","proposal_event_id":"evt_proposed"}`)})
-	if _, err := service.CreateSourceSnapshot(ctx, app.CreateSourceSnapshotRequest{SnapshotID: "src_1", MissionID: "mis_1", Connector: app.ConnectorRef{ConnectorID: "pdf", ConnectorType: "pdf_url", ExternalURI: "https://example.com/paper.pdf"}, Title: "Paper", ArtifactIDs: []string{"art_pdf"}}); err != nil {
+	appendEvent(t, store, ledger.Event{EventID: "evt_staged", MissionID: "mis_1", EventType: "source.candidate.staged", Payload: json.RawMessage(`{"url":"https://example.com/doc","artifact_id":"art_html","proposal_event_id":"evt_proposed"}`)})
+	if _, err := service.CreateSourceSnapshot(ctx, sourcecontract.CreateRequest{SnapshotID: "src_1", MissionID: "mis_1", Connector: sourcecontract.ConnectorRef{ConnectorID: "pdf", ConnectorType: "pdf_url", ExternalURI: "https://example.com/paper.pdf"}, Title: "Paper", ArtifactIDs: []string{"art_pdf"}}); err != nil {
 		t.Fatal(err)
 	}
 	store.Close()
@@ -97,7 +101,7 @@ func TestSourceDownloadRoutesServeExactBytesAndUniformFailures(t *testing.T) {
 	}
 }
 
-func appendEvent(t *testing.T, store *sqlite.Store, event app.LedgerEvent) {
+func appendEvent(t *testing.T, store *sqlite.Store, event ledger.Event) {
 	t.Helper()
 	if _, err := store.AppendLedgerEvent(context.Background(), event); err != nil {
 		t.Fatal(err)

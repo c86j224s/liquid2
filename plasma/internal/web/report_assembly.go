@@ -1,12 +1,13 @@
 package web
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"regexp"
 	"strings"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 func agentReportAnyJSON(value any) string {
@@ -245,50 +246,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func reportRefViolations(blocks []app.ReportBlockDraftInput, claimIDs []string, evidenceIDs []string, records recordsResponse) []reportRefViolation {
-	allowedClaims := stringSet(claimIDs)
-	allowedEvidence := stringSet(evidenceIDs)
-	claimStates := claimStateByID(records.Claims)
-	evidenceStates := evidenceStateByID(records.Evidence)
-	var violations []reportRefViolation
-	for index, block := range blocks {
-		blockType := strings.TrimSpace(block.BlockType)
-		for _, id := range block.SourceRefs.ClaimIDs {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
-			}
-			if _, ok := allowedClaims[id]; !ok {
-				violations = append(violations, reportRefViolation{
-					ObjectKind: "claim_record",
-					ObjectID:   id,
-					State:      recordState(claimStates[id]),
-					Reason:     "claim is not approved for this report scope",
-					BlockIndex: index,
-					BlockType:  blockType,
-				})
-			}
-		}
-		for _, id := range block.SourceRefs.EvidenceIDs {
-			id = strings.TrimSpace(id)
-			if id == "" {
-				continue
-			}
-			if _, ok := allowedEvidence[id]; !ok {
-				violations = append(violations, reportRefViolation{
-					ObjectKind: "evidence_record",
-					ObjectID:   id,
-					State:      recordState(evidenceStates[id]),
-					Reason:     "evidence is not approved for this report scope",
-					BlockIndex: index,
-					BlockType:  blockType,
-				})
-			}
-		}
-	}
-	return violations
-}
-
 func stringSet(ids []string) map[string]struct{} {
 	set := map[string]struct{}{}
 	for _, id := range ids {
@@ -300,7 +257,7 @@ func stringSet(ids []string) map[string]struct{} {
 	return set
 }
 
-func claimStateByID(claims []app.ClaimRecord) map[string]string {
+func claimStateByID(claims []researchrecords.ClaimRecord) map[string]string {
 	states := map[string]string{}
 	for _, claim := range claims {
 		states[strings.TrimSpace(claim.ClaimID)] = strings.TrimSpace(claim.State)
@@ -308,7 +265,7 @@ func claimStateByID(claims []app.ClaimRecord) map[string]string {
 	return states
 }
 
-func evidenceStateByID(evidence []app.EvidenceRecord) map[string]string {
+func evidenceStateByID(evidence []researchrecords.EvidenceRecord) map[string]string {
 	states := map[string]string{}
 	for _, record := range evidence {
 		states[strings.TrimSpace(record.EvidenceID)] = strings.TrimSpace(record.State)
@@ -322,14 +279,6 @@ func recordState(state string) string {
 		return "missing"
 	}
 	return state
-}
-
-func describeReportRefViolations(violations []reportRefViolation) string {
-	parts := make([]string, 0, len(violations))
-	for _, violation := range violations {
-		parts = append(parts, fmt.Sprintf("%s %q is %s in block %d (%s)", violation.ObjectKind, violation.ObjectID, violation.State, violation.BlockIndex, violation.BlockType))
-	}
-	return strings.Join(parts, "; ")
 }
 
 func agentReportRepairPrompt(title string, missionID string, toolSessionID string, rigor reportRigorProfile, plan agentReportPlan, ast agentReportAST, claimIDs []string, evidenceIDs []string, violations []reportRefViolation) string {
@@ -379,95 +328,5 @@ Return only the corrected AST JSON object with this shape:
 
 Original AST to repair:
 %s
-`, agentReportAnyJSON(app.ReportBlockSourceRefs{ClaimIDs: claimIDs, EvidenceIDs: evidenceIDs}), agentReportAnyJSON(violations), rigor.level, rigor.label, rigor.description, rigor.instructions, agentReportPlanJSON(plan), strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, toolSessionID, agentReportASTJSON(ast))
-}
-
-func agentReportBlocksToInputs(ast agentReportAST, fallbackTitle string) ([]app.ReportBlockDraftInput, error) {
-	title := strings.TrimSpace(ast.Title)
-	if title == "" {
-		title = strings.TrimSpace(fallbackTitle)
-	}
-	if title == "" {
-		title = "Mission report"
-	}
-	inputs := []app.ReportBlockDraftInput{{
-		BlockType: "title",
-		Content:   mustJSON(map[string]string{"text": title}),
-	}}
-	if summary := strings.TrimSpace(ast.Summary); summary != "" {
-		inputs = append(inputs, app.ReportBlockDraftInput{
-			BlockType: "abstract",
-			Content:   mustJSON(map[string]string{"text": summary}),
-		})
-	}
-	for _, block := range ast.Blocks {
-		blockType := strings.TrimSpace(strings.ToLower(block.Type))
-		if blockType == "list" {
-			blockType = "bullet_list"
-		}
-		refs := block.SourceRefs
-		if len(refs.ClaimIDs)+len(refs.EvidenceIDs)+len(refs.SnapshotIDs)+len(refs.QuestionIDs)+len(refs.OptionIDs) == 0 {
-			refs = block.Refs
-		}
-		switch blockType {
-		case "heading":
-			text := strings.TrimSpace(block.Text)
-			if text == "" {
-				return nil, fmt.Errorf("%w: report heading text is required", app.ErrInvalidInput)
-			}
-			level := block.Level
-			if level <= 0 {
-				level = 2
-			}
-			inputs = append(inputs, app.ReportBlockDraftInput{
-				BlockType:  "heading",
-				Content:    mustJSON(map[string]any{"level": level, "text": text}),
-				SourceRefs: refs,
-			})
-		case "paragraph":
-			text := strings.TrimSpace(block.Text)
-			if text == "" {
-				return nil, fmt.Errorf("%w: report paragraph text is required", app.ErrInvalidInput)
-			}
-			inputs = append(inputs, app.ReportBlockDraftInput{
-				BlockType:  "paragraph",
-				Content:    mustJSON(map[string]string{"text": text}),
-				SourceRefs: refs,
-			})
-		case "bullet_list":
-			items := make([]string, 0, len(block.Items))
-			for _, item := range block.Items {
-				item = strings.TrimSpace(item)
-				if item != "" {
-					items = append(items, item)
-				}
-			}
-			if len(items) == 0 {
-				return nil, fmt.Errorf("%w: report list items are required", app.ErrInvalidInput)
-			}
-			inputs = append(inputs, app.ReportBlockDraftInput{
-				BlockType:  "bullet_list",
-				Content:    mustJSON(map[string][]string{"items": items}),
-				SourceRefs: refs,
-			})
-		case "quote":
-			text := strings.TrimSpace(block.Text)
-			if text == "" {
-				return nil, fmt.Errorf("%w: report quote text is required", app.ErrInvalidInput)
-			}
-			inputs = append(inputs, app.ReportBlockDraftInput{
-				BlockType:  "quote",
-				Content:    mustJSON(map[string]string{"text": text}),
-				SourceRefs: refs,
-			})
-		case "":
-			continue
-		default:
-			return nil, fmt.Errorf("%w: unsupported report AST block type %q", app.ErrInvalidInput, block.Type)
-		}
-	}
-	if len(inputs) < 2 {
-		return nil, fmt.Errorf("%w: report AST requires article content", app.ErrInvalidInput)
-	}
-	return inputs, nil
+`, agentReportAnyJSON(reportdocument.ReportBlockSourceRefs{ClaimIDs: claimIDs, EvidenceIDs: evidenceIDs}), agentReportAnyJSON(violations), rigor.level, rigor.label, rigor.description, rigor.instructions, agentReportPlanJSON(plan), strings.TrimSpace(title), strings.TrimSpace(missionID), toolSessionID, toolSessionID, agentReportASTJSON(ast))
 }

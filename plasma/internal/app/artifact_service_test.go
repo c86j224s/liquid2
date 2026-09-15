@@ -3,19 +3,23 @@ package app
 import (
 	"context"
 	"errors"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"testing"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestCreateRawArtifactComputesHashAndLogicalURI(t *testing.T) {
 	store := &artifactFakeStore{}
 	svc := NewService(store)
-	artifact, err := svc.CreateRawArtifact(context.Background(), CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID: "art_1",
 		MissionID:  "mis_1",
 		MediaType:  "text/plain",
 		Filename:   "source.txt",
-		Producer:   Producer{Type: "connector", ID: "liquid2"},
+		Producer:   ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:    []byte("hello"),
 	})
 	if err != nil {
@@ -34,11 +38,11 @@ func TestCreateRawArtifactComputesHashAndLogicalURI(t *testing.T) {
 
 func TestCreateRawArtifactRejectsHashMismatch(t *testing.T) {
 	svc := NewService(&artifactFakeStore{})
-	_, err := svc.CreateRawArtifact(context.Background(), CreateRawArtifactRequest{
+	_, err := svc.CreateRawArtifact(context.Background(), artifactcontract.CreateRequest{
 		ArtifactID:     "art_1",
 		MissionID:      "mis_1",
 		MediaType:      "text/plain",
-		Producer:       Producer{Type: "connector", ID: "liquid2"},
+		Producer:       ledger.Producer{Type: "connector", ID: "liquid2"},
 		Content:        []byte("hello"),
 		ExpectedSHA256: "bad",
 	})
@@ -49,15 +53,15 @@ func TestCreateRawArtifactRejectsHashMismatch(t *testing.T) {
 
 func TestCreateSourceSnapshotRejectsCrossMissionArtifact(t *testing.T) {
 	store := &artifactFakeStore{
-		artifacts: map[string]RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_1": {ArtifactID: "art_1", MissionID: "mis_other", SHA256: strings.Repeat("a", 64)},
 		},
 	}
 	svc := NewService(store)
-	_, err := svc.CreateSourceSnapshot(context.Background(), CreateSourceSnapshotRequest{
+	_, err := svc.CreateSourceSnapshot(context.Background(), sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
 		ArtifactIDs: []string{"art_1"},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
@@ -67,15 +71,15 @@ func TestCreateSourceSnapshotRejectsCrossMissionArtifact(t *testing.T) {
 
 func TestCreateSourceSnapshotRejectsDuplicateArtifacts(t *testing.T) {
 	store := &artifactFakeStore{
-		artifacts: map[string]RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_1": {ArtifactID: "art_1", MissionID: "mis_1", SHA256: strings.Repeat("a", 64)},
 		},
 	}
 	svc := NewService(store)
-	_, err := svc.CreateSourceSnapshot(context.Background(), CreateSourceSnapshotRequest{
+	_, err := svc.CreateSourceSnapshot(context.Background(), sourcecontract.CreateRequest{
 		SnapshotID:  "src_1",
 		MissionID:   "mis_1",
-		Connector:   ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "liquid2", ConnectorType: "liquid2", ExternalSourceID: "doc_1"},
 		ArtifactIDs: []string{"art_1", " art_1 "},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
@@ -85,28 +89,28 @@ func TestCreateSourceSnapshotRejectsDuplicateArtifacts(t *testing.T) {
 
 type artifactFakeStore struct {
 	fakeStore
-	artifacts map[string]RawArtifact
+	artifacts map[string]artifactcontract.Raw
 }
 
-func (f *artifactFakeStore) CreateRawArtifact(_ context.Context, artifact RawArtifact) error {
+func (f *artifactFakeStore) CreateRawArtifact(_ context.Context, artifact artifactcontract.Raw) error {
 	if f.artifacts == nil {
-		f.artifacts = map[string]RawArtifact{}
+		f.artifacts = map[string]artifactcontract.Raw{}
 	}
 	f.artifacts[artifact.ArtifactID] = artifact
 	return nil
 }
 
-func (f *artifactFakeStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (f *artifactFakeStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if artifact, ok := f.artifacts[artifactID]; ok {
 		return artifact, nil
 	}
-	return RawArtifact{}, errors.New("missing artifact")
+	return artifactcontract.Raw{}, errors.New("missing artifact")
 }
 
-func (f *artifactFakeStore) CreateSourceSnapshot(context.Context, SourceSnapshot) error {
+func (f *artifactFakeStore) CreateSourceSnapshot(context.Context, sourcecontract.Snapshot) error {
 	return nil
 }
 
-func (f *artifactFakeStore) GetSourceSnapshot(context.Context, string) (SourceSnapshot, error) {
-	return SourceSnapshot{}, nil
+func (f *artifactFakeStore) GetSourceSnapshot(context.Context, string) (sourcecontract.Snapshot, error) {
+	return sourcecontract.Snapshot{}, nil
 }

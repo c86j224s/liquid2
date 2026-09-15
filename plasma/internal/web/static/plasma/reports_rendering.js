@@ -34,9 +34,10 @@ function reportGenerationSummary(payload = {}) {
   const experimental = Boolean(reports.REPORT_IL_PIPELINE_FAMILY) && context.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY;
   const unverified = Boolean(reports.REPORT_UNVERIFIED_PIPELINE_FAMILY) && context.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY;
   const independent = experimental || unverified;
+  const article = context.output_kind === "article" || context.kind === "article_artifact";
   const guidance = String(context.generation_guidance_profile || "g2").trim() || "g2";
   return {
-    mode: experimental ? (mode === "long_form" ? "장문 IL 보고서" : "IL 보고서") : unverified ? "무검증 보고서" : (context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서"),
+    mode: article ? (mode === "long_form" ? "장문 글" : "글") : experimental ? (mode === "long_form" ? "장문 IL 보고서" : "IL 보고서") : unverified ? "무검증 보고서" : (context.report_mode_label || REPORT_MODE_LABELS[mode] || "보고서"),
     strategy: !independent && mode === "long_form" ? (REPORT_EXECUTION_STRATEGY_LABELS[strategy] || strategy) : "",
     guidance: independent ? "" : reportGenerationGuidanceLabel(guidance),
     rigor: unverified ? "무검증형" : (context.rigor_label || REPORT_RIGOR_LABELS[context.rigor_level] || "미지정"),
@@ -135,28 +136,47 @@ function reportSourceCheckText(check = {}) {
 }
 
 
+function outputTimestamp(value) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function renderReports(versions) {
   reports.pipeline.render(state.detail?.report_progress, reportPipelineRequestSummary(state.detail?.report_progress));
-  const conversationExports = reports.conversationExportPayloads();
-  const allArtifactReports = reports.reportArtifactPayloads();
-  const ilArtifactReports = allArtifactReports.filter((payload) => payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY);
-  const artifactReports = allArtifactReports.filter((payload) => payload.pipeline_family !== reports.REPORT_IL_PIPELINE_FAMILY);
-  const legacyReports = versions.map((version, index) => reports.reportViewModel(version, index));
-  const total = conversationExports.length + ilArtifactReports.length + artifactReports.length + legacyReports.length;
-  updateCountChip("reportListCount", total);
-  updateCountChip("reportTabCount", total);
-  const conversationCards = conversationExports.map((payload, index) => ({ key: `conversation:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
-  const ilArtifactCards = ilArtifactReports.map((payload, index) => ({ key: `artifact:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
-  const artifactCards = artifactReports.map((payload, index) => ({ key: `artifact:${payload.artifact_id || `idx${index}`}`, isLatest: index === 0, payload }));
-  const legacyCards = legacyReports.map((report) => ({ key: `version:${report.versionID}`, report }));
-  const allKeys = [...conversationCards.map((c) => c.key), ...ilArtifactCards.map((c) => c.key), ...artifactCards.map((c) => c.key), ...legacyCards.map((c) => c.key)];
+  const outputs = [
+    ...reports.reportArtifactPayloads().map((payload, index) => ({
+      key: `artifact:${payload.artifact_id || `idx${index}`}`, createdAt: payload.created_at,
+      render: (latest) => payload.pipeline_family === reports.REPORT_IL_PIPELINE_FAMILY
+        ? reports.renderILArtifactCard(`artifact:${payload.artifact_id || `idx${index}`}`, latest, payload, state.selectedReportKey)
+        : reports.renderArtifactCard(`artifact:${payload.artifact_id || `idx${index}`}`, latest, payload, state.selectedReportKey)
+    })),
+    ...versions.map((version, index) => {
+      const report = reports.reportViewModel(version, index);
+      return {
+        key: `version:${report.versionID}`, createdAt: version.created_at,
+        render: (latest) => reports.renderLegacyReportCard(`version:${report.versionID}`, report, state.selectedReportKey, latest)
+      };
+    })
+  ].sort((left, right) => outputTimestamp(right.createdAt) - outputTimestamp(left.createdAt));
+  updateCountChip("reportListCount", outputs.length);
+  updateCountChip("reportTabCount", outputs.length);
+  const allKeys = outputs.map((output) => output.key);
   if (!state.selectedReportKey || !allKeys.includes(state.selectedReportKey)) state.selectedReportKey = allKeys[0] || "";
   if (state.reportPreview && !allKeys.includes(state.reportPreview.key)) state.reportPreview = null;
-  const sections = [reports.renderConversationExportSection(conversationCards, state.selectedReportKey)];
-  if (ilArtifactCards.length) sections.push(reports.renderILArtifactReportSection(ilArtifactCards, state.selectedReportKey));
-  if (artifactCards.length) sections.push(reports.renderArtifactReportSection(artifactCards, state.selectedReportKey));
-  if (legacyCards.length) sections.push(reports.renderLegacyReportSection(legacyCards, state.selectedReportKey));
-  $("reportList").innerHTML = sections.length ? sections.join("") : empty("리포트 artifact 없음");
+  const cards = outputs.map((output, index) => output.render(index === 0)).filter(Boolean);
+  $("reportList").innerHTML = cards.length ? cards.join("") : empty("글 또는 보고서 없음");
+  renderConversationExportSettings();
+}
+
+function renderConversationExportSettings() {
+  const host = $("conversationExportSettingsList");
+  const count = $("conversationExportSettingsCount");
+  if (!host || !count) return;
+  const exports = reports.conversationExportPayloads();
+  count.textContent = exports.length ? String(exports.length) : "";
+  host.innerHTML = exports.length
+    ? exports.map((payload, index) => reports.renderConversationExportCard(`conversation:${payload.artifact_id || `idx${index}`}`, payload, state.selectedReportKey, index === 0)).join("")
+    : empty("저장된 대화내역 export 없음");
 }
 
 function renderReportsFromState() { renderReports(state.detail?.report_versions || []); }
@@ -166,5 +186,5 @@ function reportPreviewInlineHTML(key) {
   return "";
 }
 
-Object.assign(reports, { reportActionMenu, reportGenerationContext, reportGenerationSummary, reportGenerationSummaryHTML, reportPipelineRequestSummary, shouldHideDraftPendingNotice, reportSourceContext, reportSourceContextHTML, reportSourceCheckText, renderReports, renderReportsFromState, reportPreviewInlineHTML });
+Object.assign(reports, { reportActionMenu, reportGenerationContext, reportGenerationSummary, reportGenerationSummaryHTML, reportPipelineRequestSummary, shouldHideDraftPendingNotice, reportSourceContext, reportSourceContextHTML, reportSourceCheckText, renderReports, renderConversationExportSettings, renderReportsFromState, reportPreviewInlineHTML });
 })(window);

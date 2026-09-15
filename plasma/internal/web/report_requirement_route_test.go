@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
@@ -13,8 +14,11 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -53,11 +57,11 @@ func TestLongFormProductPathMapsRequirementToOnlyOwnedSection(t *testing.T) {
 		"title": "Report", "report_mode": reportModeLongForm, "direction_hint": "include a comparison table",
 		"generation_guidance_profile": reportprompt.ProfileVisualPlan,
 	})
-	detail := waitForEventType(t, server.URL, missionID, reporting.ReportRunCompletedEventType)
-	if countEvents(detail, reporting.ReportRunCompletedEventType) != 1 {
+	detail := waitForEventType(t, server.URL, missionID, reportrun.ReportRunCompletedEventType)
+	if countEvents(detail, reportrun.ReportRunCompletedEventType) != 1 {
 		t.Fatalf("report completion boundary was not durably recorded once: %#v", detail["events"])
 	}
-	completionPayload := lastEventPayload(t, detail, reporting.ReportRunCompletedEventType)
+	completionPayload := lastEventPayload(t, detail, reportrun.ReportRunCompletedEventType)
 	if nestedFloat(t, completionPayload, "delayed_usage_target_count") != 1 || nestedFloat(t, completionPayload, "usage_recorded_count") != 0 || nestedFloat(t, completionPayload, "usage_unavailable_count") != 1 {
 		t.Fatalf("unexpected completion usage counts: %#v", completionPayload)
 	}
@@ -130,9 +134,9 @@ func TestLongFormRequirementReviewRunsWithoutDirectionHint(t *testing.T) {
 
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "Requirement no direction"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_prior_user", MissionID: missionID, EventType: "turn.user",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: json.RawMessage(`{"text":"include a constraints checklist in the Limits section"}`),
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: json.RawMessage(`{"text":"include a constraints checklist in the Limits section"}`),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -237,18 +241,18 @@ func TestLongFormSectionFanoutMapsRequirementToOnlyOwnedSection(t *testing.T) {
 		"title": "Fanout Report", "report_mode": reportModeLongForm, "execution_strategy": reportExecutionStrategySectionFanout,
 		"direction_hint": "include calibrated risk register", "generation_guidance_profile": reportprompt.ProfileNarrativeContract,
 	})
-	detail := waitForEventType(t, server.URL, missionID, reporting.ReportRunCompletedEventType)
-	if countEvents(detail, reporting.ReportRunCompletedEventType) != 1 {
+	detail := waitForEventType(t, server.URL, missionID, reportrun.ReportRunCompletedEventType)
+	if countEvents(detail, reportrun.ReportRunCompletedEventType) != 1 {
 		t.Fatalf("fanout completion boundary was not durably recorded once: %#v", detail["events"])
 	}
-	completionPayload := lastEventPayload(t, detail, reporting.ReportRunCompletedEventType)
+	completionPayload := lastEventPayload(t, detail, reportrun.ReportRunCompletedEventType)
 	if nestedFloat(t, completionPayload, "delayed_usage_target_count") != 5 || nestedFloat(t, completionPayload, "usage_recorded_count") != 5 || nestedFloat(t, completionPayload, "usage_unavailable_count") != 0 {
 		t.Fatalf("unexpected fanout completion usage counts: %#v", completionPayload)
 	}
 	if countEvents(detail, reporting.ReportRequirementsMappedEventType) != 1 {
 		t.Fatalf("fanout requirement map was not durably recorded once: %#v", detail["events"])
 	}
-	if countEvents(detail, reporting.ReportAgentUsageRecordedEventType) != 5 {
+	if countEvents(detail, reportusage.ReportAgentUsageRecordedEventType) != 5 {
 		t.Fatalf("requirements, Part edit, and three final edit calls must record delayed usage once each: %#v", detail["events"])
 	}
 	requirementPayload := lastEventPayload(t, detail, reporting.ReportRequirementsMappedEventType)
@@ -398,7 +402,7 @@ func (executor *reportRequirementFixtureExecutor) Run(ctx context.Context, req A
 	if err != nil {
 		return result, err
 	}
-	result.Text = reporting.ReportRequirementsMappedSentinel
+	result.Text = requirements.ReportRequirementsMappedSentinel
 	return result, nil
 }
 
@@ -418,10 +422,10 @@ func (executor *reportRequirementFixtureExecutor) CheckForkSession(ctx context.C
 	return readiness.CheckForkSession(ctx, sessionID)
 }
 
-func (executor *reportRequirementFixtureExecutor) requirementPlan(ctx context.Context, req AgentRequest) (app.LedgerEvent, reporting.SectionalReportPlan, error) {
+func (executor *reportRequirementFixtureExecutor) requirementPlan(ctx context.Context, req AgentRequest) (ledger.Event, reporting.SectionalReportPlan, error) {
 	events, err := executor.service.ListEvents(ctx, req.MissionID)
 	if err != nil {
-		return app.LedgerEvent{}, reporting.SectionalReportPlan{}, err
+		return ledger.Event{}, reporting.SectionalReportPlan{}, err
 	}
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
@@ -438,7 +442,7 @@ func (executor *reportRequirementFixtureExecutor) requirementPlan(ctx context.Co
 		plan, err := reporting.NormalizeSectionalReportPlan(payload.Plan)
 		return event, plan, err
 	}
-	return app.LedgerEvent{}, reporting.SectionalReportPlan{}, fmt.Errorf("report requirement fixture plan is missing")
+	return ledger.Event{}, reporting.SectionalReportPlan{}, fmt.Errorf("report requirement fixture plan is missing")
 }
 
 type fanoutRequirementAgent struct {

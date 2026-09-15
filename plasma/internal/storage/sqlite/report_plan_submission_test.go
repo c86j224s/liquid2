@@ -4,29 +4,31 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestReportPlanSubmissionAndPromotionAreAtomicAndReplayable(t *testing.T) {
 	store := newTestStore(t)
 	store.db.SetMaxOpenConns(1)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_plan", Title: "Plan"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_plan", Title: "Plan"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{EventID: "evt_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{EventID: "evt_pending", MissionID: "mis_plan", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{EventID: "evt_pending_other", MissionID: "mis_plan", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{EventID: "evt_pending_other", MissionID: "mis_plan", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
 	request := func(eventID string) app.ReportPlanSubmissionRequest {
-		return app.ReportPlanSubmissionRequest{EventID: eventID, MissionID: "mis_plan", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_tool_new", PreviousProviderSessionID: "ses_provider", AgentExecutor: "codex", AgentModel: "gpt-test", AgentReasoningEffort: "high", IdempotencyKey: "key", ArgumentsHash: "args", PlanHash: "plan", Plan: json.RawMessage(`{"summary":"summary","sections":[]}`), Attempt: 1, ToolProducer: app.Producer{Type: "agent_session", ID: "ses_tool_new"}}
+		return app.ReportPlanSubmissionRequest{EventID: eventID, MissionID: "mis_plan", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_tool_new", PreviousProviderSessionID: "ses_provider", AgentExecutor: "codex", AgentModel: "gpt-test", AgentReasoningEffort: "high", IdempotencyKey: "key", ArgumentsHash: "args", PlanHash: "plan", Plan: json.RawMessage(`{"summary":"summary","sections":[]}`), Attempt: 1, ToolProducer: ledger.Producer{Type: "agent_session", ID: "ses_tool_new"}}
 	}
 	const callers = 12
 	results := make(chan app.ReportPlanSubmission, callers)
@@ -62,7 +64,7 @@ func TestReportPlanSubmissionAndPromotionAreAtomicAndReplayable(t *testing.T) {
 		}
 	}
 
-	canonical := app.AppendEventRequest{EventID: "evt_canonical", MissionID: "mis_plan", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "ses_provider"}, Payload: json.RawMessage(`{"pending_event_id":"evt_pending","report_mode":"planned","plan":{"summary":"summary","sections":[]}}`)}
+	canonical := ledger.AppendRequest{EventID: "evt_canonical", MissionID: "mis_plan", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "ses_provider"}, Payload: json.RawMessage(`{"pending_event_id":"evt_pending","report_mode":"planned","plan":{"summary":"summary","sections":[]}}`)}
 	promote := app.PromoteReportPlanRequest{MissionID: "mis_plan", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_tool_new", PreviousProviderSessionID: "ses_provider", AgentExecutor: "codex", AgentModel: "gpt-test", AgentReasoningEffort: "high", IdempotencyKey: "key", ArgumentsHash: "args", PlanHash: "plan", SubmissionEventID: submissionID, Canonical: canonical}
 	first, err := svc.PromoteReportPlan(ctx, promote)
 	if err != nil {
@@ -131,14 +133,14 @@ func TestReportPlanSubmissionAndPromotionAreAtomicAndReplayable(t *testing.T) {
 func TestReportPlanSubmissionRejectsStalePromotionAndConflict(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_stale", Title: "Stale"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_stale", Title: "Stale"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{EventID: "evt_pending", MissionID: "mis_stale", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{EventID: "evt_pending", MissionID: "mis_stale", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned"}`)}); err != nil {
 		t.Fatal(err)
 	}
 	svc := app.NewService(store)
-	req := app.ReportPlanSubmissionRequest{EventID: "evt_old", MissionID: "mis_stale", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_old", PreviousProviderSessionID: "ses_provider_old", AgentExecutor: "codex", IdempotencyKey: "key_old", ArgumentsHash: "args_old", PlanHash: "plan_old", Plan: json.RawMessage(`{"summary":"old","sections":[]}`), Attempt: 1, ToolProducer: app.Producer{Type: "agent_session", ID: "ses_old"}}
+	req := app.ReportPlanSubmissionRequest{EventID: "evt_old", MissionID: "mis_stale", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_old", PreviousProviderSessionID: "ses_provider_old", AgentExecutor: "codex", IdempotencyKey: "key_old", ArgumentsHash: "args_old", PlanHash: "plan_old", Plan: json.RawMessage(`{"summary":"old","sections":[]}`), Attempt: 1, ToolProducer: ledger.Producer{Type: "agent_session", ID: "ses_old"}}
 	old, err := svc.SubmitReportPlan(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +151,7 @@ func TestReportPlanSubmissionRejectsStalePromotionAndConflict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	canonical := app.AppendEventRequest{EventID: "evt_created", MissionID: "mis_stale", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "ses_provider_new"}, Payload: json.RawMessage(`{"pending_event_id":"evt_pending","report_mode":"planned","plan":{"summary":"new","sections":[]}}`)}
+	canonical := ledger.AppendRequest{EventID: "evt_created", MissionID: "mis_stale", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "ses_provider_new"}, Payload: json.RawMessage(`{"pending_event_id":"evt_pending","report_mode":"planned","plan":{"summary":"new","sections":[]}}`)}
 	promote := app.PromoteReportPlanRequest{MissionID: "mis_stale", PendingEventID: "evt_pending", ReportMode: "planned", ToolSessionID: "ses_new", PreviousProviderSessionID: "ses_provider_new", AgentExecutor: "codex", IdempotencyKey: "key_new", ArgumentsHash: "args_new", PlanHash: "plan_new", SubmissionEventID: old.Event.EventID, Canonical: canonical}
 	if _, err := svc.PromoteReportPlan(ctx, promote); err == nil {
 		t.Fatal("expected stale submission promotion to fail")
@@ -167,12 +169,12 @@ func TestReportPlanSubmissionRejectsStalePromotionAndConflict(t *testing.T) {
 func TestReportPlanSubmissionReplayRejectsEveryBindingMismatchAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_replay", Title: "Replay"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_replay", Title: "Replay"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []app.LedgerEvent{
-		{EventID: "evt_pending", MissionID: "mis_replay", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned","agent_executor":"codex"}`)},
-		{EventID: "evt_pending_other", MissionID: "mis_replay", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned","agent_executor":"codex"}`)},
+	for _, event := range []ledger.Event{
+		{EventID: "evt_pending", MissionID: "mis_replay", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned","agent_executor":"codex"}`)},
+		{EventID: "evt_pending_other", MissionID: "mis_replay", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "user"}, Payload: []byte(`{"report_mode":"planned","agent_executor":"codex"}`)},
 	} {
 		if _, err := store.AppendLedgerEvent(ctx, event); err != nil {
 			t.Fatal(err)
@@ -182,7 +184,7 @@ func TestReportPlanSubmissionReplayRejectsEveryBindingMismatchAfterRestart(t *te
 		EventID: "evt_submit", MissionID: "mis_replay", PendingEventID: "evt_pending", ReportMode: "planned",
 		ToolSessionID: "ses_tool", PreviousProviderSessionID: "ses_previous", AgentExecutor: "codex",
 		AgentModel: "gpt-test", AgentReasoningEffort: "high", IdempotencyKey: "key", ArgumentsHash: "args", PlanHash: "plan",
-		Plan: json.RawMessage(`{"summary":"summary"}`), Attempt: 1, ToolProducer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+		Plan: json.RawMessage(`{"summary":"summary"}`), Attempt: 1, ToolProducer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
 	if _, err := app.NewService(store).SubmitReportPlan(ctx, base); err != nil {
 		t.Fatal(err)

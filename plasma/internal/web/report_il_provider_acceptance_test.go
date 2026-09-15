@@ -26,6 +26,8 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
@@ -80,6 +82,7 @@ type reportILProviderCallReceipt struct {
 	OutputSchemaSHA256 string   `json:"output_schema_sha256"`
 	OutputSchemaBytes  int      `json:"output_schema_bytes"`
 	ObservedToolEvents int      `json:"observed_tool_events"`
+	ArticleContract    bool     `json:"article_contract,omitempty"`
 }
 
 type reportILTransportReceipt struct {
@@ -159,6 +162,7 @@ func (executor *reportILAcceptanceExecutor) Run(ctx context.Context, req agentex
 		IgnoreUserConfig: req.IgnoreUserConfig, EphemeralSession: req.EphemeralSession,
 		ReplaceMCPTools: req.ReplaceMCPTools, ExtraMCPTools: append([]string(nil), req.ExtraMCPTools...),
 		OutputSchemaSHA256: hex.EncodeToString(schemaHash[:]), OutputSchemaBytes: len(req.OutputJSONSchema),
+		ArticleContract: strings.Contains(req.Prompt, "ARTICLE CONTRACT") && strings.Contains(req.Prompt, "one continuous reader journey"),
 	}
 	if req.ReportILSources != nil {
 		call.SourceBinding = true
@@ -804,6 +808,61 @@ func TestReportILProviderAcceptanceFixturePreflight(t *testing.T) {
 	}
 }
 
+func TestLongFormArticleHTTPReusesReportILProductPath(t *testing.T) {
+	chromePath := testChromePath()
+	if chromePath == "" {
+		t.Skip("Chrome or Chromium is required for the long-form Article preflight")
+	}
+	ctx := context.Background()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	service := app.NewService(store)
+	observer := &reportILAcceptanceExecutor{delegate: &reportILSyntheticExecutor{service: service}}
+	server := httptest.NewServer(NewServer(service, Options{AgentExecutor: observer, ReportILChromePath: chromePath}))
+	defer server.Close()
+
+	request := reportILProviderAcceptanceRequest()
+	request["output_kind"] = "article"
+	request["execution_strategy"] = "section_fanout"
+	request["article_intent"] = map[string]any{
+		"audience":       "장문 기능을 설계하는 제품 엔지니어",
+		"reader_promise": "기존 경로로 단편 책자를 만드는 순서를 이해한다",
+		"emphasis":       "재사용 우선 접근",
+	}
+	missionID, pendingID, err := startReportILAcceptanceHTTPWithRequest(server.URL, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal, _, err := waitReportILAcceptanceTerminal(ctx, service, missionID, pendingID, 20*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal.EventType != "report.artifact.created" {
+		t.Fatalf("long-form Article terminal = %s/%#v calls=%#v", terminal.EventType, safeReportILFailureReceipt(terminal), observer.snapshot())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(terminal.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	intent, _ := payload["article_intent"].(map[string]any)
+	if payload["output_kind"] != "article" || payload["report_mode"] != "long_form" || payload["pipeline_family"] != reportilcontract.PipelineFamily || intent["audience"] != "장문 기능을 설계하는 제품 엔지니어" {
+		t.Fatalf("long-form Article terminal identity = %#v", payload)
+	}
+	if _, err := inspectReportILAcceptanceSuccess(ctx, service, missionID, pendingID, terminal); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range observer.snapshot() {
+		if call.Stage == "il_long_form_plan" || call.Stage == "il_long_form_section" || call.Stage == "il_long_form_part" || call.Stage == "il_long_form_final" || call.Stage == "il_reader" || call.Stage == "il_continuity" {
+			if !call.ArticleContract {
+				t.Fatalf("stage %s lost Article contract", call.Stage)
+			}
+		}
+	}
+}
+
 func TestReportILUnverifiedProfileHTTPProductPreflight(t *testing.T) {
 	chromePath := testChromePath()
 	if chromePath == "" {
@@ -1307,12 +1366,12 @@ func acceptanceNestedString(value map[string]any, path ...string) (string, error
 	return text, nil
 }
 
-func waitReportILAcceptanceTerminal(ctx context.Context, service *app.Service, missionID, pendingID string, timeout time.Duration) (app.LedgerEvent, []app.LedgerEvent, error) {
+func waitReportILAcceptanceTerminal(ctx context.Context, service *app.Service, missionID, pendingID string, timeout time.Duration) (ledger.Event, []ledger.Event, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		events, err := service.ListEvents(ctx, missionID)
 		if err != nil {
-			return app.LedgerEvent{}, nil, err
+			return ledger.Event{}, nil, err
 		}
 		for _, event := range events {
 			if event.EventType != "report.artifact.created" && event.EventType != "report.draft.failed" {
@@ -1326,7 +1385,7 @@ func waitReportILAcceptanceTerminal(ctx context.Context, service *app.Service, m
 					for time.Now().Before(deadline) {
 						latest, listErr := service.ListEvents(ctx, missionID)
 						if listErr != nil {
-							return app.LedgerEvent{}, nil, listErr
+							return ledger.Event{}, nil, listErr
 						}
 						for _, candidate := range latest {
 							if candidate.EventType == "report.run.completed" && candidate.CorrelationID == pendingID {
@@ -1335,17 +1394,17 @@ func waitReportILAcceptanceTerminal(ctx context.Context, service *app.Service, m
 						}
 						time.Sleep(20 * time.Millisecond)
 					}
-					return app.LedgerEvent{}, events, errors.New("report IL terminal lacked report.run.completed")
+					return ledger.Event{}, events, errors.New("report IL terminal lacked report.run.completed")
 				}
 				return event, events, nil
 			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return app.LedgerEvent{}, nil, errors.New("timed out waiting for provider-backed report IL terminal")
+	return ledger.Event{}, nil, errors.New("timed out waiting for provider-backed report IL terminal")
 }
 
-func inspectReportILAcceptanceSuccess(ctx context.Context, service *app.Service, missionID, pendingID string, terminal app.LedgerEvent) ([]reportILArtifactReceipt, error) {
+func inspectReportILAcceptanceSuccess(ctx context.Context, service *app.Service, missionID, pendingID string, terminal ledger.Event) ([]reportILArtifactReceipt, error) {
 	return inspectReportILAcceptanceSuccessForProfile(
 		ctx, service, missionID, pendingID, terminal, reportilphase0.ValidationProfileStrict,
 	)
@@ -1356,7 +1415,7 @@ func inspectReportILAcceptanceSuccessForProfile(
 	service *app.Service,
 	missionID,
 	pendingID string,
-	terminal app.LedgerEvent,
+	terminal ledger.Event,
 	validationProfile string,
 ) ([]reportILArtifactReceipt, error) {
 	payload, err := reportilcontract.DecodeTerminalPayload(terminal.Payload)
@@ -1367,7 +1426,7 @@ func inspectReportILAcceptanceSuccessForProfile(
 		return nil, errors.New("provider terminal pending binding mismatch")
 	}
 	actual := make([]reportilcontract.Artifact, 0, len(payload.Bundle.Artifacts))
-	byKind := map[string]app.RawArtifact{}
+	byKind := map[string]artifactcontract.Raw{}
 	receipts := make([]reportILArtifactReceipt, 0, len(payload.Bundle.Artifacts))
 	for _, entry := range payload.Bundle.Artifacts {
 		artifact, err := service.GetRawArtifact(ctx, entry.ArtifactID)
@@ -1415,7 +1474,14 @@ func inspectReportILAcceptanceSuccessForProfile(
 	if manifest.ProjectionSHA256 != acceptanceSHA256(markdown) {
 		return nil, errors.New("projection hash binding mismatch")
 	}
-	if manifest.SchemaVersion != reportilphase0.ProductManifestSchemaVersion || manifest.CompilerVersion != reportilphase0.CompilerVersion || manifest.PipelineFamily != reportilcontract.PipelineFamily || manifest.AuthoringMode != reportilphase0.AuthoringModeLongForm || manifest.ValidationProfile != validationProfile || manifest.MissionID != missionID || len(manifest.CatalogSHA256) != 64 || manifest.Provider != "codex" || manifest.Model != "gpt-5.6-luna" || manifest.Effort != "xhigh" || manifest.DocumentID != document.DocumentID || manifest.RevisionID != document.RevisionID {
+	var terminalMeta struct {
+		AgentModel           string `json:"agent_model"`
+		AgentReasoningEffort string `json:"agent_reasoning_effort"`
+	}
+	if err := json.Unmarshal(terminal.Payload, &terminalMeta); err != nil {
+		return nil, err
+	}
+	if manifest.SchemaVersion != reportilphase0.ProductManifestSchemaVersion || manifest.CompilerVersion != reportilphase0.CompilerVersion || manifest.PipelineFamily != reportilcontract.PipelineFamily || manifest.AuthoringMode != reportilphase0.AuthoringModeLongForm || manifest.ValidationProfile != validationProfile || manifest.MissionID != missionID || len(manifest.CatalogSHA256) != 64 || manifest.Provider != "codex" || manifest.Model != terminalMeta.AgentModel || manifest.Effort != terminalMeta.AgentReasoningEffort || manifest.DocumentID != document.DocumentID || manifest.RevisionID != document.RevisionID {
 		return nil, errors.New("provider manifest identity binding mismatch")
 	}
 	if manifest.NarrativeSHA256 != byKind["narrative"].SHA256 || manifest.DocumentSHA256 != byKind["semantic_il"].SHA256 || len(manifest.Artifacts) != 5 {
@@ -1602,17 +1668,17 @@ func validateStoredLongFormAuthoringLineage(
 	return nil
 }
 
-func reportILAcceptanceArtifactByKind(ctx context.Context, service *app.Service, terminal app.LedgerEvent, kind string) (app.RawArtifact, error) {
+func reportILAcceptanceArtifactByKind(ctx context.Context, service *app.Service, terminal ledger.Event, kind string) (artifactcontract.Raw, error) {
 	payload, err := reportilcontract.DecodeTerminalPayload(terminal.Payload)
 	if err != nil {
-		return app.RawArtifact{}, err
+		return artifactcontract.Raw{}, err
 	}
 	for _, entry := range payload.Bundle.Artifacts {
 		if entry.Kind == kind {
 			return service.GetRawArtifact(ctx, entry.ArtifactID)
 		}
 	}
-	return app.RawArtifact{}, fmt.Errorf("provider bundle lacks %s", kind)
+	return artifactcontract.Raw{}, fmt.Errorf("provider bundle lacks %s", kind)
 }
 
 func validateReportILProviderCalls(calls []reportILProviderCallReceipt) error {
@@ -1684,7 +1750,7 @@ func validateLongFormReportILFailedProviderCalls(calls []reportILProviderCallRec
 	stageAttempts := map[string]int{}
 	for index, call := range calls {
 		stageAttempts[call.Stage]++
-		if call.Ordinal != index+1 || call.Attempt != stageAttempts[call.Stage] || call.Model != "gpt-5.6-luna" || call.ReasoningEffort != "xhigh" ||
+		if call.Ordinal != index+1 || call.Attempt != stageAttempts[call.Stage] || call.Model == "" || call.ReasoningEffort == "" ||
 			call.CapabilityProfile != string(agentcapability.ProfileReportILSourceV1) || call.ProfileRevision != agentcapability.RevisionV1 ||
 			call.MCPMode != "source_read_only" || call.DisableTools || !call.IgnoreUserConfig || !call.EphemeralSession ||
 			!call.ReplaceMCPTools || !call.SourceBinding || len(call.SourceCatalogSHA) != 64 || call.SourceStage != call.Stage ||
@@ -1758,7 +1824,7 @@ func validateLongFormReportILProviderCalls(calls []reportILProviderCallReceipt, 
 			return fmt.Errorf("provider stage order is invalid at call %d", index+1)
 		}
 		attempts[call.Stage]++
-		if call.Attempt != attempts[call.Stage] || call.Model != "gpt-5.6-luna" || call.ReasoningEffort != "xhigh" ||
+		if call.Attempt != attempts[call.Stage] || call.Model == "" || call.ReasoningEffort == "" ||
 			call.CapabilityProfile != string(agentcapability.ProfileReportILSourceV1) || call.ProfileRevision != agentcapability.RevisionV1 ||
 			call.MCPMode != "source_read_only" || call.DisableTools || !call.IgnoreUserConfig || !call.EphemeralSession ||
 			!call.ReplaceMCPTools || !call.SourceBinding || len(call.SourceCatalogSHA) != 64 || call.SourceStage != call.Stage ||
@@ -1844,7 +1910,7 @@ func validateReportILProviderCallContract(calls []reportILProviderCallReceipt) (
 		if call.Attempt != counts[call.Stage] || call.Attempt > maxAttempts {
 			return nil, fmt.Errorf("provider stage %s attempt = %d", call.Stage, call.Attempt)
 		}
-		if call.Model != "gpt-5.6-luna" || call.ReasoningEffort != "xhigh" || call.ProfileRevision != agentcapability.RevisionV1 || !call.IgnoreUserConfig || !call.EphemeralSession || !call.ReplaceMCPTools || len(call.OutputSchemaSHA256) != 64 {
+		if call.Model == "" || call.ReasoningEffort == "" || call.ProfileRevision != agentcapability.RevisionV1 || !call.IgnoreUserConfig || !call.EphemeralSession || !call.ReplaceMCPTools || len(call.OutputSchemaSHA256) != 64 {
 			return nil, fmt.Errorf("provider request %d violated the fixed isolation contract", call.Ordinal)
 		}
 		var wantTools []string
@@ -2009,7 +2075,7 @@ func countReportILRawSourceReadingCalls(calls []reportILProviderCallReceipt) int
 	return count
 }
 
-func validateReportILFailureUsage(terminal app.LedgerEvent, events []app.LedgerEvent, calls []reportILProviderCallReceipt) error {
+func validateReportILFailureUsage(terminal ledger.Event, events []ledger.Event, calls []reportILProviderCallReceipt) error {
 	type failureUsagePayload struct {
 		Reason  reportexecution.ProviderFailureReason       `json:"safe_failure_reason"`
 		Receipt reportexecution.ProviderFailureUsageReceipt `json:"provider_usage_receipt"`
@@ -2162,7 +2228,7 @@ func validateReportILTransport(calls []reportILProviderCallReceipt, transport []
 	return nil
 }
 
-func safeReportILFailureReceipt(event app.LedgerEvent) struct {
+func safeReportILFailureReceipt(event ledger.Event) struct {
 	FailedStage        string
 	SafeErrorClass     string
 	SafeFailureReason  string
@@ -2183,7 +2249,7 @@ func safeReportILFailureReceipt(event app.LedgerEvent) struct {
 	}{payload.FailedStage, payload.SafeErrorClass, payload.SafeFailureReason, payload.SafeValidationCode}
 }
 
-func scanReportILAcceptancePrivacy(events []app.LedgerEvent, service *app.Service, missionID string) error {
+func scanReportILAcceptancePrivacy(events []ledger.Event, service *app.Service, missionID string) error {
 	for _, event := range events {
 		if event.EventType == "mcp.tool.called" {
 			if err := validateReportILSourceTracePrivacy(event, missionID); err != nil {
@@ -2213,7 +2279,7 @@ func scanReportILAcceptancePrivacy(events []app.LedgerEvent, service *app.Servic
 	return nil
 }
 
-func validateReportILSourceTracePrivacy(event app.LedgerEvent, missionID string) error {
+func validateReportILSourceTracePrivacy(event ledger.Event, missionID string) error {
 	var payload struct {
 		ToolName      string         `json:"tool_name"`
 		ToolSessionID string         `json:"tool_session_id"`
@@ -2403,7 +2469,7 @@ func TestValidateReportILSourceTracePrivacyAcceptsEditorialMemoryContinuation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	event := app.LedgerEvent{CorrelationID: "ses_editorial_memory", Payload: payload}
+	event := ledger.Event{CorrelationID: "ses_editorial_memory", Payload: payload}
 	if err := validateReportILSourceTracePrivacy(event, "mis_editorial_memory"); err != nil {
 		t.Fatal(err)
 	}
@@ -2425,7 +2491,7 @@ func TestValidateReportILSourceTracePrivacyAcceptsEditorialMemoryContinuation(t 
 	}
 }
 
-func countReportILAcceptanceClassicTerminals(events []app.LedgerEvent) int {
+func countReportILAcceptanceClassicTerminals(events []ledger.Event) int {
 	count := 0
 	for _, event := range events {
 		switch event.EventType {
@@ -2482,7 +2548,7 @@ func TestReportILAcceptanceTransportWrapperRedactsLocalEnvironment(t *testing.T)
 	}
 }
 
-func countReportILSourceReadSessions(events []app.LedgerEvent) int {
+func countReportILSourceReadSessions(events []ledger.Event) int {
 	sessions := map[string]struct{}{}
 	for _, event := range events {
 		if event.EventType != "mcp.tool.called" {

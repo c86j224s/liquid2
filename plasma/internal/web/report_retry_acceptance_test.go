@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -134,7 +137,7 @@ func TestReportRetryHTTPIdempotencyStartsOneDetachedWorker(t *testing.T) {
 	defer server.Close()
 	mission := postJSON(t, server.URL+"/api/missions", map[string]any{"title": "retry"})
 	missionID := nestedString(t, mission, "projection", "mission_id")
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{EventID: "evt_failed", MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "retry", "agent_executor": "codex", "mcp_mode": "auto", "report_mode": "long_form", "source_context": map[string]any{"schema_version": "plasma.report_source_context.v1", "captured_at": "2026-07-14T01:02:03Z", "confluence_sources": []any{}}})}, {EventID: "evt_terminal", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_failed", "kind": "report_draft_failed", "failed_stage_id": "plan"})}}); err != nil {
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{{EventID: "evt_failed", MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "retry", "agent_executor": "codex", "mcp_mode": "auto", "report_mode": "long_form", "source_context": map[string]any{"schema_version": "plasma.report_source_context.v1", "captured_at": "2026-07-14T01:02:03Z", "confluence_sources": []any{}}})}, {EventID: "evt_terminal", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(map[string]any{"pending_event_id": "evt_failed", "kind": "report_draft_failed", "failed_stage_id": "plan"})}}); err != nil {
 		t.Fatal(err)
 	}
 	body := map[string]any{"failed_pending_event_id": "evt_failed", "strategy": "resume_failed", "retry_request_id": "request_1"}
@@ -264,12 +267,12 @@ func TestSectionFanoutPartPlanningRecoversAfterPlanCreatedBeforePartPlan(t *test
 	pendingID := "evt_plan_atomic_pending"
 	planID := "evt_plan_atomic_plan"
 	plan := narrativeContractTestPlan()
-	appended, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
+	appended, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
 		{
 			EventID:   pendingID,
 			MissionID: missionID,
 			EventType: "report.draft.pending",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload: mustJSON(map[string]any{
 				"kind":                        "markdown_report_artifact_pending",
 				"title":                       "Reader Report",
@@ -291,7 +294,7 @@ func TestSectionFanoutPartPlanningRecoversAfterPlanCreatedBeforePartPlan(t *test
 				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "plan-atomic-report-session",
 				CompositionStrategy: "sectional_preserve_markdown", Text: "섹션 병렬 장문 Markdown 리포트 생성 계획을 만들었습니다.",
-				Producer: app.Producer{Type: "agent_session", ID: "plan-atomic-report-session"},
+				Producer: ledger.Producer{Type: "agent_session", ID: "plan-atomic-report-session"},
 			},
 			ArtifactID: "art_plan_atomic_final", Plan: plan, AssemblyStrategy: "c4_normalized_section_headings",
 			PartEditEnabled: true, PartPlanningEnabled: true, PlanReviewState: "auto_accepted",
@@ -392,7 +395,7 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartPlan(t *testing.T) {
 		restartPlanID  = "evt_restart_part_plan_plan"
 		restartPending = "evt_restart_part_plan_pending"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "restart part plan"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "restart part plan"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := narrativeContractTestPlan()
@@ -406,9 +409,9 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartPlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	retry, err := svc.RequestReportRetry(ctx, app.ReportRetryRequest{
+	retry, err := svc.RequestReportRetry(ctx, reportexecution.ReportRetryRequest{
 		EventID: restartPending, MissionID: missionID, FailedPendingEventID: rootPendingID,
-		Strategy: "restart", RetryRequestID: "retry-part-plan-restart", Producer: app.Producer{Type: "user", ID: "test"},
+		Strategy: "restart", RetryRequestID: "retry-part-plan-restart", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -520,7 +523,7 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartEdit(t *testing.T) {
 		restartPlanID  = "evt_restart_plan"
 		restartPending = "evt_restart_pending"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "restart part edit"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "restart part edit"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -535,9 +538,9 @@ func TestReportRetryRestartDoesNotReuseAcceptedAncestorPartEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	retry, err := svc.RequestReportRetry(ctx, app.ReportRetryRequest{
+	retry, err := svc.RequestReportRetry(ctx, reportexecution.ReportRetryRequest{
 		EventID: restartPending, MissionID: missionID, FailedPendingEventID: rootPendingID,
-		Strategy: "restart", RetryRequestID: "retry-part-edit-restart", Producer: app.Producer{Type: "user", ID: "test"},
+		Strategy: "restart", RetryRequestID: "retry-part-edit-restart", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -597,22 +600,22 @@ func TestReportRecoveryIgnoresMalformedPartEditOutcomeAndRerunsEditor(t *testing
 		pendingID = "evt_malformed_pending"
 		planID    = "evt_malformed_plan"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "malformed part edit recovery"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "malformed part edit recovery"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := narrativeContractTestPlan()
 	partArtifact := appendRetryPartEditAttempt(t, ctx, svc, missionID, pendingID, planID, "malformed", plan, true)
-	fakeArtifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	fakeArtifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_malformed_part_edit", MissionID: missionID,
 		MediaType: "text/markdown; charset=utf-8", Filename: "malformed-edited.md",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-fake"}, Content: []byte("# Core Part\n\nFake edited body.\n"),
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-fake"}, Content: []byte("# Core Part\n\nFake edited body.\n"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_malformed_part_edit", MissionID: missionID, EventType: reporting.PartEditedEventType,
-		Producer:         app.Producer{Type: "agent_session", ID: "provider-fake"},
+		Producer:         ledger.Producer{Type: "agent_session", ID: "provider-fake"},
 		CausationEventID: "evt_malformed_part", CorrelationID: "wrong-part-edit-key",
 		Payload: mustJSON(map[string]any{
 			"kind":                         reporting.PartEditedKind,
@@ -699,7 +702,7 @@ func TestReportRecoveryAcceptsIdempotentPartEditStartReplay(t *testing.T) {
 		pendingID = "evt_replayed_start_pending"
 		planID    = "evt_replayed_start_plan"
 	)
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "replayed start recovery"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "replayed start recovery"}); err != nil {
 		t.Fatal(err)
 	}
 	plan := narrativeContractTestPlan()
@@ -749,15 +752,15 @@ func TestReportRecoveryAcceptsIdempotentPartEditStartReplay(t *testing.T) {
 	}
 }
 
-func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Service, missionID, pendingID, planID, label string, plan agentSectionalReportPlan, appendPending bool) app.RawArtifact {
+func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Service, missionID, pendingID, planID, label string, plan agentSectionalReportPlan, appendPending bool) artifactcontract.Raw {
 	t.Helper()
-	producer := app.Producer{Type: "agent_session", ID: label + "-provider-session"}
+	producer := ledger.Producer{Type: "agent_session", ID: label + "-provider-session"}
 	if appendPending {
-		if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{{
+		if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{{
 			EventID:   pendingID,
 			MissionID: missionID,
 			EventType: "report.draft.pending",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload: mustJSON(map[string]any{
 				"title":                       "Reader Report",
 				"report_mode":                 reportModeLongForm,
@@ -772,7 +775,7 @@ func appendRetryPartEditAttempt(t *testing.T, ctx context.Context, svc *app.Serv
 	planArtifact := createRetryMarkdownArtifact(t, ctx, svc, missionID, "art_"+label+"_plan", label+"-plan.md", fmt.Sprintf("# Plan\n\n%s attempt plan.\n", label))
 	sectionArtifact := createRetryMarkdownArtifact(t, ctx, svc, missionID, "art_"+label+"_section", label+"-section.md", fmt.Sprintf("# Core Section\n\n%s Section body.\n", label))
 	partArtifact := createRetryMarkdownArtifact(t, ctx, svc, missionID, "art_"+label+"_part", label+"-part.md", fmt.Sprintf("# Core Part\n\n%s assembled Part body.\n", label))
-	if _, err := svc.AppendEvents(ctx, missionID, []app.AppendEventRequest{
+	if _, err := svc.AppendEvents(ctx, missionID, []ledger.AppendRequest{
 		reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
 			MarkdownReportEventBase: reporting.MarkdownReportEventBase{
 				EventID: planID, MissionID: missionID, PendingEventID: pendingID, Title: "Reader Report",
@@ -814,13 +817,13 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 	t.Helper()
 	reportPlanSessionID := label + "-report-plan-session"
 	partOwnerSessionID := label + "-part-owner-session"
-	requests := []app.AppendEventRequest{}
+	requests := []ledger.AppendRequest{}
 	if appendPending {
-		requests = append(requests, app.AppendEventRequest{
+		requests = append(requests, ledger.AppendRequest{
 			EventID:   pendingID,
 			MissionID: missionID,
 			EventType: "report.draft.pending",
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload: mustJSON(map[string]any{
 				"title":                       "Reader Report",
 				"report_mode":                 reportModeLongForm,
@@ -841,7 +844,7 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: reportPlanSessionID,
 				CompositionStrategy: "sectional_preserve_markdown", Text: "섹션 병렬 장문 Markdown 리포트 생성 계획을 만들었습니다.",
-				Producer: app.Producer{Type: "agent_session", ID: reportPlanSessionID},
+				Producer: ledger.Producer{Type: "agent_session", ID: reportPlanSessionID},
 			},
 			ArtifactID: "art_" + label + "_final", Plan: plan, AssemblyStrategy: "c4_normalized_section_headings",
 			PartEditEnabled: true, PartPlanningEnabled: true,
@@ -856,7 +859,7 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 				GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 				SessionChainKind:          "section_fanout_report", ReportPlanSessionID: reportPlanSessionID,
 				ReportSessionID: partOwnerSessionID, ForkSourceAgentSessionID: reportPlanSessionID, CompositionStrategy: "sectional_preserve_markdown",
-				AssemblyStrategy: "c4_normalized_section_headings", Producer: app.Producer{Type: "agent_session", ID: partOwnerSessionID},
+				AssemblyStrategy: "c4_normalized_section_headings", Producer: ledger.Producer{Type: "agent_session", ID: partOwnerSessionID},
 			},
 			PartIndex: 1,
 			Brief:     label + " Part owner brief.",
@@ -868,11 +871,11 @@ func appendRetryPartPlanningAttempt(t *testing.T, ctx context.Context, svc *app.
 	return partOwnerSessionID
 }
 
-func createRetryMarkdownArtifact(t *testing.T, ctx context.Context, svc *app.Service, missionID, artifactID, filename, markdown string) app.RawArtifact {
+func createRetryMarkdownArtifact(t *testing.T, ctx context.Context, svc *app.Service, missionID, artifactID, filename, markdown string) artifactcontract.Raw {
 	t.Helper()
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: artifactID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: filename,
-		Producer: app.Producer{Type: "agent_session", ID: "test"}, Content: []byte(markdown),
+		Producer: ledger.Producer{Type: "agent_session", ID: "test"}, Content: []byte(markdown),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -150,8 +150,6 @@ var (
 )
 
 var (
-	schemaMissionGet          = objectSchema([]string{"mission_id"}, baseProperties())
-	schemaMissionUpdate       = missionUpdateSchema()
 	schemaSourcesList         = objectSchema([]string{"mission_id"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "include_removed": map[string]any{"type": "boolean"}, "include_superseded": map[string]any{"type": "boolean"}})
 	schemaSourcesRead         = objectSchema([]string{"mission_id", "snapshot_id"}, sourceReadProperties())
 	schemaReportILSourcesList = objectSchema([]string{}, map[string]any{})
@@ -379,9 +377,6 @@ var (
 		}),
 	)
 	schemaMermaidValidate  = objectSchema([]string{"mission_id", "source"}, map[string]any{"mission_id": prefixedStringSchema("mis_"), "source": map[string]any{"type": "string", "maxLength": 50000}})
-	schemaWorkflowStart    = objectSchema([]string{"mission_id", "instruction"}, workflowStartProperties())
-	schemaWorkflowStatus   = objectSchema([]string{"mission_id"}, workflowStatusProperties())
-	schemaWorkflowStop     = objectSchema([]string{"mission_id", "workflow_run_id"}, workflowStopProperties())
 	schemaReportPatchStart = objectSchema(
 		[]string{"mission_id", "session_id", "idempotency_key", "producer", "base_artifact_id", "instruction"},
 		mergeProperties(commonMutatingProperties(), map[string]any{
@@ -530,22 +525,6 @@ var (
 	)
 )
 
-func missionUpdateSchema() json.RawMessage {
-	properties := commonMutatingProperties()
-	properties["producer"] = objectSchemaValue([]string{"type", "id"}, map[string]any{"type": map[string]any{"type": "string", "const": "user"}, "id": stringSchema()})
-	properties["title"] = stringSchema()
-	properties["objective"] = stringSchema()
-	properties["scope"] = objectSchemaValue([]string{"included", "excluded"}, map[string]any{"included": arraySchema(stringSchema()), "excluded": arraySchema(stringSchema())})
-	value := map[string]any{
-		"type": "object", "additionalProperties": false,
-		"required":   []string{"mission_id", "session_id", "idempotency_key", "producer"},
-		"properties": properties,
-		"anyOf":      []any{map[string]any{"required": []string{"title"}}, map[string]any{"required": []string{"objective"}}, map[string]any{"required": []string{"scope"}}},
-	}
-	encoded, _ := json.Marshal(value)
-	return encoded
-}
-
 func objectSchema(required []string, properties map[string]any) json.RawMessage {
 	schema := map[string]any{
 		"type":                 "object",
@@ -560,13 +539,6 @@ func objectSchema(required []string, properties map[string]any) json.RawMessage 
 		panic(err)
 	}
 	return encoded
-}
-
-func baseProperties() map[string]any {
-	return map[string]any{
-		"mission_id": prefixedStringSchema("mis_"),
-		"include":    arraySchema(stringSchema()),
-	}
 }
 
 func sourceSearchProperties() map[string]any {
@@ -620,39 +592,6 @@ func localPathTreeProperties() map[string]any {
 		"relative_path": stringSchema(),
 		"depth":         map[string]any{"type": "integer", "minimum": 0, "maximum": 8},
 		"limit":         map[string]any{"type": "integer", "minimum": 1, "maximum": 500},
-	}
-}
-
-func workflowStartProperties() map[string]any {
-	return map[string]any{
-		"mission_id":                   prefixedStringSchema("mis_"),
-		"instruction":                  stringSchema(),
-		"workflow_run_id":              prefixedStringSchema("wfr_"),
-		"step_instruction_mode":        enumSchema("layered"),
-		"user_instruction_raw":         stringSchema(),
-		"run_goal":                     stringSchema(),
-		"agent_executor":               stringSchema(),
-		"mcp_mode":                     enumSchema("auto", "explicit"),
-		"max_steps":                    map[string]any{"type": "integer", "minimum": 1, "maximum": 20},
-		"max_duration_ms":              map[string]any{"type": "integer", "minimum": 0, "maximum": 86400000},
-		"stop_condition":               stringSchema(),
-		"start_after_event_id":         prefixedStringSchema("evt_"),
-		"requested_by_tool_session_id": prefixedStringSchema("ses_"),
-	}
-}
-
-func workflowStatusProperties() map[string]any {
-	return map[string]any{
-		"mission_id":      prefixedStringSchema("mis_"),
-		"workflow_run_id": prefixedStringSchema("wfr_"),
-	}
-}
-
-func workflowStopProperties() map[string]any {
-	return map[string]any{
-		"mission_id":      prefixedStringSchema("mis_"),
-		"workflow_run_id": prefixedStringSchema("wfr_"),
-		"reason":          stringSchema(),
 	}
 }
 

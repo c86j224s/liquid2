@@ -5,18 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func (server *Server) handleMissions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		missions, err := server.service.ListMissionsWithState(r.Context(), app.ListMissionsRequest{
+		missions, err := server.service.ListMissionsWithState(r.Context(), mission.ListRequest{
 			IncludeArchived: queryBool(r, "include_archived"),
 		})
 		if err != nil {
@@ -138,10 +142,10 @@ func (server *Server) handleMissionArchive(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := server.service.ArchiveMission(r.Context(), app.MissionLifecycleChangeRequest{
+	result, err := server.service.ArchiveMission(r.Context(), mission.MissionLifecycleChangeRequest{
 		EventID:   newID("evt"),
 		MissionID: missionID,
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Reason:    req.Reason,
 	})
 	if err != nil {
@@ -160,10 +164,10 @@ func (server *Server) handleMissionRestore(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	result, err := server.service.RestoreMission(r.Context(), app.MissionLifecycleChangeRequest{
+	result, err := server.service.RestoreMission(r.Context(), mission.MissionLifecycleChangeRequest{
 		EventID:   newID("evt"),
 		MissionID: missionID,
-		Producer:  app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-ui"},
 		Reason:    req.Reason,
 	})
 	if err != nil {
@@ -194,7 +198,7 @@ func (server *Server) handleMissionHardDelete(w http.ResponseWriter, r *http.Req
 	result, err := server.service.HardDeleteMission(r.Context(), app.MissionHardDeleteRequest{
 		MissionID:        missionID,
 		ConfirmMissionID: req.ConfirmMissionID,
-		Producer:         app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:         ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeMissionRouteError(w, err)
@@ -233,13 +237,13 @@ func (server *Server) handleMissionEvents(w http.ResponseWriter, r *http.Request
 }
 
 func (server *Server) handleMissionConnectorAccess(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
-	if len(rest) != 1 || rest[0] != app.ConfluenceConnectorID {
+	if len(rest) != 1 || rest[0] != confluencesource.ConfluenceConnectorID {
 		http.NotFound(w, r)
 		return
 	}
 	switch r.Method {
 	case http.MethodGet:
-		access, err := server.service.GetMissionConnectorAccess(r.Context(), missionID, app.ConfluenceConnectorID)
+		access, err := server.service.GetMissionConnectorAccess(r.Context(), missionID, confluencesource.ConfluenceConnectorID)
 		if err != nil {
 			writeAppError(w, err)
 			return
@@ -253,12 +257,12 @@ func (server *Server) handleMissionConnectorAccess(w http.ResponseWriter, r *htt
 		result, err := server.service.SetMissionConnectorAccess(r.Context(), app.SetConnectorAccessRequest{
 			EventID:      newID("evt"),
 			MissionID:    missionID,
-			ConnectorID:  app.ConfluenceConnectorID,
+			ConnectorID:  confluencesource.ConfluenceConnectorID,
 			Enabled:      req.Enabled,
 			ConnectionID: req.ConnectionID,
 			CloudID:      req.CloudID,
 			SpaceKey:     req.SpaceKey,
-			Producer:     app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:     ledger.Producer{Type: "user", ID: "plasma-ui"},
 		})
 		if err != nil {
 			writeAppError(w, err)
@@ -269,8 +273,8 @@ func (server *Server) handleMissionConnectorAccess(w http.ResponseWriter, r *htt
 		result, err := server.service.SetMissionConnectorAccess(r.Context(), app.SetConnectorAccessRequest{
 			EventID:     newID("evt"),
 			MissionID:   missionID,
-			ConnectorID: app.ConfluenceConnectorID,
-			Producer:    app.Producer{Type: "user", ID: "plasma-ui"},
+			ConnectorID: confluencesource.ConfluenceConnectorID,
+			Producer:    ledger.Producer{Type: "user", ID: "plasma-ui"},
 		})
 		if err != nil {
 			writeAppError(w, err)
@@ -326,22 +330,22 @@ func (server *Server) createMission(ctx context.Context, req createMissionReques
 		objective = title
 	}
 	missionID := newID("mis")
-	if _, err := server.service.CreateMission(ctx, app.CreateMissionRequest{
+	if _, err := server.service.CreateMission(ctx, mission.CreateRequest{
 		MissionID: missionID,
 		Title:     title,
 	}); err != nil {
 		return missionDetailResponse{}, err
 	}
-	if _, err := server.service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
+	if _, err := server.service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID:   newID("evt"),
 		MissionID: missionID,
 		Title:     title,
 		Objective: objective,
-		Scope: app.MissionScope{
+		Scope: mission.Scope{
 			Included: trimStrings(req.Scope.Included),
 			Excluded: trimStrings(req.Scope.Excluded),
 		},
-		Producer: app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})); err != nil {
 		return missionDetailResponse{}, err
 	}
@@ -401,14 +405,14 @@ func (server *Server) missionDetail(ctx context.Context, missionID string) (miss
 	}, nil
 }
 
-func lastMissionEventSequence(events []app.LedgerEvent) int64 {
+func lastMissionEventSequence(events []ledger.Event) int64 {
 	if len(events) == 0 {
 		return 0
 	}
 	return events[len(events)-1].Sequence
 }
 
-func (server *Server) collectRecords(ctx context.Context, missionID string, events []app.LedgerEvent) (recordsResponse, error) {
+func (server *Server) collectRecords(ctx context.Context, missionID string, events []ledger.Event) (recordsResponse, error) {
 	evidence, err := server.service.ListEvidenceRecords(ctx, missionID)
 	if err != nil {
 		return recordsResponse{}, err
@@ -446,9 +450,9 @@ func (server *Server) collectRecords(ctx context.Context, missionID string, even
 	}, nil
 }
 
-func claimConfidenceViews(claims []app.ClaimRecord, events []app.LedgerEvent) []claimConfidenceView {
-	updatesByClaim := map[string][]app.ClaimConfidenceUpdate{}
-	for _, update := range app.ClaimConfidenceUpdatesFromEvents(events) {
+func claimConfidenceViews(claims []researchrecords.ClaimRecord, events []ledger.Event) []claimConfidenceView {
+	updatesByClaim := map[string][]researchrecords.ClaimConfidenceUpdate{}
+	for _, update := range researchrecords.ClaimConfidenceUpdatesFromEvents(events) {
 		updatesByClaim[update.ClaimID] = append(updatesByClaim[update.ClaimID], update)
 	}
 	views := make([]claimConfidenceView, 0, len(claims))
@@ -502,12 +506,12 @@ func claimConfidenceViews(claims []app.ClaimRecord, events []app.LedgerEvent) []
 	return views
 }
 
-func displayConfidence(confidence app.Confidence) app.Confidence {
+func displayConfidence(confidence researchrecords.Confidence) researchrecords.Confidence {
 	level := strings.TrimSpace(confidence.Level)
 	if level == "" {
 		level = "unknown"
 	}
-	return app.Confidence{
+	return researchrecords.Confidence{
 		Level:             level,
 		Rationale:         strings.TrimSpace(confidence.Rationale),
 		OpenRisks:         trimStrings(confidence.OpenRisks),

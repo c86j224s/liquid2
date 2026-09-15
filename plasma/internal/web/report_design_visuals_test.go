@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 	"golang.org/x/net/html"
 )
@@ -122,7 +123,7 @@ func TestDesignedReportHTMLDOMSmoke(t *testing.T) {
 		Caveats: []string{`테스트 \(C\) fixture는 실제 판단 자료가 아닙니다.`},
 	})
 	model.VisualUnits[0].Nodes[0].Label = `SVG \(x\)`
-	content, err := server.renderDesignedReportHTML(app.RawArtifact{
+	content, err := server.renderDesignedReportHTML(artifactcontract.Raw{
 		ArtifactID: "art_dom_smoke_md",
 		MissionID:  "mis_dom_smoke",
 		MediaType:  "text/markdown; charset=utf-8",

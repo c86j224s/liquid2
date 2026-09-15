@@ -1,5 +1,7 @@
 package reportrepo
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"database/sql"
@@ -10,7 +12,7 @@ import (
 )
 
 // ListReportBlocks reads report blocks ordered by block order and ID.
-func (r *Repository) ListReportBlocks(ctx context.Context, versionID string) ([]app.ReportBlock, error) {
+func (r *Repository) ListReportBlocks(ctx context.Context, versionID string) ([]reportdocument.ReportBlock, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT block_id, schema_version, object_kind, report_version_id, mission_id,
        block_type, parent_block_id, block_order, content_json, source_refs_json,
@@ -23,9 +25,9 @@ ORDER BY block_order, block_id`, versionID)
 	}
 	defer rows.Close()
 
-	var blocks []app.ReportBlock
+	var blocks []reportdocument.ReportBlock
 	for rows.Next() {
-		var block app.ReportBlock
+		var block reportdocument.ReportBlock
 		var contentJSON string
 		var refsJSON string
 		var authorshipJSON string
@@ -63,7 +65,7 @@ ORDER BY block_order, block_id`, versionID)
 // InsertReportBlockTx inserts a report block inside a caller-owned transaction or queryer.
 func InsertReportBlockTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, block app.ReportBlock) error {
+}, block reportdocument.ReportBlock) error {
 	contentJSON := string(block.Content)
 	if contentJSON == "" {
 		contentJSON = "{}"

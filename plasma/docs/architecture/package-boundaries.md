@@ -116,7 +116,11 @@ and `internal/reporting` boundaries. Their current existence does not authorize
 new dependencies with the same shape.
 
 The first migration wave moved ledger, mission, artifact, source, stable error
-models, and selected report execution boundaries to focused packages.
+models, and selected report execution boundaries to focused packages. The #483
+source/artifact/mission slice now keeps those capability-owned policy contracts
+out of `internal/app`; app retains the application I/O orchestration and its
+workflow, research, reporting, and connector facades. This is a completed slice,
+not completion of the full application-boundary refactor. Question and option record models, creation validation, normalization, and builder contracts now belong to `internal/researchrecords`; app retains mission-event lookup, persistence orchestration, and the application-facing service methods.
 Starting with #111, `internal/reportworkflow` owns the product-fixed report
 topologies, typed stage wiring, long-form prefix stages, final edit stages, and
 legacy finalization stage. Each stage package owns its prompts, MCP allowlists,

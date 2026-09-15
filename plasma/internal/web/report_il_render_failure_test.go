@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -28,9 +29,9 @@ func TestExperimentalRenderFailureClosesTypedLineageWithoutProviderCall(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending := result["pending_event"].(app.LedgerEvent)
+	pending := result["pending_event"].(ledger.Event)
 	deadline := time.Now().Add(3 * time.Second)
-	var events []app.LedgerEvent
+	var events []ledger.Event
 	for time.Now().Before(deadline) {
 		events, err = svc.ListEvents(ctx, missionID)
 		if err != nil {
@@ -44,7 +45,7 @@ func TestExperimentalRenderFailureClosesTypedLineageWithoutProviderCall(t *testi
 	if len(executor.requests) != 0 {
 		t.Fatalf("render preflight made provider calls: %#v", executor.requests)
 	}
-	var companion, terminal app.LedgerEvent
+	var companion, terminal ledger.Event
 	for _, event := range events {
 		switch event.EventType {
 		case "report.il_render.failed":

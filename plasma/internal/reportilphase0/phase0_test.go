@@ -177,6 +177,85 @@ func TestLoadBundleRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestReportILRendererCharacterizationForArticleExtraction(t *testing.T) {
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="16" viewBox="0 0 32 16"><rect width="32" height="16" fill="#e8f2fc"/></svg>`)
+	document := Document{
+		SchemaVersion:  DocumentSchemaVersion,
+		PipelineFamily: PipelineFamily,
+		DocumentID:     "doc.characterization",
+		RevisionID:     "rev.characterization",
+		Title:          "Report IL renderer characterization",
+		Language:       "ko",
+		Blocks: []Block{
+			{NodeID: "section.open", Kind: "section", Level: 2, Title: "첫 구간", SemanticRole: "context"},
+			{NodeID: "prose.open", Kind: "prose", ParentNodeID: "section.open", Prose: "작성자가 선택한 첫 문장은 compiler가 다시 쓰지 않습니다.", SemanticRole: "opening", EvidenceRefs: []string{"ref.source"}},
+			{NodeID: "list.steps", Kind: "list", ParentNodeID: "section.open", Items: []string{"자료를 읽는다", "관계를 찾는다"}, SemanticRole: "evidence"},
+			{NodeID: "quote.reader", Kind: "quote", ParentNodeID: "section.open", Prose: "독자는 결과가 아니라 발견의 순서를 따라갑니다.", SemanticRole: "evidence"},
+			{NodeID: "callout.limit", Kind: "callout", ParentNodeID: "section.open", Prose: "근거가 없는 장면은 만들지 않습니다.", SemanticRole: "caveat"},
+			{NodeID: "section.mechanism", Kind: "section", Level: 2, Title: "표현 경계", SemanticRole: "mechanism"},
+			{NodeID: "code.example", Kind: "code", ParentNodeID: "section.mechanism", Code: "if reader.Next() {\n\tcontinue\n}", Language: "go", SemanticRole: "example"},
+			{NodeID: "table.roles", Kind: "table", ParentNodeID: "section.mechanism", Table: &Table{Caption: "작성과 출력의 책임", Columns: []string{"계층", "책임"}, Rows: [][]string{{"Author", "산문"}, {"Compiler", "표현"}}}, SemanticRole: "evidence"},
+			{NodeID: "equation.bound", Kind: "equation", ParentNodeID: "section.mechanism", Equation: &Equation{Expression: `\[G = I + H + F\]`, Notation: "latex"}, SemanticRole: "evidence"},
+			{NodeID: "figure.flow", Kind: "figure", ParentNodeID: "section.mechanism", Figure: &Figure{AssetID: "asset.flow", Caption: "글에서 독자 이해로 이어지는 흐름", Alt: "가로로 이어지는 파란 사각형"}, SemanticRole: "evidence"},
+			{NodeID: "raw.extension", Kind: "raw", ParentNodeID: "section.mechanism", Extension: json.RawMessage(`{"prototype":"article"}`), SemanticRole: "example", RefersTo: []string{"ref.open"}},
+		},
+		References: []Reference{
+			{RefID: "ref.source", Kind: "citation", Target: "https://example.com/source", VisibleLabel: "검증된 원천"},
+			{RefID: "ref.open", Kind: "cross_reference", Target: "prose.open", VisibleLabel: "첫 문장"},
+		},
+		Assets:     []Asset{{AssetID: "asset.flow", MediaType: "image/svg+xml", SHA256: SHA256(svg), DataBase64: base64.StdEncoding.EncodeToString(svg), Alt: "가로로 이어지는 파란 사각형", LicenseStatus: "allowed"}},
+		Provenance: map[string]string{"fixture": "article-extraction-characterization"},
+	}
+
+	markdown, markdownReceipts, err := RenderMarkdown(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, htmlReceipts, err := RenderHTML(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := SHA256(markdown), "5f219cfd2f0dd42cd52435ef78c5fd33e3351e816ac8db51bc6b278eb6f6f4ae"; got != want {
+		t.Fatalf("Markdown characterization digest = %s, want %s", got, want)
+	}
+	if got, want := SHA256(html), "90b254f74762a256a4b51d19dc0ebf6a4d29b4eecd5d72d279e764ec20691461"; got != want {
+		t.Fatalf("HTML characterization digest = %s, want %s", got, want)
+	}
+	if got, want := SHA256(mustMarshal(markdownReceipts)), "dc28fcccf1a2613b3cf67191564a375352728bf028302b0352e88c12b4ca4244"; got != want {
+		t.Fatalf("Markdown receipt digest = %s, want %s", got, want)
+	}
+	if got, want := SHA256(mustMarshal(htmlReceipts)), "f3c55af6ec98c87bc15341cb261be5d9808fcfe87c8eb7d7a085e23f4e1e514d"; got != want {
+		t.Fatalf("HTML receipt digest = %s, want %s", got, want)
+	}
+
+	for _, authored := range []string{
+		"작성자가 선택한 첫 문장은 compiler가 다시 쓰지 않습니다.",
+		"자료를 읽는다", "관계를 찾는다",
+		"독자는 결과가 아니라 발견의 순서를 따라갑니다.",
+		"근거가 없는 장면은 만들지 않습니다.",
+		"if reader.Next() {\n\tcontinue\n}",
+		"작성과 출력의 책임", "Author", "산문", "Compiler", "표현",
+		`G = I + H + F`, "글에서 독자 이해로 이어지는 흐름",
+	} {
+		if !strings.Contains(string(markdown), authored) || !strings.Contains(string(html), authored) {
+			t.Fatalf("renderer lost authored content %q", authored)
+		}
+	}
+	if !strings.Contains(string(html), `data-tex="G = I + H + F"`) || strings.Contains(string(html), `data-tex="\\`) {
+		t.Fatal("HTML equation characterization did not normalize display delimiters")
+	}
+	if len(markdownReceipts) != 3 ||
+		markdownReceipts[0].Capability != "callout" ||
+		markdownReceipts[1].Capability != "raw_extension" ||
+		markdownReceipts[2].Capability != "stable_cross_reference" {
+		t.Fatalf("Markdown degradation contract changed: %#v", markdownReceipts)
+	}
+	if len(htmlReceipts) != 1 || htmlReceipts[0].Capability != "raw_extension" {
+		t.Fatalf("HTML degradation contract changed: %#v", htmlReceipts)
+	}
+}
+
 func TestRenderTargetsAreDeterministicSelfContainedAndProsePreserving(t *testing.T) {
 	bundle := sampleBundle(t, "T2")
 	markdownA, markdownReceiptsA, err := RenderMarkdown(bundle.Document)
@@ -263,6 +342,12 @@ func TestRenderHTMLResponsiveTablePreservesEveryCell(t *testing.T) {
 	}
 }
 
+type failingPDFRenderer struct{}
+
+func (failingPDFRenderer) RenderPDF(context.Context, []byte) (PDFResult, error) {
+	return PDFResult{}, errors.New("renderer unavailable")
+}
+
 func TestRenderMarkdownUsesExplicitPortableFallbacks(t *testing.T) {
 	bundle := sampleBundle(t, "T0")
 	bundle.Document.References[0] = Reference{RefID: "ref.plan", Kind: "cross_reference", Target: "prose.context", VisibleLabel: "도입으로 이동"}
@@ -301,7 +386,7 @@ func TestRunWritesArchiveArtifactsAndExplicitPDFBlocker(t *testing.T) {
 
 	result, err := Run(context.Background(), RunConfig{
 		ArchiveRoot: archive, RepositoryRoot: repo, BundlePath: bundlePath,
-		RunID: "t2-blocker", ChromePath: filepath.Join(base, "missing-chrome"),
+		RunID: "t2-blocker", PDFRenderer: failingPDFRenderer{},
 	})
 	if err != nil {
 		t.Fatalf("Run should preserve optional PDF blocker without failing: %v", err)
@@ -322,7 +407,7 @@ func TestRunWritesArchiveArtifactsAndExplicitPDFBlocker(t *testing.T) {
 	}
 	if _, err := Run(context.Background(), RunConfig{
 		ArchiveRoot: archive, RepositoryRoot: repo, BundlePath: bundlePath,
-		RunID: "t2-blocker", ChromePath: filepath.Join(base, "missing-chrome"),
+		RunID: "t2-blocker", PDFRenderer: failingPDFRenderer{},
 	}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("immutable run directory reuse error = %v", err)
 	}

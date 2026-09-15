@@ -4,7 +4,8 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // MarkdownReportEventBase는 Markdown report 생성 terminal 이벤트들이 공유하는 payload 핵심이다.
@@ -45,7 +46,11 @@ type MarkdownReportEventBase struct {
 	AgentUsageSurface            string
 	AgentUsageDurationMS         int64
 	AgentResumed                 bool
-	Producer                     app.Producer
+	Producer                     ledger.Producer
+	OutputKind                   string
+	ArticleAudience              string
+	ArticleReaderPromise         string
+	ArticleEmphasis              string
 }
 
 // MarkdownReportPlanCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -64,7 +69,7 @@ type MarkdownReportPlanCreatedEventRequest struct {
 // MarkdownReportArtifactCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
 type MarkdownReportArtifactCreatedEventRequest struct {
 	MarkdownReportEventBase
-	Artifact              app.RawArtifact
+	Artifact              artifactcontract.Raw
 	PlanEventID           string
 	PlanToolSessionID     string
 	IncludePlanReview     bool
@@ -89,7 +94,7 @@ type MarkdownReportStageEventBase struct {
 	PendingEventID               string
 	PlanEventID                  string
 	Title                        string
-	Artifact                     app.RawArtifact
+	Artifact                     artifactcontract.Raw
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
@@ -120,7 +125,7 @@ type MarkdownReportStageEventBase struct {
 	AgentUsageSurface            string
 	AgentUsageDurationMS         int64
 	AgentResumed                 bool
-	Producer                     app.Producer
+	Producer                     ledger.Producer
 }
 
 // MarkdownReportSectionCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -157,7 +162,7 @@ type MarkdownReportSectionEvidenceGapEventRequest struct {
 	AgentUsageSurface          string
 	AgentUsageDurationMS       int64
 	AgentResumed               bool
-	Producer                   app.Producer
+	Producer                   ledger.Producer
 }
 
 // MarkdownReportPartCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -174,11 +179,11 @@ type PromotedMarkdownReportArtifactEventRequest struct {
 	MissionID           string
 	PromotedFromEventID string
 	Payload             map[string]any
-	Producer            app.Producer
+	Producer            ledger.Producer
 }
 
 // BuildMarkdownReportPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportEventBase
 	payload := markdownReportBasePayload(base)
 	payload["kind"] = reportPlanKind(base.ReportMode)
@@ -193,7 +198,7 @@ func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEv
 	payload["part_planning_enabled"] = req.PartPlanningEnabled
 	payload["text"] = base.Text
 	addReportAgentUsage(payload, base)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.plan.created",
@@ -203,11 +208,21 @@ func BuildMarkdownReportPlanCreatedAppendRequest(req MarkdownReportPlanCreatedEv
 }
 
 // BuildMarkdownReportArtifactCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactCreatedEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactCreatedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportEventBase
 	artifact := req.Artifact
 	payload := markdownReportBasePayload(base)
 	payload["kind"] = "markdown_report_artifact"
+	if base.OutputKind == "article" {
+		payload["kind"] = "article_artifact"
+		payload["output_kind"] = base.OutputKind
+		payload["article_intent"] = map[string]string{
+			"audience": base.ArticleAudience, "reader_promise": base.ArticleReaderPromise,
+		}
+		if strings.TrimSpace(base.ArticleEmphasis) != "" {
+			payload["article_intent"].(map[string]string)["emphasis"] = base.ArticleEmphasis
+		}
+	}
 	payload["artifact_id"] = artifact.ArtifactID
 	payload["media_type"] = artifact.MediaType
 	putReportNonEmpty(payload, "plan_event_id", req.PlanEventID)
@@ -233,7 +248,7 @@ func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactC
 	payload["duration_ms"] = base.DurationMS
 	payload["text"] = base.Text
 	addReportAgentUsage(payload, base)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.artifact.created",
@@ -243,7 +258,7 @@ func BuildMarkdownReportArtifactCreatedAppendRequest(req MarkdownReportArtifactC
 }
 
 // BuildMarkdownReportSectionCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCreatedEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCreatedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
 	payload["kind"] = "sectional_markdown_report_section"
@@ -253,7 +268,7 @@ func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCre
 	payload["duration_ms"] = base.DurationMS
 	payload["text"] = base.Text
 	addReportStageAgentUsage(payload, base)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.section.created",
@@ -265,7 +280,7 @@ func BuildMarkdownReportSectionCreatedAppendRequest(req MarkdownReportSectionCre
 // BuildMarkdownReportSectionEvidenceGapAppendRequest는 Section writer가 본문 대신
 // exact evidence-gap token을 낸 시도를 장부에 기록한다. Payload는 재시도/복구에
 // 필요한 고정 필드만 담고 artifact나 free-form diagnosis를 만들지 않는다.
-func BuildMarkdownReportSectionEvidenceGapAppendRequest(req MarkdownReportSectionEvidenceGapEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportSectionEvidenceGapAppendRequest(req MarkdownReportSectionEvidenceGapEventRequest) ledger.AppendRequest {
 	payload := map[string]any{
 		"pending_event_id":               strings.TrimSpace(req.PendingEventID),
 		"plan_event_id":                  strings.TrimSpace(req.PlanEventID),
@@ -288,7 +303,7 @@ func BuildMarkdownReportSectionEvidenceGapAppendRequest(req MarkdownReportSectio
 	if eventUsage, ok := req.AgentUsage.ForEvent(req.AgentUsageSurface, req.AgentUsageDurationMS, req.PreviousAgentSessionID, req.AgentSessionID, req.AgentResumed, false); ok {
 		payload["agent_usage"] = eventUsage
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.section.evidence_gap",
@@ -298,7 +313,7 @@ func BuildMarkdownReportSectionEvidenceGapAppendRequest(req MarkdownReportSectio
 }
 
 // BuildMarkdownReportPartCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStagePayload(base)
 	payload["kind"] = "sectional_markdown_report_part"
@@ -308,7 +323,7 @@ func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEv
 	payload["duration_ms"] = base.DurationMS
 	payload["text"] = base.Text
 	addReportStageAgentUsage(payload, base)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.part.created",
@@ -318,11 +333,11 @@ func BuildMarkdownReportPartCreatedAppendRequest(req MarkdownReportPartCreatedEv
 }
 
 // BuildPromotedMarkdownReportArtifactAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildPromotedMarkdownReportArtifactAppendRequest(req PromotedMarkdownReportArtifactEventRequest) app.AppendEventRequest {
+func BuildPromotedMarkdownReportArtifactAppendRequest(req PromotedMarkdownReportArtifactEventRequest) ledger.AppendRequest {
 	payload := copyReportPayload(req.Payload)
 	payload["kind"] = "markdown_report_artifact"
 	payload["promoted_from_event_id"] = strings.TrimSpace(req.PromotedFromEventID)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.artifact.created",

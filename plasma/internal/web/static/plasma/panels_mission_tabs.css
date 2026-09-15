@@ -118,7 +118,81 @@
 }
 
 .report-request-actions {
-  justify-content: flex-start;
+  display: grid;
+  justify-content: stretch;
+  gap: 12px;
+}
+
+.report-creation-tabstrip {
+  margin-bottom: 0;
+}
+
+.report-creation-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line2);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: color-mix(in srgb, var(--surface2) 76%, transparent);
+}
+
+.report-creation-panel[hidden] {
+  display: none;
+}
+
+.report-config-heading,
+.report-output-choice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report-config-heading > span,
+.report-output-choice-head > div > span {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-panel-actions,
+.report-cancel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.article-mode-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.article-mode-actions > div {
+  display: grid;
+  gap: 5px;
+}
+
+.article-mode-actions button {
+  width: 100%;
+}
+
+.article-mode-actions span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.article-inputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.article-inputs .report-direction-field:last-child {
+  grid-column: 1 / -1;
 }
 
 .report-generation-settings {
@@ -126,7 +200,7 @@
 }
 
 .report-mode-actions {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 @media (max-width: 720px) {
@@ -153,6 +227,25 @@
   .report-mode-actions {
     width: 100%;
   }
+
+  .report-config-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .report-panel-actions button {
+    width: 100%;
+  }
+
+  .article-inputs,
+  .article-mode-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .article-inputs .report-direction-field:last-child {
+    grid-column: auto;
+  }
+
 
   .report-mode-actions {
     display: grid;

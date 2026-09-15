@@ -3,20 +3,21 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"testing"
 )
 
 func TestListMissionChangesReturnsMeaningfulChangesOnly(t *testing.T) {
-	store := &researchIDEVisibilityStore{events: []LedgerEvent{
-		changeTestEvent("evt_mission", 1, "mission.created", Producer{Type: "user", ID: "plasma-ui"}),
-		changeTestEvent("evt_trace", 2, "mcp.tool.called", Producer{Type: "mcp", ID: "plasma"}),
-		changeTestEvent("evt_step", 3, "workflow.step.started", Producer{Type: "workflow", ID: "wfr_1"}),
-		changeTestEvent("evt_steering", 4, "turn.user", Producer{Type: "workflow", ID: "wfr_1"}),
-		changeTestEvent("evt_pending", 5, "turn.agent.pending", Producer{Type: "agent", ID: "codex"}),
-		changeTestEvent("evt_report", 6, "report.artifact.created", Producer{Type: "agent", ID: "codex"}),
-		changeTestEvent("evt_user", 7, "turn.user", Producer{Type: "user", ID: "plasma-ui"}),
-		changeTestEvent("evt_source", 8, "source.removed", Producer{Type: "user", ID: "plasma-ui"}),
-		changeTestEvent("evt_question", 9, "question.proposed", Producer{Type: "agent_session", ID: "ses_1"}),
+	store := &researchIDEVisibilityStore{events: []ledger.Event{
+		changeTestEvent("evt_mission", 1, "mission.created", ledger.Producer{Type: "user", ID: "plasma-ui"}),
+		changeTestEvent("evt_trace", 2, "mcp.tool.called", ledger.Producer{Type: "mcp", ID: "plasma"}),
+		changeTestEvent("evt_step", 3, "workflow.step.started", ledger.Producer{Type: "workflow", ID: "wfr_1"}),
+		changeTestEvent("evt_steering", 4, "turn.user", ledger.Producer{Type: "workflow", ID: "wfr_1"}),
+		changeTestEvent("evt_pending", 5, "turn.agent.pending", ledger.Producer{Type: "agent", ID: "codex"}),
+		changeTestEvent("evt_report", 6, "report.artifact.created", ledger.Producer{Type: "agent", ID: "codex"}),
+		changeTestEvent("evt_user", 7, "turn.user", ledger.Producer{Type: "user", ID: "plasma-ui"}),
+		changeTestEvent("evt_source", 8, "source.removed", ledger.Producer{Type: "user", ID: "plasma-ui"}),
+		changeTestEvent("evt_question", 9, "question.proposed", ledger.Producer{Type: "agent_session", ID: "ses_1"}),
 	}}
 
 	result, err := NewService(store).ListMissionChanges(context.Background(), ResearchIDEChangesRequest{
@@ -34,10 +35,10 @@ func TestListMissionChangesReturnsMeaningfulChangesOnly(t *testing.T) {
 }
 
 func TestListMissionChangesAdvancesAcrossInternalOnlyEvents(t *testing.T) {
-	store := &researchIDEVisibilityStore{events: []LedgerEvent{
-		changeTestEvent("evt_user", 7, "turn.user", Producer{Type: "user", ID: "plasma-ui"}),
-		changeTestEvent("evt_trace", 8, "mcp.tool.called", Producer{Type: "mcp", ID: "plasma"}),
-		changeTestEvent("evt_step", 9, "workflow.step.completed", Producer{Type: "workflow", ID: "wfr_1"}),
+	store := &researchIDEVisibilityStore{events: []ledger.Event{
+		changeTestEvent("evt_user", 7, "turn.user", ledger.Producer{Type: "user", ID: "plasma-ui"}),
+		changeTestEvent("evt_trace", 8, "mcp.tool.called", ledger.Producer{Type: "mcp", ID: "plasma"}),
+		changeTestEvent("evt_step", 9, "workflow.step.completed", ledger.Producer{Type: "workflow", ID: "wfr_1"}),
 	}}
 	result, err := NewService(store).ListMissionChanges(context.Background(), ResearchIDEChangesRequest{
 		MissionID: "mis_1", AfterSequence: 7,
@@ -51,10 +52,10 @@ func TestListMissionChangesAdvancesAcrossInternalOnlyEvents(t *testing.T) {
 }
 
 func TestListMissionChangesPaginatesByLedgerSequence(t *testing.T) {
-	store := &researchIDEVisibilityStore{events: []LedgerEvent{
-		changeTestEvent("evt_source", 1, "source.snapshotted", Producer{Type: "connector", ID: "liquid2"}),
-		changeTestEvent("evt_trace", 2, "mcp.tool.called", Producer{Type: "mcp", ID: "plasma"}),
-		changeTestEvent("evt_mission", 3, "mission.updated", Producer{Type: "user", ID: "plasma-ui"}),
+	store := &researchIDEVisibilityStore{events: []ledger.Event{
+		changeTestEvent("evt_source", 1, "source.snapshotted", ledger.Producer{Type: "connector", ID: "liquid2"}),
+		changeTestEvent("evt_trace", 2, "mcp.tool.called", ledger.Producer{Type: "mcp", ID: "plasma"}),
+		changeTestEvent("evt_mission", 3, "mission.updated", ledger.Producer{Type: "user", ID: "plasma-ui"}),
 	}}
 	svc := NewService(store)
 	first, err := svc.ListMissionChanges(context.Background(), ResearchIDEChangesRequest{MissionID: "mis_1", Limit: 1})
@@ -74,8 +75,8 @@ func TestListMissionChangesPaginatesByLedgerSequence(t *testing.T) {
 }
 
 func TestListMissionChangesRequiresResyncForFutureCursor(t *testing.T) {
-	store := &researchIDEVisibilityStore{events: []LedgerEvent{
-		changeTestEvent("evt_mission", 2, "mission.updated", Producer{Type: "user", ID: "plasma-ui"}),
+	store := &researchIDEVisibilityStore{events: []ledger.Event{
+		changeTestEvent("evt_mission", 2, "mission.updated", ledger.Producer{Type: "user", ID: "plasma-ui"}),
 	}}
 	result, err := NewService(store).ListMissionChanges(context.Background(), ResearchIDEChangesRequest{
 		MissionID: "mis_1", AfterSequence: 4,
@@ -97,6 +98,6 @@ func TestListMissionChangesRejectsNegativeCursor(t *testing.T) {
 	}
 }
 
-func changeTestEvent(eventID string, sequence int64, eventType string, producer Producer) LedgerEvent {
-	return LedgerEvent{EventID: eventID, MissionID: "mis_1", Sequence: sequence, EventType: eventType, Producer: producer}
+func changeTestEvent(eventID string, sequence int64, eventType string, producer ledger.Producer) ledger.Event {
+	return ledger.Event{EventID: eventID, MissionID: "mis_1", Sequence: sequence, EventType: eventType, Producer: producer}
 }

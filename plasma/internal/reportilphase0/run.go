@@ -21,7 +21,7 @@ type RunConfig struct {
 	RepositoryRoot string
 	BundlePath     string
 	RunID          string
-	ChromePath     string
+	PDFRenderer    PDFRenderer
 	RequirePDF     bool
 }
 
@@ -169,7 +169,10 @@ func Run(ctx context.Context, config RunConfig) (RunResult, error) {
 		manifest.FlowAttestation = &receipt
 	}
 
-	pdfResult, pdfErr := RenderPDF(ctx, htmlContent, validated.ChromePath)
+	if validated.PDFRenderer == nil {
+		return result, fmt.Errorf("PDF renderer is not configured")
+	}
+	pdfResult, pdfErr := validated.PDFRenderer.RenderPDF(ctx, htmlContent)
 	if pdfErr != nil {
 		blocker := BlockerReceipt{Code: "pdf_renderer_unavailable", Message: pdfErr.Error()}
 		manifest.PDFBlocker = &blocker
@@ -207,7 +210,7 @@ type validatedRunConfig struct {
 	RepositoryRoot string
 	BundlePath     string
 	RunID          string
-	ChromePath     string
+	PDFRenderer    PDFRenderer
 	RequirePDF     bool
 }
 
@@ -240,7 +243,7 @@ func validateRunConfig(config RunConfig) (validatedRunConfig, error) {
 	if err != nil {
 		return validatedRunConfig{}, err
 	}
-	return validatedRunConfig{ArchiveRoot: archive, RepositoryRoot: repo, BundlePath: bundle, RunID: strings.TrimSpace(config.RunID), ChromePath: strings.TrimSpace(config.ChromePath), RequirePDF: config.RequirePDF}, nil
+	return validatedRunConfig{ArchiveRoot: archive, RepositoryRoot: repo, BundlePath: bundle, RunID: strings.TrimSpace(config.RunID), PDFRenderer: config.PDFRenderer, RequirePDF: config.RequirePDF}, nil
 }
 
 func prepareRunsDirectory(archiveRoot, repositoryRoot string) (string, error) {

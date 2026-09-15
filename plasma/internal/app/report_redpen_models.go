@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -20,7 +23,7 @@ type SaveReportRedpenRequest struct {
 	MissionID                 string
 	SourceArtifactID          string
 	ExpectedCurrentArtifactID string
-	Producer                  Producer
+	Producer                  ledger.Producer
 	Content                   []byte
 }
 
@@ -33,8 +36,8 @@ type ReportRedpenWorkcopy struct {
 	Revision           int
 	MediaType          string
 	Filename           string
-	Artifact           RawArtifact
-	Event              LedgerEvent
+	Artifact           artifactcontract.Raw
+	Event              ledger.Event
 	Changed            bool
 }
 
@@ -54,17 +57,17 @@ type reportRedpenEventPayload struct {
 type reportRedpenRevisionStore interface {
 	CommitReportRedpenRevision(
 		context.Context,
-		RawArtifact,
-		func([]LedgerEvent, RawArtifact, string) (LedgerEvent, bool, error),
-	) (RawArtifact, LedgerEvent, bool, error)
+		artifactcontract.Raw,
+		func([]ledger.Event, artifactcontract.Raw, string) (ledger.Event, bool, error),
+	) (artifactcontract.Raw, ledger.Event, bool, error)
 }
 
-func (payload reportRedpenEventPayload) appendRequest(req SaveReportRedpenRequest, current LedgerEvent) (AppendEventRequest, error) {
+func (payload reportRedpenEventPayload) appendRequest(req SaveReportRedpenRequest, current ledger.Event) (ledger.AppendRequest, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		return AppendEventRequest{}, err
+		return ledger.AppendRequest{}, err
 	}
-	return AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          req.EventID,
 		MissionID:        req.MissionID,
 		EventType:        ReportRedpenSavedEvent,

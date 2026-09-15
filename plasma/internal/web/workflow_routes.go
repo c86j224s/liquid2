@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func (server *Server) handleMissionWorkflows(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -73,7 +75,7 @@ func (server *Server) handleMissionWorkflows(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		reason := "사용자가 웹에서 워크플로우 정지를 요청했습니다."
-		view, err := server.service.RequestWorkflowStop(r.Context(), app.RequestWorkflowStopRequest{
+		view, err := server.service.RequestWorkflowStop(r.Context(), workflowstate.RequestWorkflowStopRequest{
 			WorkflowRunID:      rest[0],
 			MissionID:          missionID,
 			RequestedBySurface: app.WorkflowSurfaceWeb,
@@ -164,7 +166,7 @@ func (server *Server) draftWorkflowGoal(ctx context.Context, missionID string, r
 	return draft, nil
 }
 
-func workflowGoalDraftPrompt(projection app.MissionProjection, userInstructionRaw string) string {
+func workflowGoalDraftPrompt(projection mission.Projection, userInstructionRaw string) string {
 	return fmt.Sprintf(`You draft the kickoff for a Plasma autonomous investigation run.
 
 Use Korean. Do not research the topic. Do not answer the user's substantive request. Do not call tools unless the runtime forces tool discovery.
@@ -187,22 +189,22 @@ Rules:
 - Keep both fields concise enough to be editable in a browser form.`, strings.TrimSpace(projection.Title), strings.TrimSpace(projection.Objective), userInstructionRaw)
 }
 
-func (server *Server) startWorkflow(ctx context.Context, missionID string, req workflowStartRequest) (app.WorkflowRunView, error) {
+func (server *Server) startWorkflow(ctx context.Context, missionID string, req workflowStartRequest) (workflowstate.WorkflowRunView, error) {
 	instruction := strings.TrimSpace(req.Instruction)
 	if instruction == "" {
-		return app.WorkflowRunView{}, fmt.Errorf("%w: workflow instruction is required", app.ErrInvalidInput)
+		return workflowstate.WorkflowRunView{}, fmt.Errorf("%w: workflow instruction is required", app.ErrInvalidInput)
 	}
 	server.reconcileWorkflowState(ctx, missionID)
 	executorName, err := normalizeAgentExecutorName(req.AgentExecutor)
 	if err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	if server.agentExecutor(executorName) == nil {
-		return app.WorkflowRunView{}, fmt.Errorf("%w: workflow start requires a configured agent executor", app.ErrInvalidInput)
+		return workflowstate.WorkflowRunView{}, fmt.Errorf("%w: workflow start requires a configured agent executor", app.ErrInvalidInput)
 	}
 	mcpMode, err := normalizeMCPMode(req.MCPMode)
 	if err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	maxSteps := req.MaxSteps
 	maxDurationMS := req.MaxDurationMS
@@ -212,26 +214,26 @@ func (server *Server) startWorkflow(ctx context.Context, missionID string, req w
 	unlockTurns := server.turns.lock(missionID)
 	defer unlockTurns()
 	if err := server.validateMissionAgentExecutor(ctx, missionID, executorName); err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	if err := server.reconcileStaleAgentTurn(ctx, missionID); err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	if server.hasOpenReportDraft(ctx, missionID) {
-		return app.WorkflowRunView{}, fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
+		return workflowstate.WorkflowRunView{}, fmt.Errorf("%w: report draft is already running for this mission", app.ErrInvalidInput)
 	}
 	runs, err := server.service.ListWorkflowRuns(ctx, missionID)
 	if err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	if active := activeWorkflowRun(runs); active != nil {
-		return app.WorkflowRunView{}, fmt.Errorf("%w: workflow %s is already %s", app.ErrInvalidInput, active.WorkflowRunID, active.Status)
+		return workflowstate.WorkflowRunView{}, fmt.Errorf("%w: workflow %s is already %s", app.ErrInvalidInput, active.WorkflowRunID, active.Status)
 	}
 	startAfterEventID := ""
 	if pending, ok := server.latestOpenAgentPending(ctx, missionID); ok {
 		startAfterEventID = pending.UserEventID
 	}
-	view, err := server.service.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	view, err := server.service.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:             strings.TrimSpace(req.WorkflowRunID),
 		MissionID:                 missionID,
 		RequestedBySurface:        app.WorkflowSurfaceWeb,
@@ -249,7 +251,7 @@ func (server *Server) startWorkflow(ctx context.Context, missionID string, req w
 		ContinueFromWorkflowRunID: strings.TrimSpace(req.ContinueFromWorkflowRunID),
 	})
 	if err != nil {
-		return app.WorkflowRunView{}, err
+		return workflowstate.WorkflowRunView{}, err
 	}
 	if startAfterEventID == "" {
 		server.startWorkflowRunner(missionID, view.WorkflowRunID, executorName)
@@ -277,7 +279,7 @@ type workflowAgentAdapter struct {
 	executor AgentExecutor
 }
 
-func (server *Server) activeWorkflowRun(ctx context.Context, missionID string) *app.WorkflowRunView {
+func (server *Server) activeWorkflowRun(ctx context.Context, missionID string) *workflowstate.WorkflowRunView {
 	runs, err := server.service.ListWorkflowRuns(ctx, missionID)
 	if err != nil {
 		return nil

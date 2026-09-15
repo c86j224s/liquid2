@@ -43,6 +43,8 @@ type DraftRequest struct {
 	RetryStrategy                string
 	RetryOfPendingEventID        string
 	ResumeStage                  string
+	OutputKind                   string
+	ArticleIntent                ArticleIntent
 }
 
 // SessionPolicySelectionInput는 보고서 생성 파이프라인에 전달되는 요청 값이다.

@@ -1,12 +1,16 @@
 package research
 
-import "github.com/c86j224s/liquid2/plasma/internal/app"
+import (
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+)
 
 type CommonMutatingInput struct {
-	MissionID      string       `json:"mission_id"`
-	SessionID      string       `json:"session_id"`
-	IdempotencyKey string       `json:"idempotency_key"`
-	Producer       app.Producer `json:"producer"`
+	MissionID      string          `json:"mission_id"`
+	SessionID      string          `json:"session_id"`
+	IdempotencyKey string          `json:"idempotency_key"`
+	Producer       ledger.Producer `json:"producer"`
 }
 
 type researchOutlineInput struct {
@@ -62,15 +66,15 @@ type researchReferencesInput struct {
 
 type evidenceProposeInput struct {
 	CommonMutatingInput
-	EvidenceID      string            `json:"evidence_id"`
-	EventID         string            `json:"event_id"`
-	ProposalID      string            `json:"proposal_id"`
-	ProposalEventID string            `json:"proposal_event_id"`
-	ProposalTitle   string            `json:"proposal_title"`
-	Summary         string            `json:"summary"`
-	EvidenceType    string            `json:"evidence_type"`
-	SnapshotRefs    []app.SnapshotRef `json:"snapshot_refs"`
-	Confidence      app.Confidence    `json:"confidence"`
+	EvidenceID      string                        `json:"evidence_id"`
+	EventID         string                        `json:"event_id"`
+	ProposalID      string                        `json:"proposal_id"`
+	ProposalEventID string                        `json:"proposal_event_id"`
+	ProposalTitle   string                        `json:"proposal_title"`
+	Summary         string                        `json:"summary"`
+	EvidenceType    string                        `json:"evidence_type"`
+	SnapshotRefs    []researchrecords.SnapshotRef `json:"snapshot_refs"`
+	Confidence      researchrecords.Confidence    `json:"confidence"`
 }
 
 type questionsProposeInput struct {
@@ -89,34 +93,34 @@ type questionsProposeInput struct {
 
 type claimsProposeInput struct {
 	CommonMutatingInput
-	ClaimID               string         `json:"claim_id"`
-	EventID               string         `json:"event_id"`
-	ProposalID            string         `json:"proposal_id"`
-	ProposalEventID       string         `json:"proposal_event_id"`
-	ProposalTitle         string         `json:"proposal_title"`
-	Text                  string         `json:"text"`
-	ClaimType             string         `json:"claim_type"`
-	SupportingEvidenceIDs []string       `json:"supporting_evidence_ids"`
-	OpposingEvidenceIDs   []string       `json:"opposing_evidence_ids"`
-	DependsOnQuestionIDs  []string       `json:"depends_on_question_ids"`
-	UserAssertionEventID  string         `json:"user_assertion_event_id"`
-	Confidence            app.Confidence `json:"confidence"`
+	ClaimID               string                     `json:"claim_id"`
+	EventID               string                     `json:"event_id"`
+	ProposalID            string                     `json:"proposal_id"`
+	ProposalEventID       string                     `json:"proposal_event_id"`
+	ProposalTitle         string                     `json:"proposal_title"`
+	Text                  string                     `json:"text"`
+	ClaimType             string                     `json:"claim_type"`
+	SupportingEvidenceIDs []string                   `json:"supporting_evidence_ids"`
+	OpposingEvidenceIDs   []string                   `json:"opposing_evidence_ids"`
+	DependsOnQuestionIDs  []string                   `json:"depends_on_question_ids"`
+	UserAssertionEventID  string                     `json:"user_assertion_event_id"`
+	Confidence            researchrecords.Confidence `json:"confidence"`
 }
 
 type claimConfidenceInput struct {
 	CommonMutatingInput
-	ClaimID          string         `json:"claim_id"`
-	EventID          string         `json:"event_id"`
-	Confidence       app.Confidence `json:"confidence"`
-	BasisEvidenceIDs []string       `json:"basis_evidence_ids"`
-	CausationEventID string         `json:"causation_event_id"`
-	CorrelationID    string         `json:"correlation_id"`
+	ClaimID          string                     `json:"claim_id"`
+	EventID          string                     `json:"event_id"`
+	Confidence       researchrecords.Confidence `json:"confidence"`
+	BasisEvidenceIDs []string                   `json:"basis_evidence_ids"`
+	CausationEventID string                     `json:"causation_event_id"`
+	CorrelationID    string                     `json:"correlation_id"`
 }
 
 type proposalsSubmitInput struct {
 	CommonMutatingInput
-	ProposalID string          `json:"proposal_id"`
-	EventID    string          `json:"event_id"`
-	Title      string          `json:"title"`
-	ObjectRefs []app.ObjectRef `json:"object_refs"`
+	ProposalID string                      `json:"proposal_id"`
+	EventID    string                      `json:"event_id"`
+	Title      string                      `json:"title"`
+	ObjectRefs []researchcatalog.ObjectRef `json:"object_refs"`
 }

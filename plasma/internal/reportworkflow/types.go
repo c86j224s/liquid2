@@ -2,14 +2,16 @@ package reportworkflow
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
-	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
+	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/directdraft"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/evidencecheck"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/finalstore"
@@ -30,12 +32,11 @@ import (
 // Service는 보고서 계획부터 최종 저장까지 각 단계가 소비하는 저장소 기능의 합집합이다.
 // 단계 패키지는 이 인터페이스의 필요한 부분만 좁은 소비자 계약으로 다시 받는다.
 type Service interface {
-	reporting.ReportCompletionStore
+	reportrun.ReportCompletionStore
 	plan.Service
 	plan.LongFormSectionPlanRepairService
 	finalstore.Service
 	reporting.FinalEditStageStore
-	reporthumanize.Service
 	requirements.Service
 	partplan.Service
 	sectiondraft.Service
@@ -56,8 +57,8 @@ type RunnerConfig struct {
 	LatestSessionID func(context.Context, string, string) string
 }
 
-func (runner Runner) complete(ctx context.Context, output DraftOutput, actual *reporting.ReportAgentUsageRequest) error {
-	_, err := reporting.CompleteReportRun(ctx, runner.service, reporting.ReportCompletionRequest{MissionID: output.Event.MissionID, CanonicalEventID: output.Event.EventID, ActualUsage: actual})
+func (runner Runner) complete(ctx context.Context, output DraftOutput, actual *reportusage.ReportAgentUsageRequest) error {
+	_, err := reportrun.CompleteReportRun(ctx, runner.service, reportrun.ReportCompletionRequest{MissionID: output.Event.MissionID, CanonicalEventID: output.Event.EventID, ActualUsage: actual})
 	return err
 }
 
@@ -76,6 +77,8 @@ type DraftInput struct {
 	PostReportHumanize               string
 	GenerationGuidanceProfile        string
 	GenerationGuidanceSHA256         string
+	OutputKind                       string
+	ArticleIntent                    reportexecution.ArticleIntent
 }
 
 // DraftOutput은 workflow가 생성한 Markdown report artifact와 report session이다.
@@ -84,7 +87,6 @@ type DraftOutput struct {
 	Event           ledger.Event
 	Markdown        string
 	ReportSessionID string
-	Humanized       *reporthumanize.Result
 }
 
 // PrefixPart는 finalization tail에 넘길 ordered Part artifact 계약이다.
@@ -150,7 +152,6 @@ type PrefixOutput struct {
 type Runner struct {
 	service              Service
 	finalEditStore       reporting.FinalEditStageStore
-	humanizeService      reporthumanize.Service
 	executor             agentexec.AgentExecutor
 	newID                func(string) string
 	planRunner           plan.Runner

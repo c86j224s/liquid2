@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -14,9 +15,13 @@ import (
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -105,16 +110,16 @@ func TestRealProviderExecutorsSpawnBoundPlasmaMCP(t *testing.T) {
 			}
 			defer store.Close()
 			service := app.NewService(store)
-			if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
+			if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
-				EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify provider path", Producer: app.Producer{Type: "user", ID: "test"},
+			if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
+				EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify provider path", Producer: ledger.Producer{Type: "user", ID: "test"},
 			})); err != nil {
 				t.Fatal(err)
 			}
 			pendingPayload, _ := json.Marshal(map[string]any{"kind": "markdown_report_artifact_pending", "report_mode": tc.mode, "agent_executor": tc.executorName})
-			if _, err := service.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: pendingPayload}); err != nil {
+			if _, err := service.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: pendingPayload}); err != nil {
 				t.Fatal(err)
 			}
 			req := AgentRequest{
@@ -126,7 +131,7 @@ func TestRealProviderExecutorsSpawnBoundPlasmaMCP(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v; log:\n%s", err, result.Log)
 			}
-			if result.Text != reporting.ReportPlanSubmittedSentinel || strings.TrimSpace(result.SessionID) == "" {
+			if result.Text != plan.ReportPlanSubmittedSentinel || strings.TrimSpace(result.SessionID) == "" {
 				t.Fatalf("provider shim did not transmit sentinel/session: %#v", result)
 			}
 			events, err := service.ListEvents(ctx, "mis_acceptance")
@@ -169,26 +174,26 @@ func TestRealProviderExecutorsSpawnBoundRequirementMCP(t *testing.T) {
 			}
 			defer store.Close()
 			service := app.NewService(store)
-			if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
+			if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
-				EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify requirement provider path", Producer: app.Producer{Type: "user", ID: "test"},
+			if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
+				EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify requirement provider path", Producer: ledger.Producer{Type: "user", ID: "test"},
 			})); err != nil {
 				t.Fatal(err)
 			}
 			pendingPayload, _ := json.Marshal(map[string]any{"kind": "markdown_report_artifact_pending", "report_mode": reportModeLongForm, "agent_executor": tc.executorName})
-			if _, err := service.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: pendingPayload}); err != nil {
+			if _, err := service.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: pendingPayload}); err != nil {
 				t.Fatal(err)
 			}
 			planPayload := json.RawMessage(`{"pending_event_id":"evt_pending","report_mode":"long_form","plan":{"parts":[{"title":"Part","sections":[{"title":"Section"}]}]}}`)
-			if _, err := service.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_plan", MissionID: "mis_acceptance", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: planPayload}); err != nil {
+			if _, err := service.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_plan", MissionID: "mis_acceptance", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "ses_plan"}, Payload: planPayload}); err != nil {
 				t.Fatal(err)
 			}
 			binding := reporting.ReportRequirementMapBinding{
 				MissionID: "mis_acceptance", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool",
 				PreviousProviderSessionID: "ses_plan", IdempotencyKey: "rrk_acceptance", AgentExecutor: tc.executorName,
-				AgentModel: "test-model", AgentReasoningEffort: "high", Producer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+				AgentModel: "test-model", AgentReasoningEffort: "high", Producer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 			}
 			req := AgentRequest{
 				Prompt: "Submit the bound requirements.", Model: "test-model", ReasoningEffort: "high", MissionID: "mis_acceptance",
@@ -199,7 +204,7 @@ func TestRealProviderExecutorsSpawnBoundRequirementMCP(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v; log:\n%s", err, result.Log)
 			}
-			if result.Text != reporting.ReportRequirementsMappedSentinel || strings.TrimSpace(result.SessionID) == "" {
+			if result.Text != requirements.ReportRequirementsMappedSentinel || strings.TrimSpace(result.SessionID) == "" {
 				t.Fatalf("provider shim did not transmit requirement sentinel/session: %#v", result)
 			}
 			events, err := service.ListEvents(ctx, "mis_acceptance")
@@ -397,7 +402,7 @@ func TestWebReportAPIUsesRealProviderExecutorsAndBuiltMCP(t *testing.T) {
 	}
 }
 
-func countLedgerEventType(events []app.LedgerEvent, eventType string) int {
+func countLedgerEventType(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -409,28 +414,28 @@ func countLedgerEventType(events []app.LedgerEvent, eventType string) int {
 
 func seedProviderPartEditAcceptance(t *testing.T, ctx context.Context, service *app.Service) {
 	t.Helper()
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_acceptance", Title: "Acceptance"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(app.MissionCreatedEventRequest{
-		EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify Part edit provider path", Producer: app.Producer{Type: "user", ID: "test"},
+	if _, err := service.AppendEvent(ctx, app.BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
+		EventID: "evt_mission", MissionID: "mis_acceptance", Title: "Acceptance", Objective: "Verify Part edit provider path", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_part", MissionID: "mis_acceptance", MediaType: "text/markdown; charset=utf-8",
-		Filename: "part.md", Producer: app.Producer{Type: "agent_session", ID: "provider-part"},
+		Filename: "part.md", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"},
 		Content: []byte("# Part 1\n\nSource body.\n"),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, req := range []app.AppendEventRequest{
-		{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": reportModeLongForm, "agent_executor": "codex"})},
-		{EventID: "evt_plan", MissionID: "mis_acceptance", EventType: "report.plan.created", Producer: app.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{
+	for _, req := range []ledger.AppendRequest{
+		{EventID: "evt_pending", MissionID: "mis_acceptance", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"report_mode": reportModeLongForm, "agent_executor": "codex"})},
+		{EventID: "evt_plan", MissionID: "mis_acceptance", EventType: "report.plan.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-plan"}, Payload: mustJSON(map[string]any{
 			"pending_event_id": "evt_pending", "report_mode": reportModeLongForm, "artifact_id": "art_final", "part_edit_enabled": true,
 			"plan": narrativeContractTestPlan(),
 		})},
-		{EventID: "evt_part", MissionID: "mis_acceptance", EventType: "report.part.created", Producer: app.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{
+		{EventID: "evt_part", MissionID: "mis_acceptance", EventType: "report.part.created", Producer: ledger.Producer{Type: "agent_session", ID: "provider-part"}, Payload: mustJSON(map[string]any{
 			"pending_event_id": "evt_pending", "plan_event_id": "evt_plan", "artifact_id": "art_part", "part_index": 1,
 		})},
 	} {
@@ -440,7 +445,7 @@ func seedProviderPartEditAcceptance(t *testing.T, ctx context.Context, service *
 	}
 }
 
-func ledgerEventPayload(t *testing.T, events []app.LedgerEvent, eventType string) map[string]any {
+func ledgerEventPayload(t *testing.T, events []ledger.Event, eventType string) map[string]any {
 	t.Helper()
 	for _, event := range events {
 		if event.EventType != eventType {

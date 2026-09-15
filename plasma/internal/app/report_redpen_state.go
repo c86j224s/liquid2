@@ -6,25 +6,28 @@ import (
 	"mime"
 	"path/filepath"
 	"strings"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
-func latestReportRedpenEvent(events []LedgerEvent, sourceArtifactID string) (reportRedpenEventPayload, LedgerEvent, bool, error) {
+func latestReportRedpenEvent(events []ledger.Event, sourceArtifactID string) (reportRedpenEventPayload, ledger.Event, bool, error) {
 	for i := len(events) - 1; i >= 0; i-- {
 		if events[i].EventType != ReportRedpenSavedEvent {
 			continue
 		}
 		payload, err := decodeReportRedpenPayload(events[i])
 		if err != nil {
-			return reportRedpenEventPayload{}, LedgerEvent{}, false, err
+			return reportRedpenEventPayload{}, ledger.Event{}, false, err
 		}
 		if payload.SourceArtifactID == sourceArtifactID {
 			return payload, events[i], true, nil
 		}
 	}
-	return reportRedpenEventPayload{}, LedgerEvent{}, false, nil
+	return reportRedpenEventPayload{}, ledger.Event{}, false, nil
 }
 
-func decodeReportRedpenPayload(event LedgerEvent) (reportRedpenEventPayload, error) {
+func decodeReportRedpenPayload(event ledger.Event) (reportRedpenEventPayload, error) {
 	var payload reportRedpenEventPayload
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return payload, fmt.Errorf("%w: invalid report redpen event payload", ErrInvalidInput)
@@ -62,7 +65,7 @@ func decodeReportRedpenPayload(event LedgerEvent) (reportRedpenEventPayload, err
 	return payload, nil
 }
 
-func hasReportRedpenSourceEvent(events []LedgerEvent, artifactID string) bool {
+func hasReportRedpenSourceEvent(events []ledger.Event, artifactID string) bool {
 	for _, event := range events {
 		if event.EventType != "report.artifact.created" && event.EventType != "report.artifact.exported" {
 			continue
@@ -77,7 +80,7 @@ func hasReportRedpenSourceEvent(events []LedgerEvent, artifactID string) bool {
 	return false
 }
 
-func reportRedpenWorkcopy(payload reportRedpenEventPayload, artifact RawArtifact, event LedgerEvent, changed bool) ReportRedpenWorkcopy {
+func reportRedpenWorkcopy(payload reportRedpenEventPayload, artifact artifactcontract.Raw, event ledger.Event, changed bool) ReportRedpenWorkcopy {
 	return ReportRedpenWorkcopy{
 		Exists:             true,
 		WorkcopyID:         payload.WorkcopyID,
@@ -101,7 +104,7 @@ func isMarkdownArtifactMediaType(mediaType string) bool {
 	return base == "text/markdown" || base == "text/x-markdown"
 }
 
-func reportRedpenFilename(source RawArtifact) string {
+func reportRedpenFilename(source artifactcontract.Raw) string {
 	name := filepath.Base(strings.TrimSpace(source.Filename))
 	base := strings.TrimSuffix(name, filepath.Ext(name))
 	if base == "" || base == "." {

@@ -36,9 +36,12 @@
   function renderArtifactCard(key, isLatest, payload, selectedKey) {
     const plan = reports.reportArtifactPlanPayload(payload);
     const planData = plan.plan || {};
-    const modeLabel = payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
-      ? "무검증형"
-      : payload.report_mode_label || reports.REPORT_MODE_LABELS[payload.report_mode] || "보고서";
+    const article = payload.output_kind === "article" || payload.kind === "article_artifact";
+    const modeLabel = article
+      ? "글"
+      : payload.pipeline_family === reports.REPORT_UNVERIFIED_PIPELINE_FAMILY
+        ? "무검증형"
+        : payload.report_mode_label || reports.REPORT_MODE_LABELS[payload.report_mode] || "보고서";
     const planLabel = reports.reportPlanLabel(planData) || (payload.report_mode === "one_take" ? "원테이크 생성: 별도 계획 없음" : "기록된 생성 계획 없음");
     const planButton = plan.event_id ? `<button type="button" class="secondary" data-report-plan-event-id="${escapeAttr(plan.event_id)}" data-action="plan">생성 계획</button>` : "";
     const trace = reports.mcpTraceSummary(payload.tool_session_id || payload.plan_tool_session_id || "");
@@ -49,8 +52,8 @@
     const redpenView = redpen.state === "completed" ? `<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-redpen-artifact">빨간펜 작업본 보기</button>` : "";
     const redpenDownload = redpen.state === "completed" ? `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-redpen-artifact">빨간펜 MD 받기</button>` : "";
     return `<div class="item report-card ${isLatest ? "active" : ""} ${key === selectedKey ? "selected" : ""}" data-report-key="${escapeAttr(key)}">
-      <div class="item-title report-title-line report-card-toggle"><span>${escapeHTML(payload.title || "Markdown report")}</span><span class="chip-row report-chip-row">${isLatest ? `<span class="badge session-new">최신</span>` : `<span class="badge muted">이전</span>`}<span class="badge">${escapeHTML(modeLabel)}</span><span class="badge muted">Markdown artifact</span></span></div>
-      <div class="report-card-body"><div class="item-meta clamp-line" title="${escapeAttr(payload.artifact_id || "")}">${escapeHTML(payload.artifact_id || "")}</div><div class="item-meta">${escapeHTML(payload.text || "리포트 artifact가 생성되었습니다.")}</div>
+      <div class="item-title report-title-line report-card-toggle"><span>${escapeHTML(payload.title || (article ? "글" : "Markdown report"))}</span><span class="chip-row report-chip-row">${isLatest ? `<span class="badge session-new">최신</span>` : `<span class="badge muted">이전</span>`}<span class="badge">${escapeHTML(modeLabel)}</span><span class="badge muted">Markdown artifact</span></span></div>
+      <div class="report-card-body"><div class="item-meta clamp-line" title="${escapeAttr(payload.artifact_id || "")}">${escapeHTML(payload.artifact_id || "")}</div><div class="item-meta">${escapeHTML(payload.text || (article ? "글이 생성되었습니다." : "리포트 artifact가 생성되었습니다."))}</div>
         ${reports.reportGenerationSummaryHTML(payload)}
         <div class="report-plan-line"><span class="badge muted">생성 계획</span><span>${escapeHTML(planLabel)}</span></div>
         <div class="report-plan-line"><span class="badge muted">디자인 HTML</span><span>${escapeHTML(designed.label)}</span></div>
@@ -59,12 +62,12 @@
         ${humanized.failureLine}${humanized.redpenLine}
         <div class="report-trace"><div class="report-trace-head"><span class="badge muted">MCP 추적</span><span>${escapeHTML(trace.total ? "도구 호출 기록 있음" : "기록된 MCP 호출 없음")}</span></div>${reports.renderTraceBars(trace)}</div>
         ${reports.reportSourceContextHTML(payload)}
-        <div class="item-actions"><button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-artifact">Markdown 보기</button>${redpenView}<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-html-artifact">기본 HTML 보기</button><button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-report-title="${escapeAttr(payload.title || "Markdown report")}" data-action="patch-artifact" ${state.reportPending ? "disabled" : ""}>MCP 패치</button>${humanized.actions}${designed.actions}${reports.reportActionMenu("도구 ▾", `<button type="button" class="secondary" data-detail-title="리포트 artifact 상세" data-detail-json="${escapeAttr(JSON.stringify(payload))}">자세히</button>${planButton}<button type="button" class="danger" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="delete-report-artifact">보고서 삭제</button>`)}${reports.reportActionMenu("받기 ▾", `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-artifact">MD 받기</button>${redpenDownload}${humanized.redpenDownload}<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-html-artifact">기본 HTML 받기</button>`)}</div>
+        <div class="item-actions"><button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-artifact">Markdown 보기</button>${redpenView}<button type="button" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="view-html-artifact">${article ? "HTML로 읽기" : "기본 HTML 보기"}</button><button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-report-title="${escapeAttr(payload.title || "Markdown report")}" data-action="patch-artifact" ${state.reportPending ? "disabled" : ""}>MCP 패치</button>${humanized.actions}${designed.actions}${reports.reportActionMenu("도구 ▾", `<button type="button" class="secondary" data-detail-title="리포트 artifact 상세" data-detail-json="${escapeAttr(JSON.stringify(payload))}">자세히</button>${planButton}<button type="button" class="danger" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="delete-report-artifact">${article ? "글 삭제" : "보고서 삭제"}</button>`)}${reports.reportActionMenu("받기 ▾", `<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-artifact">MD 받기</button>${redpenDownload}${humanized.redpenDownload}<button type="button" class="secondary" data-report-artifact-id="${escapeAttr(payload.artifact_id || "")}" data-action="download-html-artifact">기본 HTML 받기</button>`)}</div>
         ${reports.reportPreviewInlineHTML(key)}</div></div>`;
   }
 
   function renderArtifactReportSection(artifactCards, selectedKey) {
-    return `<div class="list-section-label">Markdown artifact</div>${artifactCards.map(({ key, isLatest, payload }) => renderArtifactCard(key, isLatest, payload, selectedKey)).join("")}`;
+    return artifactCards.map(({ key, isLatest, payload }) => renderArtifactCard(key, isLatest, payload, selectedKey)).join("");
   }
-  Object.assign(reports, { renderArtifactReportSection });
+  Object.assign(reports, { renderArtifactCard, renderArtifactReportSection });
 })(window);

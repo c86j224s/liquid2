@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	missionadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/research"
 	"github.com/c86j224s/liquid2/plasma/internal/mcp/wire"
+	workflowadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/workflow"
 	"github.com/c86j224s/liquid2/plasma/internal/mcptools"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
@@ -139,19 +141,18 @@ type ToolError = wire.ToolError
 // tool 노출 여부는 보수적으로 계산한다. binding이 불완전하거나 mode가 맞지 않으면
 // tool을 숨겨 agent가 잘못된 state transition을 시도하지 않게 한다.
 func (server *Server) ListTools() []ToolDefinition {
-	tools := []ToolDefinition{
-		{Name: ToolMissionGet, Description: "Read a Plasma mission projection.", InputSchema: schemaMissionGet},
-		{Name: ToolMissionUpdate, Description: "Update supplied current mission metadata fields through the shared application service only when the user explicitly requests the edit.", InputSchema: schemaMissionUpdate},
-		{Name: ToolSourcesList, Description: "List active Plasma source snapshots for a mission, optionally including soft-removed sources.", InputSchema: schemaSourcesList},
-		{Name: ToolSourcesRead, Description: "Read bounded UTF-8 text from a snapshot_only source artifact, extracted text from uploaded/PDF sources, metadata-only output for binary media such as images, or observe a live local_path reference. For live directory local_path sources, pass subpath to read a child file inside the accepted source boundary. Use offset and next_offset to inspect long readable sources in multiple chunks.", InputSchema: schemaSourcesRead},
-		{Name: ToolSourcesTree, Description: "Observe a bounded directory tree for an accepted live local_path source snapshot. Optional subpath is scoped inside that source; root_id and absolute filesystem paths are not accepted.", InputSchema: schemaSourcesTree},
-		{Name: ToolSourcesGrep, Description: "Search bounded snippets inside an accepted live local_path source snapshot. Optional subpath is scoped inside that source; matches are observations, not source promotion.", InputSchema: schemaSourcesGrep},
-		{Name: ToolSourcesSearch, Description: "Search mounted read-only source connectors for possible original materials. Connector failure is a route failure, not a reason to abandon investigation. Search results are candidates for agent judgment; source snapshot creation remains user-reviewed.", InputSchema: schemaSourcesSearch},
-		{Name: ToolSourceCandidatesPropose, Description: "Propose one or more original-material URLs as source candidates for user review. This records review candidates and starts background staging so agents can later read staged unapproved candidates. It does not create source snapshots or saved knowledge. When proposing a plasma.sources.search result, copy source_uri into url and title into title so connector names such as Confluence page titles are preserved.", InputSchema: schemaSourceCandidatesPropose},
-		{Name: ToolSourceCandidatesRead, Description: "Read a staged unapproved source candidate by URL, proposal event, or artifact id. This is for conversation/research only; staged candidates are not approved source snapshots and are excluded from default report generation.", InputSchema: schemaSourceCandidatesRead},
-		{Name: ToolLocalPathRoots, Description: "List configured allowlisted local path roots. Output never includes absolute filesystem paths.", InputSchema: schemaLocalPathRoots},
-		{Name: ToolLocalPathTree, Description: "Browse an allowlisted local path root by root_id and relative_path with bounded depth and entry count.", InputSchema: schemaLocalPathTree},
-	}
+	tools := append([]ToolDefinition{}, missionadapter.Definitions()...)
+	tools = append(tools,
+		ToolDefinition{Name: ToolSourcesList, Description: "List active Plasma source snapshots for a mission, optionally including soft-removed sources.", InputSchema: schemaSourcesList},
+		ToolDefinition{Name: ToolSourcesRead, Description: "Read bounded UTF-8 text from a snapshot_only source artifact, extracted text from uploaded/PDF sources, metadata-only output for binary media such as images, or observe a live local_path reference. For live directory local_path sources, pass subpath to read a child file inside the accepted source boundary. Use offset and next_offset to inspect long readable sources in multiple chunks.", InputSchema: schemaSourcesRead},
+		ToolDefinition{Name: ToolSourcesTree, Description: "Observe a bounded directory tree for an accepted live local_path source snapshot. Optional subpath is scoped inside that source; root_id and absolute filesystem paths are not accepted.", InputSchema: schemaSourcesTree},
+		ToolDefinition{Name: ToolSourcesGrep, Description: "Search bounded snippets inside an accepted live local_path source snapshot. Optional subpath is scoped inside that source; matches are observations, not source promotion.", InputSchema: schemaSourcesGrep},
+		ToolDefinition{Name: ToolSourcesSearch, Description: "Search mounted read-only source connectors for possible original materials. Connector failure is a route failure, not a reason to abandon investigation. Search results are candidates for agent judgment; source snapshot creation remains user-reviewed.", InputSchema: schemaSourcesSearch},
+		ToolDefinition{Name: ToolSourceCandidatesPropose, Description: "Propose one or more original-material URLs as source candidates for user review. This records review candidates and starts background staging so agents can later read staged unapproved candidates. It does not create source snapshots or saved knowledge. When proposing a plasma.sources.search result, copy source_uri into url and title into title so connector names such as Confluence page titles are preserved.", InputSchema: schemaSourceCandidatesPropose},
+		ToolDefinition{Name: ToolSourceCandidatesRead, Description: "Read a staged unapproved source candidate by URL, proposal event, or artifact id. This is for conversation/research only; staged candidates are not approved source snapshots and are excluded from default report generation.", InputSchema: schemaSourceCandidatesRead},
+		ToolDefinition{Name: ToolLocalPathRoots, Description: "List configured allowlisted local path roots. Output never includes absolute filesystem paths.", InputSchema: schemaLocalPathRoots},
+		ToolDefinition{Name: ToolLocalPathTree, Description: "Browse an allowlisted local path root by root_id and relative_path with bounded depth and entry count.", InputSchema: schemaLocalPathTree},
+	)
 	if server.reportILSourceBindingSet {
 		readDescription := "Report IL stage only: read one bounded canonical text chunk from a run-frozen accepted source key. Start at offset 0 and continue with next_offset when needed. HTML is returned as visible text and PDF as extracted text."
 		readSchema := schemaReportILSourcesRead
@@ -262,10 +263,8 @@ func (server *Server) ListTools() []ToolDefinition {
 	tools = append(tools, research.Definitions(server.legacyResearchLoop)...)
 	tools = append(tools,
 		ToolDefinition{Name: ToolMermaidValidate, Description: "Validate Mermaid source with Plasma's server-side preflight rules before showing it to the user. This catches known Mermaid 11.16.0 parse-breaking patterns and compatibility risks; it does not execute a browser render.", InputSchema: schemaMermaidValidate},
-		ToolDefinition{Name: ToolWorkflowStart, Description: "Request a bounded Plasma workflow run for the bound mission. This queues work and does not call the provider inside the MCP tool.", InputSchema: schemaWorkflowStart},
-		ToolDefinition{Name: ToolWorkflowStatus, Description: "Read shared workflow run status from the mission ledger projection.", InputSchema: schemaWorkflowStatus},
-		ToolDefinition{Name: ToolWorkflowStop, Description: "Request that a bounded workflow run stop before the next step.", InputSchema: schemaWorkflowStop},
 	)
+	tools = append(tools, workflowadapter.Definitions()...)
 	if server.operatorSourceMutation {
 		tools = append(tools,
 			ToolDefinition{Name: ToolLocalPathAttach, Description: "Operator-only: attach an allowlisted local path as a live_reference source for the bound mission without snapshotting file content.", InputSchema: schemaLocalPathAttach},

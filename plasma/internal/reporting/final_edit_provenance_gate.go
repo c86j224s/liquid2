@@ -3,9 +3,11 @@ package reporting
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 const (
@@ -60,14 +62,14 @@ type StoredFinalEditGateFinding struct {
 }
 
 type finalEditEvidenceStore interface {
-	GetEvidenceRecord(context.Context, string) (app.EvidenceRecord, error)
+	GetEvidenceRecord(context.Context, string) (researchrecords.EvidenceRecord, error)
 }
 
 // NormalizeFinalEditGateFindings는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
 func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
 	missionID = strings.TrimSpace(missionID)
 	if missionID == "" {
-		return nil, fmt.Errorf("%w: mission id is required", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: mission id is required", producterror.ErrInvalidInput)
 	}
 	out := make([]StoredFinalEditGateFinding, 0, len(findings))
 	seen := map[string]bool{}
@@ -77,7 +79,7 @@ func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidence
 			return nil, err
 		}
 		if seen[normalized.StatementSHA256] {
-			return nil, fmt.Errorf("%w: duplicate gate statement hash", app.ErrConflict)
+			return nil, fmt.Errorf("%w: duplicate gate statement hash", producterror.ErrConflict)
 		}
 		seen[normalized.StatementSHA256] = true
 		out = append(out, normalized)
@@ -85,11 +87,11 @@ func NormalizeFinalEditGateFindings(ctx context.Context, store finalEditEvidence
 	return out, nil
 }
 
-// NormalizeFinalEditEvidenceGateFindings는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
-func NormalizeFinalEditEvidenceGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
+// normalizeFinalEditEvidenceGateFindings는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.
+func normalizeFinalEditEvidenceGateFindings(ctx context.Context, store finalEditEvidenceStore, missionID string, findings []FinalEditGateFinding) ([]StoredFinalEditGateFinding, error) {
 	missionID = strings.TrimSpace(missionID)
 	if missionID == "" {
-		return nil, fmt.Errorf("%w: mission id is required", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: mission id is required", producterror.ErrInvalidInput)
 	}
 	out := make([]StoredFinalEditGateFinding, 0, len(findings))
 	seen := map[string]bool{}
@@ -99,7 +101,7 @@ func NormalizeFinalEditEvidenceGateFindings(ctx context.Context, store finalEdit
 			return nil, err
 		}
 		if seen[normalized.StatementSHA256] {
-			return nil, fmt.Errorf("%w: duplicate evidence gate statement hash", app.ErrConflict)
+			return nil, fmt.Errorf("%w: duplicate evidence gate statement hash", producterror.ErrConflict)
 		}
 		seen[normalized.StatementSHA256] = true
 		out = append(out, normalized)
@@ -113,24 +115,24 @@ func normalizeFinalEditEvidenceGateFinding(ctx context.Context, store finalEditE
 		strings.TrimSpace(finding.RawPassage) != "" ||
 		len(finding.UnapprovedSourceIDs) > 0 ||
 		len(finding.UnapprovedCandidateIDs) > 0 {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate findings cannot carry prose, repair actions, raw passages, or unapproved refs", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate findings cannot carry prose, repair actions, raw passages, or unapproved refs", producterror.ErrInvalidInput)
 	}
 	statementSHA := strings.TrimSpace(finding.StatementSHA256)
 	if !validStoredFinalEditStatementSHA256(statementSHA) {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate statement hash is invalid", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate statement hash is invalid", producterror.ErrInvalidInput)
 	}
 	classification := strings.TrimSpace(finding.Classification)
 	if !finalEditGateClasses[classification] {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unsupported gate classification", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unsupported gate classification", producterror.ErrInvalidInput)
 	}
 	evidenceIDs := normalizeReportingIDs(finding.EvidenceIDs)
 	if len(evidenceIDs) > 0 && store == nil {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate store is required", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate store is required", producterror.ErrInvalidInput)
 	}
 	for _, evidenceID := range evidenceIDs {
 		record, err := store.GetEvidenceRecord(ctx, evidenceID)
 		if err != nil || record.MissionID != missionID || strings.TrimSpace(record.State) != "approved" {
-			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate evidence ref is not approved", app.ErrInvalidInput)
+			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence gate evidence ref is not approved", producterror.ErrInvalidInput)
 		}
 	}
 	return StoredFinalEditGateFinding{
@@ -143,37 +145,37 @@ func normalizeFinalEditEvidenceGateFinding(ctx context.Context, store finalEditE
 func normalizeFinalEditGateFinding(ctx context.Context, store finalEditEvidenceStore, missionID string, finding FinalEditGateFinding) (StoredFinalEditGateFinding, error) {
 	statement := strings.TrimSpace(finding.Statement)
 	if statement == "" {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate statement text is required for server-side hashing", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate statement text is required for server-side hashing", producterror.ErrInvalidInput)
 	}
 	if strings.TrimSpace(finding.RawPassage) != "" || len(finding.UnapprovedSourceIDs) > 0 || len(finding.UnapprovedCandidateIDs) > 0 {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate metadata cannot persist raw passages or unapproved source refs", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate metadata cannot persist raw passages or unapproved source refs", producterror.ErrInvalidInput)
 	}
 	classification := strings.TrimSpace(finding.Classification)
 	if !finalEditGateClasses[classification] {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unsupported gate classification", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unsupported gate classification", producterror.ErrInvalidInput)
 	}
 	action := strings.TrimSpace(finding.RepairAction)
 	if classification == FinalEditGateClassUnverifiedExternalFact {
 		if !validFinalEditRepairAction(action) {
-			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unverified external fact requires an ordered repair action", app.ErrInvalidInput)
+			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: unverified external fact requires an ordered repair action", producterror.ErrInvalidInput)
 		}
 	} else if action != "" {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: only unverified external facts may carry repair actions", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: only unverified external facts may carry repair actions", producterror.ErrInvalidInput)
 	}
 	evidenceIDs := normalizeReportingIDs(finding.EvidenceIDs)
 	if len(evidenceIDs) > 0 && action != FinalEditRepairAttachApprovedEvidence {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence refs are only valid for attach_approved_evidence repairs", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: evidence refs are only valid for attach_approved_evidence repairs", producterror.ErrInvalidInput)
 	}
 	if action == FinalEditRepairAttachApprovedEvidence && len(evidenceIDs) == 0 {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: attach_approved_evidence requires approved evidence refs", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: attach_approved_evidence requires approved evidence refs", producterror.ErrInvalidInput)
 	}
 	if len(evidenceIDs) > 0 && store == nil {
-		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate repair evidence store is required", app.ErrInvalidInput)
+		return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate repair evidence store is required", producterror.ErrInvalidInput)
 	}
 	for _, evidenceID := range evidenceIDs {
 		record, err := store.GetEvidenceRecord(ctx, evidenceID)
 		if err != nil || record.MissionID != missionID || strings.TrimSpace(record.State) != "approved" {
-			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate repair evidence ref is not approved", app.ErrInvalidInput)
+			return StoredFinalEditGateFinding{}, fmt.Errorf("%w: gate repair evidence ref is not approved", producterror.ErrInvalidInput)
 		}
 	}
 	return StoredFinalEditGateFinding{
@@ -220,20 +222,20 @@ func equalStoredFinalEditGateFindings(left, right []StoredFinalEditGateFinding) 
 	return true
 }
 
-func validateCanonicalArtifactEnvelope(artifact app.RawArtifact, binding LongFormFinalizeBinding, payload map[string]any) error {
+func validateCanonicalArtifactEnvelope(artifact artifactcontract.Raw, binding LongFormFinalizeBinding, payload map[string]any) error {
 	if artifact.MissionID != binding.MissionID ||
 		artifact.MediaType != "text/markdown; charset=utf-8" ||
 		artifact.Filename != binding.Filename ||
 		artifact.SHA256 != contentSHA256(artifact.Content) ||
 		payloadString(payload, "artifact_sha256") != artifact.SHA256 {
-		return fmt.Errorf("%w: canonical long-form final artifact differs", app.ErrConflict)
+		return fmt.Errorf("%w: canonical long-form final artifact differs", producterror.ErrConflict)
 	}
 	changed, ok := payloadBoolStrict(payload, "final_edit_gate_changed")
 	if !ok {
-		return fmt.Errorf("%w: canonical final edit gate changed flag is invalid", app.ErrConflict)
+		return fmt.Errorf("%w: canonical final edit gate changed flag is invalid", producterror.ErrConflict)
 	}
 	if changed && artifact.Producer != binding.Producer {
-		return fmt.Errorf("%w: changed canonical long-form final artifact producer differs", app.ErrConflict)
+		return fmt.Errorf("%w: changed canonical long-form final artifact producer differs", producterror.ErrConflict)
 	}
 	return nil
 }

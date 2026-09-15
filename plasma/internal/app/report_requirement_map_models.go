@@ -1,6 +1,9 @@
 package app
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+)
 
 // ReportRequirementMapSubmissionSchemaVersion은 report requirement map 제출 payload의
 // schema version이다.
@@ -24,12 +27,12 @@ type ReportRequirementMapSubmissionRequest struct {
 	RequirementMap            json.RawMessage
 	ReviewedEventIDs          []string
 	Attempt                   int
-	ToolProducer              Producer
+	ToolProducer              ledger.Producer
 }
 
 // ReportRequirementMapSubmission은 requirement map 제출 event와 replay 여부를 반환한다.
 type ReportRequirementMapSubmission struct {
-	Event  LedgerEvent
+	Event  ledger.Event
 	Replay bool
 }
 
@@ -41,7 +44,7 @@ type ReportRequirementMapQuery struct {
 
 // ReportRequirementMapSelection은 선택된 requirement map event와 hash metadata다.
 type ReportRequirementMapSelection struct {
-	Event              LedgerEvent
+	Event              ledger.Event
 	RequirementMapHash string
 	RequirementMap     json.RawMessage
 }

@@ -7,13 +7,11 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
-	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/finaledit"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/legacyfinalize"
 )
 
-// runLegacyFinalTail은 legacy long-form finalizer와 optional H5 node를 실행한다.
+// runLegacyFinalTail은 legacy long-form finalizer만를 실행한다.
 func (runner Runner) runLegacyFinalTail(ctx context.Context, prefix PrefixOutput) (DraftOutput, error) {
 	finalUserText := "finalize sectional long-form markdown report"
 	if prefix.ExecutionStrategy == "section_fanout" {
@@ -56,26 +54,7 @@ func (runner Runner) runLegacyFinalTail(ctx context.Context, prefix PrefixOutput
 		return DraftOutput{}, err
 	}
 	out := DraftOutput{Artifact: finalized.Artifact, Event: finalized.Event, Markdown: finalized.Markdown, ReportSessionID: finalSessionID}
-	if prefix.PostReportHumanize == reporting.FinalEditHumanizeDisabled {
-		if err := runner.complete(context.WithoutCancel(ctx), out, nil); err != nil {
-			return DraftOutput{}, err
-		}
-		return out, nil
-	}
-	// Deprecated compatibility tail: current long-form reports run the separate
-	// pre-canonical style-edit stage before the canonical artifact is committed.
-	doneHumanize := runner.observeStart(NodeHumanize)
-	humanized, err := reporthumanize.HumanizeMarkdownReport(ctx, runner.humanizeService, runner.newID, prefix.MissionID, reporthumanize.Input{
-		Title: prefix.Title, Markdown: finalized.Markdown, SourceArtifact: finalized.Artifact,
-		ExecutorName: prefix.AgentExecutor, AgentModel: prefix.AgentModel, ReasoningEffort: prefix.AgentReasoningEffort,
-		MCPMode: prefix.MCPMode, PreviousSessionID: finaledit.FirstNonEmpty(finalized.AgentResult.SessionID, finalSessionID),
-		ReportMode: reportexecution.ModeLongForm, PendingEventID: prefix.PendingEventID,
-	}, runner.executor)
-	doneHumanize(err, false)
-	if err != nil {
-		return DraftOutput{}, err
-	}
-	out.Humanized = &humanized
+
 	if err := runner.complete(context.WithoutCancel(ctx), out, nil); err != nil {
 		return DraftOutput{}, err
 	}

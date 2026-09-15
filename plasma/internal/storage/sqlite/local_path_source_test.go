@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
 )
 
@@ -31,13 +35,13 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 		MissionID:    "mis_1",
 		RootID:       "docs",
 		RelativePath: "guide.txt",
-		Producer:     app.Producer{Type: "user", ID: "test"},
+		Producer:     ledger.Producer{Type: "user", ID: "test"},
 	})
 	if err != nil {
 		t.Fatalf("AttachLocalPathSource returned error: %v", err)
 	}
-	if attached.Snapshot.Access.RetrievalPolicy != app.SourceRetrievalPolicyLiveReference ||
-		attached.Snapshot.Connector.ConnectorType != app.SourceConnectorTypeLocalPath ||
+	if attached.Snapshot.Access.RetrievalPolicy != sourcecontract.RetrievalPolicyLiveReference ||
+		attached.Snapshot.Connector.ConnectorType != sourcecontract.ConnectorTypeLocalPath ||
 		len(attached.Snapshot.ArtifactIDs) != 0 {
 		t.Fatalf("unexpected live source: %#v", attached.Snapshot)
 	}
@@ -56,7 +60,7 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		MaxBytes:   6,
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("ReadLocalPathSource returned error: %v", err)
@@ -69,7 +73,7 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Subpath:    "other.txt",
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	}); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected file source subpath rejection, got %v", err)
 	}
@@ -77,7 +81,7 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Subpath:    ".",
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	}); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected file source explicit subpath rejection, got %v", err)
 	}
@@ -86,7 +90,7 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 		SnapshotID:  attached.Snapshot.SnapshotID,
 		Query:       "needle",
 		MaxSnippets: 5,
-		Producer:    app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:    ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("GrepLocalPathSource returned error: %v", err)
@@ -104,10 +108,10 @@ func TestLocalPathSourceAttachObserveRemoveRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OutlineMission after remove returned error: %v", err)
 	}
-	if outline.Counts[app.ResearchIDEObjectSourceSnapshot] != 0 {
+	if outline.Counts[researchcatalog.ObjectSourceSnapshot] != 0 {
 		t.Fatalf("research outline should hide removed sources, got %#v", outline)
 	}
-	page, err := svc.ListMissionObjects(ctx, "mis_1", app.ResearchIDEObjectSourceSnapshot, 10, "")
+	page, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectSourceSnapshot, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects after remove returned error: %v", err)
 	}
@@ -184,7 +188,7 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Depth:      2,
 		Limit:      10,
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("TreeLocalPathSource returned error: %v", err)
@@ -196,7 +200,7 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Subpath:    "a.txt",
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("ReadLocalPathSource subpath returned error: %v", err)
@@ -217,7 +221,7 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		Subpath:    "nested",
 		Depth:      1,
 		Limit:      10,
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("TreeLocalPathSource subpath returned error: %v", err)
@@ -231,7 +235,7 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		Subpath:     "nested",
 		Query:       "needle",
 		MaxSnippets: 5,
-		Producer:    app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:    ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("GrepLocalPathSource subpath returned error: %v", err)
@@ -243,7 +247,7 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Subpath:    "../guide.txt",
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	}); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected traversal subpath rejection, got %v", err)
 	}
@@ -251,15 +255,15 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: attached.Snapshot.SnapshotID,
 		Subpath:    "nested/../a.txt",
-		Producer:   app.Producer{Type: "agent_session", ID: "ses_1"},
+		Producer:   ledger.Producer{Type: "agent_session", ID: "ses_1"},
 	}); !errors.Is(err, app.ErrInvalidInput) {
 		t.Fatalf("expected normalized traversal subpath rejection, got %v", err)
 	}
-	page, err := svc.ListMissionObjects(ctx, "mis_1", app.ResearchIDEObjectSourceSnapshot, 10, "")
+	page, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectSourceSnapshot, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects returned error: %v", err)
 	}
-	if len(page.Items) != 1 || page.Items[0].Metadata["retrieval_policy"] != app.SourceRetrievalPolicyLiveReference {
+	if len(page.Items) != 1 || page.Items[0].Metadata["retrieval_policy"] != sourcecontract.RetrievalPolicyLiveReference {
 		t.Fatalf("expected live source metadata in research list, got %#v", page)
 	}
 	grep, err := svc.GrepMissionObjects(ctx, "mis_1", "needle directory", 10, "")
@@ -269,11 +273,11 @@ func TestLocalPathDirectoryAttachTreeAndResearchIDE(t *testing.T) {
 	if len(grep.Matches) != 1 {
 		t.Fatalf("expected research grep match through local path engine, got %#v", grep)
 	}
-	refs, err := svc.ListObjectReferences(ctx, "mis_1", app.ResearchIDEObjectSourceSnapshot, attached.Snapshot.SnapshotID, 20, "")
+	refs, err := svc.ListObjectReferences(ctx, "mis_1", researchcatalog.ObjectSourceSnapshot, attached.Snapshot.SnapshotID, 20, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferences returned error: %v", err)
 	}
-	if !hasRef(refs.Backward, app.ResearchIDEObjectLedgerEvent) {
+	if !hasRef(refs.Backward, researchcatalog.ObjectLedgerEvent) {
 		t.Fatalf("expected source observation ledger event reference, got %#v", refs)
 	}
 }
@@ -286,13 +290,13 @@ func newLocalPathSQLiteService(t *testing.T, root string) *app.Service {
 		t.Fatalf("localpath.New returned error: %v", err)
 	}
 	svc := app.NewServiceWithLocalPathEngine(store, engine)
-	if _, err := svc.CreateMission(context.Background(), app.CreateMissionRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if _, err := svc.CreateMission(context.Background(), mission.CreateRequest{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	return svc
 }
 
-func countEventType(events []app.LedgerEvent, eventType string) int {
+func countEventType(events []ledger.Event, eventType string) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == eventType {
@@ -314,7 +318,7 @@ func assertNoRootLeakInJSON(t *testing.T, root string, values ...any) {
 	}
 }
 
-func hasRef(refs []app.ResearchIDEObjectRef, kind string) bool {
+func hasRef(refs []researchcatalog.ObjectRef, kind string) bool {
 	for _, ref := range refs {
 		if ref.ObjectKind == kind {
 			return true

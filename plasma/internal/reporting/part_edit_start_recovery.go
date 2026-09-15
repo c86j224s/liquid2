@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // PartEditStartContract는 재실행과 검증에 쓰는 binding 계약이다.
@@ -50,7 +51,7 @@ func LoadCurrentPartEditStart(ctx context.Context, store PartEditOutcomeStore, c
 		return PartEditBinding{}, false, err
 	}
 	if !acceptedPending[contract.CurrentPendingEventID] {
-		return PartEditBinding{}, false, fmt.Errorf("%w: current Part edit pending is invalid", app.ErrConflict)
+		return PartEditBinding{}, false, fmt.Errorf("%w: current Part edit pending is invalid", producterror.ErrConflict)
 	}
 	var found PartEditBinding
 	count := 0
@@ -60,7 +61,7 @@ func LoadCurrentPartEditStart(ctx context.Context, store PartEditOutcomeStore, c
 		}
 		binding, ok := partEditBindingFromStartEvent(event)
 		if !ok {
-			return PartEditBinding{}, false, fmt.Errorf("%w: stored Part edit start is invalid", app.ErrConflict)
+			return PartEditBinding{}, false, fmt.Errorf("%w: stored Part edit start is invalid", producterror.ErrConflict)
 		}
 		if err := validatePartEditStartBinding(ctx, store, events, acceptedPending, binding, contract); err != nil {
 			return PartEditBinding{}, false, err
@@ -69,22 +70,22 @@ func LoadCurrentPartEditStart(ctx context.Context, store PartEditOutcomeStore, c
 			return PartEditBinding{}, false, err
 		} else if ok {
 			if !partEditEventMatches(existing, binding) {
-				return PartEditBinding{}, false, fmt.Errorf("%w: completed Part edit differs from start", app.ErrConflict)
+				return PartEditBinding{}, false, fmt.Errorf("%w: completed Part edit differs from start", producterror.ErrConflict)
 			}
 			if _, err := partEditResultFromEvent(ctx, store, binding, existing, true); err != nil {
-				return PartEditBinding{}, false, fmt.Errorf("%w: completed Part edit artifact is invalid", app.ErrConflict)
+				return PartEditBinding{}, false, fmt.Errorf("%w: completed Part edit artifact is invalid", producterror.ErrConflict)
 			}
 			continue
 		}
 		found, count = binding, count+1
 	}
 	if count > 1 {
-		return PartEditBinding{}, false, fmt.Errorf("%w: multiple open Part edit starts match current pending", app.ErrConflict)
+		return PartEditBinding{}, false, fmt.Errorf("%w: multiple open Part edit starts match current pending", producterror.ErrConflict)
 	}
 	return found, count == 1, nil
 }
 
-func partEditStartTargetsContract(event app.LedgerEvent, contract PartEditStartContract) bool {
+func partEditStartTargetsContract(event ledger.Event, contract PartEditStartContract) bool {
 	payload := eventPayload(event)
 	return strings.TrimSpace(event.MissionID) == contract.MissionID &&
 		strings.TrimSpace(event.CorrelationID) == contract.IdempotencyKey &&
@@ -95,22 +96,22 @@ func partEditStartTargetsContract(event app.LedgerEvent, contract PartEditStartC
 		jsonInt(payload["part_index"]) == contract.PartIndex
 }
 
-func validatePartEditStartBinding(ctx context.Context, store PartEditOutcomeStore, events []app.LedgerEvent, acceptedPending map[string]bool, binding PartEditBinding, contract PartEditStartContract) error {
+func validatePartEditStartBinding(ctx context.Context, store PartEditOutcomeStore, events []ledger.Event, acceptedPending map[string]bool, binding PartEditBinding, contract PartEditStartContract) error {
 	if !partEditStartBindingMatchesContract(binding, contract) {
-		return fmt.Errorf("%w: Part edit start binding differs from current contract", app.ErrConflict)
+		return fmt.Errorf("%w: Part edit start binding differs from current contract", producterror.ErrConflict)
 	}
 	if err := validatePartEditLineage(events, binding); err != nil {
 		return err
 	}
 	if !partEditRequirementMapMatches(events, acceptedPending, binding) {
-		return fmt.Errorf("%w: Part edit requirement map differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: Part edit requirement map differs from binding", producterror.ErrConflict)
 	}
 	source, err := store.GetRawArtifact(ctx, binding.SourceArtifactID)
 	if err != nil {
 		return err
 	}
 	if source.MissionID != binding.MissionID || source.MediaType != "text/markdown; charset=utf-8" {
-		return fmt.Errorf("%w: source Part artifact is foreign or not Markdown", app.ErrConflict)
+		return fmt.Errorf("%w: source Part artifact is foreign or not Markdown", producterror.ErrConflict)
 	}
 	return nil
 }
@@ -196,7 +197,7 @@ func validatePartEditStartContract(value PartEditStartContract) error {
 		value.AgentExecutor == "" ||
 		value.ReportPlanSessionID == "" ||
 		value.ForkSourceAgentSessionID == "" {
-		return fmt.Errorf("%w: Part edit start contract is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: Part edit start contract is incomplete", producterror.ErrInvalidInput)
 	}
 	return nil
 }

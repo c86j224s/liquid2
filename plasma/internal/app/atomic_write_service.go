@@ -3,33 +3,40 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceevents"
 )
 
 // CreateRawArtifactWithEvent는 raw artifact와 causation 이벤트를 함께 기록한다.
 func (s *Service) CreateRawArtifactWithEvent(
 	ctx context.Context,
-	artifactReq CreateRawArtifactRequest,
-	eventReqForArtifact func(RawArtifact) AppendEventRequest,
-) (RawArtifact, LedgerEvent, error) {
+	artifactReq artifactcontract.CreateRequest,
+	eventReqForArtifact func(artifactcontract.Raw) ledger.AppendRequest,
+) (artifactcontract.Raw, ledger.Event, error) {
 	if eventReqForArtifact == nil {
-		return RawArtifact{}, LedgerEvent{}, fmt.Errorf("%w: event builder is required", ErrInvalidInput)
+		return artifactcontract.Raw{}, ledger.Event{}, fmt.Errorf("%w: event builder is required", ErrInvalidInput)
 	}
-	artifact, err := buildRawArtifact(artifactReq)
+	artifact, err := artifactcontract.Build(artifactReq)
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, err
+		return artifactcontract.Raw{}, ledger.Event{}, err
 	}
 	event, err := buildLedgerEvent(eventReqForArtifact(artifact))
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, err
+		return artifactcontract.Raw{}, ledger.Event{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:       []LedgerEvent{event},
-		RawArtifacts: []RawArtifact{artifact},
+		Events:       []ledger.Event{event},
+		RawArtifacts: []artifactcontract.Raw{artifact},
 	})
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, err
+		return artifactcontract.Raw{}, ledger.Event{}, err
 	}
 	return artifact, committed.Events[0], nil
 }
@@ -37,19 +44,19 @@ func (s *Service) CreateRawArtifactWithEvent(
 // CreateSourceSnapshotWithEvent는 source snapshot과 causation 이벤트를 함께 기록한다.
 func (s *Service) CreateSourceSnapshotWithEvent(
 	ctx context.Context,
-	req CreateSourceSnapshotWithEventRequest,
-) (SourceSnapshotWithEventResult, error) {
-	artifact, err := buildRawArtifact(req.Artifact)
+	req source.CreateSourceSnapshotWithEventRequest,
+) (source.SourceSnapshotWithEventResult, error) {
+	artifact, err := artifactcontract.Build(req.Artifact)
 	if err != nil {
-		return SourceSnapshotWithEventResult{}, err
+		return source.SourceSnapshotWithEventResult{}, err
 	}
 	snapshotReq := req.Snapshot
 	if len(snapshotReq.ArtifactIDs) == 0 {
 		snapshotReq.ArtifactIDs = []string{artifact.ArtifactID}
 	}
-	snapshot, err := s.buildSourceSnapshot(ctx, snapshotReq, []RawArtifact{artifact})
+	snapshot, err := source.BuildSnapshot(ctx, s.store, snapshotReq, []artifactcontract.Raw{artifact})
 	if err != nil {
-		return SourceSnapshotWithEventResult{}, err
+		return source.SourceSnapshotWithEventResult{}, err
 	}
 	eventReq := req.Event
 	if len(eventReq.Payload) == 0 {
@@ -62,20 +69,20 @@ func (s *Service) CreateSourceSnapshotWithEvent(
 	}
 	event, err := buildLedgerEvent(eventReq)
 	if err != nil {
-		return SourceSnapshotWithEventResult{}, err
+		return source.SourceSnapshotWithEventResult{}, err
 	}
 	if event.EventType != sourceevents.SourceSnapshottedEventType {
-		return SourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
+		return source.SourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{event},
-		RawArtifacts:    []RawArtifact{artifact},
-		SourceSnapshots: []SourceSnapshot{snapshot},
+		Events:          []ledger.Event{event},
+		RawArtifacts:    []artifactcontract.Raw{artifact},
+		SourceSnapshots: []sourcecontract.Snapshot{snapshot},
 	})
 	if err != nil {
-		return SourceSnapshotWithEventResult{}, err
+		return source.SourceSnapshotWithEventResult{}, err
 	}
-	return SourceSnapshotWithEventResult{
+	return source.SourceSnapshotWithEventResult{
 		Artifact: artifact,
 		Snapshot: snapshot,
 		Event:    committed.Events[0],
@@ -85,11 +92,11 @@ func (s *Service) CreateSourceSnapshotWithEvent(
 // CreateExistingArtifactSourceSnapshotWithEvent는 기존 artifact를 새 source snapshot으로 연결한다.
 func (s *Service) CreateExistingArtifactSourceSnapshotWithEvent(
 	ctx context.Context,
-	req CreateExistingArtifactSourceSnapshotWithEventRequest,
-) (ExistingArtifactSourceSnapshotWithEventResult, error) {
-	snapshot, err := s.buildSourceSnapshot(ctx, req.Snapshot, nil)
+	req source.CreateExistingArtifactSourceSnapshotWithEventRequest,
+) (source.ExistingArtifactSourceSnapshotWithEventResult, error) {
+	snapshot, err := source.BuildSnapshot(ctx, s.store, req.Snapshot, nil)
 	if err != nil {
-		return ExistingArtifactSourceSnapshotWithEventResult{}, err
+		return source.ExistingArtifactSourceSnapshotWithEventResult{}, err
 	}
 	eventReq := req.Event
 	if len(eventReq.Payload) == 0 {
@@ -102,19 +109,19 @@ func (s *Service) CreateExistingArtifactSourceSnapshotWithEvent(
 	}
 	event, err := buildLedgerEvent(eventReq)
 	if err != nil {
-		return ExistingArtifactSourceSnapshotWithEventResult{}, err
+		return source.ExistingArtifactSourceSnapshotWithEventResult{}, err
 	}
 	if event.EventType != sourceevents.SourceSnapshottedEventType {
-		return ExistingArtifactSourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
+		return source.ExistingArtifactSourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{event},
-		SourceSnapshots: []SourceSnapshot{snapshot},
+		Events:          []ledger.Event{event},
+		SourceSnapshots: []sourcecontract.Snapshot{snapshot},
 	})
 	if err != nil {
-		return ExistingArtifactSourceSnapshotWithEventResult{}, err
+		return source.ExistingArtifactSourceSnapshotWithEventResult{}, err
 	}
-	return ExistingArtifactSourceSnapshotWithEventResult{
+	return source.ExistingArtifactSourceSnapshotWithEventResult{
 		Snapshot: snapshot,
 		Event:    committed.Events[0],
 	}, nil
@@ -123,11 +130,11 @@ func (s *Service) CreateExistingArtifactSourceSnapshotWithEvent(
 // CreateLiveSourceSnapshotWithEvent는 live reference source snapshot과 이벤트를 함께 기록한다.
 func (s *Service) CreateLiveSourceSnapshotWithEvent(
 	ctx context.Context,
-	req CreateLiveSourceSnapshotWithEventRequest,
-) (LiveSourceSnapshotWithEventResult, error) {
-	snapshot, err := s.buildSourceSnapshot(ctx, req.Snapshot, nil)
+	req source.CreateLiveSourceSnapshotWithEventRequest,
+) (source.LiveSourceSnapshotWithEventResult, error) {
+	snapshot, err := source.BuildSnapshot(ctx, s.store, req.Snapshot, nil)
 	if err != nil {
-		return LiveSourceSnapshotWithEventResult{}, err
+		return source.LiveSourceSnapshotWithEventResult{}, err
 	}
 	eventReq := req.Event
 	if len(eventReq.Payload) == 0 {
@@ -138,19 +145,19 @@ func (s *Service) CreateLiveSourceSnapshotWithEvent(
 	}
 	event, err := buildLedgerEvent(eventReq)
 	if err != nil {
-		return LiveSourceSnapshotWithEventResult{}, err
+		return source.LiveSourceSnapshotWithEventResult{}, err
 	}
 	if event.EventType != sourceevents.SourceSnapshottedEventType {
-		return LiveSourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
+		return source.LiveSourceSnapshotWithEventResult{}, fmt.Errorf("%w: source snapshot requires source.snapshotted event", ErrInvalidInput)
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{event},
-		SourceSnapshots: []SourceSnapshot{snapshot},
+		Events:          []ledger.Event{event},
+		SourceSnapshots: []sourcecontract.Snapshot{snapshot},
 	})
 	if err != nil {
-		return LiveSourceSnapshotWithEventResult{}, err
+		return source.LiveSourceSnapshotWithEventResult{}, err
 	}
-	return LiveSourceSnapshotWithEventResult{
+	return source.LiveSourceSnapshotWithEventResult{
 		Snapshot: snapshot,
 		Event:    committed.Events[0],
 	}, nil
@@ -159,41 +166,40 @@ func (s *Service) CreateLiveSourceSnapshotWithEvent(
 // CreateEvidenceProposal는 evidence proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateEvidenceProposal(
 	ctx context.Context,
-	req CreateEvidenceProposalRequest,
-) (EvidenceProposalResult, error) {
+	req researchproposal.CreateEvidenceProposalRequest,
+) (researchproposal.EvidenceProposalResult, error) {
 	evidenceEvent, err := buildLedgerEvent(req.EvidenceEvent)
 	if err != nil {
-		return EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
 	if evidenceEvent.EventType != "evidence.proposed" {
-		return EvidenceProposalResult{}, fmt.Errorf("%w: evidence proposal requires evidence.proposed event", ErrInvalidInput)
+		return researchproposal.EvidenceProposalResult{}, fmt.Errorf("%w: evidence proposal requires evidence.proposed event", ErrInvalidInput)
 	}
 	proposalEvent, err := buildLedgerEvent(req.ProposalEvent)
 	if err != nil {
-		return EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
-	evidence, err := s.buildEvidenceRecord(ctx, req.Evidence, evidenceEvent)
+	evidence, err := researchrecords.BuildEvidenceRecord(ctx, s.store, researchrecords.CreateEvidenceRecordRequest(req.Evidence), evidenceEvent)
 	if err != nil {
-		return EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
-	proposal, err := s.buildProposalBundle(
-		ctx,
+	proposal, err := researchproposal.BuildProposalBundle(ctx, s.requireObjectRef,
 		req.Proposal,
 		proposalEvent,
-		[]ObjectRef{{ObjectKind: EvidenceRecordObjectKind, ObjectID: evidence.EvidenceID}},
+		[]researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: evidence.EvidenceID}},
 	)
 	if err != nil {
-		return EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{evidenceEvent, proposalEvent},
-		EvidenceRecords: []EvidenceRecord{evidence},
-		ProposalBundles: []ProposalBundle{proposal},
+		Events:          []ledger.Event{evidenceEvent, proposalEvent},
+		EvidenceRecords: []researchrecords.EvidenceRecord{evidence},
+		ProposalBundles: []researchproposal.ProposalBundle{proposal},
 	})
 	if err != nil {
-		return EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
-	return EvidenceProposalResult{
+	return researchproposal.EvidenceProposalResult{
 		Evidence:      evidence,
 		Proposal:      proposal,
 		EvidenceEvent: committed.Events[0],
@@ -204,41 +210,43 @@ func (s *Service) CreateEvidenceProposal(
 // CreateQuestionProposal는 question proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateQuestionProposal(
 	ctx context.Context,
-	req CreateQuestionProposalRequest,
-) (QuestionProposalResult, error) {
+	req researchproposal.CreateQuestionProposalRequest,
+) (researchproposal.QuestionProposalResult, error) {
 	questionEvent, err := buildLedgerEvent(req.QuestionEvent)
 	if err != nil {
-		return QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
 	if questionEvent.EventType != "question.proposed" {
-		return QuestionProposalResult{}, fmt.Errorf("%w: question proposal requires question.proposed event", ErrInvalidInput)
+		return researchproposal.QuestionProposalResult{}, fmt.Errorf("%w: question proposal requires question.proposed event", ErrInvalidInput)
 	}
 	proposalEvent, err := buildLedgerEvent(req.ProposalEvent)
 	if err != nil {
-		return QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
-	question, err := s.buildQuestionRecord(ctx, req.Question, questionEvent)
+	question, err := researchrecords.BuildQuestionRecord(ctx, researchrecords.QuestionRequirements{
+		RequireEvidenceRecords: s.requireEvidenceRecords,
+		RequireClaimRecords:    s.requireClaimRecords,
+	}, req.Question, questionEvent)
 	if err != nil {
-		return QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
-	proposal, err := s.buildProposalBundle(
-		ctx,
+	proposal, err := researchproposal.BuildProposalBundle(ctx, s.requireObjectRef,
 		req.Proposal,
 		proposalEvent,
-		[]ObjectRef{{ObjectKind: QuestionRecordObjectKind, ObjectID: question.QuestionID}},
+		[]researchcatalog.ObjectRef{{ObjectKind: researchrecords.QuestionRecordObjectKind, ObjectID: question.QuestionID}},
 	)
 	if err != nil {
-		return QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{questionEvent, proposalEvent},
-		QuestionRecords: []QuestionRecord{question},
-		ProposalBundles: []ProposalBundle{proposal},
+		Events:          []ledger.Event{questionEvent, proposalEvent},
+		QuestionRecords: []researchrecords.QuestionRecord{question},
+		ProposalBundles: []researchproposal.ProposalBundle{proposal},
 	})
 	if err != nil {
-		return QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
-	return QuestionProposalResult{
+	return researchproposal.QuestionProposalResult{
 		Question:      question,
 		Proposal:      proposal,
 		QuestionEvent: committed.Events[0],
@@ -249,41 +257,44 @@ func (s *Service) CreateQuestionProposal(
 // CreateClaimProposal는 claim proposal record와 이벤트를 함께 기록한다.
 func (s *Service) CreateClaimProposal(
 	ctx context.Context,
-	req CreateClaimProposalRequest,
-) (ClaimProposalResult, error) {
+	req researchproposal.CreateClaimProposalRequest,
+) (researchproposal.ClaimProposalResult, error) {
 	claimEvent, err := buildLedgerEvent(req.ClaimEvent)
 	if err != nil {
-		return ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
 	if claimEvent.EventType != "claim.proposed" {
-		return ClaimProposalResult{}, fmt.Errorf("%w: claim proposal requires claim.proposed event", ErrInvalidInput)
+		return researchproposal.ClaimProposalResult{}, fmt.Errorf("%w: claim proposal requires claim.proposed event", ErrInvalidInput)
 	}
 	proposalEvent, err := buildLedgerEvent(req.ProposalEvent)
 	if err != nil {
-		return ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
-	claim, err := s.buildClaimRecord(ctx, req.Claim, claimEvent)
+	claim, err := researchrecords.BuildClaimRecord(ctx, researchrecords.ClaimRequirements{
+		RequireEvidenceRecords: s.requireEvidenceRecords,
+		RequireQuestionRecords: s.requireQuestionRecords,
+		RequireMissionEvent:    s.requireMissionEvent,
+	}, req.Claim, claimEvent)
 	if err != nil {
-		return ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
-	proposal, err := s.buildProposalBundle(
-		ctx,
+	proposal, err := researchproposal.BuildProposalBundle(ctx, s.requireObjectRef,
 		req.Proposal,
 		proposalEvent,
-		[]ObjectRef{{ObjectKind: ClaimRecordObjectKind, ObjectID: claim.ClaimID}},
+		[]researchcatalog.ObjectRef{{ObjectKind: researchrecords.ClaimRecordObjectKind, ObjectID: claim.ClaimID}},
 	)
 	if err != nil {
-		return ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{claimEvent, proposalEvent},
-		ClaimRecords:    []ClaimRecord{claim},
-		ProposalBundles: []ProposalBundle{proposal},
+		Events:          []ledger.Event{claimEvent, proposalEvent},
+		ClaimRecords:    []researchrecords.ClaimRecord{claim},
+		ProposalBundles: []researchproposal.ProposalBundle{proposal},
 	})
 	if err != nil {
-		return ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
-	return ClaimProposalResult{
+	return researchproposal.ClaimProposalResult{
 		Claim:         claim,
 		Proposal:      proposal,
 		ClaimEvent:    committed.Events[0],
@@ -303,13 +314,13 @@ func (s *Service) SubmitProposal(
 	if proposalEvent.EventType != "proposal.submitted" {
 		return SubmitProposalResult{}, fmt.Errorf("%w: proposal submit requires proposal.submitted event", ErrInvalidInput)
 	}
-	proposal, err := s.buildProposalBundle(ctx, req.Proposal, proposalEvent, nil)
+	proposal, err := researchproposal.BuildProposalBundle(ctx, s.requireObjectRef, req.Proposal, proposalEvent, nil)
 	if err != nil {
 		return SubmitProposalResult{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:          []LedgerEvent{proposalEvent},
-		ProposalBundles: []ProposalBundle{proposal},
+		Events:          []ledger.Event{proposalEvent},
+		ProposalBundles: []researchproposal.ProposalBundle{proposal},
 	})
 	if err != nil {
 		return SubmitProposalResult{}, err

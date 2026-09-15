@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -28,30 +28,30 @@ type PartAssembly struct {
 
 // PartAssemblyBinding는 재실행과 검증에 쓰는 binding 계약이다.
 type PartAssemblyBinding struct {
-	MissionID                    string       `json:"mission_id"`
-	PendingEventID               string       `json:"pending_event_id"`
-	PlanEventID                  string       `json:"plan_event_id"`
-	ToolSessionID                string       `json:"tool_session_id"`
-	ProviderSessionID            string       `json:"provider_session_id"`
-	PreviousProviderSessionID    string       `json:"previous_provider_session_id"`
-	PartIndex                    int          `json:"part_index"`
-	SectionCount                 int          `json:"section_count"`
-	SectionArtifactIDs           []string     `json:"section_artifact_ids,omitempty"`
-	AgentExecutor                string       `json:"agent_executor"`
-	AgentModel                   string       `json:"agent_model"`
-	AgentReasoningEffort         string       `json:"agent_reasoning_effort"`
-	AgentSelectionSource         string       `json:"agent_selection_source"`
-	MCPMode                      string       `json:"mcp_mode"`
-	ReportSessionPolicy          string       `json:"report_session_policy"`
-	ReportSessionPolicySelection string       `json:"report_session_policy_selection"`
-	PostReportHumanize           string       `json:"post_report_humanize"`
-	GenerationGuidanceProfile    string       `json:"generation_guidance_profile"`
-	GenerationGuidanceSHA256     string       `json:"generation_guidance_sha256"`
-	SessionChainKind             string       `json:"session_chain_kind"`
-	PreReportResearchSessionID   string       `json:"pre_report_research_session_id"`
-	ReportPlanSessionID          string       `json:"report_plan_session_id"`
-	ForkSourceAgentSessionID     string       `json:"fork_source_agent_session_id"`
-	Producer                     app.Producer `json:"producer"`
+	MissionID                    string          `json:"mission_id"`
+	PendingEventID               string          `json:"pending_event_id"`
+	PlanEventID                  string          `json:"plan_event_id"`
+	ToolSessionID                string          `json:"tool_session_id"`
+	ProviderSessionID            string          `json:"provider_session_id"`
+	PreviousProviderSessionID    string          `json:"previous_provider_session_id"`
+	PartIndex                    int             `json:"part_index"`
+	SectionCount                 int             `json:"section_count"`
+	SectionArtifactIDs           []string        `json:"section_artifact_ids,omitempty"`
+	AgentExecutor                string          `json:"agent_executor"`
+	AgentModel                   string          `json:"agent_model"`
+	AgentReasoningEffort         string          `json:"agent_reasoning_effort"`
+	AgentSelectionSource         string          `json:"agent_selection_source"`
+	MCPMode                      string          `json:"mcp_mode"`
+	ReportSessionPolicy          string          `json:"report_session_policy"`
+	ReportSessionPolicySelection string          `json:"report_session_policy_selection"`
+	PostReportHumanize           string          `json:"post_report_humanize"`
+	GenerationGuidanceProfile    string          `json:"generation_guidance_profile"`
+	GenerationGuidanceSHA256     string          `json:"generation_guidance_sha256"`
+	SessionChainKind             string          `json:"session_chain_kind"`
+	PreReportResearchSessionID   string          `json:"pre_report_research_session_id"`
+	ReportPlanSessionID          string          `json:"report_plan_session_id"`
+	ForkSourceAgentSessionID     string          `json:"fork_source_agent_session_id"`
+	Producer                     ledger.Producer `json:"producer"`
 }
 
 // PartAssemblySubmittedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -63,7 +63,7 @@ type PartAssemblySubmittedEventRequest struct {
 
 // PartAssemblySubmission는 저장된 part assembly 이벤트와 binding, assembly 본문을 함께 돌려준다.
 type PartAssemblySubmission struct {
-	Event    app.LedgerEvent
+	Event    ledger.Event
 	Binding  PartAssemblyBinding
 	Assembly PartAssembly
 }
@@ -98,11 +98,11 @@ type partAssemblySubmittedPayload struct {
 
 // PartAssemblySubmissionStore는 part assembly 제출 복원에 필요한 조회 포트다.
 type PartAssemblySubmissionStore interface {
-	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
+	ListEvents(context.Context, string) ([]ledger.Event, error)
 }
 
 // BuildPartAssemblySubmittedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildPartAssemblySubmittedAppendRequest(req PartAssemblySubmittedEventRequest) app.AppendEventRequest {
+func BuildPartAssemblySubmittedAppendRequest(req PartAssemblySubmittedEventRequest) ledger.AppendRequest {
 	binding := normalizePartAssemblyBinding(req.Binding)
 	payload := partAssemblySubmittedPayload{
 		Kind:                         PartAssemblySubmittedKind,
@@ -131,11 +131,11 @@ func BuildPartAssemblySubmittedAppendRequest(req PartAssemblySubmittedEventReque
 		Assembly:                     normalizePartAssembly(req.Assembly, binding.SectionCount),
 		Text:                         "장문 리포트 파트 연결부를 MCP 편집 도구로 제출했습니다.",
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(req.EventID),
 		MissionID:        binding.MissionID,
 		EventType:        PartAssemblySubmittedEventType,
-		Producer:         app.Producer{Type: "mcp_server", ID: "plasma.report.part_assembly.submit"},
+		Producer:         ledger.Producer{Type: "mcp_server", ID: "plasma.report.part_assembly.submit"},
 		CausationEventID: binding.PlanEventID,
 		CorrelationID:    binding.PendingEventID,
 		Payload:          mustJSON(payload),

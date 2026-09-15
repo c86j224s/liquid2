@@ -6,29 +6,31 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestFinalEditSubmittedEventDecodeFailsClosedOnEnvelopeTamper(t *testing.T) {
 	binding := finalEditStageStoreStageBinding(finalEditStageStoreFinalBinding(FinalEditHumanizeDisabled), FinalEditStageReader, "art_source", "art_reader")
-	source := app.RawArtifact{ArtifactID: binding.SourceArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: app.Producer{Type: "system", ID: "source"}, SHA256: contentSHA256([]byte("source")), Content: []byte("source")}
-	artifact := app.RawArtifact{ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: binding.Producer, SHA256: contentSHA256([]byte("edited")), Content: []byte("edited")}
+	source := artifactcontract.Raw{ArtifactID: binding.SourceArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: ledger.Producer{Type: "system", ID: "source"}, SHA256: contentSHA256([]byte("source")), Content: []byte("source")}
+	artifact := artifactcontract.Raw{ArtifactID: binding.EditedArtifactID, MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Filename: binding.Filename, Producer: binding.Producer, SHA256: contentSHA256([]byte("edited")), Content: []byte("edited")}
 	request := buildFinalEditSubmittedAppendRequest("evt_reader_submitted", binding, source, artifact, 1, true, nil, FinalEditSemanticAttestation{})
-	base := app.LedgerEvent{EventID: request.EventID, MissionID: request.MissionID, EventType: request.EventType, Producer: request.Producer, CausationEventID: request.CausationEventID, CorrelationID: request.CorrelationID, Payload: request.Payload}
+	base := ledger.Event{EventID: request.EventID, MissionID: request.MissionID, EventType: request.EventType, Producer: request.Producer, CausationEventID: request.CausationEventID, CorrelationID: request.CorrelationID, Payload: request.Payload}
 
-	for name, mutate := range map[string]func(*app.LedgerEvent){
-		"correlation": func(event *app.LedgerEvent) { event.CorrelationID = "wrong-key" },
-		"causation":   func(event *app.LedgerEvent) { event.CausationEventID = "evt_wrong_plan" },
-		"type":        func(event *app.LedgerEvent) { event.EventType = FinalEditStyleSubmittedEventType },
-		"producer": func(event *app.LedgerEvent) {
-			event.Producer = app.Producer{Type: "agent_session", ID: "provider-other"}
+	for name, mutate := range map[string]func(*ledger.Event){
+		"correlation": func(event *ledger.Event) { event.CorrelationID = "wrong-key" },
+		"causation":   func(event *ledger.Event) { event.CausationEventID = "evt_wrong_plan" },
+		"type":        func(event *ledger.Event) { event.EventType = FinalEditStyleSubmittedEventType },
+		"producer": func(event *ledger.Event) {
+			event.Producer = ledger.Producer{Type: "agent_session", ID: "provider-other"}
 		},
-		"stage": func(event *app.LedgerEvent) {
+		"stage": func(event *ledger.Event) {
 			finalEditDecodeMutatePayload(t, event, func(payload map[string]any) { payload["stage"] = FinalEditStageStyle })
 		},
-		"stage_id": func(event *app.LedgerEvent) {
+		"stage_id": func(event *ledger.Event) {
 			finalEditDecodeMutatePayload(t, event, func(payload map[string]any) { payload["stage_id"] = "style-edit" })
 		},
-		"negative_operation": func(event *app.LedgerEvent) {
+		"negative_operation": func(event *ledger.Event) {
 			finalEditDecodeMutatePayload(t, event, func(payload map[string]any) { payload["operation_count"] = -1 })
 		},
 	} {
@@ -116,7 +118,7 @@ func TestStoredFinalEditGateFindingsDecodeSeparatesLegacyAndEvidenceGateRules(t 
 	}
 }
 
-func finalEditDecodeMutatePayload(t *testing.T, event *app.LedgerEvent, mutate func(map[string]any)) {
+func finalEditDecodeMutatePayload(t *testing.T, event *ledger.Event, mutate func(map[string]any)) {
 	t.Helper()
 	payload := map[string]any{}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {

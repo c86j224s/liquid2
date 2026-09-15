@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 // AccessTokenProvider는 Confluence OAuth token을 호출 시점에 공급하는 port다.
@@ -152,13 +154,13 @@ func NewClient(baseURL string, cloudID string, options ...Option) (*Client, erro
 	}
 	trimmedCloudID := strings.TrimSpace(cloudID)
 	if trimmedCloudID == "" {
-		return nil, fmt.Errorf("%w: confluence cloud id is required", app.ErrInvalidInput)
+		return nil, fmt.Errorf("%w: confluence cloud id is required", producterror.ErrInvalidInput)
 	}
 	client := &Client{
 		baseURL:          parsedBase,
 		cloudID:          trimmedCloudID,
 		httpClient:       http.DefaultClient,
-		connectorVersion: app.ConfluenceHTTPConnectorV1,
+		connectorVersion: confluencesource.ConfluenceHTTPConnectorV1,
 	}
 	for _, option := range options {
 		option(client)
@@ -184,10 +186,10 @@ func APIBaseURLForCloud(cloudID string) string {
 // 거쳐야 한다.
 func (client *Client) SearchConfluenceSources(
 	ctx context.Context,
-	req app.ConfluenceSourceSearchRequest,
-) (app.ConfluenceSourceSearchResult, error) {
+	req confluencesource.ConfluenceSourceSearchRequest,
+) (confluencesource.ConfluenceSourceSearchResult, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluenceSourceSearchResult{}, err
+		return confluencesource.ConfluenceSourceSearchResult{}, err
 	}
 	query := url.Values{}
 	query.Set("cql", confluenceCQL(req.Query, req.SpaceKey))
@@ -200,13 +202,13 @@ func (client *Client) SearchConfluenceSources(
 
 	var response confluenceSearchResponse
 	if err := client.getJSON(ctx, "/rest/api/search", query, &response); err != nil {
-		return app.ConfluenceSourceSearchResult{}, err
+		return confluencesource.ConfluenceSourceSearchResult{}, err
 	}
-	candidates := make([]app.ConfluenceSourceCandidate, 0, len(response.Results))
+	candidates := make([]confluencesource.ConfluenceSourceCandidate, 0, len(response.Results))
 	for _, item := range response.Results {
 		candidates = append(candidates, client.candidate(item, response.Links.Base))
 	}
-	return app.ConfluenceSourceSearchResult{
+	return confluencesource.ConfluenceSourceSearchResult{
 		MissionID:  req.MissionID,
 		CloudID:    client.cloudID,
 		Candidates: candidates,
@@ -219,36 +221,36 @@ func (client *Client) SearchConfluenceSources(
 // pageID 불일치는 잘못된 source가 등록되지 않도록 invalid input으로 거부한다.
 func (client *Client) ReadConfluenceSource(
 	ctx context.Context,
-	req app.ConfluenceSourceReadRequest,
-) (app.ConfluenceSourcePage, error) {
+	req confluencesource.ConfluenceSourceReadRequest,
+) (confluencesource.ConfluenceSourcePage, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluenceSourcePage{}, err
+		return confluencesource.ConfluenceSourcePage{}, err
 	}
 	pageID := strings.TrimSpace(req.PageID)
 	if pageID == "" {
-		return app.ConfluenceSourcePage{}, fmt.Errorf("%w: confluence page id is required", app.ErrInvalidInput)
+		return confluencesource.ConfluenceSourcePage{}, fmt.Errorf("%w: confluence page id is required", producterror.ErrInvalidInput)
 	}
 	query := url.Values{"body-format": []string{"storage"}}
 	var response confluencePageResponse
 	if err := client.getJSON(ctx, "/api/v2/pages/"+url.PathEscape(pageID), query, &response); err != nil {
-		return app.ConfluenceSourcePage{}, err
+		return confluencesource.ConfluenceSourcePage{}, err
 	}
 	if response.ID == "" {
 		response.ID = pageID
 	} else if response.ID != pageID {
-		return app.ConfluenceSourcePage{}, fmt.Errorf("%w: confluence page id mismatch", app.ErrInvalidInput)
+		return confluencesource.ConfluenceSourcePage{}, fmt.Errorf("%w: confluence page id mismatch", producterror.ErrInvalidInput)
 	}
 	metadata, err := json.Marshal(response.metadata(client.cloudID, client.siteURLString()))
 	if err != nil {
-		return app.ConfluenceSourcePage{}, err
+		return confluencesource.ConfluenceSourcePage{}, err
 	}
 	bodyStorage := response.Body.Storage.Value
-	return app.ConfluenceSourcePage{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ConnectorType:    app.ConfluenceConnectorType,
-			ExternalSourceID: app.ConfluenceExternalSourceID(client.cloudID, response.ID),
-			ExternalURI:      app.ConfluenceExternalURI(client.cloudID, response.ID),
+	return confluencesource.ConfluenceSourcePage{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(client.cloudID, response.ID),
+			ExternalURI:      confluencesource.ConfluenceExternalURI(client.cloudID, response.ID),
 			ExternalVersion:  confluenceExternalVersion(response.Version.Number, response.Version.CreatedAt),
 			ConnectorVersion: client.connectorVersion,
 		},
@@ -269,31 +271,31 @@ func (client *Client) ReadConfluenceSource(
 // GetConfluenceSourceVersion는 Confluence 커넥터의 읽기 경계다. 제품 상태를 바꾸지 않고 필요한 projection이나 외부 자료만 반환한다.
 func (client *Client) GetConfluenceSourceVersion(
 	ctx context.Context,
-	req app.ConfluenceSourceReadRequest,
-) (app.ConfluenceSourceVersion, error) {
+	req confluencesource.ConfluenceSourceReadRequest,
+) (confluencesource.ConfluenceSourceVersion, error) {
 	if err := client.validateCloudID(req.CloudID); err != nil {
-		return app.ConfluenceSourceVersion{}, err
+		return confluencesource.ConfluenceSourceVersion{}, err
 	}
 	pageID := strings.TrimSpace(req.PageID)
 	if pageID == "" {
-		return app.ConfluenceSourceVersion{}, fmt.Errorf("%w: confluence page id is required", app.ErrInvalidInput)
+		return confluencesource.ConfluenceSourceVersion{}, fmt.Errorf("%w: confluence page id is required", producterror.ErrInvalidInput)
 	}
 	var response confluencePageResponse
 	if err := client.getJSON(ctx, "/api/v2/pages/"+url.PathEscape(pageID), nil, &response); err != nil {
-		return app.ConfluenceSourceVersion{}, err
+		return confluencesource.ConfluenceSourceVersion{}, err
 	}
 	if response.ID == "" {
 		response.ID = pageID
 	} else if response.ID != pageID {
-		return app.ConfluenceSourceVersion{}, fmt.Errorf("%w: confluence page id mismatch", app.ErrInvalidInput)
+		return confluencesource.ConfluenceSourceVersion{}, fmt.Errorf("%w: confluence page id mismatch", producterror.ErrInvalidInput)
 	}
 	webURL := client.absoluteURL(response.Links.Base, response.Links.WebUI)
-	return app.ConfluenceSourceVersion{
-		Connector: app.ConnectorRef{
-			ConnectorID:      app.ConfluenceConnectorID,
-			ConnectorType:    app.ConfluenceConnectorType,
-			ExternalSourceID: app.ConfluenceExternalSourceID(client.cloudID, response.ID),
-			ExternalURI:      app.ConfluenceExternalURI(client.cloudID, response.ID),
+	return confluencesource.ConfluenceSourceVersion{
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(client.cloudID, response.ID),
+			ExternalURI:      confluencesource.ConfluenceExternalURI(client.cloudID, response.ID),
 			ExternalVersion:  confluenceExternalVersion(response.Version.Number, response.Version.CreatedAt),
 			ConnectorVersion: client.connectorVersion,
 		},
@@ -310,8 +312,8 @@ func (client *Client) GetConfluenceSourceVersion(
 
 func (client *Client) validateCloudID(requestCloudID string) error {
 	if trimmed := strings.TrimSpace(requestCloudID); trimmed != "" && trimmed != client.cloudID {
-		return app.NewConfluenceValidationError(
-			app.ConfluenceErrorCodeCloudMismatch,
+		return confluencesource.NewConfluenceValidationError(
+			confluencesource.ConfluenceErrorCodeCloudMismatch,
 			"Confluence cloud id가 연결된 site와 일치하지 않습니다. site 선택을 확인하세요.",
 		)
 	}

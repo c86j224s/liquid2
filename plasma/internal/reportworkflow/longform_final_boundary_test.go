@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,9 +19,9 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
-	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	"github.com/c86j224s/liquid2/plasma/internal/reportusage"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -81,7 +83,7 @@ func TestFinalGateDurableCompletionUsesUnavailableWhenProviderSessionIsUnusable(
 				Unavailable int `json:"usage_unavailable_count"`
 			}
 			for _, req := range svc.batches[0] {
-				if req.EventType == reporting.ReportRunCompletedEventType {
+				if req.EventType == reportrun.ReportRunCompletedEventType {
 					if err := json.Unmarshal(req.Payload, &completionPayload); err != nil {
 						t.Fatal(err)
 					}
@@ -116,14 +118,14 @@ func TestFinalGateUsageAndCompletionShareConditionalBatchWithoutDuplicate(t *tes
 	usageCount, completionCount := 0, 0
 	for _, req := range batch {
 		switch req.EventType {
-		case reporting.ReportAgentUsageRecordedEventType:
+		case reportusage.ReportAgentUsageRecordedEventType:
 			usageCount++
-			if req.EventID != "evt_report_usage_completion_submit_3" || req.Producer != (app.Producer{Type: "agent_session", ID: "provider-completion-fork-3"}) || req.CausationEventID != "evt_completion_submit_3" || req.CorrelationID != prefix.PendingEventID {
+			if req.EventID != "evt_report_usage_completion_submit_3" || req.Producer != (ledger.Producer{Type: "agent_session", ID: "provider-completion-fork-3"}) || req.CausationEventID != "evt_completion_submit_3" || req.CorrelationID != prefix.PendingEventID {
 				t.Fatalf("usage request=%#v", req)
 			}
-		case reporting.ReportRunCompletedEventType:
+		case reportrun.ReportRunCompletedEventType:
 			completionCount++
-			if req.EventID != "evt_report_run_completed_final_tail_pending" || req.Producer != (app.Producer{Type: "system", ID: "report-completion"}) || req.CausationEventID != out.Event.EventID || req.CorrelationID != prefix.PendingEventID {
+			if req.EventID != "evt_report_run_completed_final_tail_pending" || req.Producer != (ledger.Producer{Type: "system", ID: "report-completion"}) || req.CausationEventID != out.Event.EventID || req.CorrelationID != prefix.PendingEventID {
 				t.Fatalf("completion request=%#v", req)
 			}
 			var payload struct {
@@ -145,10 +147,10 @@ func TestFinalGateUsageAndCompletionShareConditionalBatchWithoutDuplicate(t *tes
 	}
 	usageEvents, completionEvents := 0, 0
 	for _, event := range events {
-		if event.EventType == reporting.ReportAgentUsageRecordedEventType {
+		if event.EventType == reportusage.ReportAgentUsageRecordedEventType {
 			usageEvents++
 		}
-		if event.EventType == reporting.ReportRunCompletedEventType {
+		if event.EventType == reportrun.ReportRunCompletedEventType {
 			completionEvents++
 		}
 	}
@@ -159,14 +161,14 @@ func TestFinalGateUsageAndCompletionShareConditionalBatchWithoutDuplicate(t *tes
 
 type conditionalBatchObserver struct {
 	*app.Service
-	batches [][]app.AppendEventRequest
+	batches [][]ledger.AppendRequest
 }
 
-func (store *conditionalBatchObserver) AppendEventsConditionally(ctx context.Context, missionID string, build func([]app.LedgerEvent) ([]app.AppendEventRequest, error)) ([]app.LedgerEvent, error) {
-	return store.Service.AppendEventsConditionally(ctx, missionID, func(events []app.LedgerEvent) ([]app.AppendEventRequest, error) {
+func (store *conditionalBatchObserver) AppendEventsConditionally(ctx context.Context, missionID string, build func([]ledger.Event) ([]ledger.AppendRequest, error)) ([]ledger.Event, error) {
+	return store.Service.AppendEventsConditionally(ctx, missionID, func(events []ledger.Event) ([]ledger.AppendRequest, error) {
 		reqs, err := build(events)
 		if err == nil && len(reqs) > 0 {
-			store.batches = append(store.batches, append([]app.AppendEventRequest(nil), reqs...))
+			store.batches = append(store.batches, append([]ledger.AppendRequest(nil), reqs...))
 		}
 		return reqs, err
 	})
@@ -219,7 +221,7 @@ func (executor *completionUsageExecutor) ForkSession(context.Context, string) (a
 	return agentexec.AgentSessionForkResult{SessionID: sessionID, SourceSessionID: "provider-plan"}, nil
 }
 
-func TestLegacyFinalTailH5BoundaryPreservesCanonicalOutput(t *testing.T) {
+func TestLegacyFinalTailIgnoresRetiredH5AndPreservesCanonicalOutput(t *testing.T) {
 	tests := []struct {
 		name          string
 		humanize      string
@@ -228,8 +230,8 @@ func TestLegacyFinalTailH5BoundaryPreservesCanonicalOutput(t *testing.T) {
 		wantHumanized bool
 	}{
 		{name: "disabled", humanize: reporting.FinalEditHumanizeDisabled},
-		{name: "enabled skipped", humanize: reporting.FinalEditHumanizeEnabled, h5Result: agentexec.AgentResult{Text: "NO_H5_CHANGES", SessionID: "provider-final"}, wantHumanized: true},
-		{name: "enabled failed", humanize: reporting.FinalEditHumanizeEnabled, h5Err: errors.New("h5 failed"), wantHumanized: true},
+		{name: "enabled skipped", humanize: reporting.FinalEditHumanizeEnabled, h5Result: agentexec.AgentResult{Text: "NO_H5_CHANGES", SessionID: "provider-final"}, wantHumanized: false},
+		{name: "enabled failed", humanize: reporting.FinalEditHumanizeEnabled, h5Err: errors.New("h5 failed"), wantHumanized: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,12 +251,6 @@ func TestLegacyFinalTailH5BoundaryPreservesCanonicalOutput(t *testing.T) {
 			}
 			if out.Artifact.ArtifactID != prefix.ArtifactID || out.Event.EventType != "report.artifact.created" || out.Markdown != finalMarkdown || string(out.Artifact.Content) != finalMarkdown {
 				t.Fatalf("legacy canonical output changed: artifact=%#v event=%#v markdown=%q", out.Artifact, out.Event, out.Markdown)
-			}
-			if (out.Humanized != nil) != tc.wantHumanized {
-				t.Fatalf("humanized presence=%t, want %t", out.Humanized != nil, tc.wantHumanized)
-			}
-			if out.Humanized != nil && (out.Humanized.Applied || out.Humanized.Artifact.ArtifactID != "" || out.Humanized.Markdown != "") {
-				t.Fatalf("safe H5 zero-result must not replace canonical artifact: %#v", *out.Humanized)
 			}
 		})
 	}
@@ -375,11 +371,11 @@ func seedFinalTailPrefix(t *testing.T, ctx context.Context, svc *app.Service, ta
 	t.Helper()
 	missionID, pendingID, planID := "mis_final_tail", "evt_final_tail_pending", "evt_final_tail_plan"
 	finalID, partID, sectionID := "art_final_tail", "art_final_tail_part", "art_final_tail_section"
-	producer := app.Producer{Type: "agent_session", ID: "provider-plan"}
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Final Tail"}); err != nil {
+	producer := ledger.Producer{Type: "agent_session", ID: "provider-plan"}
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Final Tail"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, req := range []app.CreateRawArtifactRequest{
+	for _, req := range []artifact.CreateRequest{
 		{ArtifactID: partID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "part.md", Producer: producer, Content: []byte("# Part\n\n이 작업은 수행되어야 한다.\n")},
 		{ArtifactID: sectionID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8", Filename: "section.md", Producer: producer, Content: []byte("# Section\n\n이 작업은 수행되어야 한다.\n")},
 	} {
@@ -392,8 +388,8 @@ func seedFinalTailPrefix(t *testing.T, ctx context.Context, svc *app.Service, ta
 		planPayload["final_edit_pipeline"] = pipeline
 	}
 	var planEvent ledger.Event
-	for _, req := range []app.AppendEventRequest{
-		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustWorkflowJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
+	for _, req := range []ledger.AppendRequest{
+		{EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustWorkflowJSON(map[string]any{"report_mode": reportexecution.ModeLongForm})},
 		{EventID: planID, MissionID: missionID, EventType: "report.plan.created", Producer: producer, Payload: mustWorkflowJSON(planPayload)},
 		{EventID: "evt_final_tail_part", MissionID: missionID, EventType: "report.part.created", Producer: producer, Payload: mustWorkflowJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": partID, "part_index": 1})},
 		{EventID: "evt_final_tail_section", MissionID: missionID, EventType: "report.section.created", Producer: producer, Payload: mustWorkflowJSON(map[string]any{"pending_event_id": pendingID, "plan_event_id": planID, "artifact_id": sectionID, "part_index": 1, "section_index": 1})},
@@ -421,5 +417,3 @@ func seedFinalTailPrefix(t *testing.T, ctx context.Context, svc *app.Service, ta
 		ReportSessionID: "provider-final", FinalTail: tail, FinalEditPipeline: pipeline, StartedAt: time.Unix(0, 0).UTC(),
 	}
 }
-
-var _ reporthumanize.Service = (*cancelAwareFinalStore)(nil)

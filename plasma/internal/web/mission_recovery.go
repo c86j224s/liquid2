@@ -2,10 +2,10 @@ package web
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/missionrecovery"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
 const missionActivityCursorSchema = "mission-activity/v1"
@@ -17,8 +17,8 @@ type missionActivityCursor struct {
 }
 
 type missionActivityResponse struct {
-	Activity app.MissionActivitySummary `json:"activity"`
-	Cursor   missionActivityCursor      `json:"cursor"`
+	Activity mission.ActivitySummary `json:"activity"`
+	Cursor   missionActivityCursor   `json:"cursor"`
 }
 
 func (server *Server) missionActivityCursor(sequence int64) missionActivityCursor {
@@ -41,7 +41,7 @@ func (server *Server) reconcileMissionRecovery(ctx context.Context, missionID st
 					if _, pending := server.runningReports.PendingEventID(missionID); pending {
 						return nil
 					}
-					_, err := reporting.RecoverMission(ctx, server.service, missionID)
+					_, err := reportrun.RecoverMission(ctx, server.service, missionID)
 					return err
 				},
 			},

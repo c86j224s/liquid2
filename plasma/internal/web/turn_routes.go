@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"net/http"
 	"strings"
 	"time"
@@ -15,9 +16,12 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request, missionID string, rest []string) {
@@ -82,10 +86,10 @@ func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request,
 	}
 	toolSessionID := newID("ses")
 
-	turnProducer := app.Producer{Type: "user", ID: "plasma-ui"}
+	turnProducer := ledger.Producer{Type: "user", ID: "plasma-ui"}
 	turnKind := "user_turn"
 	if req.Controller {
-		turnProducer = app.Producer{Type: "steering_chat", ID: "plasma-controller"}
+		turnProducer = ledger.Producer{Type: "steering_chat", ID: "plasma-controller"}
 		turnKind = "controller_steering"
 	}
 	userEventReq := conversation.BuildTurnUserAppendRequest(conversation.TurnUserEventRequest{
@@ -109,7 +113,7 @@ func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request,
 		previousSessionID = server.latestAgentSessionID(r.Context(), missionID, executorName)
 		controllerDecision = selectControllerStrategy(req.ControllerStrategy, req.Text, recall, previousSessionID != "")
 	}
-	eventReqs := []app.AppendEventRequest{userEventReq}
+	eventReqs := []ledger.AppendRequest{userEventReq}
 	if !isManualCompactCommand(req.Text) {
 		eventReqs = append(eventReqs, conversation.BuildControllerStrategySelectedAppendRequest(conversation.ControllerStrategySelectedEventRequest{
 			EventID:           newID("evt"),
@@ -124,7 +128,7 @@ func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request,
 			UserEventID:       userEventReq.EventID,
 			ToolSessionID:     toolSessionID,
 			PreviousSessionID: previousSessionID,
-			Producer:          app.Producer{Type: "steering_chat", ID: "plasma-controller"},
+			Producer:          ledger.Producer{Type: "steering_chat", ID: "plasma-controller"},
 		}))
 	}
 	eventReqs = append(eventReqs, conversation.BuildTurnAgentPendingAppendRequest(conversation.TurnAgentPendingEventRequest{
@@ -138,7 +142,7 @@ func (server *Server) handleMissionTurns(w http.ResponseWriter, r *http.Request,
 		UserEventID:       userEventReq.EventID,
 		ToolSessionID:     toolSessionID,
 		StartedAt:         time.Now().UTC().Format(time.RFC3339Nano),
-		Producer:          app.Producer{Type: "agent", ID: executorName},
+		Producer:          ledger.Producer{Type: "agent", ID: executorName},
 	}))
 	appendedEvents, err := server.service.AppendEventsIfNoActiveAgentWork(r.Context(), missionID, eventReqs)
 	if err != nil {
@@ -283,7 +287,7 @@ func (server *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request
 		}
 	}
 	previousSessionID := server.latestAgentSessionID(r.Context(), missionID, executorName)
-	appendedEvents, err := server.service.AppendEventsIfNoActiveAgentWork(r.Context(), missionID, []app.AppendEventRequest{
+	appendedEvents, err := server.service.AppendEventsIfNoActiveAgentWork(r.Context(), missionID, []ledger.AppendRequest{
 		conversation.BuildAgentSessionResetAppendRequest(conversation.AgentSessionResetEventRequest{
 			EventID:                newID("evt"),
 			MissionID:              missionID,
@@ -291,7 +295,7 @@ func (server *Server) handleAgentSessions(w http.ResponseWriter, r *http.Request
 			AgentModel:             agentModel,
 			AgentReasoningEffort:   agentReasoningEffort,
 			PreviousAgentSessionID: previousSessionID,
-			Producer:               app.Producer{Type: "user", ID: "plasma-ui"},
+			Producer:               ledger.Producer{Type: "user", ID: "plasma-ui"},
 		}),
 	})
 	if err != nil {
@@ -327,7 +331,7 @@ func (server *Server) completeAgentTurn(
 	server.liveTurns.finish(missionID, userEventID, liveTerminalStateForEvent(event))
 }
 
-func liveTerminalStateForEvent(event app.LedgerEvent) string {
+func liveTerminalStateForEvent(event ledger.Event) string {
 	if event.EventType != "turn.agent.response" {
 		return "completed"
 	}
@@ -357,7 +361,7 @@ func (server *Server) runAgentTurn(
 	mcpMode string,
 	toolSessionID string,
 	controller controllerStrategyDecision,
-) (app.LedgerEvent, error) {
+) (ledger.Event, error) {
 	executor := server.agentExecutor(executorName)
 	if executor == nil {
 		return server.service.AppendEvent(ctx, conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
@@ -372,7 +376,7 @@ func (server *Server) runAgentTurn(
 			Extra: map[string]any{
 				"strategy_id": controller.ID,
 			},
-			Producer: app.Producer{Type: "agent", ID: executorName},
+			Producer: ledger.Producer{Type: "agent", ID: executorName},
 		}))
 	}
 	if isManualCompactCommand(userText) {
@@ -385,14 +389,14 @@ func (server *Server) runAgentTurn(
 		var err error
 		profile, err = agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
 		if err != nil {
-			return app.LedgerEvent{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
+			return ledger.Event{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
 		}
 	}
 	agentModel := server.latestAgentSessionModel(ctx, missionID, executorName)
 	agentReasoningEffort := server.latestAgentReasoningEffort(ctx, missionID, executorName)
 	agentModel, agentReasoningEffort, err := resolveAgentSettings(executorName, agentModel, agentReasoningEffort, previousSessionID)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	prompt := agentPrompt(userText, recall, mcpMode, previousSessionID != "", toolSessionID, controller)
 	started := time.Now()
@@ -414,9 +418,9 @@ func (server *Server) runAgentTurn(
 	durationMS := time.Since(started).Milliseconds()
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return app.LedgerEvent{}, err
+			return ledger.Event{}, err
 		}
-		if shouldAutoCompactAfterAgentError(previousSessionID, err, result) {
+		if conversation.ShouldAutoCompactAfterError(previousSessionID, err, result) {
 			return server.retryAgentTurnAfterAutoCompaction(ctx, missionID, userText, userEventID, recall, executor, executorName, agentModel, agentReasoningEffort, mcpMode, profile, toolSessionID, previousSessionID, prompt, err, result, durationMS, controller)
 		}
 		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, durationMS, map[string]any{
@@ -428,7 +432,7 @@ func (server *Server) runAgentTurn(
 		})
 	}
 	returnedSessionID := strings.TrimSpace(result.SessionID)
-	result, err = validatedSameSessionResult(result, previousSessionID)
+	result, err = conversation.ValidateSameSessionResult(result, previousSessionID)
 	if err != nil {
 		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, durationMS, map[string]any{
 			"previous_agent_session_id": previousSessionID,
@@ -460,6 +464,14 @@ func sameSessionValidationUserText(err error) string {
 	return "에이전트가 재개 요청과 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다."
 }
 
+func cloneStringAnyMap(input map[string]any) map[string]any {
+	output := make(map[string]any, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
 func (server *Server) retryAgentTurnAfterAutoCompaction(
 	ctx context.Context,
 	missionID string,
@@ -479,9 +491,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 	initialResult AgentResult,
 	initialDurationMS int64,
 	controller controllerStrategyDecision,
-) (app.LedgerEvent, error) {
-	compactStarted := time.Now()
-	compactResult, err := executor.Run(ctx, AgentRequest{
+) (ledger.Event, error) {
+	compactRequest := AgentRequest{
 		UserText:          "compact session context",
 		Prompt:            agentCompactPrompt(recall),
 		Model:             agentModel,
@@ -495,66 +506,8 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		CapabilityProfile: profile.ID,
 		ProfileRevision:   profile.Revision,
 		Compaction:        true,
-	})
-	compactDurationMS := time.Since(compactStarted).Milliseconds()
-	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return app.LedgerEvent{}, err
-		}
-		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, compactResult, initialDurationMS+compactDurationMS, map[string]any{
-			"previous_agent_session_id": previousSessionID,
-			"tool_session_id":           toolSessionID,
-			"compaction_attempted":      true,
-			"original_error":            initialErr.Error(),
-			"original_log_excerpt":      headTailExcerpt(initialResult.Log, 2000),
-			"strategy_id":               controller.ID,
-			"agent_model":               agentModel,
-			"agent_reasoning_effort":    agentReasoningEffort,
-			"text":                      "에이전트 컨텍스트가 가득 차 자동 압축을 시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다.",
-		})
 	}
-	returnedCompactSessionID := strings.TrimSpace(compactResult.SessionID)
-	compactResult, err = validatedSameSessionResult(compactResult, previousSessionID)
-	if err != nil {
-		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, compactResult, initialDurationMS+compactDurationMS, map[string]any{
-			"previous_agent_session_id": previousSessionID,
-			"returned_agent_session_id": returnedCompactSessionID,
-			"tool_session_id":           toolSessionID,
-			"compaction_attempted":      true,
-			"original_error":            initialErr.Error(),
-			"strategy_id":               controller.ID,
-			"agent_model":               agentModel,
-			"agent_reasoning_effort":    agentReasoningEffort,
-			"text":                      "에이전트가 자동 압축 요청에서 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다.",
-		})
-	}
-	compactEvent, err := server.service.AppendEvent(ctx, conversation.BuildTurnAgentCompactedAppendRequest(conversation.TurnAgentCompactedEventRequest{
-		EventID:                newID("evt"),
-		MissionID:              missionID,
-		AgentExecutor:          executorName,
-		AgentModel:             agentModel,
-		AgentReasoningEffort:   agentReasoningEffort,
-		CapabilityProfile:      profile.ID,
-		ProfileRevision:        profile.Revision,
-		MCPMode:                mcpMode,
-		AgentSessionID:         compactResult.SessionID,
-		PreviousAgentSessionID: previousSessionID,
-		ToolSessionID:          toolSessionID,
-		Summary:                compactResult.Text,
-		DurationMS:             compactDurationMS,
-		UserEventID:            userEventID,
-		Manual:                 false,
-		Reason:                 "context_window_exhausted",
-		Usage:                  compactResult.Usage,
-		Resumed:                compactResult.Resumed,
-		Producer:               app.Producer{Type: "agent", ID: executorName},
-	}))
-	if err != nil {
-		return app.LedgerEvent{}, err
-	}
-
-	retryStarted := time.Now()
-	agentReq := AgentRequest{
+	retryRequest := AgentRequest{
 		UserText:          userText,
 		Prompt:            prompt,
 		Model:             agentModel,
@@ -568,52 +521,99 @@ func (server *Server) retryAgentTurnAfterAutoCompaction(
 		CapabilityProfile: profile.ID,
 		ProfileRevision:   profile.Revision,
 	}
-	result, err := server.runObservedAgent(ctx, missionID, userEventID, executor, agentReq)
-	retryDurationMS := time.Since(retryStarted).Milliseconds()
-	durationMS := initialDurationMS + compactDurationMS + retryDurationMS
+	outcome, err := conversation.RunAutoCompaction(ctx, conversation.AutoCompactionRequest{
+		CompactRequest:    compactRequest,
+		RetryRequest:      retryRequest,
+		PreviousSessionID: previousSessionID,
+	}, conversation.AutoCompactionCallbacks{
+		RunCompact: func(callCtx context.Context, req AgentRequest) (AgentResult, error) {
+			return executor.Run(callCtx, req)
+		},
+		RunRetry: func(callCtx context.Context, req AgentRequest) (AgentResult, error) {
+			return server.runObservedAgent(callCtx, missionID, userEventID, executor, req)
+		},
+		AppendCompacted: func(appendCtx context.Context, result AgentResult, durationMS int64) (ledger.Event, error) {
+			return server.service.AppendEvent(appendCtx, conversation.BuildTurnAgentCompactedAppendRequest(conversation.TurnAgentCompactedEventRequest{
+				EventID:                newID("evt"),
+				MissionID:              missionID,
+				AgentExecutor:          executorName,
+				AgentModel:             agentModel,
+				AgentReasoningEffort:   agentReasoningEffort,
+				CapabilityProfile:      profile.ID,
+				ProfileRevision:        profile.Revision,
+				MCPMode:                mcpMode,
+				AgentSessionID:         result.SessionID,
+				PreviousAgentSessionID: previousSessionID,
+				ToolSessionID:          toolSessionID,
+				Summary:                result.Text,
+				DurationMS:             durationMS,
+				UserEventID:            userEventID,
+				Manual:                 false,
+				Reason:                 "context_window_exhausted",
+				Usage:                  result.Usage,
+				Resumed:                result.Resumed,
+				Producer:               ledger.Producer{Type: "agent", ID: executorName},
+			}))
+		},
+	})
 	if err != nil {
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return app.LedgerEvent{}, err
+		baseExtra := map[string]any{
+			"previous_agent_session_id": previousSessionID,
+			"tool_session_id":           toolSessionID,
+			"compaction_attempted":      true,
+			"strategy_id":               controller.ID,
+			"agent_model":               agentModel,
+			"agent_reasoning_effort":    agentReasoningEffort,
 		}
-		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, retryDurationMS, map[string]any{
-			"previous_agent_session_id": previousSessionID,
-			"tool_session_id":           toolSessionID,
-			"compaction_attempted":      true,
-			"compaction_event_id":       compactEvent.EventID,
-			"original_error":            initialErr.Error(),
-			"strategy_id":               controller.ID,
-			"total_duration_ms":         durationMS,
-			"agent_usage_surface":       "turn",
-			"agent_model":               agentModel,
-			"agent_reasoning_effort":    agentReasoningEffort,
-			"text":                      "에이전트 컨텍스트가 가득 차 같은 세션을 자동 압축한 뒤 재시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다.",
-		})
+		switch outcome.Phase {
+		case "compact_call":
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				return ledger.Event{}, err
+			}
+			extra := cloneStringAnyMap(baseExtra)
+			extra["original_error"] = initialErr.Error()
+			extra["original_log_excerpt"] = headTailExcerpt(initialResult.Log, 2000)
+			extra["text"] = "에이전트 컨텍스트가 가득 차 자동 압축을 시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다."
+			return server.appendAgentError(ctx, missionID, userEventID, executorName, err, outcome.CompactResult, initialDurationMS+outcome.CompactDurationMS, extra)
+		case "compact_session":
+			extra := cloneStringAnyMap(baseExtra)
+			extra["original_error"] = initialErr.Error()
+			extra["returned_agent_session_id"] = outcome.ReturnedSessionID
+			extra["text"] = "에이전트가 자동 압축 요청에서 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다."
+			return server.appendAgentError(ctx, missionID, userEventID, executorName, err, outcome.CompactResult, initialDurationMS+outcome.CompactDurationMS, extra)
+		case "compact_append":
+			return ledger.Event{}, err
+		case "retry_call":
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				return ledger.Event{}, err
+			}
+			extra := cloneStringAnyMap(baseExtra)
+			extra["compaction_event_id"] = outcome.CompactEvent.EventID
+			extra["original_error"] = initialErr.Error()
+			extra["total_duration_ms"] = initialDurationMS + outcome.CompactDurationMS + outcome.RetryDurationMS
+			extra["agent_usage_surface"] = "turn"
+			extra["text"] = "에이전트 컨텍스트가 가득 차 같은 세션을 자동 압축한 뒤 재시도했지만 실패했습니다. 새 세션으로 자동 전환하지 않았습니다."
+			return server.appendAgentError(ctx, missionID, userEventID, executorName, err, outcome.RetryResult, outcome.RetryDurationMS, extra)
+		case "retry_session":
+			extra := cloneStringAnyMap(baseExtra)
+			extra["compaction_event_id"] = outcome.CompactEvent.EventID
+			extra["returned_agent_session_id"] = outcome.ReturnedSessionID
+			extra["total_duration_ms"] = initialDurationMS + outcome.CompactDurationMS + outcome.RetryDurationMS
+			extra["agent_usage_surface"] = "turn"
+			extra["text"] = "에이전트가 자동 압축 후 재개 요청과 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다."
+			return server.appendAgentError(ctx, missionID, userEventID, executorName, err, outcome.RetryResult, outcome.RetryDurationMS, extra)
+		default:
+			return ledger.Event{}, err
+		}
 	}
-	returnedSessionID := strings.TrimSpace(result.SessionID)
-	result, err = validatedSameSessionResult(result, previousSessionID)
-	if err != nil {
-		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, retryDurationMS, map[string]any{
-			"previous_agent_session_id": previousSessionID,
-			"returned_agent_session_id": returnedSessionID,
-			"tool_session_id":           toolSessionID,
-			"compaction_attempted":      true,
-			"compaction_event_id":       compactEvent.EventID,
-			"strategy_id":               controller.ID,
-			"total_duration_ms":         durationMS,
-			"agent_usage_surface":       "turn",
-			"agent_model":               agentModel,
-			"agent_reasoning_effort":    agentReasoningEffort,
-			"text":                      "에이전트가 자동 압축 후 재개 요청과 다른 세션 ID를 반환했습니다. 새 세션으로 자동 전환하지 않았습니다.",
-		})
-	}
-	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, profile, result, retryDurationMS, map[string]any{
+	return server.appendAgentSuccess(ctx, missionID, userEventID, executorName, mcpMode, profile, outcome.RetryResult, outcome.RetryDurationMS, map[string]any{
 		"compaction_attempted":      true,
-		"compaction_event_id":       compactEvent.EventID,
+		"compaction_event_id":       outcome.CompactEvent.EventID,
 		"previous_agent_session_id": previousSessionID,
 		"previous_agent_error":      initialErr.Error(),
 		"retry_after_compacted":     true,
 		"strategy_id":               controller.ID,
-		"total_duration_ms":         durationMS,
+		"total_duration_ms":         initialDurationMS + outcome.CompactDurationMS + outcome.RetryDurationMS,
 		"agent_model":               agentModel,
 		"agent_reasoning_effort":    agentReasoningEffort,
 	})
@@ -696,7 +696,7 @@ func (server *Server) ensureAgentProposals(
 		status["error"] = err.Error()
 		return status
 	}
-	if _, err := validatedSameSessionResult(extraction, result.SessionID); err != nil {
+	if _, err := conversation.ValidateSameSessionResult(extraction, result.SessionID); err != nil {
 		status["error"] = err.Error()
 		status["returned_agent_session_id"] = strings.TrimSpace(extraction.SessionID)
 		return status
@@ -740,7 +740,7 @@ func (server *Server) runManualAgentCompaction(
 	executorName string,
 	mcpMode string,
 	toolSessionID string,
-) (app.LedgerEvent, error) {
+) (ledger.Event, error) {
 	session := server.latestAgentSession(ctx, missionID, executorName)
 	previousSessionID := session.SessionID
 	if previousSessionID == "" {
@@ -753,7 +753,7 @@ func (server *Server) runManualAgentCompaction(
 			IncludeMCPMode: true,
 			Text:           "압축할 기존 에이전트 세션이 없습니다.",
 			UserEventID:    userEventID,
-			Producer:       app.Producer{Type: "agent", ID: executorName},
+			Producer:       ledger.Producer{Type: "agent", ID: executorName},
 		}))
 	}
 	executor := server.agentExecutor(executorName)
@@ -767,18 +767,18 @@ func (server *Server) runManualAgentCompaction(
 			IncludeMCPMode: true,
 			Text:           "에이전트 실행기가 아직 연결되지 않았습니다. 수동 압축 요청은 장부에 기록했습니다.",
 			UserEventID:    userEventID,
-			Producer:       app.Producer{Type: "agent", ID: executorName},
+			Producer:       ledger.Producer{Type: "agent", ID: executorName},
 		}))
 	}
 	profile, err := agentcapability.Resolve(session.ProfileID, session.ProfileRevision)
 	if err != nil {
-		return app.LedgerEvent{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
+		return ledger.Event{}, fmt.Errorf("%w: persisted agent capability profile is invalid: %v", app.ErrConflict, err)
 	}
 	agentModel := server.latestAgentSessionModel(ctx, missionID, executorName)
 	agentReasoningEffort := server.latestAgentReasoningEffort(ctx, missionID, executorName)
 	agentModel, agentReasoningEffort, err = resolveAgentSettings(executorName, agentModel, agentReasoningEffort, previousSessionID)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	started := time.Now()
 	result, err := executor.Run(ctx, AgentRequest{
@@ -799,7 +799,7 @@ func (server *Server) runManualAgentCompaction(
 	durationMS := time.Since(started).Milliseconds()
 	if err != nil {
 		if ctx.Err() != nil || errors.Is(err, context.Canceled) {
-			return app.LedgerEvent{}, err
+			return ledger.Event{}, err
 		}
 		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, durationMS, map[string]any{
 			"previous_agent_session_id": previousSessionID,
@@ -811,7 +811,7 @@ func (server *Server) runManualAgentCompaction(
 		})
 	}
 	returnedSessionID := strings.TrimSpace(result.SessionID)
-	result, err = validatedSameSessionResult(result, previousSessionID)
+	result, err = conversation.ValidateSameSessionResult(result, previousSessionID)
 	if err != nil {
 		return server.appendAgentError(ctx, missionID, userEventID, executorName, err, result, durationMS, map[string]any{
 			"previous_agent_session_id": previousSessionID,
@@ -841,10 +841,10 @@ func (server *Server) runManualAgentCompaction(
 		Manual:                 true,
 		Usage:                  result.Usage,
 		Resumed:                result.Resumed,
-		Producer:               app.Producer{Type: "agent", ID: executorName},
+		Producer:               ledger.Producer{Type: "agent", ID: executorName},
 	}))
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	return server.service.AppendEvent(ctx, conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
 		EventID:               newID("evt"),
@@ -875,7 +875,7 @@ func (server *Server) runManualAgentCompaction(
 		UsageSurface:           "compaction",
 		UsagePreviousSessionID: previousSessionID,
 		UsageCompaction:        true,
-		Producer:               app.Producer{Type: "agent", ID: executorName},
+		Producer:               ledger.Producer{Type: "agent", ID: executorName},
 	}))
 }
 
@@ -889,12 +889,12 @@ func (server *Server) appendAgentSuccess(
 	result AgentResult,
 	durationMS int64,
 	extra map[string]any,
-) (app.LedgerEvent, error) {
+) (ledger.Event, error) {
 	previousSessionID, _ := extra["previous_agent_session_id"].(string)
 	compactionAttempted, _ := extra["compaction_attempted"].(bool)
 	surface := "turn"
 	agentEventID := newID("evt")
-	eventReqs := []app.AppendEventRequest{conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
+	eventReqs := []ledger.AppendRequest{conversation.BuildTurnAgentResponseAppendRequest(conversation.TurnAgentResponseEventRequest{
 		EventID:                agentEventID,
 		MissionID:              missionID,
 		Kind:                   "agent_response",
@@ -917,7 +917,7 @@ func (server *Server) appendAgentSuccess(
 		UsageSurface:           surface,
 		UsagePreviousSessionID: previousSessionID,
 		UsageCompaction:        compactionAttempted,
-		Producer:               app.Producer{Type: "agent", ID: executorName},
+		Producer:               ledger.Producer{Type: "agent", ID: executorName},
 	})}
 	candidateReq := sourceCandidateEventRequestFromAgentResult(missionID, userEventID, agentEventID, executorName, mcpMode, result.Text, extra)
 	if candidateReq != nil {
@@ -925,7 +925,7 @@ func (server *Server) appendAgentSuccess(
 	}
 	agentEvents, err := server.service.AppendEvents(ctx, missionID, eventReqs)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if candidateReq != nil && len(agentEvents) > 1 {
 		server.stageSourceCandidateProposalEvent(context.Background(), agentEvents[1])
@@ -941,7 +941,7 @@ func sourceCandidateEventRequestFromAgentResult(
 	mcpMode string,
 	text string,
 	extra map[string]any,
-) *app.AppendEventRequest {
+) *ledger.AppendRequest {
 	candidates := sourceCandidatesFromText(text)
 	if len(candidates) == 0 {
 		return nil
@@ -962,7 +962,7 @@ func sourceCandidateEventRequestFromAgentResult(
 		AgentEventID: agentEventID,
 		ExecutorName: executorName,
 		MCPMode:      mcpMode,
-		Producer:     app.Producer{Type: "agent", ID: executorName},
+		Producer:     ledger.Producer{Type: "agent", ID: executorName},
 		Candidates:   appCandidates,
 	}
 	if toolSessionID, ok := extra["tool_session_id"].(string); ok && strings.TrimSpace(toolSessionID) != "" {
@@ -978,7 +978,7 @@ func sourceCandidateEventRequestFromAgentResult(
 	return &eventReq
 }
 
-func (server *Server) stageSourceCandidateProposalEvent(ctx context.Context, event app.LedgerEvent) {
+func (server *Server) stageSourceCandidateProposalEvent(ctx context.Context, event ledger.Event) {
 	var payload struct {
 		ToolSessionID string            `json:"tool_session_id"`
 		AgentExecutor string            `json:"agent_executor"`
@@ -1052,7 +1052,7 @@ func (server *Server) sourceCandidateFetcher(missionID string) sourcecandidates.
 			return sourcecandidates.SourceCandidateFetched{}, err
 		}
 		candidateKind := ""
-		if fetched.MediaKind == app.MediaKindImage {
+		if fetched.MediaKind == sourcecontract.MediaKindImage {
 			candidateKind = "media_url"
 		}
 		return sourcecandidates.SourceCandidateFetched{
@@ -1088,7 +1088,7 @@ func (server *Server) fetchConfluenceSourceCandidate(ctx context.Context, missio
 	if err != nil {
 		return sourcecandidates.SourceCandidateFetched{}, true, err
 	}
-	access, err := server.service.GetMissionConnectorAccess(ctx, strings.TrimSpace(missionID), app.ConfluenceConnectorID)
+	access, err := server.service.GetMissionConnectorAccess(ctx, strings.TrimSpace(missionID), confluencesource.ConfluenceConnectorID)
 	if err != nil {
 		return sourcecandidates.SourceCandidateFetched{}, true, err
 	}
@@ -1109,7 +1109,7 @@ func (server *Server) fetchConfluenceSourceCandidate(ctx context.Context, missio
 	if err != nil {
 		return sourcecandidates.SourceCandidateFetched{}, true, err
 	}
-	page, err := connector.ReadConfluenceSource(ctx, app.ConfluenceSourceReadRequest{CloudID: target.CloudID, PageID: target.PageID})
+	page, err := connector.ReadConfluenceSource(ctx, confluencesource.ConfluenceSourceReadRequest{CloudID: target.CloudID, PageID: target.PageID})
 	if err != nil {
 		return sourcecandidates.SourceCandidateFetched{}, true, err
 	}
@@ -1190,25 +1190,6 @@ func appFetchedMediaSource(fetched fetchedMediaSource) sourceingest.FetchedMedia
 	}
 }
 
-func validatedSameSessionResult(result AgentResult, previousSessionID string) (AgentResult, error) {
-	previousSessionID = strings.TrimSpace(previousSessionID)
-	result.SessionID = strings.TrimSpace(result.SessionID)
-	if previousSessionID == "" {
-		if result.SessionID == "" {
-			return result, fmt.Errorf("%w: agent did not return a session id", app.ErrInvalidInput)
-		}
-		return result, nil
-	}
-	if result.SessionID == "" {
-		return result, fmt.Errorf("%w: agent did not return a session id for resumed session", app.ErrInvalidInput)
-	}
-	if result.SessionID != previousSessionID {
-		result.SessionID = ""
-		return result, fmt.Errorf("%w: agent returned a different session id", app.ErrInvalidInput)
-	}
-	return result, nil
-}
-
 func isManualCompactCommand(text string) bool {
 	switch strings.ToLower(strings.TrimSpace(text)) {
 	case "/compact", "compact":
@@ -1216,14 +1197,6 @@ func isManualCompactCommand(text string) bool {
 	default:
 		return false
 	}
-}
-
-func shouldAutoCompactAfterAgentError(previousSessionID string, err error, result AgentResult) bool {
-	if strings.TrimSpace(previousSessionID) == "" || err == nil {
-		return false
-	}
-	text := strings.ToLower(err.Error() + "\n" + result.Log)
-	return strings.Contains(text, "ran out of room in the model's context window")
 }
 
 func (server *Server) latestAgentSession(ctx context.Context, missionID string, executorName string) conversation.AgentSession {
@@ -1281,11 +1254,11 @@ func (server *Server) latestOpenAgentPending(ctx context.Context, missionID stri
 	return latestOpenAgentPendingInEvents(events, "")
 }
 
-func latestOpenAgentPendingInEvents(events []app.LedgerEvent, workflowRunID string) (openAgentPending, bool) {
+func latestOpenAgentPendingInEvents(events []ledger.Event, workflowRunID string) (openAgentPending, bool) {
 	return conversation.LatestOpenAgentPending(events, workflowRunID)
 }
 
-func agentPendingForUserEventInEvents(events []app.LedgerEvent, userEventID string) (openAgentPending, bool) {
+func agentPendingForUserEventInEvents(events []ledger.Event, userEventID string) (openAgentPending, bool) {
 	return conversation.AgentPendingForUserEvent(events, userEventID)
 }
 
@@ -1321,9 +1294,9 @@ func (server *Server) appendAgentError(
 	result AgentResult,
 	durationMS int64,
 	extra map[string]any,
-) (app.LedgerEvent, error) {
+) (ledger.Event, error) {
 	if server.hasAgentTerminalEvent(ctx, missionID, userEventID) {
-		return app.LedgerEvent{}, nil
+		return ledger.Event{}, nil
 	}
 	text := "Agent failed: " + cause.Error()
 	if override, ok := extra["text"].(string); ok && strings.TrimSpace(override) != "" {
@@ -1364,7 +1337,7 @@ func (server *Server) appendAgentError(
 		UsageSurface:           surface,
 		UsagePreviousSessionID: previousSessionID,
 		UsageCompaction:        compactionAttempted || manualCompaction,
-		Producer:               app.Producer{Type: "agent", ID: executor},
+		Producer:               ledger.Producer{Type: "agent", ID: executor},
 	}))
 }
 
@@ -1394,19 +1367,19 @@ func reportAgentFailure(cause error, result AgentResult, surface string, duratio
 	return reportFailureWithPayload{cause: cause, payload: payload}
 }
 
-func (server *Server) appendAgentCanceled(ctx context.Context, missionID string, userEventID string, executor string, text string) (app.LedgerEvent, error) {
+func (server *Server) appendAgentCanceled(ctx context.Context, missionID string, userEventID string, executor string, text string) (ledger.Event, error) {
 	return server.appendAgentCanceledWithWorkflowTerminal(ctx, missionID, userEventID, executor, text, "")
 }
 
-func (server *Server) appendAgentCanceledWithWorkflowTerminal(ctx context.Context, missionID string, userEventID string, executor string, text string, workflowTerminalEventType string) (app.LedgerEvent, error) {
+func (server *Server) appendAgentCanceledWithWorkflowTerminal(ctx context.Context, missionID string, userEventID string, executor string, text string, workflowTerminalEventType string) (ledger.Event, error) {
 	events, err := server.service.ListEvents(ctx, missionID)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	pending, _ := agentPendingForUserEventInEvents(events, userEventID)
 	executor = firstNonEmpty(strings.TrimSpace(executor), pending.AgentExecutor, "codex")
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	reqs := make([]app.AppendEventRequest, 0, 2)
+	reqs := make([]ledger.AppendRequest, 0, 2)
 	if !hasAgentTerminalEventInEvents(events, userEventID) {
 		extra := map[string]any{
 			"canceled_at": now,
@@ -1425,32 +1398,32 @@ func (server *Server) appendAgentCanceledWithWorkflowTerminal(ctx context.Contex
 			Text:          text,
 			UserEventID:   userEventID,
 			Extra:         extra,
-			Producer:      app.Producer{Type: "agent", ID: executor},
+			Producer:      ledger.Producer{Type: "agent", ID: executor},
 		}))
 	}
 	if strings.TrimSpace(workflowTerminalEventType) != "" && strings.TrimSpace(pending.WorkflowRunID) != "" {
-		req, ok, err := app.BuildWorkflowRunTerminalAppendRequest(events, app.WorkflowRunTerminalEventRequest{
+		req, ok, err := app.BuildWorkflowRunTerminalAppendRequest(events, workflowstate.WorkflowRunTerminalEventRequest{
 			WorkflowRunID: pending.WorkflowRunID,
 			MissionID:     missionID,
 			EventType:     workflowTerminalEventType,
 			Reason:        text,
 		})
 		if err != nil {
-			return app.LedgerEvent{}, err
+			return ledger.Event{}, err
 		}
 		if ok {
 			reqs = append(reqs, req)
 		}
 	}
 	if len(reqs) == 0 {
-		return app.LedgerEvent{}, nil
+		return ledger.Event{}, nil
 	}
 	appended, err := server.service.AppendEvents(ctx, missionID, reqs)
 	if err != nil {
-		return app.LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if len(appended) == 0 {
-		return app.LedgerEvent{}, nil
+		return ledger.Event{}, nil
 	}
 	return appended[0], nil
 }
@@ -1463,20 +1436,20 @@ func (server *Server) hasAgentTerminalEvent(ctx context.Context, missionID strin
 	return hasAgentTerminalEventInEvents(events, userEventID)
 }
 
-func hasAgentTerminalEventInEvents(events []app.LedgerEvent, userEventID string) bool {
+func hasAgentTerminalEventInEvents(events []ledger.Event, userEventID string) bool {
 	return conversation.HasAgentTerminalEventForUser(events, userEventID)
 }
 
-func hasOpenAgentPending(events []app.LedgerEvent) bool {
+func hasOpenAgentPending(events []ledger.Event) bool {
 	return conversation.HasOpenAgentPending(events)
 }
 
-func hasOpenReportDraftPending(events []app.LedgerEvent) bool {
+func hasOpenReportDraftPending(events []ledger.Event) bool {
 	_, ok := latestOpenReportDraftPendingEvent(events)
 	return ok
 }
 
-func latestOpenReportDraftPendingEvent(events []app.LedgerEvent) (app.LedgerEvent, bool) {
+func latestOpenReportDraftPendingEvent(events []ledger.Event) (ledger.Event, bool) {
 	completed := reportexecution.CompletedPendingEventIDs(events)
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -1487,10 +1460,10 @@ func latestOpenReportDraftPendingEvent(events []app.LedgerEvent) (app.LedgerEven
 			return event, true
 		}
 	}
-	return app.LedgerEvent{}, false
+	return ledger.Event{}, false
 }
 
-func reportDraftPendingEventID(event app.LedgerEvent) string {
+func reportDraftPendingEventID(event ledger.Event) string {
 	var payload struct {
 		PendingEventID string         `json:"pending_event_id"`
 		Generation     map[string]any `json:"generation"`
@@ -1508,7 +1481,7 @@ func reportDraftPendingEventID(event app.LedgerEvent) string {
 	return strings.TrimSpace(pendingEventID)
 }
 
-func reportDraftPendingExecutor(event app.LedgerEvent) string {
+func reportDraftPendingExecutor(event ledger.Event) string {
 	var payload struct {
 		AgentExecutor string `json:"agent_executor"`
 	}
@@ -1522,7 +1495,7 @@ func reportDraftPendingExecutor(event app.LedgerEvent) string {
 	return executor
 }
 
-func reportDraftPendingMode(event app.LedgerEvent) string {
+func reportDraftPendingMode(event ledger.Event) string {
 	var payload struct {
 		ReportMode string `json:"report_mode"`
 	}

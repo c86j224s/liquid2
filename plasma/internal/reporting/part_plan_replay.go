@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // StoredPartPlanExpectation는 저장된 part plan이 어느 parent plan과 stage에 속하는지 검증하는 값이다.
@@ -28,8 +29,8 @@ type StoredPartPlanExpectation struct {
 	ReportPlanSessionID          string
 }
 
-func matchingPartPlanEvents(events []app.LedgerEvent, pendingEventID string, planEventID string, partIndex int) []app.LedgerEvent {
-	matches := []app.LedgerEvent{}
+func matchingPartPlanEvents(events []ledger.Event, pendingEventID string, planEventID string, partIndex int) []ledger.Event {
+	matches := []ledger.Event{}
 	for _, event := range events {
 		if event.EventType != PartPlanCreatedEventType {
 			continue
@@ -47,14 +48,14 @@ func matchingPartPlanEvents(events []app.LedgerEvent, pendingEventID string, pla
 }
 
 // DecodeStoredPartPlan는 저장된 part plan artifact를 재실행 가능한 plan 값으로 복원한다.
-func DecodeStoredPartPlan(event app.LedgerEvent, expected StoredPartPlanExpectation) (PartPlanResult, bool, error) {
+func DecodeStoredPartPlan(event ledger.Event, expected StoredPartPlanExpectation) (PartPlanResult, bool, error) {
 	expected = normalizeStoredPartPlanExpectation(expected)
 	if event.EventType != PartPlanCreatedEventType {
 		return PartPlanResult{}, false, nil
 	}
 	payload := map[string]any{}
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
-		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan payload is invalid", app.ErrConflict)
+		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan payload is invalid", producterror.ErrConflict)
 	}
 	if payloadString(payload, "pending_event_id") != expected.PendingEventID {
 		return PartPlanResult{}, false, nil
@@ -65,10 +66,10 @@ func DecodeStoredPartPlan(event app.LedgerEvent, expected StoredPartPlanExpectat
 	brief := strings.TrimSpace(payloadString(payload, "brief"))
 	partIndex := jsonInt(payload["part_index"])
 	if brief == "" || len([]byte(brief)) > maxPartPlanBriefBytes {
-		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan brief is invalid", app.ErrConflict)
+		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan brief is invalid", producterror.ErrConflict)
 	}
 	if partIndex < 1 || partIndex > expected.PartCount || (expected.PartIndex > 0 && partIndex != expected.PartIndex) {
-		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan index is outside the report plan", app.ErrConflict)
+		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan index is outside the report plan", producterror.ErrConflict)
 	}
 	ownerSessionID := payloadString(payload, "agent_session_id")
 	reportPlanSessionID := expected.ReportPlanSessionID
@@ -92,33 +93,33 @@ func DecodeStoredPartPlan(event app.LedgerEvent, expected StoredPartPlanExpectat
 		payloadString(payload, "session_chain_kind") != expected.SessionChainKind ||
 		payloadString(payload, "report_plan_session_id") != reportPlanSessionID ||
 		payloadString(payload, "fork_source_agent_session_id") != reportPlanSessionID {
-		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan provenance differs", app.ErrConflict)
+		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan provenance differs", producterror.ErrConflict)
 	}
 	if ownerSessionID == "" ||
 		payloadString(payload, "tool_session_id") == "" ||
 		ownerSessionID == reportPlanSessionID ||
-		event.Producer != (app.Producer{Type: "agent_session", ID: ownerSessionID}) ||
+		event.Producer != (ledger.Producer{Type: "agent_session", ID: ownerSessionID}) ||
 		payloadString(payload, "previous_agent_session_id") != ownerSessionID ||
 		payloadString(payload, "returned_agent_session_id") != ownerSessionID ||
 		payloadString(payload, "report_session_id") != ownerSessionID {
-		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan provider session is invalid", app.ErrConflict)
+		return PartPlanResult{}, false, fmt.Errorf("%w: stored Part plan provider session is invalid", producterror.ErrConflict)
 	}
 	return PartPlanResult{Event: event, Brief: brief, ProviderSessionID: ownerSessionID, PartIndex: partIndex}, true, nil
 }
 
-func validatePartPlanCreatedEvent(event app.LedgerEvent, expected StoredPartPlanExpectation) error {
+func validatePartPlanCreatedEvent(event ledger.Event, expected StoredPartPlanExpectation) error {
 	_, ok, err := DecodeStoredPartPlan(event, expected)
 	if err != nil {
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("%w: stored Part plan does not match replay expectation", app.ErrConflict)
+		return fmt.Errorf("%w: stored Part plan does not match replay expectation", producterror.ErrConflict)
 	}
 	return nil
 }
 
-func validatePartPlanCreatedRequest(request app.AppendEventRequest, expected StoredPartPlanExpectation) error {
-	return validatePartPlanCreatedEvent(app.LedgerEvent{
+func validatePartPlanCreatedRequest(request ledger.AppendRequest, expected StoredPartPlanExpectation) error {
+	return validatePartPlanCreatedEvent(ledger.Event{
 		EventID:          request.EventID,
 		MissionID:        request.MissionID,
 		EventType:        request.EventType,
@@ -173,7 +174,7 @@ func validateStoredPartPlanExpectation(value StoredPartPlanExpectation) error {
 		value.ReportSessionPolicy == "" ||
 		value.SessionChainKind == "" ||
 		value.ReportPlanSessionID == "" {
-		return fmt.Errorf("%w: stored Part plan expectation is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: stored Part plan expectation is incomplete", producterror.ErrInvalidInput)
 	}
 	return nil
 }

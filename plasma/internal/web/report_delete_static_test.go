@@ -13,7 +13,7 @@ func TestStaticReportCardExposesDeleteActionInToolMenu(t *testing.T) {
 	state := string(mustReadStatic(t, "static/plasma/state.js"))
 	for _, expected := range []string{
 		`reportActionMenu("도구 ▾"`,
-		`data-action="delete-report-artifact">보고서 삭제</button>`,
+		`data-action="delete-report-artifact">${article ? "글 삭제" : "보고서 삭제"}</button>`,
 		`class="danger"`,
 	} {
 		if !strings.Contains(cards, expected) {

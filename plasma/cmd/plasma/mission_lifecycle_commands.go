@@ -4,14 +4,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"io"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func runMissionLifecycleCommand(ctx context.Context, args []string, stdout, stderr io.Writer, targetState string) int {
 	command := "archive"
-	if targetState == app.MissionLifecycleActive {
+	if targetState == mission.LifecycleActive {
 		command = "restore"
 	}
 	fs := flag.NewFlagSet("missions "+command, flag.ContinueOnError)
@@ -34,14 +35,14 @@ func runMissionLifecycleCommand(ctx context.Context, args []string, stdout, stde
 		return 1
 	}
 	defer closeStore()
-	req := app.MissionLifecycleChangeRequest{
+	req := mission.MissionLifecycleChangeRequest{
 		EventID:   cliNewID("evt"),
 		MissionID: positionals[0],
-		Producer:  app.Producer{Type: "user", ID: "plasma-cli"},
+		Producer:  ledger.Producer{Type: "user", ID: "plasma-cli"},
 		Reason:    *reason,
 	}
-	var result app.MissionLifecycleChangeResult
-	if targetState == app.MissionLifecycleArchived {
+	var result mission.MissionLifecycleChangeResult
+	if targetState == mission.LifecycleArchived {
 		result, err = svc.ArchiveMission(ctx, req)
 	} else {
 		result, err = svc.RestoreMission(ctx, req)

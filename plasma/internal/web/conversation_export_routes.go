@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 type conversationExportRequest struct {
@@ -31,7 +32,7 @@ func (server *Server) handleMissionConversationExports(w http.ResponseWriter, r 
 		ArtifactID: newID("art"),
 		MissionID:  missionID,
 		Title:      req.Title,
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		writeAppError(w, err)

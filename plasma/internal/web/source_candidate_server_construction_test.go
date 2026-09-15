@@ -2,11 +2,13 @@ package web
 
 import (
 	"context"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -19,13 +21,13 @@ func TestNewServerDoesNotRecoverInterruptedSourceCandidate(t *testing.T) {
 	}
 	defer store.Close()
 	service := app.NewService(store)
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_server", Title: "Server"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_server", Title: "Server"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sourcecandidates.StartStaging(ctx, service, sourcecandidates.SourceCandidateStagingStartRequest{
 		EventID: "evt_server_started", MissionID: "mis_server", SessionID: "ses_server",
 		Candidate: sourcecandidates.SourceCandidateProposal{URL: "https://example.com/server", Title: "Server"},
-		Producer:  app.Producer{Type: "agent_session", ID: "agent"},
+		Producer:  ledger.Producer{Type: "agent_session", ID: "agent"},
 	}); err != nil {
 		t.Fatal(err)
 	}

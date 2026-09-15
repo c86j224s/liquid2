@@ -6,17 +6,18 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
 )
 
-func cliSourceCandidateStager(svc *app.Service) func(context.Context, app.LedgerEvent) {
-	return func(ctx context.Context, event app.LedgerEvent) {
+func cliSourceCandidateStager(svc *app.Service) func(context.Context, ledger.Event) {
+	return func(ctx context.Context, event ledger.Event) {
 		stageCLISourceCandidateProposalEvent(ctx, svc, event)
 	}
 }
 
-func stageCLISourceCandidateProposalEvent(ctx context.Context, svc *app.Service, event app.LedgerEvent) {
+func stageCLISourceCandidateProposalEvent(ctx context.Context, svc *app.Service, event ledger.Event) {
 	var payload struct {
 		ToolSessionID string `json:"tool_session_id"`
 		AgentExecutor string `json:"agent_executor"`

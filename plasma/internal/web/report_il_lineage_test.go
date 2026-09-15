@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
@@ -24,20 +27,20 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 	svc := app.NewService(store)
 	server := NewServer(svc, Options{}).(*Server)
 	mission := createMissionForTest(t, ctx, svc)
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_lineage_pending", MissionID: mission, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"pipeline_family": reportilcontract.PipelineFamily})}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_lineage_pending", MissionID: mission, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"pipeline_family": reportilcontract.PipelineFamily})}); err != nil {
 		t.Fatal(err)
 	}
 	valid := closedILBundlePayloadWeb()
-	artifactRequests := make([]app.CreateRawArtifactRequest, 0, 7)
+	artifactRequests := make([]artifactcontract.CreateRequest, 0, 7)
 	for _, item := range []struct{ id, media, filename string }{{"art_narrative", "application/json", "narrative.json"}, {"art_document", "application/json", "semantic-il.json"}, {"art_flow", "application/json", "flow-attestation.json"}, {"art_markdown", "text/markdown; charset=utf-8", "report.md"}, {"art_html", "text/html; charset=utf-8", "report.html"}, {"art_pdf", "application/pdf", "report.pdf"}, {"art_manifest", "application/json", "manifest.json"}} {
 		content := []byte(item.id)
 		sum := sha256.Sum256(content)
-		artifactRequests = append(artifactRequests, app.CreateRawArtifactRequest{ArtifactID: item.id, MissionID: mission, MediaType: item.media, Filename: item.filename, Producer: app.Producer{Type: "agent", ID: "codex"}, Content: content, ExpectedSHA256: hex.EncodeToString(sum[:])})
+		artifactRequests = append(artifactRequests, artifactcontract.CreateRequest{ArtifactID: item.id, MissionID: mission, MediaType: item.media, Filename: item.filename, Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: content, ExpectedSHA256: hex.EncodeToString(sum[:])})
 	}
 	_, terminal, created, err := svc.CreateReportILBundleIfOpen(ctx, app.ReportILBundleRequest{
 		MissionID: mission, PendingID: "evt_lineage_pending", Artifacts: artifactRequests,
-		StoreCompleted: app.AppendEventRequest{EventID: "evt_lineage_store", MissionID: mission, EventType: "report.il_store.completed", CausationEventID: "evt_lineage_pending", CorrelationID: "evt_lineage_pending", Producer: app.Producer{Type: "system", ID: "report-il"}, Payload: mustJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": "evt_lineage_pending", "pipeline_family": reportilcontract.PipelineFamily, "stage": "il_store", "status": "completed"})},
-		Terminal:       app.AppendEventRequest{EventID: "evt_lineage_final", MissionID: mission, EventType: "report.artifact.created", CausationEventID: "evt_lineage_pending", CorrelationID: "evt_lineage_pending", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(valid)},
+		StoreCompleted: ledger.AppendRequest{EventID: "evt_lineage_store", MissionID: mission, EventType: "report.il_store.completed", CausationEventID: "evt_lineage_pending", CorrelationID: "evt_lineage_pending", Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: mustJSON(map[string]any{"kind": "report_il_stage_progress", "pending_event_id": "evt_lineage_pending", "pipeline_family": reportilcontract.PipelineFamily, "stage": "il_store", "status": "completed"})},
+		Terminal:       ledger.AppendRequest{EventID: "evt_lineage_final", MissionID: mission, EventType: "report.artifact.created", CausationEventID: "evt_lineage_pending", CorrelationID: "evt_lineage_pending", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(valid)},
 	})
 	if err != nil || !created || terminal.EventID != "evt_lineage_final" {
 		t.Fatalf("atomic lineage fixture: created=%v terminal=%q err=%v", created, terminal.EventID, err)
@@ -59,7 +62,7 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 			entry["artifact_id"] = "art_pdf_reprojected"
 		}
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_lineage_reprojected", MissionID: mission, EventType: "report.artifact.reprojected", Producer: app.Producer{Type: "system", ID: "report-il-reproject"}, CausationEventID: "evt_lineage_final", CorrelationID: "evt_lineage_pending", Payload: mustJSON(repair)}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_lineage_reprojected", MissionID: mission, EventType: "report.artifact.reprojected", Producer: ledger.Producer{Type: "system", ID: "report-il-reproject"}, CausationEventID: "evt_lineage_final", CorrelationID: "evt_lineage_pending", Payload: mustJSON(repair)}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []string{"art_html_reprojected", "art_pdf_reprojected"} {
@@ -71,18 +74,18 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 	unboundRepair := closedILBundlePayloadWeb()
 	unboundRepair["source_event_id"] = "evt_missing_source"
 	unboundRepair["artifact_bundle"].(map[string]any)["artifacts"].([]any)[4].(map[string]any)["artifact_id"] = "art_html_unbound_reprojection"
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_lineage_unbound_reprojection", MissionID: mission, EventType: "report.artifact.reprojected", Producer: app.Producer{Type: "system", ID: "report-il-reproject"}, Payload: mustJSON(unboundRepair)}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_lineage_unbound_reprojection", MissionID: mission, EventType: "report.artifact.reprojected", Producer: ledger.Producer{Type: "system", ID: "report-il-reproject"}, Payload: mustJSON(unboundRepair)}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, _ := server.isReportArtifact(ctx, mission, "art_html_unbound_reprojection"); ok {
 		t.Fatal("unbound deterministic reprojection authorized")
 	}
 	badMission := createMissionForTest(t, ctx, svc)
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_bad_pending", MissionID: badMission, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"pipeline_family": reportilcontract.PipelineFamily})}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_bad_pending", MissionID: badMission, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"pipeline_family": reportilcontract.PipelineFamily})}); err != nil {
 		t.Fatal(err)
 	}
 	for _, item := range []struct{ id, media, filename string }{{"art_narrative", "application/json", "narrative.json"}, {"art_document", "application/json", "semantic-il.json"}, {"art_flow", "application/json", "flow-attestation.json"}, {"art_markdown", "text/markdown; charset=utf-8", "report.md"}, {"art_html", "text/html; charset=utf-8", "report.html"}, {"art_pdf", "application/pdf", "report.pdf"}, {"art_manifest", "application/json", "manifest.json"}} {
-		if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: item.id + "_bad", MissionID: badMission, MediaType: item.media, Filename: item.filename, Producer: app.Producer{Type: "agent", ID: "codex"}, Content: []byte(item.id + "_bad")}); err != nil {
+		if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: item.id + "_bad", MissionID: badMission, MediaType: item.media, Filename: item.filename, Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: []byte(item.id + "_bad")}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,7 +99,7 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 	}
 	bad["artifact_bundle"].(map[string]any)["artifacts"].([]any)[3].(map[string]any)["artifact_id"] = "art_markdown_bad"
 	bad["artifact_bundle"].(map[string]any)["artifacts"].([]any)[0].(map[string]any)["sha256"] = "BAD"
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_lineage_bad", MissionID: badMission, EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(bad)}); err == nil || !strings.Contains(err.Error(), "atomic bundle") {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_lineage_bad", MissionID: badMission, EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(bad)}); err == nil || !strings.Contains(err.Error(), "atomic bundle") {
 		t.Fatalf("malformed experimental success was not rejected by the atomic-only boundary: %v", err)
 	}
 	events, err := svc.ListEvents(ctx, badMission)
@@ -112,7 +115,7 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 	}
 
 	nonILMission := createMissionForTest(t, ctx, svc)
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_non_il_pending", MissionID: nonILMission, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{})}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_non_il_pending", MissionID: nonILMission, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{})}); err != nil {
 		t.Fatal(err)
 	}
 	nonIL := closedILBundlePayloadWeb()
@@ -124,10 +127,10 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 		entry["artifact_id"] = entry["artifact_id"].(string) + "_non_il"
 	}
 	nonIL["artifact_bundle"].(map[string]any)["artifacts"].([]any)[3].(map[string]any)["artifact_id"] = "art_markdown_non_il"
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_markdown_non_il", MissionID: nonILMission, MediaType: "text/markdown; charset=utf-8", Filename: "report.md", Producer: app.Producer{Type: "agent", ID: "codex"}, Content: []byte("non-IL")}); err != nil {
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_markdown_non_il", MissionID: nonILMission, MediaType: "text/markdown; charset=utf-8", Filename: "report.md", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: []byte("non-IL")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_non_il_final", MissionID: nonILMission, EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(nonIL)}); err == nil || !strings.Contains(err.Error(), "family") {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_non_il_final", MissionID: nonILMission, EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(nonIL)}); err == nil || !strings.Contains(err.Error(), "family") {
 		t.Fatalf("non-IL pending accepted an experimental terminal family: %v", err)
 	}
 	ok, _ = server.isReportArtifact(ctx, nonILMission, "art_html_non_il")
@@ -135,11 +138,11 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 		t.Fatal("non-IL pending authorized a companion")
 	}
 
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_classic", MissionID: mission, MediaType: "text/markdown; charset=utf-8", Filename: "classic.md", Producer: app.Producer{Type: "agent", ID: "codex"}, Content: []byte("classic")}); err != nil {
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_classic", MissionID: mission, MediaType: "text/markdown; charset=utf-8", Filename: "classic.md", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: []byte("classic")}); err != nil {
 		t.Fatal(err)
 	}
 	classic := map[string]any{"kind": "markdown_report_artifact", "artifact_id": "art_classic"}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_classic", MissionID: mission, EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(classic)}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_classic", MissionID: mission, EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(classic)}); err != nil {
 		t.Fatal(err)
 	}
 	ok, _ = server.isReportArtifact(ctx, mission, "art_classic")
@@ -147,11 +150,11 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 		t.Fatal("classic Markdown denied")
 	}
 
-	if _, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_unknown_family", MissionID: mission, MediaType: "text/markdown; charset=utf-8", Filename: "unknown.md", Producer: app.Producer{Type: "agent", ID: "codex"}, Content: []byte("unknown")}); err != nil {
+	if _, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_unknown_family", MissionID: mission, MediaType: "text/markdown; charset=utf-8", Filename: "unknown.md", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Content: []byte("unknown")}); err != nil {
 		t.Fatal(err)
 	}
 	unknown := map[string]any{"kind": "markdown_report_artifact", "artifact_id": "art_unknown_family", "pipeline_family": "report_unknown"}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{EventID: "evt_unknown_family", MissionID: mission, EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(unknown)}); err != nil {
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{EventID: "evt_unknown_family", MissionID: mission, EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: mustJSON(unknown)}); err != nil {
 		t.Fatal(err)
 	}
 	ok, _ = server.isReportArtifact(ctx, mission, "art_unknown_family")
@@ -163,7 +166,7 @@ func TestIsReportArtifactAuthorizesOnlyClosedILCompanions(t *testing.T) {
 func createMissionForTest(t *testing.T, ctx context.Context, svc *app.Service) string {
 	t.Helper()
 	missionID := "mis_lineage_test_" + newID("x")
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "lineage"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "lineage"}); err != nil {
 		t.Fatal(err)
 	}
 	return missionID

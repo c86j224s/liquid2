@@ -5,23 +5,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 	"testing"
 	"time"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func TestSearchConfluenceSourcesNormalizesAndDelegates(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		searchResult: ConfluenceSourceSearchResult{
-			Candidates: []ConfluenceSourceCandidate{{
-				Connector: ConnectorRef{ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123")},
+		searchResult: confluencesource.ConfluenceSourceSearchResult{
+			Candidates: []confluencesource.ConfluenceSourceCandidate{{
+				Connector: sourcecontract.ConnectorRef{ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123")},
 				Title:     " Roadmap ",
 				Summary:   " private excerpt ",
 			}},
 		},
 	}
 	svc := NewService(fakeStore{})
-	result, err := svc.SearchConfluenceSources(context.Background(), connector, ConfluenceSourceSearchRequest{
+	result, err := svc.SearchConfluenceSources(context.Background(), connector, confluencesource.ConfluenceSourceSearchRequest{
 		MissionID: " mis_1 ",
 		CloudID:   " cloud_1 ",
 		Query:     " roadmap ",
@@ -37,14 +42,14 @@ func TestSearchConfluenceSourcesNormalizesAndDelegates(t *testing.T) {
 		connector.searchRequest.SpaceKey != "ENG" {
 		t.Fatalf("request was not normalized: %#v", connector.searchRequest)
 	}
-	if connector.searchRequest.Limit != maxConfluenceSearchLimit {
+	if connector.searchRequest.Limit != confluencesource.NormalizeSearchLimit(500) {
 		t.Fatalf("expected capped limit, got %d", connector.searchRequest.Limit)
 	}
 	if result.CloudID != "cloud_1" || len(result.Candidates) != 1 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	candidate := result.Candidates[0]
-	if candidate.Connector.ConnectorID != ConfluenceConnectorID ||
+	if candidate.Connector.ConnectorID != confluencesource.ConfluenceConnectorID ||
 		candidate.Connector.ExternalURI != "" ||
 		candidate.Summary != "" ||
 		!candidate.CanSnapshot {
@@ -56,7 +61,7 @@ func TestSnapshotConfluenceSourcePersistsArtifactAndSnapshot(t *testing.T) {
 	updatedAt := time.Date(2026, 7, 2, 5, 10, 0, 0, time.UTC)
 	store := &confluenceSnapshotFakeStore{}
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			SiteURL:     "https://example.atlassian.net/wiki",
 			PageID:      "123",
@@ -87,10 +92,10 @@ func TestSnapshotConfluenceSourcePersistsArtifactAndSnapshot(t *testing.T) {
 	if connector.readRequest.CloudID != "cloud_1" || connector.readRequest.PageID != "123" {
 		t.Fatalf("unexpected read request: %#v", connector.readRequest)
 	}
-	if result.Artifact.MediaType != ConfluenceSnapshotMediaType ||
+	if result.Artifact.MediaType != confluencesource.ConfluenceSnapshotMediaType ||
 		result.Artifact.Filename != "plasma-confluence-snapshot-cloud_1_123.json" ||
 		result.Artifact.Producer.Type != "connector" ||
-		result.Artifact.Producer.ID != ConfluenceConnectorID {
+		result.Artifact.Producer.ID != confluencesource.ConfluenceConnectorID {
 		t.Fatalf("unexpected artifact: %#v", result.Artifact)
 	}
 	content := string(result.Artifact.Content)
@@ -105,8 +110,8 @@ func TestSnapshotConfluenceSourcePersistsArtifactAndSnapshot(t *testing.T) {
 			t.Fatalf("artifact content missing %q: %s", want, content)
 		}
 	}
-	if result.Snapshot.Connector.ExternalSourceID != ConfluenceExternalSourceID("cloud_1", "123") ||
-		result.Snapshot.Connector.ConnectorVersion != ConfluenceHTTPConnectorV1 ||
+	if result.Snapshot.Connector.ExternalSourceID != confluencesource.ConfluenceExternalSourceID("cloud_1", "123") ||
+		result.Snapshot.Connector.ConnectorVersion != confluencesource.ConfluenceHTTPConnectorV1 ||
 		result.Snapshot.ExternalUpdatedAt != updatedAt {
 		t.Fatalf("unexpected snapshot connector metadata: %#v", result.Snapshot)
 	}
@@ -123,7 +128,7 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 	updatedAt := time.Date(2026, 7, 2, 5, 10, 0, 0, time.UTC)
 	store := &confluenceSnapshotFakeStore{}
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Title:       "Confluence roadmap",
@@ -146,7 +151,7 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 			Reason:          " support claim ",
 		},
 		EventID:                        "evt_1",
-		Producer:                       Producer{Type: "user", ID: "plasma-ui"},
+		Producer:                       ledger.Producer{Type: "user", ID: "plasma-ui"},
 		SourceCandidateProposalEventID: "evt_candidate",
 		SourceCandidateURL:             "https://EXAMPLE.com/doc#fragment",
 	})
@@ -164,19 +169,19 @@ func TestSnapshotConfluenceSourceWithEventBuildsSourceSnapshottedEvent(t *testin
 		"artifact_ids":                       []any{"art_1"},
 		"reason":                             "support claim",
 		"connector": map[string]any{
-			"connector_id":       ConfluenceConnectorID,
-			"connector_type":     ConfluenceConnectorType,
-			"external_source_id": ConfluenceExternalSourceID("cloud_1", "123"),
-			"external_uri":       ConfluenceExternalURI("cloud_1", "123"),
+			"connector_id":       confluencesource.ConfluenceConnectorID,
+			"connector_type":     confluencesource.ConfluenceConnectorType,
+			"external_source_id": confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
+			"external_uri":       confluencesource.ConfluenceExternalURI("cloud_1", "123"),
 			"external_version":   "",
-			"connector_version":  ConfluenceHTTPConnectorV1,
+			"connector_version":  confluencesource.ConfluenceHTTPConnectorV1,
 		},
 	})
 }
 
 func TestSnapshotConfluenceSourceWithEventWithoutCandidateProvenancePreservesLegacyPayload(t *testing.T) {
-	connector := &fakeConfluenceConnector{page: ConfluenceSourcePage{CloudID: "cloud_1", PageID: "123", Title: "Roadmap", Version: 7, BodyStorage: "<p>Body</p>", PlainText: "Body"}}
-	result, err := NewService(&confluenceSnapshotFakeStore{}).SnapshotConfluenceSourceWithEvent(context.Background(), connector, SnapshotConfluenceSourceWithEventRequest{Snapshot: SnapshotConfluenceSourceRequest{MissionID: "mis_1", ArtifactID: "art_1", SnapshotID: "src_1", CloudID: "cloud_1", PageID: "123", ExpectedVersion: 7}, EventID: "evt_1", Producer: Producer{Type: "user", ID: "plasma-ui"}})
+	connector := &fakeConfluenceConnector{page: confluencesource.ConfluenceSourcePage{CloudID: "cloud_1", PageID: "123", Title: "Roadmap", Version: 7, BodyStorage: "<p>Body</p>", PlainText: "Body"}}
+	result, err := NewService(&confluenceSnapshotFakeStore{}).SnapshotConfluenceSourceWithEvent(context.Background(), connector, SnapshotConfluenceSourceWithEventRequest{Snapshot: SnapshotConfluenceSourceRequest{MissionID: "mis_1", ArtifactID: "art_1", SnapshotID: "src_1", CloudID: "cloud_1", PageID: "123", ExpectedVersion: 7}, EventID: "evt_1", Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +199,7 @@ func TestSnapshotConfluenceSourceWithEventWithoutCandidateProvenancePreservesLeg
 
 func TestSnapshotConfluenceSourceRejectsVersionDrift(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Version:     8,
@@ -224,7 +229,7 @@ func TestSnapshotConfluenceSourceRejectsUnsafeWebURL(t *testing.T) {
 	} {
 		t.Run(webURL, func(t *testing.T) {
 			connector := &fakeConfluenceConnector{
-				page: ConfluenceSourcePage{
+				page: confluencesource.ConfluenceSourcePage{
 					CloudID:     "cloud_1",
 					SiteURL:     "https://example.atlassian.net/wiki",
 					PageID:      "123",
@@ -256,16 +261,16 @@ func TestSearchConfluenceSourcesSuppressesUnsafeSourceURI(t *testing.T) {
 	} {
 		t.Run(sourceURI, func(t *testing.T) {
 			connector := &fakeConfluenceConnector{
-				searchResult: ConfluenceSourceSearchResult{
-					Candidates: []ConfluenceSourceCandidate{{
-						Connector: ConnectorRef{ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123")},
+				searchResult: confluencesource.ConfluenceSourceSearchResult{
+					Candidates: []confluencesource.ConfluenceSourceCandidate{{
+						Connector: sourcecontract.ConnectorRef{ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123")},
 						SiteURL:   "https://example.atlassian.net/wiki",
 						SourceURI: sourceURI,
 						Title:     "Roadmap",
 					}},
 				},
 			}
-			result, err := NewService(fakeStore{}).SearchConfluenceSources(context.Background(), connector, ConfluenceSourceSearchRequest{
+			result, err := NewService(fakeStore{}).SearchConfluenceSources(context.Background(), connector, confluencesource.ConfluenceSourceSearchRequest{
 				MissionID: "mis_1",
 				CloudID:   "cloud_1",
 			})
@@ -281,7 +286,7 @@ func TestSearchConfluenceSourcesSuppressesUnsafeSourceURI(t *testing.T) {
 
 func TestSnapshotConfluenceSourceRejectsMissingExpectedVersion(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Title:       "Roadmap",
@@ -308,7 +313,7 @@ func TestSnapshotConfluenceSourceRejectsMissingExpectedVersion(t *testing.T) {
 
 func TestSnapshotConfluenceSourceRejectsMissingPlainText(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Version:     7,
@@ -330,7 +335,7 @@ func TestSnapshotConfluenceSourceRejectsMissingPlainText(t *testing.T) {
 
 func TestSnapshotConfluenceSourceRejectsOversizedBody(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Version:     7,
@@ -355,7 +360,7 @@ func TestSnapshotConfluenceSourceRejectsOversizedBody(t *testing.T) {
 func TestPreviewConfluenceSourceDoesNotCreateSourceAndOffersRanges(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{}
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Title:       "Large page",
@@ -383,7 +388,7 @@ func TestPreviewConfluenceSourceDoesNotCreateSourceAndOffersRanges(t *testing.T)
 		t.Fatalf("preview should not create durable source data: %#v %#v %#v", store.artifacts, store.snapshots, store.events)
 	}
 	for _, option := range result.RangeOptions {
-		body, err := confluenceRangeBody(connector.page.PlainText, ConfluenceRangeSelection{
+		body, err := confluencesource.RangeBody(connector.page.PlainText, confluencesource.ConfluenceRangeSelection{
 			ContentID: option.ContentID,
 			Start:     option.Start,
 			End:       option.End,
@@ -399,7 +404,7 @@ func TestPreviewConfluenceSourceDoesNotCreateSourceAndOffersRanges(t *testing.T)
 
 func TestSnapshotConfluenceSourceRangeStoresPreciseLocator(t *testing.T) {
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Title:       "Large page",
@@ -418,7 +423,7 @@ func TestSnapshotConfluenceSourceRangeStoresPreciseLocator(t *testing.T) {
 		PageID:          "123",
 		ExpectedVersion: 7,
 		MaxBodyBytes:    12,
-		Range:           ConfluenceRangeSelection{ContentID: "plain_text", Start: 6, End: 10},
+		Range:           confluencesource.ConfluenceRangeSelection{ContentID: "plain_text", Start: 6, End: 10},
 	})
 	if err != nil {
 		t.Fatalf("SnapshotConfluenceSource range returned error: %v", err)
@@ -443,14 +448,14 @@ func TestSnapshotConfluenceSourceRangeStoresPreciseLocator(t *testing.T) {
 func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 	updatedAt := time.Date(2026, 7, 3, 2, 0, 0, 0, time.UTC)
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_1": {
 				SnapshotID: "src_1",
 				MissionID:  "mis_1",
-				Connector: ConnectorRef{
-					ConnectorID:      ConfluenceConnectorID,
-					ConnectorType:    ConfluenceConnectorType,
-					ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123"),
+				Connector: sourcecontract.ConnectorRef{
+					ConnectorID:      confluencesource.ConfluenceConnectorID,
+					ConnectorType:    confluencesource.ConfluenceConnectorType,
+					ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
 					ExternalVersion:  "7",
 				},
 				Locators: json.RawMessage(`[{"cloud_id":"cloud_1","page_id":"123"}]`),
@@ -458,7 +463,7 @@ func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 		},
 	}
 	connector := &fakeConfluenceConnector{
-		version: ConfluenceSourceVersion{
+		version: confluencesource.ConfluenceSourceVersion{
 			CloudID:   "cloud_1",
 			PageID:    "123",
 			Title:     "Roadmap",
@@ -471,7 +476,7 @@ func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 		MissionID:  "mis_1",
 		SnapshotID: "src_1",
 		EventID:    "evt_update_check",
-		Producer:   Producer{Type: "user", ID: "plasma-cli"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-cli"},
 	})
 	if err != nil {
 		t.Fatalf("CheckConfluenceSourceUpdateWithEvent returned error: %v", err)
@@ -488,7 +493,7 @@ func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 			t.Fatalf("event payload leaked %q: %s", leaked, payload)
 		}
 	}
-	sources, err := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{MissionID: "mis_1"})
+	sources, err := svc.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{MissionID: "mis_1"})
 	if err != nil {
 		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", err)
 	}
@@ -503,19 +508,19 @@ func TestCheckConfluenceSourceUpdateRecordsSafeEventPayload(t *testing.T) {
 
 func TestCheckConfluenceSourceUpdateRecordsNotFoundWithoutMarkingSnapshotDeleted(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_1": confluenceTestSnapshot("src_1", "mis_1", "cloud_1", "123", "7"),
 		},
 	}
 	connector := &fakeConfluenceConnector{
-		versionErr: NewConfluenceHTTPError(404, "", "get_page_version"),
+		versionErr: confluencesource.NewConfluenceHTTPError(404, "", "get_page_version"),
 	}
 	svc := NewService(store)
 	_, err := svc.CheckConfluenceSourceUpdateWithEvent(context.Background(), connector, CheckConfluenceSourceUpdateRequest{
 		MissionID:  "mis_1",
 		SnapshotID: "src_1",
 		EventID:    "evt_update_check_failed",
-		Producer:   Producer{Type: "user", ID: "plasma-cli"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-cli"},
 	})
 	if err == nil {
 		t.Fatal("expected Confluence not-found error")
@@ -529,7 +534,7 @@ func TestCheckConfluenceSourceUpdateRecordsNotFoundWithoutMarkingSnapshotDeleted
 			t.Fatalf("failure event leaked or invented %q: %s", forbidden, payload)
 		}
 	}
-	sources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{MissionID: "mis_1"})
+	sources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{MissionID: "mis_1"})
 	if listErr != nil {
 		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", listErr)
 	}
@@ -537,22 +542,22 @@ func TestCheckConfluenceSourceUpdateRecordsNotFoundWithoutMarkingSnapshotDeleted
 		t.Fatalf("expected failed Confluence update state, got %#v", sources)
 	}
 	state := sources[0].State
-	if state.Removed || state.State != SourceStateActive {
+	if state.Removed || state.State != sourcecontract.StateActive {
 		t.Fatalf("not-found observation must not remove the snapshot: %#v", state)
 	}
 	if state.ConfluenceUpdate.Status != ConfluenceUpdateStatusFailed ||
-		state.ConfluenceUpdate.ErrorCategory != ConfluenceErrorCategoryNotFound ||
-		state.ConfluenceUpdate.ErrorCode != ConfluenceErrorCodeNotFound {
+		state.ConfluenceUpdate.ErrorCategory != confluencesource.ConfluenceErrorCategoryNotFound ||
+		state.ConfluenceUpdate.ErrorCode != confluencesource.ConfluenceErrorCodeNotFound {
 		t.Fatalf("unexpected failed Confluence update state: %#v", state.ConfluenceUpdate)
 	}
-	store.events = append(store.events, LedgerEvent{
+	store.events = append(store.events, ledger.Event{
 		EventID:   "evt_removed_after_check",
 		MissionID: "mis_1",
 		EventType: SourceRemovedEvent,
 		Payload:   json.RawMessage(`{"snapshot_id":"src_1","reason":"user cleanup"}`),
 		CreatedAt: time.Now().UTC(),
 	})
-	removedSources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{
+	removedSources, listErr := svc.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{
 		MissionID:      "mis_1",
 		IncludeRemoved: true,
 	})
@@ -571,7 +576,7 @@ func TestCheckConfluenceSourceUpdateDoesNotRecordLocalValidationFailure(t *testi
 		MissionID:  "mis_1",
 		SnapshotID: "src_missing",
 		EventID:    "evt_update_check_failed",
-		Producer:   Producer{Type: "user", ID: "plasma-cli"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-cli"},
 	})
 	if err == nil {
 		t.Fatal("expected missing snapshot error")
@@ -595,10 +600,10 @@ func TestConfluenceUpdateFailureRejectsUnknownPublicErrorCode(t *testing.T) {
 
 func TestConfluenceUpdatePathsRejectRemovedSnapshot(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_1": confluenceTestSnapshot("src_1", "mis_1", "cloud_1", "123", "7"),
 		},
-		events: []LedgerEvent{{
+		events: []ledger.Event{{
 			EventID:   "evt_removed",
 			MissionID: "mis_1",
 			EventType: SourceRemovedEvent,
@@ -615,11 +620,11 @@ func TestConfluenceUpdatePathsRejectRemovedSnapshot(t *testing.T) {
 
 func TestConfluenceUpdatePathsRejectSupersededSnapshot(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": confluenceTestSnapshot("src_old", "mis_1", "cloud_1", "123", "7"),
 			"src_new": confluenceTestSnapshot("src_new", "mis_1", "cloud_1", "123", "8"),
 		},
-		events: []LedgerEvent{{
+		events: []ledger.Event{{
 			EventID:   "evt_updated",
 			MissionID: "mis_1",
 			EventType: ConfluenceUpdatedEvent,
@@ -636,11 +641,11 @@ func TestConfluenceUpdatePathsRejectSupersededSnapshot(t *testing.T) {
 
 func TestConfluenceUpdatePathsRejectRestoredSupersededSnapshot(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": confluenceTestSnapshot("src_old", "mis_1", "cloud_1", "123", "7"),
 			"src_new": confluenceTestSnapshot("src_new", "mis_1", "cloud_1", "123", "8"),
 		},
-		events: []LedgerEvent{
+		events: []ledger.Event{
 			{
 				EventID:   "evt_updated",
 				MissionID: "mis_1",
@@ -671,11 +676,11 @@ func TestConfluenceUpdatePathsRejectRestoredSupersededSnapshot(t *testing.T) {
 
 func TestConfluenceUpdatePathsKeepOldSupersededWhenNewerSnapshotRemoved(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": confluenceTestSnapshot("src_old", "mis_1", "cloud_1", "123", "7"),
 			"src_new": confluenceTestSnapshot("src_new", "mis_1", "cloud_1", "123", "8"),
 		},
-		events: []LedgerEvent{
+		events: []ledger.Event{
 			{
 				EventID:   "evt_updated",
 				MissionID: "mis_1",
@@ -705,11 +710,11 @@ func TestConfluenceUpdatePathsKeepOldSupersededWhenNewerSnapshotRemoved(t *testi
 
 func TestListSourceSnapshotsHidesSupersededByDefault(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": confluenceTestSnapshot("src_old", "mis_1", "cloud_1", "123", "7"),
 			"src_new": confluenceTestSnapshot("src_new", "mis_1", "cloud_1", "123", "8"),
 		},
-		events: []LedgerEvent{{
+		events: []ledger.Event{{
 			EventID:   "evt_updated",
 			MissionID: "mis_1",
 			EventType: ConfluenceUpdatedEvent,
@@ -717,7 +722,7 @@ func TestListSourceSnapshotsHidesSupersededByDefault(t *testing.T) {
 		}},
 	}
 	svc := NewService(store)
-	defaultSources, err := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{MissionID: "mis_1"})
+	defaultSources, err := svc.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{MissionID: "mis_1"})
 	if err != nil {
 		t.Fatalf("ListSourceSnapshotsWithState returned error: %v", err)
 	}
@@ -728,7 +733,7 @@ func TestListSourceSnapshotsHidesSupersededByDefault(t *testing.T) {
 	if !defaultIDs["src_new"] {
 		t.Fatalf("default source list should include current snapshot: %#v", defaultSources)
 	}
-	auditSources, err := svc.ListSourceSnapshotsWithState(context.Background(), ListSourceSnapshotsRequest{
+	auditSources, err := svc.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{
 		MissionID:         "mis_1",
 		IncludeSuperseded: true,
 	})
@@ -743,7 +748,7 @@ func TestListSourceSnapshotsHidesSupersededByDefault(t *testing.T) {
 
 func TestConfluenceUpdatePathsRejectOlderActiveSnapshotForSameIdentity(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": confluenceTestSnapshot("src_old", "mis_1", "cloud_1", "123", "7"),
 			"src_new": confluenceTestSnapshot("src_new", "mis_1", "cloud_1", "123", "8"),
 		},
@@ -758,14 +763,14 @@ func TestConfluenceUpdatePathsRejectOlderActiveSnapshotForSameIdentity(t *testin
 
 func TestUpdateConfluenceSourceCreatesNewSnapshotAndSupersedesOld(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": {
 				SnapshotID: "src_old",
 				MissionID:  "mis_1",
-				Connector: ConnectorRef{
-					ConnectorID:      ConfluenceConnectorID,
-					ConnectorType:    ConfluenceConnectorType,
-					ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123"),
+				Connector: sourcecontract.ConnectorRef{
+					ConnectorID:      confluencesource.ConfluenceConnectorID,
+					ConnectorType:    confluencesource.ConfluenceConnectorType,
+					ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
 					ExternalVersion:  "7",
 				},
 				Locators: json.RawMessage(`[{"cloud_id":"cloud_1","page_id":"123"}]`),
@@ -773,7 +778,7 @@ func TestUpdateConfluenceSourceCreatesNewSnapshotAndSupersedesOld(t *testing.T) 
 		},
 	}
 	connector := &fakeConfluenceConnector{
-		page: ConfluenceSourcePage{
+		page: confluencesource.ConfluenceSourcePage{
 			CloudID:     "cloud_1",
 			PageID:      "123",
 			Title:       "Roadmap",
@@ -791,7 +796,7 @@ func TestUpdateConfluenceSourceCreatesNewSnapshotAndSupersedesOld(t *testing.T) 
 		ExpectedVersion:    8,
 		SnapshotEventID:    "evt_snapshot",
 		UpdateEventID:      "evt_updated",
-		Producer:           Producer{Type: "user", ID: "plasma-cli"},
+		Producer:           ledger.Producer{Type: "user", ID: "plasma-cli"},
 	})
 	if err != nil {
 		t.Fatalf("UpdateConfluenceSourceWithEvent returned error: %v", err)
@@ -813,14 +818,14 @@ func TestUpdateConfluenceSourceCreatesNewSnapshotAndSupersedesOld(t *testing.T) 
 
 func TestUpdateConfluenceSourceRejectsMissingExpectedVersion(t *testing.T) {
 	store := &confluenceSnapshotFakeStore{
-		snapshots: map[string]SourceSnapshot{
+		snapshots: map[string]sourcecontract.Snapshot{
 			"src_old": {
 				SnapshotID: "src_old",
 				MissionID:  "mis_1",
-				Connector: ConnectorRef{
-					ConnectorID:      ConfluenceConnectorID,
-					ConnectorType:    ConfluenceConnectorType,
-					ExternalSourceID: ConfluenceExternalSourceID("cloud_1", "123"),
+				Connector: sourcecontract.ConnectorRef{
+					ConnectorID:      confluencesource.ConfluenceConnectorID,
+					ConnectorType:    confluencesource.ConfluenceConnectorType,
+					ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
 					ExternalVersion:  "7",
 				},
 				Locators: json.RawMessage(`[{"cloud_id":"cloud_1","page_id":"123"}]`),
@@ -875,21 +880,21 @@ func assertConfluenceUpdatePathRejected(t *testing.T, svc *Service, connector *f
 	}
 }
 
-func confluenceTestSnapshot(snapshotID string, missionID string, cloudID string, pageID string, version string) SourceSnapshot {
-	return SourceSnapshot{
+func confluenceTestSnapshot(snapshotID string, missionID string, cloudID string, pageID string, version string) sourcecontract.Snapshot {
+	return sourcecontract.Snapshot{
 		SnapshotID: snapshotID,
 		MissionID:  missionID,
-		Connector: ConnectorRef{
-			ConnectorID:      ConfluenceConnectorID,
-			ConnectorType:    ConfluenceConnectorType,
-			ExternalSourceID: ConfluenceExternalSourceID(cloudID, pageID),
+		Connector: sourcecontract.ConnectorRef{
+			ConnectorID:      confluencesource.ConfluenceConnectorID,
+			ConnectorType:    confluencesource.ConfluenceConnectorType,
+			ExternalSourceID: confluencesource.ConfluenceExternalSourceID(cloudID, pageID),
 			ExternalVersion:  version,
 		},
 		Locators: json.RawMessage(fmt.Sprintf(`[{"cloud_id":%q,"page_id":%q}]`, cloudID, pageID)),
 	}
 }
 
-func sourceSnapshotIDs(snapshots []SourceSnapshot) map[string]bool {
+func sourceSnapshotIDs(snapshots []sourcecontract.Snapshot) map[string]bool {
 	ids := map[string]bool{}
 	for _, snapshot := range snapshots {
 		ids[snapshot.SnapshotID] = true
@@ -898,88 +903,88 @@ func sourceSnapshotIDs(snapshots []SourceSnapshot) map[string]bool {
 }
 
 type fakeConfluenceConnector struct {
-	searchRequest ConfluenceSourceSearchRequest
-	searchResult  ConfluenceSourceSearchResult
+	searchRequest confluencesource.ConfluenceSourceSearchRequest
+	searchResult  confluencesource.ConfluenceSourceSearchResult
 	searchErr     error
-	readRequest   ConfluenceSourceReadRequest
-	page          ConfluenceSourcePage
+	readRequest   confluencesource.ConfluenceSourceReadRequest
+	page          confluencesource.ConfluenceSourcePage
 	readErr       error
-	version       ConfluenceSourceVersion
+	version       confluencesource.ConfluenceSourceVersion
 	versionErr    error
 }
 
 func (f *fakeConfluenceConnector) SearchConfluenceSources(
 	_ context.Context,
-	req ConfluenceSourceSearchRequest,
-) (ConfluenceSourceSearchResult, error) {
+	req confluencesource.ConfluenceSourceSearchRequest,
+) (confluencesource.ConfluenceSourceSearchResult, error) {
 	f.searchRequest = req
 	if f.searchErr != nil {
-		return ConfluenceSourceSearchResult{}, f.searchErr
+		return confluencesource.ConfluenceSourceSearchResult{}, f.searchErr
 	}
 	return f.searchResult, nil
 }
 
 func (f *fakeConfluenceConnector) ReadConfluenceSource(
 	_ context.Context,
-	req ConfluenceSourceReadRequest,
-) (ConfluenceSourcePage, error) {
+	req confluencesource.ConfluenceSourceReadRequest,
+) (confluencesource.ConfluenceSourcePage, error) {
 	f.readRequest = req
 	if f.readErr != nil {
-		return ConfluenceSourcePage{}, f.readErr
+		return confluencesource.ConfluenceSourcePage{}, f.readErr
 	}
 	return f.page, nil
 }
 
 func (f *fakeConfluenceConnector) GetConfluenceSourceVersion(
 	_ context.Context,
-	req ConfluenceSourceReadRequest,
-) (ConfluenceSourceVersion, error) {
+	req confluencesource.ConfluenceSourceReadRequest,
+) (confluencesource.ConfluenceSourceVersion, error) {
 	f.readRequest = req
 	if f.versionErr != nil {
-		return ConfluenceSourceVersion{}, f.versionErr
+		return confluencesource.ConfluenceSourceVersion{}, f.versionErr
 	}
 	return f.version, nil
 }
 
 type confluenceSnapshotFakeStore struct {
 	fakeStore
-	artifacts map[string]RawArtifact
-	snapshots map[string]SourceSnapshot
-	events    []LedgerEvent
+	artifacts map[string]artifactcontract.Raw
+	snapshots map[string]sourcecontract.Snapshot
+	events    []ledger.Event
 }
 
-func (f *confluenceSnapshotFakeStore) CreateRawArtifact(_ context.Context, artifact RawArtifact) error {
+func (f *confluenceSnapshotFakeStore) CreateRawArtifact(_ context.Context, artifact artifactcontract.Raw) error {
 	if f.artifacts == nil {
-		f.artifacts = map[string]RawArtifact{}
+		f.artifacts = map[string]artifactcontract.Raw{}
 	}
 	f.artifacts[artifact.ArtifactID] = artifact
 	return nil
 }
 
-func (f *confluenceSnapshotFakeStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (f *confluenceSnapshotFakeStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if artifact, ok := f.artifacts[artifactID]; ok {
 		return artifact, nil
 	}
-	return RawArtifact{}, errors.New("missing artifact")
+	return artifactcontract.Raw{}, errors.New("missing artifact")
 }
 
-func (f *confluenceSnapshotFakeStore) CreateSourceSnapshot(_ context.Context, snapshot SourceSnapshot) error {
+func (f *confluenceSnapshotFakeStore) CreateSourceSnapshot(_ context.Context, snapshot sourcecontract.Snapshot) error {
 	if f.snapshots == nil {
-		f.snapshots = map[string]SourceSnapshot{}
+		f.snapshots = map[string]sourcecontract.Snapshot{}
 	}
 	f.snapshots[snapshot.SnapshotID] = snapshot
 	return nil
 }
 
-func (f *confluenceSnapshotFakeStore) GetSourceSnapshot(_ context.Context, snapshotID string) (SourceSnapshot, error) {
+func (f *confluenceSnapshotFakeStore) GetSourceSnapshot(_ context.Context, snapshotID string) (sourcecontract.Snapshot, error) {
 	if snapshot, ok := f.snapshots[snapshotID]; ok {
 		return snapshot, nil
 	}
-	return SourceSnapshot{}, errors.New("missing snapshot")
+	return sourcecontract.Snapshot{}, errors.New("missing snapshot")
 }
 
-func (f *confluenceSnapshotFakeStore) ListSourceSnapshots(_ context.Context, missionID string) ([]SourceSnapshot, error) {
-	var snapshots []SourceSnapshot
+func (f *confluenceSnapshotFakeStore) ListSourceSnapshots(_ context.Context, missionID string) ([]sourcecontract.Snapshot, error) {
+	var snapshots []sourcecontract.Snapshot
 	for _, snapshot := range f.snapshots {
 		if snapshot.MissionID == missionID {
 			snapshots = append(snapshots, snapshot)
@@ -990,10 +995,10 @@ func (f *confluenceSnapshotFakeStore) ListSourceSnapshots(_ context.Context, mis
 
 func (f *confluenceSnapshotFakeStore) CommitAtomicWrite(_ context.Context, write AtomicWrite) (AtomicWriteResult, error) {
 	if f.artifacts == nil {
-		f.artifacts = map[string]RawArtifact{}
+		f.artifacts = map[string]artifactcontract.Raw{}
 	}
 	if f.snapshots == nil {
-		f.snapshots = map[string]SourceSnapshot{}
+		f.snapshots = map[string]sourcecontract.Snapshot{}
 	}
 	for i, event := range write.Events {
 		event.Sequence = int64(len(f.events) + 1)
@@ -1009,6 +1014,6 @@ func (f *confluenceSnapshotFakeStore) CommitAtomicWrite(_ context.Context, write
 	return AtomicWriteResult{Events: write.Events}, nil
 }
 
-func (f *confluenceSnapshotFakeStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
-	return append([]LedgerEvent(nil), f.events...), nil
+func (f *confluenceSnapshotFakeStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
+	return append([]ledger.Event(nil), f.events...), nil
 }

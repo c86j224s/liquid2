@@ -27,10 +27,14 @@ type ProductConfig struct {
 	MissionObjective  string
 	Title             string
 	Direction         string
+	ArticleContract   string
+	Model             string
+	ReasoningEffort   string
+	ExecutionStrategy string
 	TargetLanguage    string
 	AuthoringMode     string
 	ValidationProfile string
-	ChromePath        string
+	PDFRenderer       PDFRenderer
 	NewID             func(string) string
 	Sources           SourceReader
 	Provider          Provider
@@ -161,6 +165,14 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 	}
 	config.AuthoringMode = normalizeAuthoringMode(config.AuthoringMode)
 	config.ValidationProfile = normalizeValidationProfile(config.ValidationProfile)
+	config.Model = strings.TrimSpace(config.Model)
+	if config.Model == "" {
+		config.Model = "gpt-5.6-luna"
+	}
+	config.ReasoningEffort = strings.TrimSpace(config.ReasoningEffort)
+	if config.ReasoningEffort == "" {
+		config.ReasoningEffort = "xhigh"
+	}
 	config.TargetLanguage = strings.TrimSpace(config.TargetLanguage)
 	if config.TargetLanguage == "" {
 		config.TargetLanguage = "ko"
@@ -218,11 +230,55 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 		selection = SourceSelectionResult{Catalog: resume.AuthorCatalog, AuthorCatalog: resume.AuthorCatalog}
 		sourceSelection = sourceSelectionFromCheckpoint(resume.SourceSelection)
 		authorCatalog = resume.AuthorCatalog
-		memory = resume.EditorialMemory
-		memoryReceipt = resume.ProductCheckpoint.EditorialMemory.Receipt()
-		authorWorkspace = resume.AuthorWorkspace
-		longFormAuthoring = longFormFromCheckpoint(resume.LongFormAuthoring)
-		if resume.Stage == "il_long_form_parts" {
+		if resume.Stage == "il_source_selection" {
+			if err := progress("il_source_selection", "reused"); err != nil {
+				return ProductBundle{}, reportexecution.NewStageFailure("il_source_selection", "", -1, -1, err)
+			}
+			if stagePlan.EditorialMemory {
+				if err := progress("il_editorial_memory", "started"); err != nil {
+					return ProductBundle{}, reportexecution.NewStageFailure("il_editorial_memory", "", -1, -1, err)
+				}
+				var memoryResults []agentexec.AgentResult
+				memory, memoryReceipt, memoryResults, err = runEditorialMemoryStage(ctx, config, authorCatalog)
+				usage.add("il_editorial_memory", memoryResults...)
+				if err != nil {
+					return ProductBundle{}, providerStageFailure("il_editorial_memory", err, usage)
+				}
+				if err := progress("il_editorial_memory", "completed"); err != nil {
+					return ProductBundle{}, reportexecution.NewStageFailure("il_editorial_memory", "", -1, -1, err)
+				}
+			}
+			if err := progress("il_narrative", "started"); err != nil {
+				return ProductBundle{}, reportexecution.NewStageFailure("il_narrative", "", -1, -1, err)
+			}
+			citationCatalog := catalogBuild.citationCatalog(authorCatalog)
+			var longFormResults []longFormAgentResult
+			partsCompleted := func(planReceipt reportilcontract.LongFormPlanReceipt, sectionArtifacts, partArtifacts []reportilcontract.AuthorWorkspaceReceipt, parts, sections int) error {
+				return checkpoint(NewPartsCheckpoint(config, catalogBuild.Catalog.SHA256, authorCatalog, catalogBuild.ImageCatalog, sourceSelection, memoryReceipt, planReceipt, sectionArtifacts, partArtifacts, parts, sections))
+			}
+			narrative, document, authorWorkspace, longFormAuthoring, longFormResults, err = runLongFormAuthoringGraph(ctx, config, authorCatalog, memory, memoryReceipt, citationCatalog, sourceSelection.Applied, progress, partsCompleted)
+			for _, stageResult := range longFormResults {
+				usage.addResult(stageResult.Stage, stageResult.Result)
+			}
+			if err != nil {
+				var longFormFailure *longFormStageError
+				if errors.As(err, &longFormFailure) {
+					return ProductBundle{}, providerStageFailure(longFormFailure.Stage, longFormFailure.Cause, usage)
+				}
+				return ProductBundle{}, providerStageFailure("il_narrative", err, usage)
+			}
+			if err := progress("il_narrative", "completed"); err != nil {
+				return ProductBundle{}, reportexecution.NewStageFailure("il_narrative", "", -1, -1, err)
+			}
+		} else {
+			memory = resume.EditorialMemory
+			memoryReceipt = resume.ProductCheckpoint.EditorialMemory.Receipt()
+			authorWorkspace = resume.AuthorWorkspace
+			longFormAuthoring = longFormFromCheckpoint(resume.LongFormAuthoring)
+		}
+		if resume.Stage == "il_source_selection" {
+			// The selected source catalog was restored above and authoring has just run.
+		} else if resume.Stage == "il_long_form_parts" {
 			plan := resume.LongFormPlan
 			partArtifacts := make(map[string]reportilcontract.AuthorWorkspaceReceipt, len(plan.Parts))
 			for index, part := range plan.Parts {
@@ -298,6 +354,12 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 			}
 		}
 		authorCatalog = selection.AuthorCatalog
+		if config.AuthoringMode == AuthoringModeLongForm && stagePlan.EditorialMemory {
+			checkpointValue := NewSourceSelectionCheckpoint(config, catalogBuild.Catalog.SHA256, authorCatalog, catalogBuild.ImageCatalog, sourceSelection)
+			if err := checkpoint(checkpointValue); err != nil {
+				return ProductBundle{}, reportexecution.NewStageFailure("il_source_selection", "", -1, -1, err)
+			}
+		}
 		if stagePlan.EditorialMemory {
 			if err := progress("il_editorial_memory", "started"); err != nil {
 				return ProductBundle{}, reportexecution.NewStageFailure("il_editorial_memory", "", -1, -1, err)
@@ -367,10 +429,10 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 		authorCatalog = config.Resume.AuthorCatalog
 	}
 	citationCatalog := catalogBuild.citationCatalog(authorCatalog)
-	if config.AuthoringMode == AuthoringModeLongForm && config.Resume == nil {
+	if config.AuthoringMode == AuthoringModeLongForm && (config.Resume == nil || config.Resume.Stage == "il_source_selection") {
 		appendLongFormFinalization(&longFormAuthoring, "il_long_form_final", authorWorkspace)
 	}
-	if config.AuthoringMode == AuthoringModeLongForm && (config.Resume == nil || config.Resume.Stage == "il_long_form_parts") && stagePlan.EditorialMemory {
+	if config.AuthoringMode == AuthoringModeLongForm && (config.Resume == nil || config.Resume.Stage == "il_source_selection" || config.Resume.Stage == "il_long_form_parts") && stagePlan.EditorialMemory {
 		checkpointValue := newProductCheckpoint(
 			config, "il_long_form_final", catalogBuild.Catalog.SHA256, authorCatalog,
 			catalogBuild.ImageCatalog, sourceSelection, memoryReceipt, authorWorkspace,
@@ -386,7 +448,7 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 		readerFinalization = readerFromCheckpoint(config.Resume.ReaderFinalization)
 	}
 	publicationWorkspace := authorWorkspace
-	if stagePlan.PublicationRead && (config.Resume == nil || config.Resume.Stage == "il_long_form_parts" || config.Resume.Stage == "il_long_form_final") {
+	if stagePlan.PublicationRead && (config.Resume == nil || config.Resume.Stage == "il_source_selection" || config.Resume.Stage == "il_long_form_parts" || config.Resume.Stage == "il_long_form_final") {
 		if err := progress("il_reader", "started"); err != nil {
 			return ProductBundle{}, reportexecution.NewStageFailure("il_reader", "", -1, -1, err)
 		}
@@ -524,7 +586,10 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 	if err != nil {
 		return ProductBundle{}, reportexecution.NewStageFailure("il_render", "", -1, -1, err)
 	}
-	pdf, err := RenderPDF(ctx, html, config.ChromePath)
+	if config.PDFRenderer == nil {
+		return ProductBundle{}, reportexecution.NewStageFailure("il_render", "", -1, -1, fmt.Errorf("PDF renderer is not configured"))
+	}
+	pdf, err := config.PDFRenderer.RenderPDF(ctx, html)
 	if err != nil {
 		return ProductBundle{}, reportexecution.NewStageFailure("il_render", "", -1, -1, err)
 	}
@@ -545,7 +610,7 @@ func RunProduct(ctx context.Context, config ProductConfig) (ProductBundle, error
 	manifest := ProductManifest{
 		SchemaVersion: ProductManifestSchemaVersion, CompilerVersion: CompilerVersion, PipelineFamily: PipelineFamily,
 		AuthoringMode: config.AuthoringMode, ValidationProfile: config.ValidationProfile,
-		MissionID: config.MissionID, CatalogSHA256: authorCatalog.SHA256, Provider: "codex", Model: "gpt-5.6-luna", Effort: "xhigh",
+		MissionID: config.MissionID, CatalogSHA256: authorCatalog.SHA256, Provider: "codex", Model: config.Model, Effort: config.ReasoningEffort,
 		DocumentID: document.DocumentID, RevisionID: document.RevisionID,
 		NarrativeSHA256: SHA256(narrativeBytes), DocumentSHA256: SHA256(finalDocumentBytes), ProjectionSHA256: SHA256(markdown),
 		SourceSelection:    sourceSelection,
@@ -2086,7 +2151,7 @@ func runJSONStageAttempts[T any](ctx context.Context, config ProductConfig, cata
 		if requireSourceRead {
 			request = sourceIsolatedRequest(config, catalog, stage, attempt+1, prompt, schema, maxSourceReadBytes)
 		} else {
-			request = isolatedRequest(stage, prompt, schema)
+			request = isolatedRequest(config, stage, prompt, schema)
 		}
 		result, err := config.Provider.Run(ctx, request)
 		results = append(results, result)
@@ -2200,8 +2265,8 @@ func sourceIsolatedRequest(config ProductConfig, catalog reportilcontract.Source
 	return agentexec.AgentRequest{
 		UserText:          "report IL " + stage,
 		Prompt:            prompt,
-		Model:             "gpt-5.6-luna",
-		ReasoningEffort:   "xhigh",
+		Model:             productModel(config),
+		ReasoningEffort:   productReasoningEffort(config),
 		MissionID:         config.MissionID,
 		ToolSessionID:     config.NewID("ses"),
 		AgentExecutor:     "codex",
@@ -2227,7 +2292,21 @@ func longFormIsolatedRequest(config ProductConfig, catalog reportilcontract.Sour
 	return request
 }
 
-func isolatedRequest(stage, prompt string, schemas ...[]byte) agentexec.AgentRequest {
+func productModel(config ProductConfig) string {
+	if value := strings.TrimSpace(config.Model); value != "" {
+		return value
+	}
+	return "gpt-5.6-luna"
+}
+
+func productReasoningEffort(config ProductConfig) string {
+	if value := strings.TrimSpace(config.ReasoningEffort); value != "" {
+		return value
+	}
+	return "xhigh"
+}
+
+func isolatedRequest(config ProductConfig, stage, prompt string, schemas ...[]byte) agentexec.AgentRequest {
 	profile := agentcapability.ReportIL()
 	var schema []byte
 	if len(schemas) > 0 {
@@ -2236,8 +2315,8 @@ func isolatedRequest(stage, prompt string, schemas ...[]byte) agentexec.AgentReq
 	return agentexec.AgentRequest{
 		UserText:          "report IL " + stage,
 		Prompt:            prompt,
-		Model:             "gpt-5.6-luna",
-		ReasoningEffort:   "xhigh",
+		Model:             productModel(config),
+		ReasoningEffort:   productReasoningEffort(config),
 		AgentExecutor:     "codex",
 		MCPMode:           "disabled",
 		CapabilityProfile: profile.ID,

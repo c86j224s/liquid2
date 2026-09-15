@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // SubmitReportRequirementMap는 요구사항 map artifact와 제출 이벤트를 함께 기록한다.
@@ -15,8 +16,8 @@ func (s *Service) SubmitReportRequirementMap(ctx context.Context, req ReportRequ
 	if err := validateReportRequirementMapRequest(req); err != nil {
 		return ReportRequirementMapSubmission{}, err
 	}
-	var replay LedgerEvent
-	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	var replay ledger.Event
+	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		pendingIndex, planIndex, err := validateReportRequirementMapSlot(events, req)
 		if err != nil {
 			return nil, err
@@ -63,14 +64,14 @@ func (s *Service) SubmitReportRequirementMap(ctx context.Context, req ReportRequ
 			Text:                      "확정된 장문 개요에 사용자 출력 요구를 연결했습니다.",
 		}
 		encoded, _ := json.Marshal(payload)
-		event, err := buildLedgerEvent(AppendEventRequest{
+		event, err := buildLedgerEvent(ledger.AppendRequest{
 			EventID: req.EventID, MissionID: req.MissionID, EventType: "report.requirements.mapped",
 			Producer: req.ToolProducer, CausationEventID: req.PlanEventID, CorrelationID: req.PendingEventID, Payload: encoded,
 		})
 		if err != nil {
 			return nil, err
 		}
-		return []LedgerEvent{event}, nil
+		return []ledger.Event{event}, nil
 	})
 	if err != nil {
 		return ReportRequirementMapSubmission{}, err

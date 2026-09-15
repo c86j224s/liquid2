@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // PartEditOutcomeContract는 재실행과 검증에 쓰는 binding 계약이다.
@@ -29,7 +30,7 @@ type PartEditOutcomeContract struct {
 	ExcludedProviderSessionIDs   []string
 }
 
-func partEditStartedBindingForOutcome(events []app.LedgerEvent, acceptedPending map[string]bool, edited app.LedgerEvent) (PartEditBinding, bool, error) {
+func partEditStartedBindingForOutcome(events []ledger.Event, acceptedPending map[string]bool, edited ledger.Event) (PartEditBinding, bool, error) {
 	var found PartEditBinding
 	count := 0
 	for _, event := range events {
@@ -38,7 +39,7 @@ func partEditStartedBindingForOutcome(events []app.LedgerEvent, acceptedPending 
 		}
 		binding, ok := partEditBindingFromStartEvent(event)
 		if !ok {
-			return PartEditBinding{}, false, fmt.Errorf("%w: stored Part edit start is invalid", app.ErrConflict)
+			return PartEditBinding{}, false, fmt.Errorf("%w: stored Part edit start is invalid", producterror.ErrConflict)
 		}
 		if !acceptedPending[binding.PendingEventID] || !partEditEventMatches(edited, binding) {
 			continue
@@ -46,12 +47,12 @@ func partEditStartedBindingForOutcome(events []app.LedgerEvent, acceptedPending 
 		found, count = binding, count+1
 	}
 	if count > 1 {
-		return PartEditBinding{}, false, fmt.Errorf("%w: multiple Part edit starts match outcome", app.ErrConflict)
+		return PartEditBinding{}, false, fmt.Errorf("%w: multiple Part edit starts match outcome", producterror.ErrConflict)
 	}
 	return found, count == 1, nil
 }
 
-func partEditBindingFromEditedEvent(event app.LedgerEvent) (PartEditBinding, bool) {
+func partEditBindingFromEditedEvent(event ledger.Event) (PartEditBinding, bool) {
 	payload := eventPayload(event)
 	binding := PartEditBinding{
 		MissionID: event.MissionID, PendingEventID: payloadString(payload, "pending_event_id"),
@@ -134,7 +135,7 @@ func normalizePartEditOutcomeContract(value PartEditOutcomeContract) PartEditOut
 
 func validatePartEditOutcomeContract(value PartEditOutcomeContract) error {
 	if value.MissionID == "" || value.CurrentPendingEventID == "" || value.PlanEventID == "" || value.SourcePartEventID == "" || value.SourceArtifactID == "" || value.PartIndex < 1 || value.AgentExecutor == "" || value.ReportPlanSessionID == "" {
-		return fmt.Errorf("%w: part edit outcome contract is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: part edit outcome contract is incomplete", producterror.ErrInvalidInput)
 	}
 	return nil
 }

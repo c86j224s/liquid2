@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 const (
@@ -43,35 +43,35 @@ var finalEditStyleDiagnosisCategories = map[string]bool{
 // ValidateFinalEditStyleDiagnosisCategory는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
 func ValidateFinalEditStyleDiagnosisCategory(category string) error {
 	if category != strings.TrimSpace(category) || !finalEditStyleDiagnosisCategories[category] {
-		return fmt.Errorf("%w: style operation diagnosis category is invalid", app.ErrInvalidInput)
+		return fmt.Errorf("%w: style operation diagnosis category is invalid", producterror.ErrInvalidInput)
 	}
 	return nil
 }
 
-// ValidateFinalEditStyleOperationDiagnoses는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
-func ValidateFinalEditStyleOperationDiagnoses(operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, detailed bool) error {
+// validateFinalEditStyleOperationDiagnoses는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
+func validateFinalEditStyleOperationDiagnoses(operationCount int, diagnoses []FinalEditStyleOperationDiagnosis, detailed bool) error {
 	if operationCount < 0 {
-		return fmt.Errorf("%w: style operation count is invalid", app.ErrInvalidInput)
+		return fmt.Errorf("%w: style operation count is invalid", producterror.ErrInvalidInput)
 	}
 	if operationCount != len(diagnoses) {
-		return fmt.Errorf("%w: style operation diagnoses count differs from operation count", app.ErrInvalidInput)
+		return fmt.Errorf("%w: style operation diagnoses count differs from operation count", producterror.ErrInvalidInput)
 	}
 	for index, diagnosis := range diagnoses {
 		if diagnosis.OperationOrdinal != index+1 || diagnosis.OperationOrdinal <= 0 {
-			return fmt.Errorf("%w: style operation diagnosis ordinal is invalid", app.ErrInvalidInput)
+			return fmt.Errorf("%w: style operation diagnosis ordinal is invalid", producterror.ErrInvalidInput)
 		}
 		if err := ValidateFinalEditStyleDiagnosisCategory(diagnosis.Category); err != nil {
 			return err
 		}
 		if detailed {
 			if strings.TrimSpace(diagnosis.Reason) == "" || diagnosis.Reason != strings.TrimSpace(diagnosis.Reason) {
-				return fmt.Errorf("%w: style operation diagnosis reason is invalid", app.ErrInvalidInput)
+				return fmt.Errorf("%w: style operation diagnosis reason is invalid", producterror.ErrInvalidInput)
 			}
 			if diagnosis.MatchText == "" {
-				return fmt.Errorf("%w: style operation diagnosis match text is invalid", app.ErrInvalidInput)
+				return fmt.Errorf("%w: style operation diagnosis match text is invalid", producterror.ErrInvalidInput)
 			}
 			if diagnosis.Occurrence <= 0 {
-				return fmt.Errorf("%w: style operation diagnosis occurrence is invalid", app.ErrInvalidInput)
+				return fmt.Errorf("%w: style operation diagnosis occurrence is invalid", producterror.ErrInvalidInput)
 			}
 		}
 	}
@@ -80,49 +80,49 @@ func ValidateFinalEditStyleOperationDiagnoses(operationCount int, diagnoses []Fi
 
 func decodeFinalEditStyleOperationDiagnosesPayload(value any, operationCount int, detailed bool) ([]FinalEditStyleOperationDiagnosis, bool, error) {
 	if value == nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	if detailed && !finalEditStyleDiagnosisRecordsHaveExactFields(raw, []string{"operation_ordinal", "category", "reason", "match_text", "replacement", "occurrence"}) {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	var records []FinalEditStyleOperationDiagnosis
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&records); err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	if decoder.More() {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
-	if err := ValidateFinalEditStyleOperationDiagnoses(operationCount, records, detailed); err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+	if err := validateFinalEditStyleOperationDiagnoses(operationCount, records, detailed); err != nil {
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	return append([]FinalEditStyleOperationDiagnosis(nil), records...), true, nil
 }
 
 func decodeLegacyFinalEditStyleOperationDiagnosesPayload(value any, operationCount int) ([]FinalEditStyleOperationDiagnosis, bool, error) {
 	if value == nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	raw, err := json.Marshal(value)
 	if err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	if !finalEditStyleDiagnosisRecordsHaveExactFields(raw, []string{"operation_ordinal", "category"}) {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	var legacyRecords []legacyFinalEditStyleOperationDiagnosis
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&legacyRecords); err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	if decoder.More() {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	records := make([]FinalEditStyleOperationDiagnosis, 0, len(legacyRecords))
 	for _, record := range legacyRecords {
@@ -131,8 +131,8 @@ func decodeLegacyFinalEditStyleOperationDiagnosesPayload(value any, operationCou
 			Category:         record.Category,
 		})
 	}
-	if err := ValidateFinalEditStyleOperationDiagnoses(operationCount, records, false); err != nil {
-		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", app.ErrConflict)
+	if err := validateFinalEditStyleOperationDiagnoses(operationCount, records, false); err != nil {
+		return nil, true, fmt.Errorf("%w: style operation diagnoses payload is invalid", producterror.ErrConflict)
 	}
 	return records, true, nil
 }

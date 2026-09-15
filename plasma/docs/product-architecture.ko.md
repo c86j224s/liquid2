@@ -14,6 +14,9 @@ Plasma는 사용자가 대화로 조사를 조향하고, 그 조사에서 근거
 MCP/source read tools, conversation result, report artifact를 중심으로 합니다.
 
 Historical evidence, claim, confidence update, proposal, AST-first report는 legacy ledger machinery입니다.
+제한된 research-records 구간에서는 `internal/researchrecords`가 evidence와 claim 생성의 identity, validation,
+persistence port를 소유하고, application service는 orchestration, callback, transaction 경계를 유지합니다.
+이 소유권 변경은 evidence와 claim 생성에만 해당하며 전체 research model 이행을 뜻하지 않습니다.
 Plasma는 migration과 experiment work를 위해 table과 read path를 보존합니다. 하지만 이것을 기본 제품
 루프로 노출하지 않고, 사용자에게 old/new mode toggle로 보여주지도 않습니다. Source candidate review
 record는 bounded workflow run 안에서 user approval prompt로 허용됩니다. 다만 candidate 자체는 source가
@@ -276,10 +279,11 @@ Plasma source snapshot은 Web, CLI, MCP, agent tool에서 같은 model을 공유
   artifact body를 저장하지 않고, 빈 artifact list에 content hash가 있는 척하지 않기 위해
   `ContentHash{Algorithm:"none", Value:""}`를 사용합니다.
 
-`local_path` connector는 `root_id`, `relative_path`, `path_kind` 형태의 locator만 저장합니다. 설정된 root의
-absolute path는 서버 설정 안에만 있어야 합니다. Source snapshot, Web JSON, MCP response, CLI output, prompt,
-report에는 absolute path가 나타나면 안 됩니다. 모든 local path access는 local path engine을 통해
-canonicalize되어야 하고, absolute path, traversal, symlink, special file, deny pattern, cap을 검사해야 합니다.
+`local_path` connector는 `root_id`, `relative_path`, `path_kind` 형태의 locator만 저장합니다. source-owned
+`LocalPathReader` port와 observation DTO는 `internal/source`가 소유하고, filesystem/configuration adapter가
+configured root와 OS/PDF access를 담당합니다. 설정된 root의 absolute path는 서버 설정 안에만 있어야 합니다. Source snapshot, Web JSON, MCP response, CLI output, prompt,
+report에는 absolute path가 나타나면 안 됩니다. 모든 local path access는 local path reader port와 local path
+adapter를 통해 canonicalize되어야 하고, absolute path, traversal, symlink, special file, deny pattern, cap을 검사해야 합니다.
 외부로 돌려주는 DTO는 root ID와 relative path만 담아야 합니다.
 
 Agent read는 source-scoped입니다. 사용자가 live local path file/directory를 source snapshot으로 승인한 뒤,

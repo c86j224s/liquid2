@@ -10,24 +10,24 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
-	"github.com/c86j224s/liquid2/plasma/internal/reporthumanize"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpatch"
 )
 
 type cliReportDraftRunResult struct {
-	Artifact  app.RawArtifact
-	Event     app.LedgerEvent
-	Humanized reporthumanize.Result
+	Artifact  artifactcontract.Raw
+	Event     ledger.Event
 	SessionID string
 	Err       error
 }
 
 type cliReportPatchRunResult struct {
-	Artifact  app.RawArtifact
-	Event     app.LedgerEvent
+	Artifact  artifactcontract.Raw
+	Event     ledger.Event
 	SessionID string
 	Err       error
 }
@@ -147,10 +147,10 @@ func createCLIReportPatchArtifact(ctx context.Context, svc *app.Service, executo
 	return cliReportPatchRunResult{Artifact: artifact, Event: event, SessionID: sessionID}
 }
 
-func cliReportArtifactForPending(ctx context.Context, svc *app.Service, missionID string, pendingEventID string) (app.LedgerEvent, app.RawArtifact, error) {
+func cliReportArtifactForPending(ctx context.Context, svc *app.Service, missionID string, pendingEventID string) (ledger.Event, artifactcontract.Raw, error) {
 	events, err := svc.ListEvents(ctx, missionID)
 	if err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, err
+		return ledger.Event{}, artifactcontract.Raw{}, err
 	}
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -169,17 +169,17 @@ func cliReportArtifactForPending(ctx context.Context, svc *app.Service, missionI
 		}
 		artifact, err := svc.GetRawArtifact(ctx, strings.TrimSpace(payload.ArtifactID))
 		if err != nil {
-			return app.LedgerEvent{}, app.RawArtifact{}, err
+			return ledger.Event{}, artifactcontract.Raw{}, err
 		}
 		return event, artifact, nil
 	}
-	return app.LedgerEvent{}, app.RawArtifact{}, nil
+	return ledger.Event{}, artifactcontract.Raw{}, nil
 }
 
-func cliReportPatchFinalizedForPending(ctx context.Context, svc *app.Service, missionID string, pendingEventID string) (app.LedgerEvent, app.RawArtifact, error) {
+func cliReportPatchFinalizedForPending(ctx context.Context, svc *app.Service, missionID string, pendingEventID string) (ledger.Event, artifactcontract.Raw, error) {
 	events, err := svc.ListEvents(ctx, missionID)
 	if err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, err
+		return ledger.Event{}, artifactcontract.Raw{}, err
 	}
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -202,38 +202,38 @@ func cliReportPatchFinalizedForPending(ctx context.Context, svc *app.Service, mi
 		}
 		artifact, err := svc.GetRawArtifact(ctx, artifactID)
 		if err != nil {
-			return app.LedgerEvent{}, app.RawArtifact{}, err
+			return ledger.Event{}, artifactcontract.Raw{}, err
 		}
 		if artifact.MissionID != missionID {
-			return app.LedgerEvent{}, app.RawArtifact{}, fmt.Errorf("%w: finalized report artifact belongs to another mission", app.ErrInvalidInput)
+			return ledger.Event{}, artifactcontract.Raw{}, fmt.Errorf("%w: finalized report artifact belongs to another mission", app.ErrInvalidInput)
 		}
 		return event, artifact, nil
 	}
-	return app.LedgerEvent{}, app.RawArtifact{}, fmt.Errorf("%w: report patch agent did not finalize through MCP", app.ErrInvalidInput)
+	return ledger.Event{}, artifactcontract.Raw{}, fmt.Errorf("%w: report patch agent did not finalize through MCP", app.ErrInvalidInput)
 }
 
-func cliPromoteReportPatchFinalizedArtifact(ctx context.Context, svc *app.Service, missionID string, finalized app.LedgerEvent) (app.LedgerEvent, app.RawArtifact, error) {
+func cliPromoteReportPatchFinalizedArtifact(ctx context.Context, svc *app.Service, missionID string, finalized ledger.Event) (ledger.Event, artifactcontract.Raw, error) {
 	var payload map[string]any
 	if err := json.Unmarshal(finalized.Payload, &payload); err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, fmt.Errorf("%w: invalid report patch finalized payload", app.ErrInvalidInput)
+		return ledger.Event{}, artifactcontract.Raw{}, fmt.Errorf("%w: invalid report patch finalized payload", app.ErrInvalidInput)
 	}
 	pendingEventID, _ := payload["pending_event_id"].(string)
 	pendingEventID = strings.TrimSpace(pendingEventID)
 	if pendingEventID == "" {
-		return app.LedgerEvent{}, app.RawArtifact{}, fmt.Errorf("%w: report patch finalized payload is missing pending_event_id", app.ErrInvalidInput)
+		return ledger.Event{}, artifactcontract.Raw{}, fmt.Errorf("%w: report patch finalized payload is missing pending_event_id", app.ErrInvalidInput)
 	}
 	if event, artifact, err := cliReportArtifactForPending(ctx, svc, missionID, pendingEventID); err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, err
+		return ledger.Event{}, artifactcontract.Raw{}, err
 	} else if event.EventID != "" {
 		return event, artifact, nil
 	}
 	artifactID, _ := payload["artifact_id"].(string)
 	artifact, err := svc.GetRawArtifact(ctx, strings.TrimSpace(artifactID))
 	if err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, err
+		return ledger.Event{}, artifactcontract.Raw{}, err
 	}
 	if artifact.MissionID != missionID {
-		return app.LedgerEvent{}, app.RawArtifact{}, fmt.Errorf("%w: finalized report artifact belongs to another mission", app.ErrInvalidInput)
+		return ledger.Event{}, artifactcontract.Raw{}, fmt.Errorf("%w: finalized report artifact belongs to another mission", app.ErrInvalidInput)
 	}
 	payload["kind"] = "markdown_report_artifact"
 	payload["promoted_from_event_id"] = finalized.EventID
@@ -244,10 +244,10 @@ func cliPromoteReportPatchFinalizedArtifact(ctx context.Context, svc *app.Servic
 		MissionID:           missionID,
 		PromotedFromEventID: finalized.EventID,
 		Payload:             payload,
-		Producer:            app.Producer{Type: "agent_session", ID: producerID},
+		Producer:            ledger.Producer{Type: "agent_session", ID: producerID},
 	}))
 	if err != nil {
-		return app.LedgerEvent{}, app.RawArtifact{}, err
+		return ledger.Event{}, artifactcontract.Raw{}, err
 	}
 	return event, artifact, nil
 }
@@ -356,7 +356,7 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 			ForkSourceAgentSessionID:     forkSourceSessionID,
 			CompositionStrategy:          cliReportCompositionStrategy(reportMode),
 			PlanText:                     planResult.Text,
-			Producer:                     app.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, planToolSessionID)},
+			Producer:                     ledger.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, planToolSessionID)},
 		}))
 		if err != nil {
 			return cliReportDraftRunResult{Err: fmt.Errorf("append report.plan.created: %w", err)}
@@ -389,12 +389,12 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 	if markdown == "" {
 		return cliReportDraftRunResult{Err: fmt.Errorf("report agent returned empty Markdown")}
 	}
-	artifact, err := svc.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{
+	artifact, err := svc.CreateRawArtifact(ctx, artifactcontract.CreateRequest{
 		ArtifactID: cliNewID("art"),
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
 		Filename:   safeCLIReportFilename(reportTitle),
-		Producer:   app.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, toolSessionID)},
+		Producer:   ledger.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, toolSessionID)},
 		Content:    []byte(markdown),
 	})
 	if err != nil {
@@ -430,26 +430,10 @@ func createCLIReportDraftArtifact(ctx context.Context, svc *app.Service, executo
 		PlanEventID:                  planEventID,
 		PlanToolSessionID:            planToolSessionID,
 		DurationMS:                   time.Since(started).Milliseconds(),
-		Producer:                     app.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, toolSessionID)},
+		Producer:                     ledger.Producer{Type: "agent_session", ID: firstNonEmptyString(sessionID, toolSessionID)},
 	}))
 	if err != nil {
 		return cliReportDraftRunResult{Err: fmt.Errorf("append report.artifact.created: %w", err)}
 	}
-	if postReportHumanize == "disabled" {
-		return cliReportDraftRunResult{Artifact: artifact, Event: event, SessionID: sessionID}
-	}
-	humanized, err := reporthumanize.HumanizeMarkdownReport(ctx, svc, cliNewID, missionID, reporthumanize.Input{
-		Title:             reportTitle,
-		Markdown:          markdown,
-		SourceArtifact:    artifact,
-		ExecutorName:      strings.TrimSpace(agentName),
-		MCPMode:           strings.TrimSpace(mcpMode),
-		PreviousSessionID: sessionID,
-		ReportMode:        reportMode,
-		PendingEventID:    pendingEventID,
-	}, executor)
-	if err != nil {
-		return cliReportDraftRunResult{Err: fmt.Errorf("report humanize: %w", err)}
-	}
-	return cliReportDraftRunResult{Artifact: artifact, Event: event, Humanized: humanized, SessionID: sessionID}
+	return cliReportDraftRunResult{Artifact: artifact, Event: event, SessionID: sessionID}
 }

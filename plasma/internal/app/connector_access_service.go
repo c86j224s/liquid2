@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/confluenceaccess"
@@ -81,11 +83,11 @@ func (s *Service) SetMissionConnectorAccess(ctx context.Context, req SetConnecto
 	if err != nil {
 		return ConnectorAccessChangeResult{}, err
 	}
-	event, err := s.AppendEvent(ctx, AppendEventRequest{
+	event, err := s.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: req.MissionID,
 		EventType: eventType,
-		Producer:  Producer{Type: strings.TrimSpace(req.Producer.Type), ID: strings.TrimSpace(req.Producer.ID)},
+		Producer:  ledger.Producer{Type: strings.TrimSpace(req.Producer.Type), ID: strings.TrimSpace(req.Producer.ID)},
 		Payload:   encoded,
 	})
 	if err != nil {
@@ -98,7 +100,7 @@ func (s *Service) SetMissionConnectorAccess(ctx context.Context, req SetConnecto
 	}, nil
 }
 
-func (s *Service) projectConnectorAccess(ctx context.Context, missionID string, connectorID string, events []LedgerEvent) ConnectorAccessProjection {
+func (s *Service) projectConnectorAccess(ctx context.Context, missionID string, connectorID string, events []ledger.Event) ConnectorAccessProjection {
 	projection := confluenceaccess.Project(missionID, connectorID, events)
 	if projection.Enabled {
 		if reason := s.confluenceConnectorAccessInvalidReason(ctx, projection.ConnectionID, projection.CloudID); reason != "" {
@@ -151,12 +153,12 @@ func (s *Service) confluenceConnectorAccessInvalidReason(ctx context.Context, co
 
 func normalizeConnectorAccessID(connectorID string) (string, error) {
 	connectorID = strings.TrimSpace(connectorID)
-	if connectorID != ConfluenceConnectorID {
+	if connectorID != confluencesource.ConfluenceConnectorID {
 		return "", fmt.Errorf("%w: unsupported connector access id", ErrInvalidInput)
 	}
 	return connectorID, nil
 }
 
-func connectorAccessUserProducer(producer Producer) bool {
+func connectorAccessUserProducer(producer ledger.Producer) bool {
 	return strings.TrimSpace(producer.Type) == "user" && strings.TrimSpace(producer.ID) != ""
 }

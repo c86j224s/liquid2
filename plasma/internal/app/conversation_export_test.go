@@ -6,16 +6,19 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 type conversationExportStore struct {
 	fakeStore
-	events    []LedgerEvent
-	artifacts map[string]RawArtifact
+	events    []ledger.Event
+	artifacts map[string]artifactcontract.Raw
 }
 
-func (s *conversationExportStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	var events []LedgerEvent
+func (s *conversationExportStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	var events []ledger.Event
 	for _, event := range s.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -26,9 +29,9 @@ func (s *conversationExportStore) ListLedgerEvents(_ context.Context, missionID 
 
 func (s *conversationExportStore) CommitAtomicWrite(_ context.Context, write AtomicWrite) (AtomicWriteResult, error) {
 	if s.artifacts == nil {
-		s.artifacts = map[string]RawArtifact{}
+		s.artifacts = map[string]artifactcontract.Raw{}
 	}
-	committed := make([]LedgerEvent, 0, len(write.Events))
+	committed := make([]ledger.Event, 0, len(write.Events))
 	for _, event := range write.Events {
 		event.Sequence = int64(len(s.events) + 1)
 		s.events = append(s.events, event)
@@ -40,7 +43,7 @@ func (s *conversationExportStore) CommitAtomicWrite(_ context.Context, write Ato
 	return AtomicWriteResult{Events: committed}, nil
 }
 
-func (s *conversationExportStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (s *conversationExportStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if artifact, ok := s.artifacts[artifactID]; ok {
 		return artifact, nil
 	}
@@ -48,7 +51,7 @@ func (s *conversationExportStore) GetRawArtifact(_ context.Context, artifactID s
 }
 
 func TestExportConversationCreatesMarkdownArtifactFromVisibleTurns(t *testing.T) {
-	store := &conversationExportStore{events: []LedgerEvent{
+	store := &conversationExportStore{events: []ledger.Event{
 		testConversationEvent("evt_user", "mis_1", 1, "turn.user", map[string]any{
 			"kind":            "user_turn",
 			"text":            "기술면접 질문 100개를 뽑아줘",
@@ -76,7 +79,7 @@ func TestExportConversationCreatesMarkdownArtifactFromVisibleTurns(t *testing.T)
 		ArtifactID: "art_export",
 		MissionID:  "mis_1",
 		Title:      "면접 Q&A 원문",
-		Producer:   Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err != nil {
 		t.Fatalf("ExportConversation returned error: %v", err)
@@ -118,7 +121,7 @@ func TestExportConversationCreatesMarkdownArtifactFromVisibleTurns(t *testing.T)
 }
 
 func TestExportConversationRejectsEmptyVisibleConversation(t *testing.T) {
-	store := &conversationExportStore{events: []LedgerEvent{
+	store := &conversationExportStore{events: []ledger.Event{
 		testConversationEvent("evt_pending", "mis_1", 1, "turn.agent.pending", map[string]any{
 			"kind": "agent_pending",
 			"text": "대기 중",
@@ -128,21 +131,21 @@ func TestExportConversationRejectsEmptyVisibleConversation(t *testing.T) {
 		EventID:    "evt_export",
 		ArtifactID: "art_export",
 		MissionID:  "mis_1",
-		Producer:   Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "visible conversation entries") {
 		t.Fatalf("expected visible-entry validation error, got %v", err)
 	}
 }
 
-func testConversationEvent(eventID string, missionID string, sequence int64, eventType string, payload map[string]any) LedgerEvent {
+func testConversationEvent(eventID string, missionID string, sequence int64, eventType string, payload map[string]any) ledger.Event {
 	encoded, _ := json.Marshal(payload)
-	return LedgerEvent{
+	return ledger.Event{
 		EventID:   eventID,
 		MissionID: missionID,
 		Sequence:  sequence,
 		EventType: eventType,
-		Producer:  Producer{Type: "test", ID: "test"},
+		Producer:  ledger.Producer{Type: "test", ID: "test"},
 		Payload:   encoded,
 		CreatedAt: time.Date(2026, 7, 16, 1, 2, int(sequence), 0, time.UTC),
 	}

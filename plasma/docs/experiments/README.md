@@ -274,6 +274,19 @@ large artifacts live outside the repository under `research-artifacts/`.
       Codex app-server inference, or complete runtime catalog assertions. A
       synchronized Korean counterpart is available in
       [`65-agent-capability-profile-plan-2026-08-18.ko.md`](65-agent-capability-profile-plan-2026-08-18.ko.md).
+66. [`66-article-il-pilot-harness-2026-09-02.md`](66-article-il-pilot-harness-2026-09-02.md)
+    - Records Issue #461's synthetic-only archive harness and durable 3×3 preflight.
+      It verifies frozen identities, failure retention, atomic run/matrix receipts,
+      path containment, and replay without generating a real Article or adding
+      product Article state. A synchronized Korean counterpart is available in
+      [`66-article-il-pilot-harness-2026-09-02.ko.md`](66-article-il-pilot-harness-2026-09-02.ko.md).
+67. [`67-article-real-pilot-contract-2026-09-03.md`](67-article-real-pilot-contract-2026-09-03.md)
+    - Adds Issue #461's provider-ready protocol validator without calling a
+      provider. It freezes real fixture, E/A equivalence, isolation, budget,
+      artifact-allowlist, and blind-evaluation contracts before public sources are
+      selected or any Article is generated. A synchronized Korean counterpart is
+      available in
+      [`67-article-real-pilot-contract-2026-09-03.ko.md`](67-article-real-pilot-contract-2026-09-03.ko.md).
 
 ## Controller Experiment Sequence
 

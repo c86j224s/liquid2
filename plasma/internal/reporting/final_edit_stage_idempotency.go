@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // FinalEditStageIdempotencyKey는 stage binding에서 재실행 idempotency key를 계산한다.
@@ -87,24 +87,24 @@ func validateFinalEditStageBinding(value FinalEditStageBinding) error {
 		value.GenerationGuidanceSHA256 == "" ||
 		value.SessionChainKind == "" ||
 		value.ReportPlanSessionID == "" {
-		return fmt.Errorf("%w: final edit stage binding is incomplete", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final edit stage binding is incomplete", producterror.ErrInvalidInput)
 	}
 	if finalEditStartedEventType(value.Stage) == "" {
-		return fmt.Errorf("%w: unsupported final edit stage", app.ErrInvalidInput)
+		return fmt.Errorf("%w: unsupported final edit stage", producterror.ErrInvalidInput)
 	}
 	if value.FinalEditPipeline != "" && !isSupportedFinalEditPipeline(value.FinalEditPipeline) {
-		return fmt.Errorf("%w: unsupported final edit pipeline", app.ErrInvalidInput)
+		return fmt.Errorf("%w: unsupported final edit pipeline", producterror.ErrInvalidInput)
 	}
 	if value.Stage == FinalEditStageWriter && value.FinalEditPipeline != "" &&
 		value.FinalEditPipeline != FinalEditPipelineAssemblyWriterReaderStyleGateV2 &&
 		value.FinalEditPipeline != FinalEditPipelineAssemblyWriterReaderStyleValidationEvidenceGateV3 {
-		return fmt.Errorf("%w: final writer stage requires an assembly final edit pipeline", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final writer stage requires an assembly final edit pipeline", producterror.ErrInvalidInput)
 	}
 	if value.IdempotencyKey != FinalEditStageIdempotencyKey(value.Stage, value.PendingEventID, value.PlanEventID) {
-		return fmt.Errorf("%w: final edit stage idempotency key differs from contract", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final edit stage idempotency key differs from contract", producterror.ErrInvalidInput)
 	}
 	if value.Producer.Type != "agent_session" || value.Producer.ID != value.ProviderSessionID {
-		return fmt.Errorf("%w: final edit stage producer must be the bound provider session", app.ErrInvalidInput)
+		return fmt.Errorf("%w: final edit stage producer must be the bound provider session", producterror.ErrInvalidInput)
 	}
 	return nil
 }

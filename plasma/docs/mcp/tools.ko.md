@@ -22,6 +22,11 @@ URI: `plasma://docs/mcp/tools`
 5. Source, artifact, observation, ledger-event 관계가 중요하면 `plasma.research.references`를 사용합니다.
 6. 사용자 검토 가치가 있는 original material은 `plasma.sources.candidates.propose`로 기록합니다.
 
+## Mission Tool
+
+- `plasma.mission.get`: mission projection을 읽습니다. `include`에 `sources`, `evidence`, `claims`, `questions`, `records`, `all`, `*`를 지정하면 해당 배열을 추가로 읽으며, 생략된 배열은 wire contract에 따라 생략되거나 빈 값으로 유지됩니다.
+- `plasma.mission.update`: 명시적으로 공급한 하나 이상의 mission metadata field를 공통 application service를 통해 수정합니다. mission-bound이며 user producer와 idempotency를 요구합니다.
+
 ## Source Tool
 
 - `plasma.sources.list`: mission의 active source snapshot을 나열합니다.
@@ -32,6 +37,8 @@ URI: `plasma://docs/mcp/tools`
 - `plasma.local_path.roots`, `plasma.local_path.tree`: allowlisted local path root를 root id와 relative path로 탐색합니다.
 
 Operator-only source mutation tool은 server에서 명시적으로 enabled된 경우에만 보입니다.
+
+Workflow start/status/stop handler는 `tools/list`의 전체 input shape를 보존하고, 좁은 workflowstate application port를 호출하기 전에 bound mission, current-user-event fallback, executor binding을 확인합니다. MCP 호출 안에서는 provider를 실행하지 않고 workflow 상태만 기록하거나 읽습니다.
 
 ## Workflow Tool
 

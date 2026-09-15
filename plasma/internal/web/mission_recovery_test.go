@@ -3,13 +3,16 @@ package web
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/reportrun"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
-	"github.com/c86j224s/liquid2/plasma/internal/reporting"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -21,7 +24,7 @@ func TestMissionRecoveryWorkflowFailureIsBestEffortForDetail(t *testing.T) {
 	}
 	defer store.Close()
 	service := app.NewService(store)
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_workflow_best_effort", Title: "Workflow best effort"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_workflow_best_effort", Title: "Workflow best effort"}); err != nil {
 		t.Fatal(err)
 	}
 	server := NewServer(service, Options{}).(*Server)
@@ -50,15 +53,15 @@ func TestMissionRecoverySkipsCompletionRecoveryWhileReportInFlight(t *testing.T)
 	}
 	defer store.Close()
 	service := app.NewService(store)
-	if _, err := service.CreateMission(ctx, app.CreateMissionRequest{MissionID: "mis_inflight", Title: "In flight"}); err != nil {
+	if _, err := service.CreateMission(ctx, mission.CreateRequest{MissionID: "mis_inflight", Title: "In flight"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.CreateRawArtifact(ctx, app.CreateRawArtifactRequest{ArtifactID: "art_inflight", MissionID: "mis_inflight", MediaType: "text/markdown", Filename: "report.md", Producer: app.Producer{Type: "agent", ID: "a"}, Content: []byte("# report")}); err != nil {
+	if _, err := service.CreateRawArtifact(ctx, artifactcontract.CreateRequest{ArtifactID: "art_inflight", MissionID: "mis_inflight", MediaType: "text/markdown", Filename: "report.md", Producer: ledger.Producer{Type: "agent", ID: "a"}, Content: []byte("# report")}); err != nil {
 		t.Fatal(err)
 	}
-	for _, event := range []app.AppendEventRequest{
-		{EventID: "evt_inflight_root", MissionID: "mis_inflight", EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "u"}, Payload: []byte(`{"retry_strategy":"initial"}`)},
-		{EventID: "evt_inflight_final", MissionID: "mis_inflight", EventType: "report.artifact.created", Producer: app.Producer{Type: "agent", ID: "a"}, Payload: []byte(`{"pending_event_id":"evt_inflight_root","artifact_id":"art_inflight"}`)},
+	for _, event := range []ledger.AppendRequest{
+		{EventID: "evt_inflight_root", MissionID: "mis_inflight", EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "u"}, Payload: []byte(`{"retry_strategy":"initial"}`)},
+		{EventID: "evt_inflight_final", MissionID: "mis_inflight", EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "a"}, Payload: []byte(`{"pending_event_id":"evt_inflight_root","artifact_id":"art_inflight"}`)},
 	} {
 		if _, err := service.AppendEvent(ctx, event); err != nil {
 			t.Fatal(err)
@@ -76,7 +79,7 @@ func TestMissionRecoverySkipsCompletionRecoveryWhileReportInFlight(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, event := range events {
-		if event.EventType == reporting.ReportRunCompletedEventType {
+		if event.EventType == reportrun.ReportRunCompletedEventType {
 			t.Fatal("completion was recovered while report was in flight")
 		}
 	}
@@ -92,7 +95,7 @@ func TestMissionRecoverySkipsCompletionRecoveryWhileReportInFlight(t *testing.T)
 	}
 	found := false
 	for _, event := range events {
-		if event.EventType == reporting.ReportRunCompletedEventType {
+		if event.EventType == reportrun.ReportRunCompletedEventType {
 			found = true
 		}
 	}

@@ -8,13 +8,13 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
 	ReportRequirementMapSchemaVersion  = "plasma.report_requirement_map.v1"
 	ReportRequirementsStartedEventType = "report.requirements.started"
 	ReportRequirementsMappedEventType  = "report.requirements.mapped"
-	ReportRequirementsMappedSentinel   = "REQUIREMENTS_MAPPED"
 )
 
 // ReportRequirementMap는 section/part별 작성 요구사항 배정을 담는 map이다.
@@ -39,17 +39,23 @@ type ReportRequirementOwner struct {
 }
 
 // ReportRequirementMapBinding는 재실행과 검증에 쓰는 binding 계약이다.
+// ReportRequirementMapQuery는 이미 제출된 requirement map을 찾기 위한 binding query다.
+type ReportRequirementMapQuery = app.ReportRequirementMapQuery
+
+// ReportRequirementMapSelection은 선택된 requirement map event와 hash metadata다.
+type ReportRequirementMapSelection = app.ReportRequirementMapSelection
+
 type ReportRequirementMapBinding struct {
-	MissionID                 string       `json:"mission_id"`
-	PendingEventID            string       `json:"pending_event_id"`
-	PlanEventID               string       `json:"plan_event_id"`
-	ToolSessionID             string       `json:"tool_session_id"`
-	PreviousProviderSessionID string       `json:"previous_provider_session_id"`
-	IdempotencyKey            string       `json:"idempotency_key"`
-	AgentExecutor             string       `json:"agent_executor"`
-	AgentModel                string       `json:"agent_model"`
-	AgentReasoningEffort      string       `json:"agent_reasoning_effort"`
-	Producer                  app.Producer `json:"producer"`
+	MissionID                 string          `json:"mission_id"`
+	PendingEventID            string          `json:"pending_event_id"`
+	PlanEventID               string          `json:"plan_event_id"`
+	ToolSessionID             string          `json:"tool_session_id"`
+	PreviousProviderSessionID string          `json:"previous_provider_session_id"`
+	IdempotencyKey            string          `json:"idempotency_key"`
+	AgentExecutor             string          `json:"agent_executor"`
+	AgentModel                string          `json:"agent_model"`
+	AgentReasoningEffort      string          `json:"agent_reasoning_effort"`
+	Producer                  ledger.Producer `json:"producer"`
 }
 
 // NormalizeReportRequirementMap는 보고서 생성 파이프라인 입력을 표준 형태로 정규화하고 허용되지 않는 값은 안정 오류로 거부한다.

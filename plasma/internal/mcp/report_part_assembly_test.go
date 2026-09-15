@@ -6,7 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -116,7 +117,7 @@ func TestReportPartAssemblyToolsSubmitConnectiveEvent(t *testing.T) {
 	if submission.Assembly.Intro != "파트 도입입니다." || submission.Assembly.Closing != "파트 마무리입니다." || len(submission.Assembly.Transitions) != 1 {
 		t.Fatalf("unexpected assembly: %#v", submission.Assembly)
 	}
-	var submitted *app.AppendEventRequest
+	var submitted *ledger.AppendRequest
 	for i := range service.events {
 		if service.events[i].EventType == reporting.PartAssemblySubmittedEventType {
 			submitted = &service.events[i]
@@ -153,7 +154,7 @@ func TestReportPartAssemblySchemasAreClosed(t *testing.T) {
 func TestReportPartSectionReadUsesOnlyBoundArtifactIndexes(t *testing.T) {
 	binding := testPartAssemblyBinding()
 	binding.SectionArtifactIDs = []string{"art_section_1", "art_section_2", "art_section_3"}
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{
 		"art_section_1": {ArtifactID: "art_section_1", MissionID: binding.MissionID, MediaType: "text/markdown; charset=utf-8", Content: []byte("# 첫 섹션\n\n본문을 직접 읽습니다.")},
 		"art_section_2": {ArtifactID: "art_section_2", MissionID: "mis_other", MediaType: "text/markdown; charset=utf-8", Content: []byte("foreign")},
 		"art_section_3": {ArtifactID: "art_section_3", MissionID: binding.MissionID, MediaType: "application/octet-stream", Content: []byte("binary")},
@@ -218,6 +219,6 @@ func testPartAssemblyBinding() reporting.PartAssemblyBinding {
 		AgentExecutor:        "codex",
 		AgentModel:           "gpt-test",
 		AgentReasoningEffort: "medium",
-		Producer:             app.Producer{Type: "agent_session", ID: "ses_tool"},
+		Producer:             ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
 }

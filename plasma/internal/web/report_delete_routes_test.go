@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -168,11 +170,11 @@ func TestReportDeleteRouteConflictsWhenFactsHashChanges(t *testing.T) {
 	missionID := nestedString(t, mission, "projection", "mission_id")
 	artifactID := seedHTTPCompletedReportRun(t, ctx, service, missionID)
 	preview := getJSON(t, server.URL+"/api/missions/"+missionID+"/artifacts/"+artifactID+"/report_delete_preview")
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_http_report_hash_reference",
 		MissionID: missionID,
 		EventType: "mission.note",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   []byte(`{"artifact_id":"` + artifactID + `"}`),
 	}); err != nil {
 		t.Fatalf("AppendEvent reference returned error: %v", err)
@@ -189,28 +191,28 @@ func TestReportDeleteRouteConflictsWhenFactsHashChanges(t *testing.T) {
 
 func seedHTTPCompletedReportRun(t *testing.T, ctx context.Context, service *app.Service, missionID string) string {
 	t.Helper()
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_http_report_pending",
 		MissionID: missionID,
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "test"},
+		Producer:  ledger.Producer{Type: "user", ID: "test"},
 		Payload:   mustJSON(map[string]any{"title": "HTTP report"}),
 	}); err != nil {
 		t.Fatalf("AppendEvent returned error: %v", err)
 	}
-	artifact, _, err := service.CreateRawArtifactWithEvent(ctx, app.CreateRawArtifactRequest{
+	artifact, _, err := service.CreateRawArtifactWithEvent(ctx, artifactcontract.CreateRequest{
 		ArtifactID: "art_http_report_final",
 		MissionID:  missionID,
 		MediaType:  "text/markdown",
 		Filename:   "report.md",
-		Producer:   app.Producer{Type: "agent", ID: "test"},
+		Producer:   ledger.Producer{Type: "agent", ID: "test"},
 		Content:    []byte("# Report"),
-	}, func(artifact app.RawArtifact) app.AppendEventRequest {
-		return app.AppendEventRequest{
+	}, func(artifact artifactcontract.Raw) ledger.AppendRequest {
+		return ledger.AppendRequest{
 			EventID:   "evt_http_report_final",
 			MissionID: missionID,
 			EventType: "report.artifact.created",
-			Producer:  app.Producer{Type: "agent", ID: "test"},
+			Producer:  ledger.Producer{Type: "agent", ID: "test"},
 			Payload: mustJSON(map[string]any{
 				"kind":             "markdown_report_artifact",
 				"pending_event_id": "evt_http_report_pending",
@@ -221,9 +223,9 @@ func seedHTTPCompletedReportRun(t *testing.T, ctx context.Context, service *app.
 	if err != nil {
 		t.Fatalf("CreateRawArtifactWithEvent returned error: %v", err)
 	}
-	if _, err := service.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := service.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_report_run_completed_http_report_pending", MissionID: missionID,
-		EventType: "report.run.completed", Producer: app.Producer{Type: "system", ID: "report-completion"},
+		EventType: "report.run.completed", Producer: ledger.Producer{Type: "system", ID: "report-completion"},
 		CausationEventID: "evt_http_report_final", CorrelationID: "evt_http_report_pending",
 		Payload: mustJSON(map[string]any{"kind": "report_run_completed", "schema_version": "plasma.report_run_completion.v1", "run_id": "evt_http_report_pending", "pending_event_id": "evt_http_report_pending", "canonical_event_id": "evt_http_report_final", "artifact_id": artifact.ArtifactID, "delayed_usage_target_count": 0, "usage_recorded_count": 0, "usage_unavailable_count": 0}),
 	}); err != nil {

@@ -42,18 +42,23 @@ func NormalizeDraftRequest(req DraftRequest) DraftRequest {
 	req.RetryStrategy = strings.TrimSpace(req.RetryStrategy)
 	req.RetryOfPendingEventID = strings.TrimSpace(req.RetryOfPendingEventID)
 	req.ResumeStage = strings.TrimSpace(req.ResumeStage)
+	req.OutputKind = strings.TrimSpace(strings.ToLower(req.OutputKind))
+	req.ArticleIntent = normalizeArticleIntent(req.ArticleIntent)
+	if req.OutputKind == OutputKindArticle && req.PipelineFamily == reportpipeline.ExperimentalIL && req.ReportMode == ModeLongForm && req.ExecutionStrategy == "" {
+		req.ExecutionStrategy = "serial"
+	}
 
 	switch req.PipelineFamily {
 	case reportpipeline.ExperimentalIL:
 		req.PipelineGraph = normalizePipelineGraph(req.PipelineFamily, req.PipelineGraph)
-		req.ExecutionStrategy = ""
+		if req.OutputKind != OutputKindArticle || req.ReportMode != ModeLongForm {
+			req.ExecutionStrategy = ""
+		}
 		if req.ReportMode != ModeLongForm {
 			req.ReportMode = ModePlanned
 		}
 		req.AgentExecutor = "codex"
-		req.AgentModel = "gpt-5.6-luna"
-		req.AgentReasoningEffort = "xhigh"
-		req.AgentSelectionSource = "experimental_fixed"
+		req.AgentSelectionSource = firstNonEmpty(req.AgentSelectionSource, "request_or_provider_default")
 		req.MCPMode = "source_read_only"
 		req.RigorLevel, req.RigorLabel = normalizeILValidationProfile(req.RigorLevel)
 		req.ReportSessionPolicy = SessionPolicyFreshSession

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func TestRunnerProactivelyCompactsBeforeOpeningNextStep(t *testing.T) {
@@ -14,7 +15,7 @@ func TestRunnerProactivelyCompactsBeforeOpeningNextStep(t *testing.T) {
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
 	appendContextUsageResponse(t, svc, mission.MissionID, "evt_trigger", 142120, 258400)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_proactive", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_proactive", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{
 		{Text: "compact summary", SessionID: "agent-session-1"},
@@ -60,7 +61,7 @@ func TestRunnerSkipsProactiveCompactionBelowThreshold(t *testing.T) {
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
 	appendContextUsageResponse(t, svc, mission.MissionID, "evt_trigger", 142119, 258400)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_below", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_below", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "done\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"}}}
 	if _, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_below"); err != nil {
@@ -79,7 +80,7 @@ func TestRunnerDoesNotRepeatRecordedProactiveCompaction(t *testing.T) {
 	appendRawEvent(t, svc, mission.MissionID, "evt_compact", "turn.agent.compacted", map[string]any{
 		"reason": "context_window_threshold", "context_trigger_event_id": "evt_trigger",
 	})
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_dedupe", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_dedupe", MaxSteps: 1})
 
 	agent := &fakeAgent{responses: []AgentResult{{Text: "done\n" + controlMarker + ` {"decision":"stop","reason":"done"}`, SessionID: "agent-session-1"}}}
 	if _, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_dedupe"); err != nil {
@@ -95,7 +96,7 @@ func TestRunnerFailsBeforeStepWhenProactiveCompactionFails(t *testing.T) {
 	svc := newWorkflowTestService(t)
 	mission := createWorkflowMission(t, svc)
 	appendContextUsageResponse(t, svc, mission.MissionID, "evt_trigger", 143000, 258400)
-	requestWorkflow(t, svc, mission.MissionID, app.RequestWorkflowRunRequest{WorkflowRunID: "wfr_failure", MaxSteps: 1})
+	requestWorkflow(t, svc, mission.MissionID, workflowstate.RequestWorkflowRunRequest{WorkflowRunID: "wfr_failure", MaxSteps: 1})
 
 	agent := &fakeAgent{err: errors.New("compact unavailable")}
 	view, err := testRunner(svc, agent).Run(ctx, mission.MissionID, "wfr_failure")

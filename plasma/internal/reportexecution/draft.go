@@ -17,6 +17,9 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 		return ledger.Event{}, err
 	}
 	req = normalizeDraftRequest(req)
+	if err := validateArticleRequest(req); err != nil {
+		return ledger.Event{}, err
+	}
 	sources, err := runner.Service.ListSourceSnapshotsWithState(ctx, source.ListRequest{MissionID: missionID})
 	if err != nil {
 		return ledger.Event{}, err
@@ -48,6 +51,12 @@ func (runner Runner) StartDraft(ctx context.Context, missionID string, req Draft
 		"origin_pending_event_id":         pendingEventID,
 		"attempt_number":                  1,
 		"retry_strategy":                  "initial",
+	}
+	if req.OutputKind == OutputKindArticle {
+		payload["output_kind"] = req.OutputKind
+		payload["article_intent"] = req.ArticleIntent
+		payload["kind"] = "article_artifact_pending"
+		payload["text"] = "글을 만드는 중입니다."
 	}
 	if req.DirectionHint != "" {
 		payload["direction_hint"] = req.DirectionHint

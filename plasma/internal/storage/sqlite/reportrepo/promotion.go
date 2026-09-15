@@ -1,15 +1,15 @@
 package reportrepo
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"database/sql"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // PromoteReportVersion promotes a report version with legacy RowsAffected semantics.
-func (r *Repository) PromoteReportVersion(ctx context.Context, update app.ReportVersionPromotion) error {
+func (r *Repository) PromoteReportVersion(ctx context.Context, update reportdocument.ReportVersionPromotion) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

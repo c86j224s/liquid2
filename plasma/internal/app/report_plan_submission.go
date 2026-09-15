@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // ReportPlanSubmissionSchemaVersion은 report plan MCP 제출 payload의 schema version이다.
@@ -28,12 +29,12 @@ type ReportPlanSubmissionRequest struct {
 	PlanHash                  string
 	Plan                      json.RawMessage
 	Attempt                   int
-	ToolProducer              Producer
+	ToolProducer              ledger.Producer
 }
 
 // ReportPlanSubmission은 제출 event와 replay 여부를 반환한다.
 type ReportPlanSubmission struct {
-	Event  LedgerEvent
+	Event  ledger.Event
 	Replay bool
 }
 
@@ -93,7 +94,7 @@ type PromoteReportPlanRequest struct {
 	ArgumentsHash             string
 	PlanHash                  string
 	SubmissionEventID         string
-	Canonical                 AppendEventRequest
+	Canonical                 ledger.AppendRequest
 }
 
 // SubmitReportPlan은 report planning MCP 제출을 idempotent하게 장부에 기록한다.
@@ -108,8 +109,8 @@ func (s *Service) SubmitReportPlan(ctx context.Context, req ReportPlanSubmission
 	if err := validateReportPlanSubmissionRequest(req); err != nil {
 		return ReportPlanSubmission{}, err
 	}
-	var replay LedgerEvent
-	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	var replay ledger.Event
+	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		pending, err := openReportPlanPending(events, req.PendingEventID, req.ReportMode, req.AgentExecutor)
 		if err != nil {
 			return nil, err
@@ -141,11 +142,11 @@ func (s *Service) SubmitReportPlan(ctx context.Context, req ReportPlanSubmission
 			Plan: append(json.RawMessage(nil), req.Plan...), Attempt: req.Attempt,
 		}
 		encoded, _ := json.Marshal(payload)
-		event, err := buildLedgerEvent(AppendEventRequest{EventID: req.EventID, MissionID: req.MissionID, EventType: "report.plan.submitted", Producer: Producer{Type: "mcp_server", ID: "plasma.report.plan.submit"}, CausationEventID: req.PendingEventID, CorrelationID: req.PendingEventID, Payload: encoded})
+		event, err := buildLedgerEvent(ledger.AppendRequest{EventID: req.EventID, MissionID: req.MissionID, EventType: "report.plan.submitted", Producer: ledger.Producer{Type: "mcp_server", ID: "plasma.report.plan.submit"}, CausationEventID: req.PendingEventID, CorrelationID: req.PendingEventID, Payload: encoded})
 		if err != nil {
 			return nil, err
 		}
-		return []LedgerEvent{event}, nil
+		return []ledger.Event{event}, nil
 	})
 	if err != nil {
 		return ReportPlanSubmission{}, err
@@ -160,13 +161,13 @@ func (s *Service) SubmitReportPlan(ctx context.Context, req ReportPlanSubmission
 }
 
 // PromoteReportPlan는 선택한 report plan을 현재 plan으로 승격한다.
-func (s *Service) PromoteReportPlan(ctx context.Context, req PromoteReportPlanRequest) (LedgerEvent, error) {
+func (s *Service) PromoteReportPlan(ctx context.Context, req PromoteReportPlanRequest) (ledger.Event, error) {
 	store, ok := s.store.(ConditionalLedgerStore)
 	if !ok {
-		return LedgerEvent{}, fmt.Errorf("%w: conditional ledger store is required for report plan promotion", ErrInvalidInput)
+		return ledger.Event{}, fmt.Errorf("%w: conditional ledger store is required for report plan promotion", ErrInvalidInput)
 	}
-	var existing LedgerEvent
-	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []LedgerEvent) ([]LedgerEvent, error) {
+	var existing ledger.Event
+	appended, err := store.AppendLedgerEventsConditionally(ctx, req.MissionID, func(events []ledger.Event) ([]ledger.Event, error) {
 		if canonical := canonicalReportPlanEvent(events, req.PendingEventID); canonical.EventID != "" {
 			submission, err := matchingReportPlanSubmission(events, req)
 			if err != nil {
@@ -207,16 +208,16 @@ func (s *Service) PromoteReportPlan(ctx context.Context, req PromoteReportPlanRe
 		if err != nil {
 			return nil, err
 		}
-		return []LedgerEvent{event}, nil
+		return []ledger.Event{event}, nil
 	})
 	if err != nil {
-		return LedgerEvent{}, err
+		return ledger.Event{}, err
 	}
 	if existing.EventID != "" {
 		return existing, nil
 	}
 	if len(appended) != 1 {
-		return LedgerEvent{}, fmt.Errorf("%w: report plan promotion was not appended", ErrConflict)
+		return ledger.Event{}, fmt.Errorf("%w: report plan promotion was not appended", ErrConflict)
 	}
 	return appended[0], nil
 }

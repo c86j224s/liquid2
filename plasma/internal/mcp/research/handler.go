@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
@@ -75,7 +76,7 @@ func (handler *Handler) enforceLegacyResearchRead(legacy bool) error {
 }
 
 func errorFromErr(toolName, missionID string, err error, related []string) wire.ToolResult {
-	if confluenceErr, ok := app.ConfluenceErrorDetails(err); ok {
+	if confluenceErr, ok := confluencesource.ConfluenceErrorDetails(err); ok {
 		return errorResult(toolName, missionID, confluenceErr.Category, confluenceErr.Error(), confluenceErr.HTTPStatus == 429 || confluenceErr.HTTPStatus >= 500, related)
 	}
 	kind := "internal"

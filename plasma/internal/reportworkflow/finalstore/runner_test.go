@@ -40,6 +40,25 @@ func TestCommitOneTakeUsesAtomicTraceAndPayload(t *testing.T) {
 	}
 }
 
+func TestCommitOneTakeMarksArticleWithoutChangingStorageBoundary(t *testing.T) {
+	service := &fakeService{}
+	input := baseInput()
+	input.Title = "First Article"
+	input.OutputKind = reportexecution.OutputKindArticle
+	input.ArticleAudience, input.ArticleReaderPromise, input.ArticleEmphasis = "개발자", "실행 순서를 이해한다", "첫 결과"
+	out, err := (Runner{Service: service, NewID: (&idRecorder{}).next}).CommitOneTake(context.Background(), OneTakeInput{Base: input, Candidate: oneTakeCandidate()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := eventPayload(t, out.Event)
+	intent, ok := payload["article_intent"].(map[string]any)
+	if !ok || payload["kind"] != "article_artifact" || payload["output_kind"] != "article" ||
+		intent["audience"] != "개발자" || intent["reader_promise"] != "실행 순서를 이해한다" ||
+		out.Artifact.Filename != "first-article-article.md" || !reflect.DeepEqual(service.calls, []string{"atomic"}) {
+		t.Fatalf("article storage identity mismatch: artifact=%#v payload=%#v", out.Artifact, payload)
+	}
+}
+
 func TestCommitOneTakeAtomicFailureLeavesNoStandaloneWrites(t *testing.T) {
 	service := &fakeService{atomicErr: errors.New("atomic failed")}
 	ids := &idRecorder{}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -14,30 +15,30 @@ func TestFinalizePartPlanRejectsStoredProvenanceDrift(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name   string
-		mutate func(*app.AppendEventRequest)
+		mutate func(*ledger.AppendRequest)
 	}{
-		{name: "producer drift", mutate: func(req *app.AppendEventRequest) {
-			req.Producer = app.Producer{Type: "agent_session", ID: "wrong-session"}
+		{name: "producer drift", mutate: func(req *ledger.AppendRequest) {
+			req.Producer = ledger.Producer{Type: "agent_session", ID: "wrong-session"}
 		}},
-		{name: "correlation drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "correlation drift", mutate: func(req *ledger.AppendRequest) {
 			req.CorrelationID = "wrong-correlation"
 		}},
-		{name: "fork source drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "fork source drift", mutate: func(req *ledger.AppendRequest) {
 			payload := partPlanRequestPayload(t, *req)
 			payload["fork_source_agent_session_id"] = "wrong-source"
 			req.Payload = testJSON(payload)
 		}},
-		{name: "tool session missing", mutate: func(req *app.AppendEventRequest) {
+		{name: "tool session missing", mutate: func(req *ledger.AppendRequest) {
 			payload := partPlanRequestPayload(t, *req)
 			payload["tool_session_id"] = ""
 			req.Payload = testJSON(payload)
 		}},
-		{name: "returned session drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "returned session drift", mutate: func(req *ledger.AppendRequest) {
 			payload := partPlanRequestPayload(t, *req)
 			payload["returned_agent_session_id"] = "wrong-owner"
 			req.Payload = testJSON(payload)
 		}},
-		{name: "report session drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "report session drift", mutate: func(req *ledger.AppendRequest) {
 			payload := partPlanRequestPayload(t, *req)
 			payload["report_session_id"] = "wrong-owner"
 			req.Payload = testJSON(payload)
@@ -62,7 +63,7 @@ func TestFinalizePartPlanRejectsStoredProvenanceDrift(t *testing.T) {
 	}
 }
 
-func partPlanRequestPayload(t *testing.T, req app.AppendEventRequest) map[string]any {
+func partPlanRequestPayload(t *testing.T, req ledger.AppendRequest) map[string]any {
 	t.Helper()
 	var payload map[string]any
 	if err := json.Unmarshal(req.Payload, &payload); err != nil {

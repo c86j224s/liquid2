@@ -15,6 +15,9 @@ import (
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
+	workflowplan "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
+	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
+
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
 
@@ -156,7 +159,7 @@ func (executor *stdioReportPlanExecutor) Run(ctx context.Context, req AgentReque
 		if len(lines) != 2 || !strings.Contains(lines[0], plasmamcp.ToolReportRequirementsSubmit) || !strings.Contains(lines[1], "requirement_map_event_id") || strings.Contains(lines[1], `"isError":true`) {
 			return result, fmt.Errorf("unexpected plasma requirements mcp stdio output: %s", output)
 		}
-		result.Text = reporting.ReportRequirementsMappedSentinel
+		result.Text = requirements.ReportRequirementsMappedSentinel
 		return result, nil
 	}
 	if req.ReportPlan == nil {
@@ -188,7 +191,7 @@ func (executor *stdioReportPlanExecutor) Run(ctx context.Context, req AgentReque
 	if len(lines) != 2 || !strings.Contains(lines[0], plasmamcp.ToolReportPlanSubmit) || !strings.Contains(lines[1], "submission_event_id") || strings.Contains(lines[1], `"isError":true`) {
 		return result, fmt.Errorf("unexpected plasma mcp stdio output: %s", output)
 	}
-	result.Text = reporting.ReportPlanSubmittedSentinel
+	result.Text = workflowplan.ReportPlanSubmittedSentinel
 	return result, nil
 }
 

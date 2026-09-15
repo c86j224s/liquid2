@@ -13,6 +13,7 @@ import (
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilphase0"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
@@ -63,14 +64,14 @@ func testReportILLongFormRetry(t *testing.T, durableCheckpoint bool) {
 		checkpointPayload["pending_event_id"] = failedPendingID
 		checkpoint := checkpointPayload["checkpoint"].(map[string]any)
 		checkpoint["pending_event_id"] = failedPendingID
-		if _, err := service.AppendEvents(ctx, missionID, []app.AppendEventRequest{
-			{EventID: failedPendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: checkpointTestJSON(map[string]any{
+		if _, err := service.AppendEvents(ctx, missionID, []ledger.AppendRequest{
+			{EventID: failedPendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: checkpointTestJSON(map[string]any{
 				"title": "Experimental IL product acceptance", "report_mode": "long_form", "pipeline_family": reportilcontract.PipelineFamily,
 				"pipeline_graph": "report_il_validation_profiles_v7", "rigor_level": "strict", "rigor_label": "검증형",
 				"origin_pending_event_id": failedPendingID, "attempt_number": 1, "retry_strategy": "initial",
 			})},
-			{EventID: "evt_retry_checkpoint", MissionID: missionID, EventType: "report.il.checkpoint.created", CausationEventID: failedPendingID, CorrelationID: failedPendingID, Producer: app.Producer{Type: "system", ID: "report-il"}, Payload: checkpointTestJSON(checkpointPayload)},
-			{EventID: failedTerminalID, MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: checkpointTestJSON(map[string]any{
+			{EventID: "evt_retry_checkpoint", MissionID: missionID, EventType: "report.il.checkpoint.created", CausationEventID: failedPendingID, CorrelationID: failedPendingID, Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: checkpointTestJSON(checkpointPayload)},
+			{EventID: failedTerminalID, MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: checkpointTestJSON(map[string]any{
 				"pending_event_id": failedPendingID, "kind": "report_draft_failed", "failed_stage_kind": "il_reader", "failed_stage_id": "il_reader",
 			})},
 		}); err != nil {
@@ -81,14 +82,14 @@ func testReportILLongFormRetry(t *testing.T, durableCheckpoint bool) {
 		}
 	} else {
 		failedPendingID = "evt_retry_legacy_failed"
-		if _, err := service.AppendEvents(ctx, missionID, []app.AppendEventRequest{
-			{EventID: failedPendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: app.Producer{Type: "user", ID: "test"}, Payload: checkpointTestJSON(map[string]any{
+		if _, err := service.AppendEvents(ctx, missionID, []ledger.AppendRequest{
+			{EventID: failedPendingID, MissionID: missionID, EventType: "report.draft.pending", Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: checkpointTestJSON(map[string]any{
 				"title": "Experimental IL product acceptance", "report_mode": "long_form", "pipeline_family": reportilcontract.PipelineFamily,
 				"pipeline_graph": "report_il_validation_profiles_v7", "rigor_level": "strict", "rigor_label": "검증형",
 				"origin_pending_event_id": failedPendingID, "attempt_number": 1, "retry_strategy": "initial",
 			})},
-			{EventID: "evt_legacy_final_completed", MissionID: missionID, EventType: "report.il_long_form_final.completed", Producer: app.Producer{Type: "system", ID: "report-il"}, Payload: checkpointTestJSON(map[string]any{"pending_event_id": failedPendingID})},
-			{EventID: "evt_legacy_reader_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: app.Producer{Type: "agent", ID: "codex"}, Payload: checkpointTestJSON(map[string]any{
+			{EventID: "evt_legacy_final_completed", MissionID: missionID, EventType: "report.il_long_form_final.completed", Producer: ledger.Producer{Type: "system", ID: "report-il"}, Payload: checkpointTestJSON(map[string]any{"pending_event_id": failedPendingID})},
+			{EventID: "evt_legacy_reader_failed", MissionID: missionID, EventType: "report.draft.failed", Producer: ledger.Producer{Type: "agent", ID: "codex"}, Payload: checkpointTestJSON(map[string]any{
 				"pending_event_id": failedPendingID, "kind": "report_draft_failed", "failed_stage_kind": "il_reader", "failed_stage_id": "il_reader",
 			})},
 		}); err != nil {
@@ -168,12 +169,12 @@ func (executor *reportILRetrySyntheticExecutor) Run(ctx context.Context, req age
 	return executor.delegate.Run(ctx, req)
 }
 
-func waitReportILRetryTerminal(ctx context.Context, service *app.Service, missionID, pendingID string, timeout time.Duration) (app.LedgerEvent, []app.LedgerEvent, error) {
+func waitReportILRetryTerminal(ctx context.Context, service *app.Service, missionID, pendingID string, timeout time.Duration) (ledger.Event, []ledger.Event, error) {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		events, err := service.ListEvents(ctx, missionID)
 		if err != nil {
-			return app.LedgerEvent{}, nil, err
+			return ledger.Event{}, nil, err
 		}
 		for _, event := range events {
 			if event.EventType != "report.artifact.created" && event.EventType != "report.draft.failed" {
@@ -188,10 +189,10 @@ func waitReportILRetryTerminal(ctx context.Context, service *app.Service, missio
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	return app.LedgerEvent{}, nil, fmt.Errorf("timed out waiting for retry terminal")
+	return ledger.Event{}, nil, fmt.Errorf("timed out waiting for retry terminal")
 }
 
-func latestReportILFailureCause(events []app.LedgerEvent, pendingID string) string {
+func latestReportILFailureCause(events []ledger.Event, pendingID string) string {
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
 		if event.EventType != "report.draft.failed" {
@@ -213,7 +214,7 @@ func checkpointTestJSON(value any) []byte {
 	return encoded
 }
 
-func lastReportILCheckpointEvent(t *testing.T, events []app.LedgerEvent, pendingID, stage string) app.LedgerEvent {
+func lastReportILCheckpointEvent(t *testing.T, events []ledger.Event, pendingID, stage string) ledger.Event {
 	t.Helper()
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
@@ -231,5 +232,5 @@ func lastReportILCheckpointEvent(t *testing.T, events []app.LedgerEvent, pending
 		}
 	}
 	t.Fatal(fmt.Sprintf("checkpoint %s not found", stage))
-	return app.LedgerEvent{}
+	return ledger.Event{}
 }

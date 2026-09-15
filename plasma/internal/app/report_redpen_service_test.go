@@ -6,24 +6,27 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 type reportRedpenTestStore struct {
 	fakeStore
-	events    []LedgerEvent
-	artifacts map[string]RawArtifact
+	events    []ledger.Event
+	artifacts map[string]artifactcontract.Raw
 }
 
-func (s *reportRedpenTestStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (s *reportRedpenTestStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	artifact, ok := s.artifacts[artifactID]
 	if !ok {
-		return RawArtifact{}, errors.New("artifact not found")
+		return artifactcontract.Raw{}, errors.New("artifact not found")
 	}
 	return artifact, nil
 }
 
-func (s *reportRedpenTestStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	events := make([]LedgerEvent, 0, len(s.events))
+func (s *reportRedpenTestStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	events := make([]ledger.Event, 0, len(s.events))
 	for _, event := range s.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -34,9 +37,9 @@ func (s *reportRedpenTestStore) ListLedgerEvents(_ context.Context, missionID st
 
 func (s *reportRedpenTestStore) CommitReportRedpenRevision(
 	_ context.Context,
-	candidate RawArtifact,
-	build func([]LedgerEvent, RawArtifact, string) (LedgerEvent, bool, error),
-) (RawArtifact, LedgerEvent, bool, error) {
+	candidate artifactcontract.Raw,
+	build func([]ledger.Event, artifactcontract.Raw, string) (ledger.Event, bool, error),
+) (artifactcontract.Raw, ledger.Event, bool, error) {
 	target := candidate
 	exists := false
 	for _, artifact := range s.artifacts {
@@ -50,13 +53,13 @@ func (s *reportRedpenTestStore) CommitReportRedpenRevision(
 	if !exists {
 		ownership = ReportRedpenArtifactOwnershipCreated
 	}
-	event, appendEvent, err := build(append([]LedgerEvent(nil), s.events...), target, ownership)
+	event, appendEvent, err := build(append([]ledger.Event(nil), s.events...), target, ownership)
 	if err != nil {
-		return RawArtifact{}, LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	if !appendEvent {
 		if !exists {
-			return RawArtifact{}, LedgerEvent{}, false, errors.New("unstored no-op")
+			return artifactcontract.Raw{}, ledger.Event{}, false, errors.New("unstored no-op")
 		}
 		return target, event, false, nil
 	}
@@ -72,15 +75,15 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	ctx := context.Background()
 	source := mustReportRedpenArtifact(t, "art_source", "mis_1", "report.md", "# 제목\n\n원문입니다.\n")
 	store := &reportRedpenTestStore{
-		artifacts: map[string]RawArtifact{source.ArtifactID: source},
-		events:    []LedgerEvent{reportRedpenSourceEvent(source)},
+		artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source},
+		events:    []ledger.Event{reportRedpenSourceEvent(source)},
 	}
 	svc := NewService(store)
 
 	first := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_1", ArtifactID: "art_redpen_1", NewWorkcopyID: "rwc_1",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n첫 교정입니다.\n"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n첫 교정입니다.\n"),
 	})
 	if !first.Exists || !first.Changed || first.Revision != 1 || first.WorkcopyID != "rwc_1" || first.PreviousArtifactID != source.ArtifactID {
 		t.Fatalf("unexpected first redpen revision: %#v", first)
@@ -102,7 +105,7 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	noOp := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_noop", ArtifactID: "art_redpen_noop", NewWorkcopyID: "rwc_unused",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: first.Artifact.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: append([]byte(nil), first.Artifact.Content...),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: append([]byte(nil), first.Artifact.Content...),
 	})
 	if noOp.Changed || noOp.Revision != 1 || reportRedpenEventCount(store.events) != 1 || len(store.artifacts) != 2 {
 		t.Fatalf("same-content save should be a no-op: result=%#v events=%d artifacts=%d", noOp, reportRedpenEventCount(store.events), len(store.artifacts))
@@ -111,7 +114,7 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	second := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_2", ArtifactID: "art_redpen_2", NewWorkcopyID: "rwc_unused_2",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: first.Artifact.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n두 번째 교정입니다.\n"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n두 번째 교정입니다.\n"),
 	})
 	if !second.Changed || second.Revision != 2 || second.WorkcopyID != first.WorkcopyID || second.PreviousArtifactID != first.Artifact.ArtifactID {
 		t.Fatalf("unexpected second redpen revision: %#v", second)
@@ -120,7 +123,7 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	_, err = svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen_stale", ArtifactID: "art_redpen_stale", NewWorkcopyID: "rwc_unused_3",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: first.Artifact.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("stale edit"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("stale edit"),
 	})
 	if !errors.Is(err, ErrConflict) || reportRedpenEventCount(store.events) != 2 {
 		t.Fatalf("expected stale save conflict without a new event, got %v events=%d", err, reportRedpenEventCount(store.events))
@@ -129,7 +132,7 @@ func TestSaveReportRedpenWorkcopyCreatesUpdatesAndReusesRevisions(t *testing.T) 
 	reverted := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_3", ArtifactID: "art_redpen_3", NewWorkcopyID: "rwc_unused_4",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: second.Artifact.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: append([]byte(nil), source.Content...),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: append([]byte(nil), source.Content...),
 	})
 	if reverted.Artifact.ArtifactID != source.ArtifactID || reverted.Revision != 3 || reverted.Filename != "report-redpen.md" || len(store.artifacts) != 3 {
 		t.Fatalf("revert should reuse the source artifact: result=%#v artifacts=%d", reverted, len(store.artifacts))
@@ -157,8 +160,8 @@ func TestReportRedpenWorkcopyAcceptsLegacyMissingOwnershipAndRejectsInvalidOwner
 	legacy := mustReportRedpenArtifact(t, "art_redpen_legacy", "mis_1", "report-redpen.md", "# 제목\n\n기존 교정입니다.\n")
 	legacyEvent := reportRedpenSavedEventForTest(t, "evt_redpen_legacy", source, legacy, "", 1, source.ArtifactID)
 	store := &reportRedpenTestStore{
-		artifacts: map[string]RawArtifact{source.ArtifactID: source, legacy.ArtifactID: legacy},
-		events:    []LedgerEvent{reportRedpenSourceEvent(source), legacyEvent},
+		artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source, legacy.ArtifactID: legacy},
+		events:    []ledger.Event{reportRedpenSourceEvent(source), legacyEvent},
 	}
 	svc := NewService(store)
 
@@ -186,7 +189,7 @@ func TestReportRedpenWorkcopyAcceptsLegacyMissingOwnershipAndRejectsInvalidOwner
 	updated := saveReportRedpenForTest(t, svc, SaveReportRedpenRequest{
 		EventID: "evt_redpen_legacy_upgrade", ArtifactID: "art_redpen_legacy_upgrade", NewWorkcopyID: "rwc_unused",
 		MissionID: source.MissionID, SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: legacy.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n업데이트된 교정입니다.\n"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("# 제목\n\n업데이트된 교정입니다.\n"),
 	})
 	payload, err := decodeReportRedpenPayload(updated.Event)
 	if err != nil {
@@ -208,13 +211,13 @@ func TestReportRedpenWorkcopyRejectsInvalidSourceAndFirstSaveExpectation(t *test
 	ctx := context.Background()
 	nonMarkdown := mustReportRedpenArtifact(t, "art_text", "mis_1", "report.txt", "plain")
 	nonMarkdown.MediaType = "text/plain"
-	store := &reportRedpenTestStore{artifacts: map[string]RawArtifact{nonMarkdown.ArtifactID: nonMarkdown}}
+	store := &reportRedpenTestStore{artifacts: map[string]artifactcontract.Raw{nonMarkdown.ArtifactID: nonMarkdown}}
 	svc := NewService(store)
 
 	_, err := svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen", ArtifactID: "art_redpen", NewWorkcopyID: "rwc_1",
 		MissionID: "mis_1", SourceArtifactID: nonMarkdown.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected non-Markdown source rejection, got %v", err)
@@ -225,7 +228,7 @@ func TestReportRedpenWorkcopyRejectsInvalidSourceAndFirstSaveExpectation(t *test
 	_, err = svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen_unowned", ArtifactID: "art_redpen_unowned", NewWorkcopyID: "rwc_unowned",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
 	})
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected non-report Markdown source rejection, got %v", err)
@@ -234,7 +237,7 @@ func TestReportRedpenWorkcopyRejectsInvalidSourceAndFirstSaveExpectation(t *test
 	_, err = svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen_first", ArtifactID: "art_redpen_first", NewWorkcopyID: "rwc_2",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID, ExpectedCurrentArtifactID: source.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("edit"),
 	})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected first-save expectation conflict, got %v", err)
@@ -246,7 +249,7 @@ func TestReportRedpenWorkcopyRejectsInvalidSourceAndFirstSaveExpectation(t *test
 	_, err = svc.SaveReportRedpenWorkcopy(ctx, SaveReportRedpenRequest{
 		EventID: "evt_redpen_collision", ArtifactID: "art_redpen_collision", NewWorkcopyID: "rwc_collision",
 		MissionID: "mis_1", SourceArtifactID: source.ArtifactID,
-		Producer: Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("collision"),
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"}, Content: []byte("collision"),
 	})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected incompatible content-hash collision rejection, got %v", err)
@@ -256,8 +259,8 @@ func TestReportRedpenWorkcopyRejectsInvalidSourceAndFirstSaveExpectation(t *test
 func TestGetReportRedpenWorkcopyRejectsCorruptedEvent(t *testing.T) {
 	source := mustReportRedpenArtifact(t, "art_source", "mis_1", "report.md", "original")
 	store := &reportRedpenTestStore{
-		artifacts: map[string]RawArtifact{source.ArtifactID: source},
-		events: []LedgerEvent{
+		artifacts: map[string]artifactcontract.Raw{source.ArtifactID: source},
+		events: []ledger.Event{
 			reportRedpenSourceEvent(source),
 			{EventID: "evt_redpen_broken", MissionID: source.MissionID, EventType: ReportRedpenSavedEvent, Payload: json.RawMessage(`{"broken":true}`)},
 		},
@@ -269,7 +272,7 @@ func TestGetReportRedpenWorkcopyRejectsCorruptedEvent(t *testing.T) {
 	}
 }
 
-func reportRedpenSavedEventForTest(t *testing.T, eventID string, source RawArtifact, artifact RawArtifact, ownership string, revision int, previousArtifactID string) LedgerEvent {
+func reportRedpenSavedEventForTest(t *testing.T, eventID string, source artifactcontract.Raw, artifact artifactcontract.Raw, ownership string, revision int, previousArtifactID string) ledger.Event {
 	t.Helper()
 	fields := map[string]any{
 		"kind":                 ReportRedpenArtifactKind,
@@ -289,21 +292,21 @@ func reportRedpenSavedEventForTest(t *testing.T, eventID string, source RawArtif
 	if err != nil {
 		t.Fatalf("marshal redpen event: %v", err)
 	}
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: source.MissionID, EventType: ReportRedpenSavedEvent,
-		Producer: Producer{Type: "user", ID: "legacy"}, Payload: payload,
+		Producer: ledger.Producer{Type: "user", ID: "legacy"}, Payload: payload,
 	}
 }
 
-func reportRedpenSourceEvent(artifact RawArtifact) LedgerEvent {
+func reportRedpenSourceEvent(artifact artifactcontract.Raw) ledger.Event {
 	payload, _ := json.Marshal(map[string]any{"kind": "markdown_report_artifact", "artifact_id": artifact.ArtifactID})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: "evt_source_" + artifact.ArtifactID, MissionID: artifact.MissionID,
-		EventType: "report.artifact.created", Producer: Producer{Type: "agent", ID: "reporter"}, Payload: payload,
+		EventType: "report.artifact.created", Producer: ledger.Producer{Type: "agent", ID: "reporter"}, Payload: payload,
 	}
 }
 
-func reportRedpenEventCount(events []LedgerEvent) int {
+func reportRedpenEventCount(events []ledger.Event) int {
 	count := 0
 	for _, event := range events {
 		if event.EventType == ReportRedpenSavedEvent {
@@ -329,11 +332,11 @@ func saveReportRedpenForTest(t *testing.T, svc *Service, req SaveReportRedpenReq
 	return result
 }
 
-func mustReportRedpenArtifact(t *testing.T, artifactID, missionID, filename, content string) RawArtifact {
+func mustReportRedpenArtifact(t *testing.T, artifactID, missionID, filename, content string) artifactcontract.Raw {
 	t.Helper()
-	artifact, err := buildRawArtifact(CreateRawArtifactRequest{
+	artifact, err := artifactcontract.Build(artifactcontract.CreateRequest{
 		ArtifactID: artifactID, MissionID: missionID, MediaType: "text/markdown; charset=utf-8",
-		Filename: filename, Producer: Producer{Type: "agent", ID: "reporter"}, Content: []byte(content),
+		Filename: filename, Producer: ledger.Producer{Type: "agent", ID: "reporter"}, Content: []byte(content),
 	})
 	if err != nil {
 		t.Fatalf("buildRawArtifact returned error: %v", err)

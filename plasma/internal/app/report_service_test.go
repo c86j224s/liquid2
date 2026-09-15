@@ -1,18 +1,21 @@
 package app
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"testing"
 )
 
 func TestBuildReportPromotionAppendRequestPreservesPayloadContract(t *testing.T) {
-	req := BuildReportPromotionAppendRequest(ReportPromotionAppendRequest{
+	req := BuildReportPromotionAppendRequest(reportdocument.ReportPromotionAppendRequest{
 		EventID: "evt_promoted",
-		Version: ReportVersion{
+		Version: reportdocument.ReportVersion{
 			ReportVersionID: "rvn_1",
 			MissionID:       "mis_1",
 		},
-		Producer: Producer{Type: "user", ID: "plasma-ui"},
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if req.EventID != "evt_promoted" || req.MissionID != "mis_1" ||
 		req.EventType != "report.promoted" || req.Producer.Type != "user" || req.Producer.ID != "plasma-ui" {

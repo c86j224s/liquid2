@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"strings"
 )
 
@@ -9,7 +10,7 @@ const maxReportRequirementReviewedEvents = 256
 
 // ReportRequirementReviewEventIDs는 리포트 요청 하나에 대한 사용자 작성 산출물 요구를
 // 제공할 수 있는 장부 이벤트 ID만 반환한다.
-func ReportRequirementReviewEventIDs(events []LedgerEvent, pendingEventID string) ([]string, error) {
+func ReportRequirementReviewEventIDs(events []ledger.Event, pendingEventID string) ([]string, error) {
 	pendingEventID = strings.TrimSpace(pendingEventID)
 	if pendingEventID == "" {
 		return nil, fmt.Errorf("%w: report requirement pending event is required", ErrInvalidInput)

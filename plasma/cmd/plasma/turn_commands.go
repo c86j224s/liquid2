@@ -10,9 +10,9 @@ import (
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentcapability"
 	"github.com/c86j224s/liquid2/plasma/internal/agentexec"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 	"github.com/c86j224s/liquid2/plasma/internal/config"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -104,7 +104,7 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		AgentExecutor: resolvedAgentName,
 		MCPMode:       strings.TrimSpace(*mcpMode),
 		ToolSessionID: toolSessionID,
-		Producer:      app.Producer{Type: "user", ID: "plasma-cli"},
+		Producer:      ledger.Producer{Type: "user", ID: "plasma-cli"},
 	})
 	pendingEventReq := conversation.BuildTurnAgentPendingAppendRequest(conversation.TurnAgentPendingEventRequest{
 		EventID:       cliNewID("evt"),
@@ -115,9 +115,9 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		UserEventID:   userEventReq.EventID,
 		ToolSessionID: toolSessionID,
 		StartedAt:     time.Now().UTC().Format(time.RFC3339Nano),
-		Producer:      app.Producer{Type: "agent", ID: resolvedAgentName},
+		Producer:      ledger.Producer{Type: "agent", ID: resolvedAgentName},
 	})
-	appendedEvents, err := svc.AppendEventsIfNoActiveAgentWork(ctx, missionID, []app.AppendEventRequest{userEventReq, pendingEventReq})
+	appendedEvents, err := svc.AppendEventsIfNoActiveAgentWork(ctx, missionID, []ledger.AppendRequest{userEventReq, pendingEventReq})
 	if err != nil {
 		fmt.Fprintf(stderr, "turns send: %v\n", err)
 		return 1
@@ -164,7 +164,7 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			Extra: map[string]any{
 				"tool_session_id": toolSessionID,
 			},
-			Producer: app.Producer{Type: "agent", ID: resolvedAgentName},
+			Producer: ledger.Producer{Type: "agent", ID: resolvedAgentName},
 		}))
 		if drainErr := drainCLIQueuedWorkflows(ctx, svc, missionID, executor, resolvedAgentName); drainErr != nil {
 			fmt.Fprintf(stderr, "workflow drain: %v\n", drainErr)
@@ -188,7 +188,7 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 				"tool_session_id":           toolSessionID,
 				"previous_agent_session_id": previousSessionID,
 			},
-			Producer: app.Producer{Type: "agent", ID: resolvedAgentName},
+			Producer: ledger.Producer{Type: "agent", ID: resolvedAgentName},
 		}))
 		if drainErr := drainCLIQueuedWorkflows(ctx, svc, missionID, executor, resolvedAgentName); drainErr != nil {
 			fmt.Fprintf(stderr, "workflow drain: %v\n", drainErr)
@@ -218,7 +218,7 @@ func runTurns(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			"previous_agent_session_id": previousSessionID,
 			"tool_session_id":           toolSessionID,
 		},
-		Producer: app.Producer{Type: "agent", ID: resolvedAgentName},
+		Producer: ledger.Producer{Type: "agent", ID: resolvedAgentName},
 	}))
 	if err != nil {
 		fmt.Fprintf(stderr, "append turn.agent.response: %v\n", err)

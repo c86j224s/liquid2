@@ -1,5 +1,7 @@
 package evidencecheck
 
+import "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/internal/longformutil"
+
 import (
 	"fmt"
 
@@ -31,7 +33,7 @@ Evidence gate responsibilities:
 - Do not calculate statement hashes; copy statement_sha256 exactly from the read packet.
 - Do not submit prose, patches, repair actions, manuscript Markdown, semantic acceptance, or operation counts.
 - Evidence judgments do not trigger automatic repair; the server canonicalizes the exact bound source artifact with zero operations.%s`,
-		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, finaledit.AgentReportAnyJSON(binding),
+		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, longformutil.AnyJSON(binding),
 		draftID, binding.ToolSessionID,
 		mcptools.ToolReportLongFormEvidenceGateRead,
 		mcptools.ToolReportLongFormEvidenceGateSubmit,
@@ -63,8 +65,8 @@ Gate responsibilities:
 - Enforce source/evidence boundaries and every owner-bound output requirement according to the rigor level.
 - Order repairs before canonicalization; the gate is the only canonical producer.
 - Do not include raw statement text anywhere except the transient gate_findings tool input.%s`,
-		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, finaledit.AgentReportAnyJSON(binding),
-		finaledit.AgentReportAnyJSON(reporting.ReportOwnerBoundRequirements(input.RequirementMap)),
+		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, longformutil.AnyJSON(binding),
+		longformutil.AnyJSON(reporting.ReportOwnerBoundRequirements(input.RequirementMap)),
 		mcptools.ToolReportLongFormEditStart, draftID,
 		mcptools.ToolReportLongFormEditRead, mcptools.ToolReportLongFormEditPatch,
 		mcptools.ToolReportLongFormEditSubmit, finaledit.GateSubmittedSentinel, finaledit.RetryNote(attempt))
@@ -96,8 +98,8 @@ Gate responsibilities:
 - Enforce source/evidence boundaries and every owner-bound output requirement according to the rigor level.
 - Order repairs before canonicalization; the gate is the only canonical producer.
 - Do not include raw statement text anywhere except the transient gate_findings tool input.%s`,
-		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, finaledit.AgentReportAnyJSON(binding),
-		finaledit.AgentReportAnyJSON(reporting.ReportOwnerBoundRequirements(input.RequirementMap)),
+		input.Title, input.MissionID, input.Rigor.Level, input.Rigor.Label, longformutil.AnyJSON(binding),
+		longformutil.AnyJSON(reporting.ReportOwnerBoundRequirements(input.RequirementMap)),
 		mcptools.ToolReportLongFormEditStart, draftID,
 		mcptools.ToolReportLongFormEditRead, mcptools.ToolReportLongFormStyleReviewRead, mcptools.ToolReportLongFormEditPatch,
 		mcptools.ToolReportLongFormEditSubmit, finaledit.GateSubmittedSentinel, finaledit.RetryNote(attempt))

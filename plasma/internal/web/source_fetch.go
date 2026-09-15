@@ -1,11 +1,14 @@
 package web
 
+import uploadsource "github.com/c86j224s/liquid2/plasma/internal/source"
+
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"image"
 	"io"
 	"mime"
@@ -16,8 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/pdfdocument"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/sourcecandidates"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceingest"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
@@ -30,7 +34,7 @@ func (server *Server) recordSourceSnapshotFailure(ctx context.Context, missionID
 		SourceKind: sourceKind,
 		URL:        normalizedURL,
 		Message:    appErrorMessage(cause),
-		Producer:   app.Producer{Type: "user", ID: "plasma-ui"},
+		Producer:   ledger.Producer{Type: "user", ID: "plasma-ui"},
 	}))
 }
 
@@ -174,22 +178,22 @@ func webFetchedURLSource(fetched sourceretrieval.Fetched) fetchedURLSource {
 func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http.Client) (fetchedMediaSource, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return fetchedMediaSource{}, fmt.Errorf("%w: invalid media source URL", app.ErrInvalidInput)
+		return fetchedMediaSource{}, fmt.Errorf("%w: invalid media source URL", producterror.ErrInvalidInput)
 	}
 	req.Header.Set("Accept", "image/png,image/jpeg,image/gif,audio/*,video/*,*/*;q=0.1")
 	req.Header.Set("Accept-Language", "ko,en-US;q=0.9,en;q=0.8")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PlasmaMediaFetcher/0.1; +https://github.com/c86j224s/liquid2)")
 	resp, err := client.Do(req)
 	if err != nil {
-		return fetchedMediaSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLFetchFailureMessage(err))
+		return fetchedMediaSource{}, fmt.Errorf("%w: %s", producterror.ErrInvalidInput, sourceURLFetchFailureMessage(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fetchedMediaSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLHTTPStatusMessage(resp.StatusCode))
+		return fetchedMediaSource{}, fmt.Errorf("%w: %s", producterror.ErrInvalidInput, sourceURLHTTPStatusMessage(resp.StatusCode))
 	}
 	declaredType := responseHeaderMediaType(resp.Header.Get("Content-Type"))
 	declaredKind := mediaKindForType(declaredType)
-	if declaredKind == app.MediaKindAudio || declaredKind == app.MediaKindVideo {
+	if declaredKind == source.MediaKindAudio || declaredKind == source.MediaKindVideo {
 		return fetchedMediaSource{
 			MediaType:         declaredType,
 			MediaKind:         declaredKind,
@@ -198,22 +202,22 @@ func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http
 			ByteSize:          normalizedContentLength(resp.ContentLength),
 		}, nil
 	}
-	if declaredKind == app.MediaKindImage && resp.ContentLength > maxImageMediaSourceBytes {
-		return fetchedMediaSource{}, fmt.Errorf("%w: image source response is larger than 10 MiB", app.ErrInvalidInput)
+	if declaredKind == source.MediaKindImage && resp.ContentLength > maxImageMediaSourceBytes {
+		return fetchedMediaSource{}, fmt.Errorf("%w: image source response is larger than 10 MiB", producterror.ErrInvalidInput)
 	}
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxImageMediaSourceBytes+1))
 	if err != nil {
 		return fetchedMediaSource{}, err
 	}
 	if len(content) == 0 {
-		return fetchedMediaSource{}, fmt.Errorf("%w: media source returned empty content", app.ErrInvalidInput)
+		return fetchedMediaSource{}, fmt.Errorf("%w: media source returned empty content", producterror.ErrInvalidInput)
 	}
 	if len(content) > maxImageMediaSourceBytes {
-		return fetchedMediaSource{}, fmt.Errorf("%w: image source response is larger than 10 MiB", app.ErrInvalidInput)
+		return fetchedMediaSource{}, fmt.Errorf("%w: image source response is larger than 10 MiB", producterror.ErrInvalidInput)
 	}
 	mediaType := effectiveMediaType(declaredType, content)
 	kind := mediaKindForType(mediaType)
-	if kind == app.MediaKindAudio || kind == app.MediaKindVideo {
+	if kind == source.MediaKindAudio || kind == source.MediaKindVideo {
 		return fetchedMediaSource{
 			MediaType:         mediaType,
 			MediaKind:         kind,
@@ -222,20 +226,20 @@ func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http
 			ByteSize:          normalizedContentLength(firstPositive(resp.ContentLength, int64(len(content)))),
 		}, nil
 	}
-	if kind != app.MediaKindImage {
-		return fetchedMediaSource{}, fmt.Errorf("%w: media URL content type %q is not supported", app.ErrInvalidInput, mediaType)
+	if kind != source.MediaKindImage {
+		return fetchedMediaSource{}, fmt.Errorf("%w: media URL content type %q is not supported", producterror.ErrInvalidInput, mediaType)
 	}
 	if !isPinnedImageMediaType(mediaType) {
-		return fetchedMediaSource{}, fmt.Errorf("%w: image media type %q is not supported for pinning", app.ErrInvalidInput, mediaType)
+		return fetchedMediaSource{}, fmt.Errorf("%w: image media type %q is not supported for pinning", producterror.ErrInvalidInput, mediaType)
 	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(content))
 	if err != nil {
-		return fetchedMediaSource{}, fmt.Errorf("%w: image source could not be decoded", app.ErrInvalidInput)
+		return fetchedMediaSource{}, fmt.Errorf("%w: image source could not be decoded", producterror.ErrInvalidInput)
 	}
 	return fetchedMediaSource{
 		Content:           content,
 		MediaType:         mediaType,
-		MediaKind:         app.MediaKindImage,
+		MediaKind:         source.MediaKindImage,
 		ExternalVersion:   responseExternalVersion(resp.Header),
 		ExternalUpdatedAt: responseLastModified(resp.Header),
 		ByteSize:          int64(len(content)),
@@ -247,39 +251,39 @@ func fetchMediaSourceWithClient(ctx context.Context, rawURL string, client *http
 func fetchPDFSourceWithClient(ctx context.Context, rawURL string, client *http.Client) (fetchedPDFSource, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return fetchedPDFSource{}, fmt.Errorf("%w: invalid PDF source URL", app.ErrInvalidInput)
+		return fetchedPDFSource{}, fmt.Errorf("%w: invalid PDF source URL", producterror.ErrInvalidInput)
 	}
 	req.Header.Set("Accept", "application/pdf,*/*;q=0.1")
 	req.Header.Set("Accept-Language", "ko,en-US;q=0.9,en;q=0.8")
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; PlasmaPDFFetcher/0.1; +https://github.com/c86j224s/liquid2)")
 	resp, err := client.Do(req)
 	if err != nil {
-		return fetchedPDFSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLFetchFailureMessage(err))
+		return fetchedPDFSource{}, fmt.Errorf("%w: %s", producterror.ErrInvalidInput, sourceURLFetchFailureMessage(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fetchedPDFSource{}, fmt.Errorf("%w: %s", app.ErrInvalidInput, sourceURLHTTPStatusMessage(resp.StatusCode))
+		return fetchedPDFSource{}, fmt.Errorf("%w: %s", producterror.ErrInvalidInput, sourceURLHTTPStatusMessage(resp.StatusCode))
 	}
 	if resp.ContentLength > maxPDFSourceBytes {
-		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source response is larger than 100 MiB", app.ErrInvalidInput)
+		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source response is larger than 100 MiB", producterror.ErrInvalidInput)
 	}
 	content, err := io.ReadAll(io.LimitReader(resp.Body, maxPDFSourceBytes+1))
 	if err != nil {
 		return fetchedPDFSource{}, err
 	}
 	if len(content) == 0 {
-		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source returned empty content", app.ErrInvalidInput)
+		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source returned empty content", producterror.ErrInvalidInput)
 	}
 	if len(content) > maxPDFSourceBytes {
-		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source response is larger than 100 MiB", app.ErrInvalidInput)
+		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source response is larger than 100 MiB", producterror.ErrInvalidInput)
 	}
 	mediaType := responseMediaType(resp.Header.Get("Content-Type"), content)
 	if !pdfdocument.IsPDFMediaType(mediaType) && !pdfdocument.IsPDFBytes(content) {
-		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source content type %q is not supported", app.ErrInvalidInput, mediaType)
+		return fetchedPDFSource{}, fmt.Errorf("%w: PDF source content type %q is not supported", producterror.ErrInvalidInput, mediaType)
 	}
 	info, err := pdfdocument.Inspect(content)
 	if err != nil {
-		return fetchedPDFSource{}, fmt.Errorf("%w: PDF inspection failed: %v", app.ErrInvalidInput, err)
+		return fetchedPDFSource{}, fmt.Errorf("%w: PDF inspection failed: %v", producterror.ErrInvalidInput, err)
 	}
 	return fetchedPDFSource{
 		Content:           content,
@@ -398,11 +402,11 @@ func mediaKindForType(mediaType string) string {
 	base = strings.ToLower(strings.TrimSpace(base))
 	switch {
 	case strings.HasPrefix(base, "image/"):
-		return app.MediaKindImage
+		return source.MediaKindImage
 	case strings.HasPrefix(base, "audio/"):
-		return app.MediaKindAudio
+		return source.MediaKindAudio
 	case strings.HasPrefix(base, "video/"):
-		return app.MediaKindVideo
+		return source.MediaKindVideo
 	default:
 		return ""
 	}
@@ -414,7 +418,7 @@ func effectiveMediaType(declaredType string, content []byte) string {
 	if declaredType == "" || declaredType == "application/octet-stream" || declaredType == "binary/octet-stream" {
 		return detectedType
 	}
-	if mediaKindForType(declaredType) == app.MediaKindImage && mediaKindForType(detectedType) == app.MediaKindImage {
+	if mediaKindForType(declaredType) == source.MediaKindImage && mediaKindForType(detectedType) == source.MediaKindImage {
 		return detectedType
 	}
 	return declaredType
@@ -435,9 +439,9 @@ func isPinnedImageMediaType(mediaType string) bool {
 
 func mediaSourceReadNote(mediaKind string) string {
 	switch strings.TrimSpace(mediaKind) {
-	case app.MediaKindImage:
+	case source.MediaKindImage:
 		return "이미지 원본은 source artifact로 저장되어 있지만, 현재 빌드에서는 이미지 내용 분석을 제공하지 않습니다. MCP와 웹 읽기는 메타데이터만 반환합니다."
-	case app.MediaKindAudio, app.MediaKindVideo:
+	case source.MediaKindAudio, source.MediaKindVideo:
 		return "오디오·영상은 현재 metadata/live-reference source로만 저장됩니다. inspect, 전사, 키프레임 추출은 아직 지원하지 않습니다."
 	default:
 		return "미디어 source 메타데이터만 반환합니다."
@@ -459,11 +463,11 @@ func pdfTitleFromURL(rawURL string) string {
 	return strings.TrimSpace(name)
 }
 
-func mediaLocatorFromJSON(raw json.RawMessage) (app.MediaLocator, error) {
+func mediaLocatorFromJSON(raw json.RawMessage) (source.MediaLocator, error) {
 	if len(raw) == 0 {
-		return app.MediaLocator{}, fmt.Errorf("%w: media locator is required", app.ErrInvalidInput)
+		return source.MediaLocator{}, fmt.Errorf("%w: media locator is required", producterror.ErrInvalidInput)
 	}
-	var locator app.MediaLocator
+	var locator source.MediaLocator
 	if err := json.Unmarshal(raw, &locator); err == nil && locatorType(locator.LocatorType, locator.Kind) != "" {
 		normalized, normalizeErr := normalizeWebMediaLocator(locator)
 		if normalizeErr == nil {
@@ -472,66 +476,66 @@ func mediaLocatorFromJSON(raw json.RawMessage) (app.MediaLocator, error) {
 		if locator, ok := uploadedImageMediaLocatorFromJSON(raw); ok {
 			return locator, nil
 		}
-		return app.MediaLocator{}, normalizeErr
+		return source.MediaLocator{}, normalizeErr
 	}
-	var locators []app.MediaLocator
+	var locators []source.MediaLocator
 	if err := json.Unmarshal(raw, &locators); err != nil {
-		return app.MediaLocator{}, fmt.Errorf("%w: media locator must be an object or array", app.ErrInvalidInput)
+		return source.MediaLocator{}, fmt.Errorf("%w: media locator must be an object or array", producterror.ErrInvalidInput)
 	}
 	for _, locator := range locators {
-		if locatorType(locator.LocatorType, locator.Kind) == app.SourceLocatorTypeMedia {
+		if locatorType(locator.LocatorType, locator.Kind) == source.LocatorTypeMedia {
 			return normalizeWebMediaLocator(locator)
 		}
 	}
 	if locator, ok := uploadedImageMediaLocatorFromJSON(raw); ok {
 		return locator, nil
 	}
-	return app.MediaLocator{}, fmt.Errorf("%w: media locator is missing", app.ErrInvalidInput)
+	return source.MediaLocator{}, fmt.Errorf("%w: media locator is missing", producterror.ErrInvalidInput)
 }
 
-func uploadedImageMediaLocatorFromJSON(raw json.RawMessage) (app.MediaLocator, bool) {
-	var locators []app.UploadedFileLocator
+func uploadedImageMediaLocatorFromJSON(raw json.RawMessage) (source.MediaLocator, bool) {
+	var locators []source.UploadedFileLocator
 	if err := json.Unmarshal(raw, &locators); err != nil {
-		var locator app.UploadedFileLocator
+		var locator source.UploadedFileLocator
 		if err := json.Unmarshal(raw, &locator); err != nil {
-			return app.MediaLocator{}, false
+			return source.MediaLocator{}, false
 		}
-		locators = []app.UploadedFileLocator{locator}
+		locators = []source.UploadedFileLocator{locator}
 	}
 	for _, locator := range locators {
 		discriminator := locatorType(locator.LocatorType, locator.Kind)
 		mediaType := firstNonEmpty(locator.MIMEType, locator.MediaType)
-		if discriminator != app.SourceConnectorTypeFileUpload {
+		if discriminator != source.ConnectorTypeFileUpload {
 			continue
 		}
-		if locator.ContentKind != app.UploadedContentKindImage && !strings.HasPrefix(mediaType, "image/") {
+		if locator.ContentKind != uploadsource.UploadedContentKindImage && !strings.HasPrefix(mediaType, "image/") {
 			continue
 		}
-		return app.MediaLocator{
-			LocatorType: app.SourceLocatorTypeMedia,
-			MediaKind:   app.MediaKindImage,
-			Provider:    app.SourceConnectorTypeFileUpload,
+		return source.MediaLocator{
+			LocatorType: source.LocatorTypeMedia,
+			MediaKind:   source.MediaKindImage,
+			Provider:    source.ConnectorTypeFileUpload,
 			MIMEType:    mediaType,
 			ByteSize:    locator.ByteSize,
 			Title:       firstNonEmpty(locator.SanitizedFilename, locator.OriginalFilename),
 			SHA256:      locator.SHA256,
 		}, true
 	}
-	return app.MediaLocator{}, false
+	return source.MediaLocator{}, false
 }
 
-func normalizeWebMediaLocator(locator app.MediaLocator) (app.MediaLocator, error) {
+func normalizeWebMediaLocator(locator source.MediaLocator) (source.MediaLocator, error) {
 	discriminator := locatorType(locator.LocatorType, locator.Kind)
-	if discriminator != app.SourceLocatorTypeMedia {
-		return app.MediaLocator{}, fmt.Errorf("%w: media locator kind is invalid", app.ErrInvalidInput)
+	if discriminator != source.LocatorTypeMedia {
+		return source.MediaLocator{}, fmt.Errorf("%w: media locator kind is invalid", producterror.ErrInvalidInput)
 	}
 	locator.MediaKind = strings.TrimSpace(locator.MediaKind)
 	switch locator.MediaKind {
-	case app.MediaKindImage, app.MediaKindAudio, app.MediaKindVideo:
+	case source.MediaKindImage, source.MediaKindAudio, source.MediaKindVideo:
 	default:
-		return app.MediaLocator{}, fmt.Errorf("%w: media locator media_kind is invalid", app.ErrInvalidInput)
+		return source.MediaLocator{}, fmt.Errorf("%w: media locator media_kind is invalid", producterror.ErrInvalidInput)
 	}
-	locator.LocatorType = app.SourceLocatorTypeMedia
+	locator.LocatorType = source.LocatorTypeMedia
 	locator.Kind = ""
 	return locator, nil
 }

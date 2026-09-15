@@ -18,6 +18,11 @@
 - Before proposing implementation scope, inspect the current code and classify each requested behavior as already implemented, a presentation-only gap, or a behavioral gap; do not expand a presentation-only gap into backend, state-model, or recovery-policy work without explicit approval.
 - Stop and ask before adding unrequested compatibility, policy, migration, abstraction, or cross-layer behavior.
 - If the user questions relevance or ownership, halt implementation and realign from the original request instead of extending the current approach.
+- Reuse the existing product owners for provider execution, sources, workspaces, persistence, usage, rendering, and recovery before creating feature-specific infrastructure.
+- Before the first real user-facing output proves value, do not add a new MCP server, execution kernel, generic state machine, or parallel protocol/terminal/recovery system; add only the thin product policy needed to exercise the existing path.
+- Review and delegated-agent findings are candidates, not requirements. The host must reject findings that do not directly improve the requested observable result or that duplicate existing architecture.
+- Keep `feat` and `refactor` work separate. A feature change includes only structural edits required for that feature to work correctly; do not fold cleanup, package redesign, common abstractions, or future-proofing into it.
+- If a refactor or architecture improvement is worthwhile but not required by the feature, explain its purpose, scope, and benefit to the user and request approval for a separate issue, branch, commit, and PR before implementing it.
 
 ## Code And Design Principles
 

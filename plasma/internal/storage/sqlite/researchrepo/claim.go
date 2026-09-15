@@ -4,18 +4,18 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite/internal/sqlitevalue"
 )
 
 // CreateClaimRecord stores one claim record.
-func (r *Repository) CreateClaimRecord(ctx context.Context, record app.ClaimRecord) error {
+func (r *Repository) CreateClaimRecord(ctx context.Context, record researchrecords.ClaimRecord) error {
 	return InsertClaimRecordTx(ctx, r.db, record)
 }
 
 // GetClaimRecord reads one claim record by stable ID.
-func (r *Repository) GetClaimRecord(ctx context.Context, claimID string) (app.ClaimRecord, error) {
-	var record app.ClaimRecord
+func (r *Repository) GetClaimRecord(ctx context.Context, claimID string) (researchrecords.ClaimRecord, error) {
+	var record researchrecords.ClaimRecord
 	var supportingJSON string
 	var opposingJSON string
 	var questionJSON string
@@ -45,32 +45,32 @@ WHERE claim_id = ?`, claimID).Scan(
 		&record.CreatedEventID,
 		&createdAt)
 	if err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(supportingJSON, &record.SupportingEvidenceIDs); err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(opposingJSON, &record.OpposingEvidenceIDs); err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(questionJSON, &record.DependsOnQuestionIDs); err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(confidenceJSON, &record.Confidence); err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	if err := sqlitevalue.UnmarshalJSON(approvalJSON, &record.Approval); err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	record.CreatedAt, err = parseRequiredTime(createdAt)
 	if err != nil {
-		return app.ClaimRecord{}, err
+		return researchrecords.ClaimRecord{}, err
 	}
 	return record, nil
 }
 
 // ListClaimRecords reads mission claim records ordered by creation time.
-func (r *Repository) ListClaimRecords(ctx context.Context, missionID string) ([]app.ClaimRecord, error) {
+func (r *Repository) ListClaimRecords(ctx context.Context, missionID string) ([]researchrecords.ClaimRecord, error) {
 	rows, err := r.db.QueryContext(ctx, `
 SELECT claim_id
 FROM plasma_claim_records
@@ -81,7 +81,7 @@ ORDER BY created_at DESC, claim_id`, missionID)
 	}
 	defer rows.Close()
 
-	var records []app.ClaimRecord
+	var records []researchrecords.ClaimRecord
 	for rows.Next() {
 		var claimID string
 		if err := rows.Scan(&claimID); err != nil {
@@ -99,7 +99,7 @@ ORDER BY created_at DESC, claim_id`, missionID)
 // InsertClaimRecordTx inserts a claim inside a caller-owned transaction or queryer.
 func InsertClaimRecordTx(ctx context.Context, tx interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
-}, record app.ClaimRecord) error {
+}, record researchrecords.ClaimRecord) error {
 	supportingJSON, err := sqlitevalue.MarshalJSON(record.SupportingEvidenceIDs)
 	if err != nil {
 		return err

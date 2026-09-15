@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
-func writeWorkflowView(w io.Writer, view app.WorkflowRunView, jsonOut bool) {
+func writeWorkflowView(w io.Writer, view workflowstate.WorkflowRunView, jsonOut bool) {
 	if jsonOut {
 		writeCLIJSON(w, map[string]any{"workflow_run": view})
 		return

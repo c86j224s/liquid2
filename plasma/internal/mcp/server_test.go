@@ -9,15 +9,27 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	experimenthandler "github.com/c86j224s/liquid2/plasma/internal/mcp/reportexperiment"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
+	"github.com/c86j224s/liquid2/plasma/internal/source/liquid2source"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	missionadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/mission"
 	mermaidpkg "github.com/c86j224s/liquid2/plasma/internal/mermaid"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 	"github.com/c86j224s/liquid2/plasma/internal/sourceretrieval"
-	"github.com/c86j224s/liquid2/plasma/internal/sources/localpath"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func TestListToolsSchemasAreValid(t *testing.T) {
@@ -173,6 +185,25 @@ func TestMissionUpdateToolUsesSharedServiceAndIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMissionUpdateDecodesFullInputBeforeBindingAndSessionGuards(t *testing.T) {
+	service := &fakeMCPService{}
+	server := NewServer(service, WithBinding(Binding{MissionID: "mis_bound", AgentSessionID: "ses_bound"}))
+	for name, arguments := range map[string]string{
+		"title type": `{"mission_id":"mis_other","session_id":"ses_other","idempotency_key":"bad-title","producer":{"type":"user","id":"reviewer"},"title":123}`,
+		"scope type": `{"mission_id":"mis_other","session_id":"ses_other","idempotency_key":"bad-scope","producer":{"type":"user","id":"reviewer"},"scope":"not-an-object"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := server.dispatchCall(context.Background(), ToolCall{Name: ToolMissionUpdate, Arguments: json.RawMessage(arguments)})
+			if result.Error == nil || result.Error.ErrorKind != "validation" || !strings.Contains(result.Error.Message, "decode tool arguments") {
+				t.Fatalf("expected full-input decode error before binding/session guards, got %#v", result)
+			}
+			if len(service.metadataRequests) != 0 {
+				t.Fatalf("malformed input reached updater: %#v", service.metadataRequests)
+			}
+		})
+	}
+}
+
 func TestEnabledToolsFiltersListedAndCallableTools(t *testing.T) {
 	server := NewServer(&fakeMCPService{}, WithEnabledTools([]string{
 		ToolResearchOutline,
@@ -216,7 +247,7 @@ func TestLegacyResearchLoopToolsRequireExplicitOption(t *testing.T) {
 	}
 	for _, toolName := range []string{ToolResearchList, ToolResearchRead, ToolResearchRefs} {
 		defaultKinds := schemaObjectKindEnum(t, toolByName(t, defaultServerTools, toolName).InputSchema)
-		if containsString(defaultKinds, app.ResearchIDEObjectEvidenceRecord) {
+		if containsString(defaultKinds, researchcatalog.ObjectEvidenceRecord) {
 			t.Fatalf("default research schema must not expose legacy object kinds for %s: %#v", toolName, defaultKinds)
 		}
 	}
@@ -237,12 +268,12 @@ func TestLegacyResearchLoopToolsRequireExplicitOption(t *testing.T) {
 	for _, toolName := range []string{ToolResearchList, ToolResearchRead, ToolResearchRefs} {
 		legacyKinds := schemaObjectKindEnum(t, toolByName(t, legacyServerTools, toolName).InputSchema)
 		for _, kind := range []string{
-			app.ResearchIDEObjectEvidenceRecord,
-			app.ResearchIDEObjectClaimRecord,
-			app.ResearchIDEObjectQuestionRecord,
-			app.ResearchIDEObjectProposalBundle,
-			app.ResearchIDEObjectReportVersion,
-			app.ResearchIDEObjectReportBlock,
+			researchcatalog.ObjectEvidenceRecord,
+			researchcatalog.ObjectClaimRecord,
+			researchcatalog.ObjectQuestionRecord,
+			researchcatalog.ObjectProposalBundle,
+			researchcatalog.ObjectReportVersion,
+			researchcatalog.ObjectReportBlock,
 		} {
 			if !containsString(legacyKinds, kind) {
 				t.Fatalf("legacy research schema for %s must expose %s: %#v", toolName, kind, legacyKinds)
@@ -449,10 +480,10 @@ func TestExperimentalReportCompositionCreatesFinalArtifact(t *testing.T) {
 		t.Fatalf("unexpected finalize output: %#v", output)
 	}
 	if output.HumanizeReady == nil ||
-		output.HumanizeReady.Profile != experimentReportHumanizeProfile ||
-		output.HumanizeReady.Target != experimentReportHumanizeTarget ||
+		output.HumanizeReady.Profile != experimenthandler.ExperimentReportHumanizeProfile ||
+		output.HumanizeReady.Target != experimenthandler.ExperimentReportHumanizeTarget ||
 		output.HumanizeReady.SourceArtifactID != "art_report" ||
-		output.HumanizeReady.Reason != experimentReportHumanizeReason {
+		output.HumanizeReady.Reason != experimenthandler.ExperimentReportHumanizeReason {
 		t.Fatalf("expected MCP finalize to return H5-ready metadata without creating a humanized artifact, got %#v", output.HumanizeReady)
 	}
 	if !fakeMCPHasEventType(service.events, "experiment.report.artifact.created") ||
@@ -465,7 +496,7 @@ func TestExperimentalReportCompositionCreatesFinalArtifact(t *testing.T) {
 }
 
 func TestReportPatchToolsCreatePatchedMarkdownArtifact(t *testing.T) {
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{
 		"art_report_base": {
 			ArtifactID: "art_report_base",
 			MissionID:  "mis_patch",
@@ -574,7 +605,7 @@ func TestReportPatchToolsCreatePatchedMarkdownArtifact(t *testing.T) {
 	if got := string(service.artifacts["art_report_patched"].Content); !strings.Contains(got, "New wording.") {
 		t.Fatalf("expected finalized artifact to contain patch, got %q", got)
 	}
-	var reportEvent app.AppendEventRequest
+	var reportEvent ledger.AppendRequest
 	for _, event := range service.events {
 		if event.EventType == "report.patch.finalized" {
 			reportEvent = event
@@ -620,7 +651,7 @@ func TestReportPatchToolsCreatePatchedMarkdownArtifact(t *testing.T) {
 
 func TestReportPatchFinalizeRollsBackArtifactWhenEventAppendFails(t *testing.T) {
 	service := &fakeMCPService{
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_report_base": {
 				ArtifactID: "art_report_base",
 				MissionID:  "mis_patch",
@@ -697,7 +728,7 @@ func TestReportPatchFinalizeRollsBackArtifactWhenEventAppendFails(t *testing.T) 
 }
 
 func TestReportPatchHumanizeSessionRejectsFidelityDriftAtApply(t *testing.T) {
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{
 		"art_report_base": {
 			ArtifactID: "art_report_base",
 			MissionID:  "mis_patch_h5",
@@ -839,7 +870,7 @@ func TestReportPatchHumanizeSessionRejectsCumulativeFidelityDriftAtFinalize(t *t
 		baseLines = append(baseLines, fmt.Sprintf("문장 %02d은 다듬을 대상이다.", i))
 	}
 	baseContent := strings.Join(baseLines, "\n") + "\n"
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{
 		"art_report_base": {
 			ArtifactID: "art_report_base",
 			MissionID:  "mis_patch_h5",
@@ -915,7 +946,7 @@ func TestReportPatchHumanizeSessionRejectsCumulativeFidelityDriftAtFinalize(t *t
 }
 
 func TestReportPatchHumanizeSessionRejectsNoopFinalizeBeforeArtifactWrite(t *testing.T) {
-	service := &fakeMCPService{artifacts: map[string]app.RawArtifact{
+	service := &fakeMCPService{artifacts: map[string]artifactcontract.Raw{
 		"art_report_base": {
 			ArtifactID: "art_report_base",
 			MissionID:  "mis_patch_h5",
@@ -1029,7 +1060,7 @@ func TestExperimentalReportFinalizeSucceedsWhenHumanizeReadyMarkerFails(t *testi
 		t.Fatalf("expected original artifact event and no ready marker event, got %#v", service.events)
 	}
 	server.mu.Lock()
-	draft := server.reportDrafts["rpd_report"]
+	draft := server.reportExperimentState.Drafts["rpd_report"]
 	server.mu.Unlock()
 	if !draft.Finalized || draft.ArtifactID != "art_report" || draft.HumanizeReadyEventID != "" {
 		t.Fatalf("expected draft finalized despite ready marker failure, got %#v", draft)
@@ -1039,20 +1070,20 @@ func TestExperimentalReportFinalizeSucceedsWhenHumanizeReadyMarkerFails(t *testi
 func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 	service := &fakeMCPService{
 		outline: app.ResearchIDEOutline{MissionID: "mis_1", Title: "Mission"},
-		changes: app.ResearchIDEChanges{MissionID: "mis_1", CurrentSequence: 7, NextAfterSequence: 7, Items: []app.ResearchIDEObjectSummary{}},
-		page: app.ResearchIDEPage{
+		changes: app.ResearchIDEChanges{MissionID: "mis_1", CurrentSequence: 7, NextAfterSequence: 7, Items: []researchcatalog.ObjectSummary{}},
+		page: researchcatalog.Page{
 			MissionID:  "mis_1",
-			ObjectKind: app.ResearchIDEObjectRawArtifact,
-			Items: []app.ResearchIDEObjectSummary{{
-				ObjectKind: app.ResearchIDEObjectRawArtifact,
+			ObjectKind: researchcatalog.ObjectRawArtifact,
+			Items: []researchcatalog.ObjectSummary{{
+				ObjectKind: researchcatalog.ObjectRawArtifact,
 				ObjectID:   "art_1",
 				MissionID:  "mis_1",
 				Summary:    "Artifact",
 			}},
 			Limit: 10,
 		},
-		read: app.ResearchIDEObjectRead{
-			ObjectKind: app.ResearchIDEObjectRawArtifact,
+		read: researchinspection.ObjectRead{
+			ObjectKind: researchcatalog.ObjectRawArtifact,
 			ObjectID:   "art_1",
 			MissionID:  "mis_1",
 			Summary:    "artifact",
@@ -1060,21 +1091,21 @@ func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 			Truncated:  true,
 			NextOffset: 5,
 		},
-		grep: app.ResearchIDEGrepResult{
+		grep: researchinspection.GrepResult{
 			MissionID: "mis_1",
 			Query:     "hello",
-			Matches: []app.ResearchIDEGrepMatch{{
-				ObjectKind: app.ResearchIDEObjectRawArtifact,
+			Matches: []researchinspection.GrepMatch{{
+				ObjectKind: researchcatalog.ObjectRawArtifact,
 				ObjectID:   "art_1",
 				MissionID:  "mis_1",
 				Snippet:    "hello",
 			}},
 		},
-		refs: app.ResearchIDEReferences{
+		refs: researchcatalog.References{
 			MissionID:  "mis_1",
-			ObjectKind: app.ResearchIDEObjectSourceSnapshot,
+			ObjectKind: researchcatalog.ObjectSourceSnapshot,
 			ObjectID:   "src_1",
-			Forward:    []app.ResearchIDEObjectRef{{ObjectKind: app.ResearchIDEObjectRawArtifact, ObjectID: "art_1"}},
+			Forward:    []researchcatalog.ObjectRef{{ObjectKind: researchcatalog.ObjectRawArtifact, ObjectID: "art_1"}},
 		},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1"}))
@@ -1118,7 +1149,7 @@ func TestResearchToolsDelegateToReaderAndEnforceBinding(t *testing.T) {
 		t.Fatalf("expected research read trace event, got %#v", service.events)
 	}
 	metrics := readTracePayload["io_metrics"].(map[string]any)
-	if metrics["read_kind"] != "research_object" || metrics["object_kind"] != app.ResearchIDEObjectRawArtifact || metrics["object_id"] != "art_1" {
+	if metrics["read_kind"] != "research_object" || metrics["object_kind"] != researchcatalog.ObjectRawArtifact || metrics["object_id"] != "art_1" {
 		t.Fatalf("unexpected research read metrics: %#v", metrics)
 	}
 	if metrics["requested_max_bytes"] != float64(5) || metrics["returned_content_bytes"] != float64(5) || metrics["next_offset"] != float64(5) || metrics["response_truncated"] != true {
@@ -1273,11 +1304,11 @@ func TestWorkflowStartRequiresDeferredTurnBinding(t *testing.T) {
 
 func TestResearchLegacyReadsRequireLegacyMode(t *testing.T) {
 	service := &fakeMCPService{
-		page: app.ResearchIDEPage{
+		page: researchcatalog.Page{
 			MissionID:  "mis_1",
-			ObjectKind: app.ResearchIDEObjectEvidenceRecord,
-			Items: []app.ResearchIDEObjectSummary{{
-				ObjectKind: app.ResearchIDEObjectEvidenceRecord,
+			ObjectKind: researchcatalog.ObjectEvidenceRecord,
+			Items: []researchcatalog.ObjectSummary{{
+				ObjectKind: researchcatalog.ObjectEvidenceRecord,
 				ObjectID:   "evd_1",
 				MissionID:  "mis_1",
 				Summary:    "Historical evidence",
@@ -1356,7 +1387,7 @@ func TestMissionBoundToolCallsAreLogged(t *testing.T) {
 
 func TestMissionGetIsReadOnly(t *testing.T) {
 	service := &fakeMCPService{
-		projection: app.MissionProjection{MissionID: "mis_1", Title: "Research mission"},
+		projection: mission.Projection{MissionID: "mis_1", Title: "Research mission"},
 	}
 	server := NewServer(service)
 
@@ -1370,7 +1401,7 @@ func TestMissionGetIsReadOnly(t *testing.T) {
 	if result.MissionID != "mis_1" {
 		t.Fatalf("unexpected mission id: %#v", result)
 	}
-	output, ok := result.Content.(missionGetOutput)
+	output, ok := result.Content.(missionadapter.GetOutput)
 	if !ok {
 		t.Fatalf("unexpected mission get content type: %T", result.Content)
 	}
@@ -1384,8 +1415,8 @@ func TestMissionGetIsReadOnly(t *testing.T) {
 
 func TestMissionGetCanIncludeStoredSources(t *testing.T) {
 	service := &fakeMCPService{
-		projection: app.MissionProjection{MissionID: "mis_1", Title: "Research mission"},
-		sources: []app.SourceSnapshot{{
+		projection: mission.Projection{MissionID: "mis_1", Title: "Research mission"},
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			Title:       "Pinned source",
@@ -1404,8 +1435,9 @@ func TestMissionGetCanIncludeStoredSources(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("mission get returned error: %#v", result.Error)
 	}
-	output := result.Content.(missionGetOutput)
-	if len(output.Sources) != 1 || output.Sources[0].SnapshotID != "src_1" {
+	output := result.Content.(missionadapter.GetOutput)
+	snapshot, ok := output.Sources[0].(sourceSnapshotOutput)
+	if len(output.Sources) != 1 || !ok || snapshot.SnapshotID != "src_1" {
 		t.Fatalf("expected source snapshot in mission output, got %#v", output.Sources)
 	}
 	if len(service.events) != 0 {
@@ -1415,18 +1447,18 @@ func TestMissionGetCanIncludeStoredSources(t *testing.T) {
 
 func TestMissionGetCanIncludeResearchRecords(t *testing.T) {
 	service := &fakeMCPService{
-		projection: app.MissionProjection{MissionID: "mis_1", Title: "Research mission"},
-		evidence: []app.EvidenceRecord{{
+		projection: mission.Projection{MissionID: "mis_1", Title: "Research mission"},
+		evidence: []researchrecords.EvidenceRecord{{
 			EvidenceID: "evd_1",
 			MissionID:  "mis_1",
 			Summary:    "Pinned evidence",
 		}},
-		claims: []app.ClaimRecord{{
+		claims: []researchrecords.ClaimRecord{{
 			ClaimID:   "clm_1",
 			MissionID: "mis_1",
 			Text:      "Existing claim",
 		}},
-		questions: []app.QuestionRecord{{
+		questions: []researchrecords.QuestionRecord{{
 			QuestionID: "qst_1",
 			MissionID:  "mis_1",
 			Text:       "Open question",
@@ -1444,7 +1476,7 @@ func TestMissionGetCanIncludeResearchRecords(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("mission get returned error: %#v", result.Error)
 	}
-	output := result.Content.(missionGetOutput)
+	output := result.Content.(missionadapter.GetOutput)
 	if len(output.Evidence) != 1 || output.Evidence[0].EvidenceID != "evd_1" {
 		t.Fatalf("expected evidence in mission output, got %#v", output.Evidence)
 	}
@@ -1461,13 +1493,13 @@ func TestMissionGetCanIncludeResearchRecords(t *testing.T) {
 
 func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{
+		sources: []sourcecontract.Snapshot{
 			{
 				SnapshotID:  "src_1",
 				MissionID:   "mis_1",
 				Title:       "Pinned source",
 				ArtifactIDs: []string{"art_1"},
-				State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+				State: sourcecontract.State{ConfluenceUpdate: &app.ConfluenceUpdateState{
 					Status:         app.ConfluenceUpdateStatusAvailable,
 					CheckedAt:      time.Date(2026, 7, 14, 1, 2, 3, 0, time.UTC),
 					CurrentVersion: 7,
@@ -1479,14 +1511,14 @@ func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 				MissionID:   "mis_1",
 				Title:       "Removed source",
 				ArtifactIDs: []string{"art_removed"},
-				State:       app.SourceState{State: app.SourceStateRemoved, Removed: true},
+				State:       sourcecontract.State{State: sourcecontract.StateRemoved, Removed: true},
 			},
 			{
 				SnapshotID:  "src_superseded",
 				MissionID:   "mis_1",
 				Title:       "Superseded source",
 				ArtifactIDs: []string{"art_superseded"},
-				State:       app.SourceState{Superseded: true, SupersededBy: "src_1"},
+				State:       sourcecontract.State{Superseded: true, SupersededBy: "src_1"},
 			},
 		},
 	}
@@ -1503,7 +1535,7 @@ func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 	if len(output.Sources) != 1 || output.Sources[0].SnapshotID != "src_1" {
 		t.Fatalf("unexpected sources list output: %#v", output)
 	}
-	if output.Sources[0].RetrievalPolicy != app.SourceRetrievalPolicySnapshotOnly || output.Sources[0].State.State != app.SourceStateActive {
+	if output.Sources[0].RetrievalPolicy != sourcecontract.RetrievalPolicySnapshotOnly || output.Sources[0].State.State != sourcecontract.StateActive {
 		t.Fatalf("expected explicit policy and active state, got %#v", output.Sources[0])
 	}
 	if update := output.Sources[0].State.ConfluenceUpdate; update == nil || update.Status != app.ConfluenceUpdateStatusAvailable || update.LatestVersion != 8 {
@@ -1537,13 +1569,13 @@ func TestSourcesListReturnsStoredSourceSnapshots(t *testing.T) {
 
 func TestSourcesReadReturnsBoundedArtifactContent(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			Title:       "Pinned source",
 			ArtifactIDs: []string{"art_1"},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_1": {
 				ArtifactID: "art_1",
 				MissionID:  "mis_1",
@@ -1604,19 +1636,19 @@ func TestSourcesReadReturnsBoundedArtifactContent(t *testing.T) {
 func TestSourcesReadPDFReturnsExtractedText(t *testing.T) {
 	pdfBytes := testPDFBytes(t, []string{"MCP PDF Source", "Alpha code is 67."})
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_pdf",
 			MissionID:   "mis_1",
 			Title:       "PDF source",
 			ArtifactIDs: []string{"art_pdf"},
-			Connector: app.ConnectorRef{
-				ConnectorID:      app.SourceConnectorTypePDFURL,
-				ConnectorType:    app.SourceConnectorTypePDFURL,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:      sourcecontract.ConnectorTypePDFURL,
+				ConnectorType:    sourcecontract.ConnectorTypePDFURL,
 				ExternalSourceID: "https://example.com/source.pdf",
 				ExternalURI:      "https://example.com/source.pdf",
 			},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_pdf": {
 				ArtifactID: "art_pdf",
 				MissionID:  "mis_1",
@@ -1662,9 +1694,9 @@ func TestSourcesReadPDFReturnsExtractedText(t *testing.T) {
 }
 
 func TestSourcesReadMediaSourceReturnsMetadataWithoutBytes(t *testing.T) {
-	locators, err := json.Marshal([]app.MediaLocator{{
-		LocatorType:       app.SourceLocatorTypeMedia,
-		MediaKind:         app.MediaKindImage,
+	locators, err := json.Marshal([]sourcecontract.MediaLocator{{
+		LocatorType:       sourcecontract.LocatorTypeMedia,
+		MediaKind:         sourcecontract.MediaKindImage,
 		Provider:          "media_url",
 		CanonicalURL:      "https://example.com/image.png",
 		DirectMediaURL:    "https://example.com/image.png",
@@ -1679,20 +1711,20 @@ func TestSourcesReadMediaSourceReturnsMetadataWithoutBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_media",
 			MissionID:   "mis_1",
 			Title:       "Image",
 			ArtifactIDs: []string{"art_media"},
-			Connector: app.ConnectorRef{
-				ConnectorID:      app.SourceConnectorTypeMediaURL,
-				ConnectorType:    app.SourceConnectorTypeMediaURL,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:      sourcecontract.ConnectorTypeMediaURL,
+				ConnectorType:    sourcecontract.ConnectorTypeMediaURL,
 				ExternalSourceID: "https://example.com/image.png",
 				ExternalURI:      "https://example.com/image.png",
 			},
 			Locators: locators,
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_media": {
 				ArtifactID: "art_media",
 				MissionID:  "mis_1",
@@ -1716,7 +1748,7 @@ func TestSourcesReadMediaSourceReturnsMetadataWithoutBytes(t *testing.T) {
 		t.Fatalf("sources read media returned error: %#v", result.Error)
 	}
 	output := result.Content.(mediaSourceReadOutput)
-	if output.Media.MediaKind != app.MediaKindImage || output.Artifact.ArtifactID != "art_media" {
+	if output.Media.MediaKind != sourcecontract.MediaKindImage || output.Artifact.ArtifactID != "art_media" {
 		t.Fatalf("unexpected media source read output: %#v", output)
 	}
 	if strings.Contains(output.InspectionNote, "not returned") == false || strings.Contains(output.InspectionNote, "vision engine") == false {
@@ -1726,28 +1758,28 @@ func TestSourcesReadMediaSourceReturnsMetadataWithoutBytes(t *testing.T) {
 
 func TestSourcesReadLiveLocalPathObservesWithBoundSession(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_live",
 			MissionID:  "mis_1",
-			Connector: app.ConnectorRef{
-				ConnectorID:   app.SourceConnectorTypeLocalPath,
-				ConnectorType: app.SourceConnectorTypeLocalPath,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:   sourcecontract.ConnectorTypeLocalPath,
+				ConnectorType: sourcecontract.ConnectorTypeLocalPath,
 			},
 			Title:  "notes.md",
-			Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-			State:  app.SourceState{State: app.SourceStateActive},
+			Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+			State:  sourcecontract.State{State: sourcecontract.StateActive},
 		}},
 		localReadResult: app.ReadLocalPathSourceResult{
-			Snapshot: app.SourceSnapshot{
+			Snapshot: sourcecontract.Snapshot{
 				SnapshotID: "src_live",
 				MissionID:  "mis_1",
-				Connector:  app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath},
-				Access:     app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-				State:      app.SourceState{State: app.SourceStateActive},
+				Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeLocalPath},
+				Access:     sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+				State:      sourcecontract.State{State: sourcecontract.StateActive},
 			},
-			Read: localpath.ReadResult{
+			Read: sourcecontract.LocalPathReadResult{
 				Content: "live text",
-				Metadata: localpath.PathMetadata{
+				Metadata: sourcecontract.LocalPathMetadata{
 					RootID:       "workspace",
 					RelativePath: "docs/notes.md",
 					Subpath:      "notes.md",
@@ -1757,7 +1789,7 @@ func TestSourcesReadLiveLocalPathObservesWithBoundSession(t *testing.T) {
 					Truncated:    true,
 				},
 			},
-			ObservationEvent: &app.LedgerEvent{EventID: "evt_observed", MissionID: "mis_1", EventType: app.SourceObservedEvent},
+			ObservationEvent: &ledger.Event{EventID: "evt_observed", MissionID: "mis_1", EventType: app.SourceObservedEvent},
 		},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -1811,49 +1843,49 @@ func TestSourcesReadLiveLocalPathObservesWithBoundSession(t *testing.T) {
 
 func TestSourcesTreeAndGrepLiveLocalPathUseSourceScope(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_dir",
 			MissionID:  "mis_1",
-			Connector: app.ConnectorRef{
-				ConnectorID:   app.SourceConnectorTypeLocalPath,
-				ConnectorType: app.SourceConnectorTypeLocalPath,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:   sourcecontract.ConnectorTypeLocalPath,
+				ConnectorType: sourcecontract.ConnectorTypeLocalPath,
 			},
 			Title:  "docs",
-			Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-			State:  app.SourceState{State: app.SourceStateActive},
+			Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+			State:  sourcecontract.State{State: sourcecontract.StateActive},
 		}},
 		localTreeResult: app.TreeLocalPathSourceResult{
-			Snapshot: app.SourceSnapshot{
+			Snapshot: sourcecontract.Snapshot{
 				SnapshotID: "src_dir",
 				MissionID:  "mis_1",
-				Connector:  app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath},
-				Access:     app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-				State:      app.SourceState{State: app.SourceStateActive},
+				Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeLocalPath},
+				Access:     sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+				State:      sourcecontract.State{State: sourcecontract.StateActive},
 			},
-			Tree: localpath.TreeResult{
+			Tree: sourcecontract.LocalPathTreeResult{
 				RootID:       "workspace",
 				RelativePath: "docs/nested",
-				Entries:      []localpath.TreeEntry{{Name: "notes.md", RelativePath: "docs/nested/notes.md", PathKind: "file"}},
-				Metadata:     localpath.PathMetadata{RootID: "workspace", RelativePath: "docs/nested", Subpath: "nested", PathKind: "directory"},
+				Entries:      []sourcecontract.LocalPathTreeEntry{{Name: "notes.md", RelativePath: "docs/nested/notes.md", PathKind: "file"}},
+				Metadata:     sourcecontract.LocalPathMetadata{RootID: "workspace", RelativePath: "docs/nested", Subpath: "nested", PathKind: "directory"},
 			},
-			ObservationEvent: &app.LedgerEvent{EventID: "evt_tree", MissionID: "mis_1", EventType: app.SourceObservedEvent},
+			ObservationEvent: &ledger.Event{EventID: "evt_tree", MissionID: "mis_1", EventType: app.SourceObservedEvent},
 		},
 		localGrepResult: app.GrepLocalPathSourceResult{
-			Snapshot: app.SourceSnapshot{
+			Snapshot: sourcecontract.Snapshot{
 				SnapshotID: "src_dir",
 				MissionID:  "mis_1",
-				Connector:  app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath},
-				Access:     app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-				State:      app.SourceState{State: app.SourceStateActive},
+				Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeLocalPath},
+				Access:     sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+				State:      sourcecontract.State{State: sourcecontract.StateActive},
 			},
-			Grep: localpath.GrepResult{
+			Grep: sourcecontract.LocalPathGrepResult{
 				RootID:       "workspace",
 				RelativePath: "docs/nested",
 				Query:        "needle",
-				Matches:      []localpath.GrepMatch{{RelativePath: "docs/nested/notes.md", Line: 1, Column: 1, Snippet: "needle"}},
-				Metadata:     localpath.PathMetadata{RootID: "workspace", RelativePath: "docs/nested", Subpath: "nested", PathKind: "directory"},
+				Matches:      []sourcecontract.LocalPathGrepMatch{{RelativePath: "docs/nested/notes.md", Line: 1, Column: 1, Snippet: "needle"}},
+				Metadata:     sourcecontract.LocalPathMetadata{RootID: "workspace", RelativePath: "docs/nested", Subpath: "nested", PathKind: "directory"},
 			},
-			ObservationEvent: &app.LedgerEvent{EventID: "evt_grep", MissionID: "mis_1", EventType: app.SourceObservedEvent},
+			ObservationEvent: &ledger.Event{EventID: "evt_grep", MissionID: "mis_1", EventType: app.SourceObservedEvent},
 		},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -1903,14 +1935,14 @@ func TestSourcesTreeAndGrepLiveLocalPathUseSourceScope(t *testing.T) {
 
 func TestSourcesReadRejectsSubpathForSnapshotOnlySources(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			Title:       "Pinned source",
 			ArtifactIDs: []string{"art_1"},
-			Access:      app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_1": {
 				ArtifactID: "art_1",
 				MissionID:  "mis_1",
@@ -1938,15 +1970,15 @@ func TestSourcesReadRejectsSubpathForSnapshotOnlySources(t *testing.T) {
 
 func TestSourcesReadRejectsSubpathForLiveNonLocalPathSources(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_media",
 			MissionID:  "mis_1",
-			Connector: app.ConnectorRef{
-				ConnectorID:   app.SourceConnectorTypeMediaURL,
-				ConnectorType: app.SourceConnectorTypeMediaURL,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:   sourcecontract.ConnectorTypeMediaURL,
+				ConnectorType: sourcecontract.ConnectorTypeMediaURL,
 			},
-			Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-			State:  app.SourceState{State: app.SourceStateActive},
+			Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+			State:  sourcecontract.State{State: sourcecontract.StateActive},
 		}},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -1975,18 +2007,18 @@ func TestSourcesReadRejectsSubpathForLiveNonLocalPathSources(t *testing.T) {
 func TestSourcesReadImageReturnsMetadataOnly(t *testing.T) {
 	imageBytes := []byte{0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02}
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_image",
 			MissionID:   "mis_1",
 			Title:       "Uploaded image",
 			ArtifactIDs: []string{"art_image"},
-			Connector: app.ConnectorRef{
-				ConnectorID:      app.SourceConnectorTypeFileUpload,
-				ConnectorType:    app.SourceConnectorTypeFileUpload,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:      sourcecontract.ConnectorTypeFileUpload,
+				ConnectorType:    sourcecontract.ConnectorTypeFileUpload,
 				ExternalSourceID: "file_upload:sha",
 			},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_image": {
 				ArtifactID: "art_image",
 				MissionID:  "mis_1",
@@ -2017,28 +2049,28 @@ func TestSourcesReadImageReturnsMetadataOnly(t *testing.T) {
 
 func TestSourcesReadLiveLocalPathPDFUsesExtractedTextLengthWhenEmpty(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID: "src_pdf_live",
 			MissionID:  "mis_1",
-			Connector: app.ConnectorRef{
-				ConnectorID:   app.SourceConnectorTypeLocalPath,
-				ConnectorType: app.SourceConnectorTypeLocalPath,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:   sourcecontract.ConnectorTypeLocalPath,
+				ConnectorType: sourcecontract.ConnectorTypeLocalPath,
 			},
 			Title:  "scan.pdf",
-			Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-			State:  app.SourceState{State: app.SourceStateActive},
+			Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+			State:  sourcecontract.State{State: sourcecontract.StateActive},
 		}},
 		localReadResult: app.ReadLocalPathSourceResult{
-			Snapshot: app.SourceSnapshot{
+			Snapshot: sourcecontract.Snapshot{
 				SnapshotID: "src_pdf_live",
 				MissionID:  "mis_1",
-				Connector:  app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath},
-				Access:     app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-				State:      app.SourceState{State: app.SourceStateActive},
+				Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeLocalPath},
+				Access:     sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+				State:      sourcecontract.State{State: sourcecontract.StateActive},
 			},
-			Read: localpath.ReadResult{
+			Read: sourcecontract.LocalPathReadResult{
 				Content: "",
-				Metadata: localpath.PathMetadata{
+				Metadata: sourcecontract.LocalPathMetadata{
 					RootID:          "workspace",
 					RelativePath:    "scan.pdf",
 					PathKind:        "file",
@@ -2050,7 +2082,7 @@ func TestSourcesReadLiveLocalPathPDFUsesExtractedTextLengthWhenEmpty(t *testing.
 					Cap:             "pdf_text",
 				},
 			},
-			ObservationEvent: &app.LedgerEvent{EventID: "evt_pdf_observed", MissionID: "mis_1", EventType: app.SourceObservedEvent},
+			ObservationEvent: &ledger.Event{EventID: "evt_pdf_observed", MissionID: "mis_1", EventType: app.SourceObservedEvent},
 		},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -2077,13 +2109,13 @@ func TestSourcesReadLiveLocalPathPDFUsesExtractedTextLengthWhenEmpty(t *testing.
 func TestSourcesReadPaginatesUTF8ContentOnRuneBoundaries(t *testing.T) {
 	content := []byte("가나다🙂xyz")
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			Title:       "Pinned source",
 			ArtifactIDs: []string{"art_1"},
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_1": {
 				ArtifactID: "art_1",
 				MissionID:  "mis_1",
@@ -2145,7 +2177,7 @@ func TestSourcesReadPaginatesUTF8ContentOnRuneBoundaries(t *testing.T) {
 
 func TestSourcesReadRejectsArtifactOutsideSnapshot(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			ArtifactIDs: []string{"art_1"},
@@ -2168,12 +2200,12 @@ func TestSourcesReadRejectsArtifactOutsideSnapshot(t *testing.T) {
 
 func TestLocalPathMCPToolsUseSharedServices(t *testing.T) {
 	service := &fakeMCPService{
-		localRoots: []localpath.RootView{{RootID: "workspace", Alias: "Workspace"}},
-		localTree: localpath.TreeResult{
+		localRoots: []sourcecontract.LocalPathRoot{{RootID: "workspace", Alias: "Workspace"}},
+		localTree: sourcecontract.LocalPathTreeResult{
 			RootID:       "workspace",
 			RootAlias:    "Workspace",
 			RelativePath: "docs",
-			Entries:      []localpath.TreeEntry{{Name: "notes.md", RelativePath: "docs/notes.md", PathKind: "file"}},
+			Entries:      []sourcecontract.LocalPathTreeEntry{{Name: "notes.md", RelativePath: "docs/notes.md", PathKind: "file"}},
 		},
 	}
 	server := NewServer(service, WithBinding(Binding{MissionID: "mis_1", AgentSessionID: "ses_1"}))
@@ -2246,7 +2278,7 @@ func TestLocalPathMCPToolsUseSharedServices(t *testing.T) {
 		t.Fatalf("attach request was not forwarded: %#v", service.localAttachReq)
 	}
 	attachOutput := attach.Content.(localPathAttachOutput)
-	if attachOutput.Snapshot.RetrievalPolicy != app.SourceRetrievalPolicyLiveReference {
+	if attachOutput.Snapshot.RetrievalPolicy != sourcecontract.RetrievalPolicyLiveReference {
 		t.Fatalf("expected live reference attach output, got %#v", attachOutput)
 	}
 
@@ -2292,7 +2324,7 @@ func TestLocalPathMCPToolsUseSharedServices(t *testing.T) {
 
 func TestBoundServerRejectsDifferentMissionRead(t *testing.T) {
 	service := &fakeMCPService{
-		sources: []app.SourceSnapshot{{
+		sources: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_1",
 			MissionID:   "mis_1",
 			ArtifactIDs: []string{"art_1"},
@@ -2337,9 +2369,9 @@ func TestBoundServerRejectsDifferentMutatingSession(t *testing.T) {
 
 func TestSourcesSearchUsesMountedConnector(t *testing.T) {
 	service := &fakeMCPService{
-		searchResult: app.Liquid2SourceSearchResult{
-			Candidates: []app.Liquid2SourceCandidate{{
-				Connector:   app.ConnectorRef{ConnectorID: app.Liquid2ConnectorID, ExternalSourceID: "doc_1"},
+		searchResult: liquid2source.Liquid2SourceSearchResult{
+			Candidates: []liquid2source.Liquid2SourceCandidate{{
+				Connector:   sourcecontract.ConnectorRef{ConnectorID: liquid2source.Liquid2ConnectorID, ExternalSourceID: "doc_1"},
 				Title:       "Candidate",
 				CanSnapshot: true,
 			}},
@@ -2367,7 +2399,7 @@ func TestSourcesSearchUsesMountedConnector(t *testing.T) {
 		t.Fatalf("unexpected search request: %#v", service.searchRequest)
 	}
 	output := result.Content.(sourcesSearchOutput)
-	if len(output.Candidates) != 1 || output.NextCursors[app.Liquid2ConnectorID] != "cursor_2" {
+	if len(output.Candidates) != 1 || output.NextCursors[liquid2source.Liquid2ConnectorID] != "cursor_2" {
 		t.Fatalf("unexpected search output: %#v", output)
 	}
 	encoded, err := json.Marshal(result)
@@ -2383,19 +2415,19 @@ func TestSourcesSearchUsesConfluenceFactoryForDiscoveryOnly(t *testing.T) {
 	service := &fakeMCPService{
 		confluenceAccess: app.ConnectorAccessProjection{
 			MissionID:    "mis_1",
-			ConnectorID:  app.ConfluenceConnectorID,
+			ConnectorID:  confluencesource.ConfluenceConnectorID,
 			Enabled:      true,
 			ConnectionID: "cnf_1",
 			CloudID:      "cloud_1",
 			SpaceKey:     "ENG",
 			Status:       app.ConnectorAccessStatusEnabled,
 		},
-		confluenceSearchResult: app.ConfluenceSourceSearchResult{
-			Candidates: []app.ConfluenceSourceCandidate{{
-				Connector: app.ConnectorRef{
-					ConnectorID:      app.ConfluenceConnectorID,
-					ConnectorType:    app.ConfluenceConnectorType,
-					ExternalSourceID: app.ConfluenceExternalSourceID("cloud_1", "123"),
+		confluenceSearchResult: confluencesource.ConfluenceSourceSearchResult{
+			Candidates: []confluencesource.ConfluenceSourceCandidate{{
+				Connector: sourcecontract.ConnectorRef{
+					ConnectorID:      confluencesource.ConfluenceConnectorID,
+					ConnectorType:    confluencesource.ConfluenceConnectorType,
+					ExternalSourceID: confluencesource.ConfluenceExternalSourceID("cloud_1", "123"),
 					ExternalVersion:  "7",
 				},
 				Title:       "Roadmap",
@@ -2407,7 +2439,7 @@ func TestSourcesSearchUsesConfluenceFactoryForDiscoveryOnly(t *testing.T) {
 		},
 	}
 	var factoryReq ConfluenceConnectorRequest
-	server := NewServer(service, WithConfluenceConnectorFactory(func(_ context.Context, req ConfluenceConnectorRequest) (app.ConfluenceSourceConnector, error) {
+	server := NewServer(service, WithConfluenceConnectorFactory(func(_ context.Context, req ConfluenceConnectorRequest) (confluencesource.ConfluenceSourceConnector, error) {
 		factoryReq = req
 		return fakeMCPConfluenceConnector{}, nil
 	}))
@@ -2436,7 +2468,7 @@ func TestSourcesSearchUsesConfluenceFactoryForDiscoveryOnly(t *testing.T) {
 		t.Fatalf("unexpected confluence search request: %#v", service.confluenceSearchRequest)
 	}
 	output := result.Content.(sourcesSearchOutput)
-	if len(output.Candidates) != 1 || output.Candidates[0].Connector.ConnectorID != app.ConfluenceConnectorID {
+	if len(output.Candidates) != 1 || output.Candidates[0].Connector.ConnectorID != confluencesource.ConfluenceConnectorID {
 		t.Fatalf("unexpected search output: %#v", output)
 	}
 	encoded, err := json.Marshal(result)
@@ -2453,7 +2485,7 @@ func TestSourcesSearchUsesConfluenceFactoryForDiscoveryOnly(t *testing.T) {
 func TestSourcesSearchDeniesConfluenceWithoutMissionGrant(t *testing.T) {
 	service := &fakeMCPService{}
 	factoryCalled := false
-	server := NewServer(service, WithConfluenceConnectorFactory(func(context.Context, ConfluenceConnectorRequest) (app.ConfluenceSourceConnector, error) {
+	server := NewServer(service, WithConfluenceConnectorFactory(func(context.Context, ConfluenceConnectorRequest) (confluencesource.ConfluenceSourceConnector, error) {
 		factoryCalled = true
 		return fakeMCPConfluenceConnector{}, nil
 	}))
@@ -2478,7 +2510,7 @@ func TestSourcesSearchRejectsConfluenceGrantMismatch(t *testing.T) {
 	service := &fakeMCPService{
 		confluenceAccess: app.ConnectorAccessProjection{
 			MissionID:    "mis_1",
-			ConnectorID:  app.ConfluenceConnectorID,
+			ConnectorID:  confluencesource.ConfluenceConnectorID,
 			Enabled:      true,
 			ConnectionID: "cnf_granted",
 			CloudID:      "cloud_1",
@@ -2486,7 +2518,7 @@ func TestSourcesSearchRejectsConfluenceGrantMismatch(t *testing.T) {
 		},
 	}
 	factoryCalled := false
-	server := NewServer(service, WithConfluenceConnectorFactory(func(context.Context, ConfluenceConnectorRequest) (app.ConfluenceSourceConnector, error) {
+	server := NewServer(service, WithConfluenceConnectorFactory(func(context.Context, ConfluenceConnectorRequest) (confluencesource.ConfluenceSourceConnector, error) {
 		factoryCalled = true
 		return fakeMCPConfluenceConnector{}, nil
 	}))
@@ -2550,7 +2582,7 @@ func TestSourceCandidatesProposeRecordsReviewAndStartsStaging(t *testing.T) {
 	if len(result.CreatedEventIDs) != 2 {
 		t.Fatalf("expected proposed and staging_started events, got %#v", result.CreatedEventIDs)
 	}
-	var candidateEvent app.AppendEventRequest
+	var candidateEvent ledger.AppendRequest
 	for _, event := range service.events {
 		if event.EventType == "source.candidate.proposed" {
 			candidateEvent = event
@@ -2609,7 +2641,7 @@ func TestSourceCandidatesReadReturnsStagedUnapprovedCandidate(t *testing.T) {
 	content := []byte("candidate body")
 	sum := sha256.Sum256(content)
 	service := &fakeMCPService{
-		ledgerEvents: []app.LedgerEvent{{
+		ledgerEvents: []ledger.Event{{
 			EventID:   "evt_staged",
 			MissionID: "mis_1",
 			Sequence:  1,
@@ -2622,7 +2654,7 @@ func TestSourceCandidatesReadReturnsStagedUnapprovedCandidate(t *testing.T) {
 				"not_report_default": true,
 			}),
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_candidate": {
 				ArtifactID: "art_candidate",
 				MissionID:  "mis_1",
@@ -2662,7 +2694,7 @@ func TestSourceCandidatesReadReturnsImageMetadataWithoutBinary(t *testing.T) {
 	content := []byte{0xff, 0xd8, 0xff, 0xd9}
 	sum := sha256.Sum256(content)
 	service := &fakeMCPService{
-		ledgerEvents: []app.LedgerEvent{{
+		ledgerEvents: []ledger.Event{{
 			EventID: "evt_staged", MissionID: "mis_1", Sequence: 1,
 			EventType: "source.candidate.staged",
 			Payload: mustJSON(map[string]any{
@@ -2670,7 +2702,7 @@ func TestSourceCandidatesReadReturnsImageMetadataWithoutBinary(t *testing.T) {
 				"artifact_id": "art_candidate", "media_kind": "image",
 			}),
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_candidate": {
 				ArtifactID: "art_candidate", MissionID: "mis_1", MediaType: "image/jpeg",
 				ByteSize: int64(len(content)), SHA256: hex.EncodeToString(sum[:]), Content: content,
@@ -2695,7 +2727,7 @@ func TestSourceCandidatesReadReturnsPDFTextForStagedCandidate(t *testing.T) {
 	content := testPDFBytes(t, []string{"Candidate PDF Source", "Alpha code is 92."})
 	sum := sha256.Sum256(content)
 	service := &fakeMCPService{
-		ledgerEvents: []app.LedgerEvent{{
+		ledgerEvents: []ledger.Event{{
 			EventID:   "evt_staged",
 			MissionID: "mis_1",
 			Sequence:  1,
@@ -2708,7 +2740,7 @@ func TestSourceCandidatesReadReturnsPDFTextForStagedCandidate(t *testing.T) {
 				"not_report_default": true,
 			}),
 		}},
-		artifacts: map[string]app.RawArtifact{
+		artifacts: map[string]artifactcontract.Raw{
 			"art_candidate": {
 				ArtifactID: "art_candidate",
 				MissionID:  "mis_1",
@@ -2746,7 +2778,7 @@ func TestSourceCandidatesReadReturnsPDFTextForStagedCandidate(t *testing.T) {
 
 func TestSourceCandidatesReadRejectsAmbiguousProposalOnlySelector(t *testing.T) {
 	service := &fakeMCPService{
-		ledgerEvents: []app.LedgerEvent{
+		ledgerEvents: []ledger.Event{
 			{
 				EventID:   "evt_staged_a",
 				MissionID: "mis_1",
@@ -3028,7 +3060,7 @@ func TestClaimConfidenceUpdateIsAdvisoryTool(t *testing.T) {
 	if req.ClaimID != "clm_1" || req.Confidence.Level != "high" || req.Origin != "agent" {
 		t.Fatalf("unexpected confidence request: %#v", req)
 	}
-	if len(service.events) != 1 || service.events[0].EventType != app.ClaimConfidenceUpdatedEvent {
+	if len(service.events) != 1 || service.events[0].EventType != researchrecords.ClaimConfidenceUpdatedEvent {
 		t.Fatalf("unexpected confidence event writes: %#v", service.events)
 	}
 }
@@ -3190,7 +3222,7 @@ func cloneMap(values map[string]any) map[string]any {
 	return cloned
 }
 
-func fakeMCPHasEventType(events []app.AppendEventRequest, eventType string) bool {
+func fakeMCPHasEventType(events []ledger.AppendRequest, eventType string) bool {
 	for _, event := range events {
 		if event.EventType == eventType {
 			return true
@@ -3279,35 +3311,35 @@ type mcpServiceWithoutResearchPorts struct {
 }
 
 type fakeMCPService struct {
-	projection   app.MissionProjection
-	ledgerEvents []app.LedgerEvent
-	sources      []app.SourceSnapshot
-	artifacts    map[string]app.RawArtifact
-	evidence     []app.EvidenceRecord
-	claims       []app.ClaimRecord
-	questions    []app.QuestionRecord
+	projection   mission.Projection
+	ledgerEvents []ledger.Event
+	sources      []sourcecontract.Snapshot
+	artifacts    map[string]artifactcontract.Raw
+	evidence     []researchrecords.EvidenceRecord
+	claims       []researchrecords.ClaimRecord
+	questions    []researchrecords.QuestionRecord
 	outline      app.ResearchIDEOutline
 	changes      app.ResearchIDEChanges
-	page         app.ResearchIDEPage
-	read         app.ResearchIDEObjectRead
-	grep         app.ResearchIDEGrepResult
-	refs         app.ResearchIDEReferences
-	lastRead     app.ResearchIDEReadRequest
+	page         researchcatalog.Page
+	read         researchinspection.ObjectRead
+	grep         researchinspection.GrepResult
+	refs         researchcatalog.References
+	lastRead     researchinspection.ReadRequest
 	lastChanges  app.ResearchIDEChangesRequest
-	workflowRuns []app.WorkflowRunView
+	workflowRuns []workflowstate.WorkflowRunView
 
 	searchUsedConnector     bool
-	searchRequest           app.Liquid2SourceSearchRequest
-	searchResult            app.Liquid2SourceSearchResult
-	confluenceSearchRequest app.ConfluenceSourceSearchRequest
-	confluenceSearchResult  app.ConfluenceSourceSearchResult
+	searchRequest           liquid2source.Liquid2SourceSearchRequest
+	searchResult            liquid2source.Liquid2SourceSearchResult
+	confluenceSearchRequest confluencesource.ConfluenceSourceSearchRequest
+	confluenceSearchResult  confluencesource.ConfluenceSourceSearchResult
 	confluenceAccess        app.ConnectorAccessProjection
 
-	snapshotRequest app.SnapshotLiquid2SourceRequest
-	snapshotResult  app.Liquid2SnapshotResult
+	snapshotRequest liquid2source.SnapshotLiquid2SourceRequest
+	snapshotResult  liquid2source.Liquid2SnapshotResult
 
-	localRoots          []localpath.RootView
-	localTree           localpath.TreeResult
+	localRoots          []sourcecontract.LocalPathRoot
+	localTree           sourcecontract.LocalPathTreeResult
 	localAttachReq      app.AttachLocalPathSourceRequest
 	localAttachResult   app.LocalPathSourceResult
 	localReadReq        app.ReadLocalPathSourceRequest
@@ -3321,27 +3353,27 @@ type fakeMCPService struct {
 	sourceRestoreReq    app.RestoreSourceRequest
 	sourceRestoreResult app.SourceStateChangeResult
 
-	events               []app.AppendEventRequest
+	events               []ledger.AppendRequest
 	appendEventErrByType map[string]error
-	evidenceRequests     []app.CreateEvidenceRecordRequest
-	claimRequests        []app.CreateClaimRecordRequest
-	confidenceRequests   []app.UpdateClaimConfidenceRequest
-	questionRequests     []app.CreateQuestionRecordRequest
-	proposalRequests     []app.CreateProposalBundleRequest
-	metadataRequests     []app.UpdateMissionMetadataRequest
+	evidenceRequests     []researchrecords.CreateEvidenceRecordRequest
+	claimRequests        []researchrecords.CreateClaimRecordRequest
+	confidenceRequests   []researchrecords.UpdateClaimConfidenceRequest
+	questionRequests     []researchrecords.CreateQuestionRecordRequest
+	proposalRequests     []researchproposal.CreateProposalBundleRequest
+	metadataRequests     []mission.UpdateMissionMetadataRequest
 }
 
-func (f *fakeMCPService) UpdateMissionMetadata(_ context.Context, req app.UpdateMissionMetadataRequest) (app.UpdateMissionMetadataResult, error) {
+func (f *fakeMCPService) UpdateMissionMetadata(_ context.Context, req mission.UpdateMissionMetadataRequest) (mission.UpdateMissionMetadataResult, error) {
 	f.metadataRequests = append(f.metadataRequests, req)
-	projection := app.MissionProjection{MissionID: req.MissionID}
+	projection := mission.Projection{MissionID: req.MissionID}
 	if req.Title != nil {
 		projection.Title = strings.TrimSpace(*req.Title)
 	}
-	event := app.LedgerEvent{EventID: req.EventID, MissionID: req.MissionID, EventType: "mission.metadata.updated", Producer: req.Producer}
-	return app.UpdateMissionMetadataResult{Event: event, Projection: projection}, nil
+	event := ledger.Event{EventID: req.EventID, MissionID: req.MissionID, EventType: "mission.metadata.updated", Producer: req.Producer}
+	return mission.UpdateMissionMetadataResult{Event: event, Projection: projection}, nil
 }
 
-func (f *fakeMCPService) GetProjection(_ context.Context, missionID string) (app.MissionProjection, error) {
+func (f *fakeMCPService) GetProjection(_ context.Context, missionID string) (mission.Projection, error) {
 	projection := f.projection
 	if projection.MissionID == "" {
 		projection.MissionID = missionID
@@ -3349,8 +3381,8 @@ func (f *fakeMCPService) GetProjection(_ context.Context, missionID string) (app
 	return projection, nil
 }
 
-func (f *fakeMCPService) ListEvents(_ context.Context, missionID string) ([]app.LedgerEvent, error) {
-	events := []app.LedgerEvent{}
+func (f *fakeMCPService) ListEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	events := []ledger.Event{}
 	for _, event := range f.ledgerEvents {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -3359,20 +3391,20 @@ func (f *fakeMCPService) ListEvents(_ context.Context, missionID string) ([]app.
 	return events, nil
 }
 
-func (f *fakeMCPService) ListSourceSnapshots(_ context.Context, missionID string) ([]app.SourceSnapshot, error) {
-	return f.ListSourceSnapshotsWithState(context.Background(), app.ListSourceSnapshotsRequest{MissionID: missionID})
+func (f *fakeMCPService) ListSourceSnapshots(_ context.Context, missionID string) ([]sourcecontract.Snapshot, error) {
+	return f.ListSourceSnapshotsWithState(context.Background(), sourcecontract.ListRequest{MissionID: missionID})
 }
 
-func (f *fakeMCPService) ListSourceSnapshotsWithState(_ context.Context, req app.ListSourceSnapshotsRequest) ([]app.SourceSnapshot, error) {
-	sources := []app.SourceSnapshot{}
+func (f *fakeMCPService) ListSourceSnapshotsWithState(_ context.Context, req sourcecontract.ListRequest) ([]sourcecontract.Snapshot, error) {
+	sources := []sourcecontract.Snapshot{}
 	for _, source := range f.sources {
 		if source.MissionID != req.MissionID {
 			continue
 		}
 		if source.State.State == "" {
-			source.State.State = app.SourceStateActive
+			source.State.State = sourcecontract.StateActive
 		}
-		source.State.Removed = source.State.Removed || source.State.State == app.SourceStateRemoved
+		source.State.Removed = source.State.Removed || source.State.State == sourcecontract.StateRemoved
 		if source.State.Removed && !req.IncludeRemoved {
 			continue
 		}
@@ -3384,26 +3416,26 @@ func (f *fakeMCPService) ListSourceSnapshotsWithState(_ context.Context, req app
 	return sources, nil
 }
 
-func (f *fakeMCPService) GetSourceSnapshot(_ context.Context, snapshotID string) (app.SourceSnapshot, error) {
+func (f *fakeMCPService) GetSourceSnapshot(_ context.Context, snapshotID string) (sourcecontract.Snapshot, error) {
 	for _, source := range f.sources {
 		if source.SnapshotID == snapshotID {
 			return source, nil
 		}
 	}
-	return app.SourceSnapshot{}, errors.New("missing source snapshot")
+	return sourcecontract.Snapshot{}, errors.New("missing source snapshot")
 }
 
-func (f *fakeMCPService) GetRawArtifact(_ context.Context, artifactID string) (app.RawArtifact, error) {
+func (f *fakeMCPService) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if f.artifacts != nil {
 		if artifact, ok := f.artifacts[artifactID]; ok {
 			return artifact, nil
 		}
 	}
-	return app.RawArtifact{}, errors.New("missing artifact")
+	return artifactcontract.Raw{}, errors.New("missing artifact")
 }
 
-func (f *fakeMCPService) ListRawArtifacts(_ context.Context, missionID string) ([]app.RawArtifact, error) {
-	var artifacts []app.RawArtifact
+func (f *fakeMCPService) ListRawArtifacts(_ context.Context, missionID string) ([]artifactcontract.Raw, error) {
+	var artifacts []artifactcontract.Raw
 	for _, artifact := range f.artifacts {
 		if artifact.MissionID == missionID {
 			artifacts = append(artifacts, artifact)
@@ -3412,18 +3444,18 @@ func (f *fakeMCPService) ListRawArtifacts(_ context.Context, missionID string) (
 	return artifacts, nil
 }
 
-func (f *fakeMCPService) CreateRawArtifact(_ context.Context, req app.CreateRawArtifactRequest) (app.RawArtifact, error) {
+func (f *fakeMCPService) CreateRawArtifact(_ context.Context, req artifactcontract.CreateRequest) (artifactcontract.Raw, error) {
 	if f.artifacts == nil {
-		f.artifacts = map[string]app.RawArtifact{}
+		f.artifacts = map[string]artifactcontract.Raw{}
 	}
 	if strings.TrimSpace(req.ExpectedSHA256) != "" {
 		sum := sha256.Sum256(req.Content)
 		if !strings.EqualFold(strings.TrimSpace(req.ExpectedSHA256), hex.EncodeToString(sum[:])) {
-			return app.RawArtifact{}, app.ErrInvalidInput
+			return artifactcontract.Raw{}, app.ErrInvalidInput
 		}
 	}
 	sum := sha256.Sum256(req.Content)
-	artifact := app.RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: req.ArtifactID,
 		MissionID:  req.MissionID,
 		MediaType:  req.MediaType,
@@ -3441,43 +3473,43 @@ func (f *fakeMCPService) CreateRawArtifact(_ context.Context, req app.CreateRawA
 
 func (f *fakeMCPService) CreateRawArtifactWithEvent(
 	ctx context.Context,
-	req app.CreateRawArtifactRequest,
-	eventReqForArtifact func(app.RawArtifact) app.AppendEventRequest,
-) (app.RawArtifact, app.LedgerEvent, error) {
+	req artifactcontract.CreateRequest,
+	eventReqForArtifact func(artifactcontract.Raw) ledger.AppendRequest,
+) (artifactcontract.Raw, ledger.Event, error) {
 	if eventReqForArtifact == nil {
-		return app.RawArtifact{}, app.LedgerEvent{}, app.ErrInvalidInput
+		return artifactcontract.Raw{}, ledger.Event{}, app.ErrInvalidInput
 	}
 	artifact, err := f.CreateRawArtifact(ctx, req)
 	if err != nil {
-		return app.RawArtifact{}, app.LedgerEvent{}, err
+		return artifactcontract.Raw{}, ledger.Event{}, err
 	}
 	event, err := f.AppendEvent(ctx, eventReqForArtifact(artifact))
 	if err != nil {
 		delete(f.artifacts, artifact.ArtifactID)
-		return app.RawArtifact{}, app.LedgerEvent{}, err
+		return artifactcontract.Raw{}, ledger.Event{}, err
 	}
 	return artifact, event, nil
 }
 
 func (f *fakeMCPService) CreateRawArtifactWithEventConditionally(
 	ctx context.Context,
-	req app.CreateRawArtifactRequest,
-	build func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error),
-) (app.RawArtifact, app.LedgerEvent, bool, error) {
+	req artifactcontract.CreateRequest,
+	build func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error),
+) (artifactcontract.Raw, ledger.Event, bool, error) {
 	previous, hadPrevious := f.artifacts[req.ArtifactID]
 	artifact, err := f.CreateRawArtifact(ctx, req)
 	if err != nil {
-		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	eventReq, existing, create, err := build(f.ledgerEvents, artifact)
 	if err != nil {
 		delete(f.artifacts, artifact.ArtifactID)
-		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	if !create {
 		if !hadPrevious {
 			delete(f.artifacts, artifact.ArtifactID)
-			return app.RawArtifact{}, app.LedgerEvent{}, false, errors.New("missing artifact")
+			return artifactcontract.Raw{}, ledger.Event{}, false, errors.New("missing artifact")
 		}
 		f.artifacts[artifact.ArtifactID] = previous
 		return previous, existing, false, nil
@@ -3485,7 +3517,7 @@ func (f *fakeMCPService) CreateRawArtifactWithEventConditionally(
 	event, err := f.AppendEvent(ctx, eventReq)
 	if err != nil {
 		delete(f.artifacts, artifact.ArtifactID)
-		return app.RawArtifact{}, app.LedgerEvent{}, false, err
+		return artifactcontract.Raw{}, ledger.Event{}, false, err
 	}
 	return artifact, event, true, nil
 }
@@ -3493,27 +3525,27 @@ func (f *fakeMCPService) CreateRawArtifactWithEventConditionally(
 func (f *fakeMCPService) AppendEventConditionally(
 	ctx context.Context,
 	missionID string,
-	build func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error),
-) (app.LedgerEvent, bool, error) {
+	build func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error),
+) (ledger.Event, bool, error) {
 	eventReq, existing, create, err := build(f.ledgerEvents)
 	if err != nil {
-		return app.LedgerEvent{}, false, err
+		return ledger.Event{}, false, err
 	}
 	if !create {
 		return existing, false, nil
 	}
 	if strings.TrimSpace(eventReq.MissionID) != strings.TrimSpace(missionID) {
-		return app.LedgerEvent{}, false, app.ErrInvalidInput
+		return ledger.Event{}, false, app.ErrInvalidInput
 	}
 	event, err := f.AppendEvent(ctx, eventReq)
 	return event, err == nil, err
 }
 
-func (f *fakeMCPService) ListLocalPathRoots(_ context.Context) ([]localpath.RootView, error) {
-	return append([]localpath.RootView(nil), f.localRoots...), nil
+func (f *fakeMCPService) ListLocalPathRoots(_ context.Context) ([]sourcecontract.LocalPathRoot, error) {
+	return append([]sourcecontract.LocalPathRoot(nil), f.localRoots...), nil
 }
 
-func (f *fakeMCPService) BrowseLocalPathRoot(_ context.Context, req app.BrowseLocalPathRootRequest) (localpath.TreeResult, error) {
+func (f *fakeMCPService) BrowseLocalPathRoot(_ context.Context, req app.BrowseLocalPathRootRequest) (sourcecontract.LocalPathTreeResult, error) {
 	tree := f.localTree
 	if tree.RootID == "" {
 		tree.RootID = req.RootID
@@ -3528,21 +3560,21 @@ func (f *fakeMCPService) AttachLocalPathSource(_ context.Context, req app.Attach
 	f.localAttachReq = req
 	result := f.localAttachResult
 	if result.Snapshot.SnapshotID == "" {
-		result.Snapshot = app.SourceSnapshot{
+		result.Snapshot = sourcecontract.Snapshot{
 			SnapshotID: req.SnapshotID,
 			MissionID:  req.MissionID,
-			Connector: app.ConnectorRef{
-				ConnectorID:      app.SourceConnectorTypeLocalPath,
-				ConnectorType:    app.SourceConnectorTypeLocalPath,
+			Connector: sourcecontract.ConnectorRef{
+				ConnectorID:      sourcecontract.ConnectorTypeLocalPath,
+				ConnectorType:    sourcecontract.ConnectorTypeLocalPath,
 				ExternalSourceID: req.RootID + ":" + req.RelativePath,
 			},
 			Title:  req.Title,
-			Access: app.SourceAccess{RetrievalPolicy: app.SourceRetrievalPolicyLiveReference},
-			State:  app.SourceState{State: app.SourceStateActive},
+			Access: sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicyLiveReference},
+			State:  sourcecontract.State{State: sourcecontract.StateActive},
 		}
 	}
 	if result.Event == nil {
-		result.Event = &app.LedgerEvent{EventID: "evt_local_attach", MissionID: req.MissionID, EventType: app.SourceLocalPathAttachedEvent}
+		result.Event = &ledger.Event{EventID: "evt_local_attach", MissionID: req.MissionID, EventType: app.SourceLocalPathAttachedEvent}
 	}
 	return result, nil
 }
@@ -3559,9 +3591,9 @@ func (f *fakeMCPService) ReadLocalPathSource(_ context.Context, req app.ReadLoca
 		}
 	}
 	if result.Read.Metadata.RootID == "" {
-		result.Read = localpath.ReadResult{
+		result.Read = sourcecontract.LocalPathReadResult{
 			Content: "live body",
-			Metadata: localpath.PathMetadata{
+			Metadata: sourcecontract.LocalPathMetadata{
 				RootID:       "workspace",
 				RelativePath: "notes.md",
 				PathKind:     "file",
@@ -3570,7 +3602,7 @@ func (f *fakeMCPService) ReadLocalPathSource(_ context.Context, req app.ReadLoca
 		}
 	}
 	if result.ObservationEvent == nil {
-		result.ObservationEvent = &app.LedgerEvent{EventID: "evt_observed", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
+		result.ObservationEvent = &ledger.Event{EventID: "evt_observed", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
 	}
 	return result, nil
 }
@@ -3587,14 +3619,14 @@ func (f *fakeMCPService) TreeLocalPathSource(_ context.Context, req app.TreeLoca
 		}
 	}
 	if result.Tree.RootID == "" {
-		result.Tree = localpath.TreeResult{
+		result.Tree = sourcecontract.LocalPathTreeResult{
 			RootID:       "workspace",
 			RelativePath: "docs",
-			Metadata:     localpath.PathMetadata{RootID: "workspace", RelativePath: "docs", Subpath: req.Subpath, PathKind: "directory"},
+			Metadata:     sourcecontract.LocalPathMetadata{RootID: "workspace", RelativePath: "docs", Subpath: req.Subpath, PathKind: "directory"},
 		}
 	}
 	if result.ObservationEvent == nil {
-		result.ObservationEvent = &app.LedgerEvent{EventID: "evt_tree", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
+		result.ObservationEvent = &ledger.Event{EventID: "evt_tree", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
 	}
 	return result, nil
 }
@@ -3611,15 +3643,15 @@ func (f *fakeMCPService) GrepLocalPathSource(_ context.Context, req app.GrepLoca
 		}
 	}
 	if result.Grep.RootID == "" {
-		result.Grep = localpath.GrepResult{
+		result.Grep = sourcecontract.LocalPathGrepResult{
 			RootID:       "workspace",
 			RelativePath: "docs",
 			Query:        req.Query,
-			Metadata:     localpath.PathMetadata{RootID: "workspace", RelativePath: "docs", Subpath: req.Subpath, PathKind: "directory"},
+			Metadata:     sourcecontract.LocalPathMetadata{RootID: "workspace", RelativePath: "docs", Subpath: req.Subpath, PathKind: "directory"},
 		}
 	}
 	if result.ObservationEvent == nil {
-		result.ObservationEvent = &app.LedgerEvent{EventID: "evt_grep", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
+		result.ObservationEvent = &ledger.Event{EventID: "evt_grep", MissionID: req.MissionID, EventType: app.SourceObservedEvent}
 	}
 	return result, nil
 }
@@ -3628,10 +3660,10 @@ func (f *fakeMCPService) RemoveSource(_ context.Context, req app.RemoveSourceReq
 	f.sourceRemoveReq = req
 	result := f.sourceRemoveResult
 	if result.Snapshot.SnapshotID == "" {
-		result.Snapshot = app.SourceSnapshot{SnapshotID: req.SnapshotID, MissionID: req.MissionID, State: app.SourceState{State: app.SourceStateRemoved, Removed: true}}
+		result.Snapshot = sourcecontract.Snapshot{SnapshotID: req.SnapshotID, MissionID: req.MissionID, State: sourcecontract.State{State: sourcecontract.StateRemoved, Removed: true}}
 	}
 	if result.Event == nil && !result.Idempotent {
-		result.Event = &app.LedgerEvent{EventID: "evt_source_removed", MissionID: req.MissionID, EventType: app.SourceRemovedEvent}
+		result.Event = &ledger.Event{EventID: "evt_source_removed", MissionID: req.MissionID, EventType: app.SourceRemovedEvent}
 	}
 	return result, nil
 }
@@ -3640,16 +3672,16 @@ func (f *fakeMCPService) RestoreSource(_ context.Context, req app.RestoreSourceR
 	f.sourceRestoreReq = req
 	result := f.sourceRestoreResult
 	if result.Snapshot.SnapshotID == "" {
-		result.Snapshot = app.SourceSnapshot{SnapshotID: req.SnapshotID, MissionID: req.MissionID, State: app.SourceState{State: app.SourceStateActive}}
+		result.Snapshot = sourcecontract.Snapshot{SnapshotID: req.SnapshotID, MissionID: req.MissionID, State: sourcecontract.State{State: sourcecontract.StateActive}}
 	}
 	if result.Event == nil && !result.Idempotent {
-		result.Event = &app.LedgerEvent{EventID: "evt_source_restored", MissionID: req.MissionID, EventType: app.SourceRestoredEvent}
+		result.Event = &ledger.Event{EventID: "evt_source_restored", MissionID: req.MissionID, EventType: app.SourceRestoredEvent}
 	}
 	return result, nil
 }
 
-func (f *fakeMCPService) ListEvidenceRecords(_ context.Context, missionID string) ([]app.EvidenceRecord, error) {
-	records := []app.EvidenceRecord{}
+func (f *fakeMCPService) ListEvidenceRecords(_ context.Context, missionID string) ([]researchrecords.EvidenceRecord, error) {
+	records := []researchrecords.EvidenceRecord{}
 	for _, record := range f.evidence {
 		if record.MissionID == missionID {
 			records = append(records, record)
@@ -3658,17 +3690,17 @@ func (f *fakeMCPService) ListEvidenceRecords(_ context.Context, missionID string
 	return records, nil
 }
 
-func (f *fakeMCPService) GetEvidenceRecord(_ context.Context, evidenceID string) (app.EvidenceRecord, error) {
+func (f *fakeMCPService) GetEvidenceRecord(_ context.Context, evidenceID string) (researchrecords.EvidenceRecord, error) {
 	for _, record := range f.evidence {
 		if record.EvidenceID == evidenceID {
 			return record, nil
 		}
 	}
-	return app.EvidenceRecord{}, errors.New("missing evidence")
+	return researchrecords.EvidenceRecord{}, errors.New("missing evidence")
 }
 
-func (f *fakeMCPService) ListClaimRecords(_ context.Context, missionID string) ([]app.ClaimRecord, error) {
-	records := []app.ClaimRecord{}
+func (f *fakeMCPService) ListClaimRecords(_ context.Context, missionID string) ([]researchrecords.ClaimRecord, error) {
+	records := []researchrecords.ClaimRecord{}
 	for _, record := range f.claims {
 		if record.MissionID == missionID {
 			records = append(records, record)
@@ -3677,8 +3709,8 @@ func (f *fakeMCPService) ListClaimRecords(_ context.Context, missionID string) (
 	return records, nil
 }
 
-func (f *fakeMCPService) ListQuestionRecords(_ context.Context, missionID string) ([]app.QuestionRecord, error) {
-	records := []app.QuestionRecord{}
+func (f *fakeMCPService) ListQuestionRecords(_ context.Context, missionID string) ([]researchrecords.QuestionRecord, error) {
+	records := []researchrecords.QuestionRecord{}
 	for _, record := range f.questions {
 		if record.MissionID == missionID {
 			records = append(records, record)
@@ -3714,7 +3746,7 @@ func (f *fakeMCPService) ListMissionChanges(_ context.Context, req app.ResearchI
 	return changes, nil
 }
 
-func (f *fakeMCPService) ListMissionObjects(_ context.Context, missionID, objectKind string, limit int, cursor string) (app.ResearchIDEPage, error) {
+func (f *fakeMCPService) ListMissionObjects(_ context.Context, missionID, objectKind string, limit int, cursor string) (researchcatalog.Page, error) {
 	page := f.page
 	if page.MissionID == "" {
 		page.MissionID = missionID
@@ -3731,11 +3763,11 @@ func (f *fakeMCPService) ListMissionObjects(_ context.Context, missionID, object
 	return page, nil
 }
 
-func (f *fakeMCPService) ListMissionObjectsLegacy(ctx context.Context, missionID, objectKind string, limit int, cursor string) (app.ResearchIDEPage, error) {
+func (f *fakeMCPService) ListMissionObjectsLegacy(ctx context.Context, missionID, objectKind string, limit int, cursor string) (researchcatalog.Page, error) {
 	return f.ListMissionObjects(ctx, missionID, objectKind, limit, cursor)
 }
 
-func (f *fakeMCPService) ReadMissionObject(_ context.Context, req app.ResearchIDEReadRequest) (app.ResearchIDEObjectRead, error) {
+func (f *fakeMCPService) ReadMissionObject(_ context.Context, req researchinspection.ReadRequest) (researchinspection.ObjectRead, error) {
 	f.lastRead = req
 	read := f.read
 	if read.MissionID == "" {
@@ -3750,7 +3782,7 @@ func (f *fakeMCPService) ReadMissionObject(_ context.Context, req app.ResearchID
 	return read, nil
 }
 
-func (f *fakeMCPService) GrepMissionObjects(_ context.Context, missionID, query string, limit int, cursor string) (app.ResearchIDEGrepResult, error) {
+func (f *fakeMCPService) GrepMissionObjects(_ context.Context, missionID, query string, limit int, cursor string) (researchinspection.GrepResult, error) {
 	grep := f.grep
 	if grep.MissionID == "" {
 		grep.MissionID = missionID
@@ -3767,11 +3799,11 @@ func (f *fakeMCPService) GrepMissionObjects(_ context.Context, missionID, query 
 	return grep, nil
 }
 
-func (f *fakeMCPService) GrepMissionObjectsLegacy(ctx context.Context, missionID, query string, limit int, cursor string) (app.ResearchIDEGrepResult, error) {
+func (f *fakeMCPService) GrepMissionObjectsLegacy(ctx context.Context, missionID, query string, limit int, cursor string) (researchinspection.GrepResult, error) {
 	return f.GrepMissionObjects(ctx, missionID, query, limit, cursor)
 }
 
-func (f *fakeMCPService) ListObjectReferences(_ context.Context, missionID, objectKind, objectID string, limit int, cursor string) (app.ResearchIDEReferences, error) {
+func (f *fakeMCPService) ListObjectReferences(_ context.Context, missionID, objectKind, objectID string, limit int, cursor string) (researchcatalog.References, error) {
 	refs := f.refs
 	if refs.MissionID == "" {
 		refs.MissionID = missionID
@@ -3791,16 +3823,16 @@ func (f *fakeMCPService) ListObjectReferences(_ context.Context, missionID, obje
 	return refs, nil
 }
 
-func (f *fakeMCPService) ListObjectReferencesLegacy(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (app.ResearchIDEReferences, error) {
+func (f *fakeMCPService) ListObjectReferencesLegacy(ctx context.Context, missionID, objectKind, objectID string, limit int, cursor string) (researchcatalog.References, error) {
 	return f.ListObjectReferences(ctx, missionID, objectKind, objectID, limit, cursor)
 }
 
-func (f *fakeMCPService) RequestWorkflowRun(_ context.Context, req app.RequestWorkflowRunRequest) (app.WorkflowRunView, error) {
+func (f *fakeMCPService) RequestWorkflowRun(_ context.Context, req workflowstate.RequestWorkflowRunRequest) (workflowstate.WorkflowRunView, error) {
 	runID := strings.TrimSpace(req.WorkflowRunID)
 	if runID == "" {
 		runID = "wfr_fake"
 	}
-	view := app.WorkflowRunView{
+	view := workflowstate.WorkflowRunView{
 		WorkflowRunID:      runID,
 		MissionID:          req.MissionID,
 		Status:             app.WorkflowStatusQueued,
@@ -3818,17 +3850,17 @@ func (f *fakeMCPService) RequestWorkflowRun(_ context.Context, req app.RequestWo
 	return view, nil
 }
 
-func (f *fakeMCPService) GetWorkflowRun(_ context.Context, missionID string, workflowRunID string) (app.WorkflowRunView, error) {
+func (f *fakeMCPService) GetWorkflowRun(_ context.Context, missionID string, workflowRunID string) (workflowstate.WorkflowRunView, error) {
 	for _, run := range f.workflowRuns {
 		if run.MissionID == missionID && run.WorkflowRunID == workflowRunID {
 			return run, nil
 		}
 	}
-	return app.WorkflowRunView{}, app.ErrInvalidInput
+	return workflowstate.WorkflowRunView{}, app.ErrInvalidInput
 }
 
-func (f *fakeMCPService) ListWorkflowRuns(_ context.Context, missionID string) ([]app.WorkflowRunView, error) {
-	var runs []app.WorkflowRunView
+func (f *fakeMCPService) ListWorkflowRuns(_ context.Context, missionID string) ([]workflowstate.WorkflowRunView, error) {
+	var runs []workflowstate.WorkflowRunView
 	for _, run := range f.workflowRuns {
 		if run.MissionID == missionID {
 			runs = append(runs, run)
@@ -3837,7 +3869,7 @@ func (f *fakeMCPService) ListWorkflowRuns(_ context.Context, missionID string) (
 	return runs, nil
 }
 
-func (f *fakeMCPService) RequestWorkflowStop(_ context.Context, req app.RequestWorkflowStopRequest) (app.WorkflowRunView, error) {
+func (f *fakeMCPService) RequestWorkflowStop(_ context.Context, req workflowstate.RequestWorkflowStopRequest) (workflowstate.WorkflowRunView, error) {
 	for i := range f.workflowRuns {
 		if f.workflowRuns[i].MissionID == req.MissionID && f.workflowRuns[i].WorkflowRunID == req.WorkflowRunID {
 			f.workflowRuns[i].Status = app.WorkflowStatusStopping
@@ -3846,16 +3878,16 @@ func (f *fakeMCPService) RequestWorkflowStop(_ context.Context, req app.RequestW
 			return f.workflowRuns[i], nil
 		}
 	}
-	return app.WorkflowRunView{}, app.ErrInvalidInput
+	return workflowstate.WorkflowRunView{}, app.ErrInvalidInput
 }
 
 func (f *fakeMCPService) SearchLiquid2Sources(
 	_ context.Context,
-	connector app.Liquid2SourceConnector,
-	req app.Liquid2SourceSearchRequest,
-) (app.Liquid2SourceSearchResult, error) {
+	connector liquid2source.Liquid2SourceConnector,
+	req liquid2source.Liquid2SourceSearchRequest,
+) (liquid2source.Liquid2SourceSearchResult, error) {
 	if connector == nil {
-		return app.Liquid2SourceSearchResult{}, errors.New("connector missing")
+		return liquid2source.Liquid2SourceSearchResult{}, errors.New("connector missing")
 	}
 	f.searchUsedConnector = true
 	f.searchRequest = req
@@ -3866,11 +3898,11 @@ func (f *fakeMCPService) SearchLiquid2Sources(
 
 func (f *fakeMCPService) SearchConfluenceSources(
 	_ context.Context,
-	connector app.ConfluenceSourceConnector,
-	req app.ConfluenceSourceSearchRequest,
-) (app.ConfluenceSourceSearchResult, error) {
+	connector confluencesource.ConfluenceSourceConnector,
+	req confluencesource.ConfluenceSourceSearchRequest,
+) (confluencesource.ConfluenceSourceSearchResult, error) {
 	if connector == nil {
-		return app.ConfluenceSourceSearchResult{}, errors.New("connector missing")
+		return confluencesource.ConfluenceSourceSearchResult{}, errors.New("connector missing")
 	}
 	f.confluenceSearchRequest = req
 	result := f.confluenceSearchResult
@@ -3895,11 +3927,11 @@ func (f *fakeMCPService) GetMissionConnectorAccess(_ context.Context, missionID 
 
 func (f *fakeMCPService) SnapshotLiquid2Source(
 	_ context.Context,
-	connector app.Liquid2SourceConnector,
-	req app.SnapshotLiquid2SourceRequest,
-) (app.Liquid2SnapshotResult, error) {
+	connector liquid2source.Liquid2SourceConnector,
+	req liquid2source.SnapshotLiquid2SourceRequest,
+) (liquid2source.Liquid2SnapshotResult, error) {
 	if connector == nil {
-		return app.Liquid2SnapshotResult{}, errors.New("connector missing")
+		return liquid2source.Liquid2SnapshotResult{}, errors.New("connector missing")
 	}
 	f.snapshotRequest = req
 	return f.snapshotResult, nil
@@ -3907,14 +3939,14 @@ func (f *fakeMCPService) SnapshotLiquid2Source(
 
 func (f *fakeMCPService) SnapshotLiquid2SourceWithEvent(
 	_ context.Context,
-	connector app.Liquid2SourceConnector,
-	req app.SnapshotLiquid2SourceWithEventRequest,
-) (app.Liquid2SnapshotWithEventResult, error) {
+	connector liquid2source.Liquid2SourceConnector,
+	req liquid2source.SnapshotLiquid2SourceWithEventRequest,
+) (liquid2source.Liquid2SnapshotWithEventResult, error) {
 	if connector == nil {
-		return app.Liquid2SnapshotWithEventResult{}, errors.New("connector missing")
+		return liquid2source.Liquid2SnapshotWithEventResult{}, errors.New("connector missing")
 	}
 	f.snapshotRequest = req.Snapshot
-	eventReq := app.AppendEventRequest{
+	eventReq := ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.Snapshot.MissionID,
 		EventType: "source.snapshotted",
@@ -3926,10 +3958,10 @@ func (f *fakeMCPService) SnapshotLiquid2SourceWithEvent(
 		}),
 	}
 	f.events = append(f.events, eventReq)
-	return app.Liquid2SnapshotWithEventResult{
+	return liquid2source.Liquid2SnapshotWithEventResult{
 		Artifact: f.snapshotResult.Artifact,
 		Snapshot: f.snapshotResult.Snapshot,
-		Event: app.LedgerEvent{
+		Event: ledger.Event{
 			EventID:   eventReq.EventID,
 			MissionID: eventReq.MissionID,
 			EventType: eventReq.EventType,
@@ -3940,14 +3972,14 @@ func (f *fakeMCPService) SnapshotLiquid2SourceWithEvent(
 	}, nil
 }
 
-func (f *fakeMCPService) AppendEvent(_ context.Context, req app.AppendEventRequest) (app.LedgerEvent, error) {
+func (f *fakeMCPService) AppendEvent(_ context.Context, req ledger.AppendRequest) (ledger.Event, error) {
 	if f.appendEventErrByType != nil {
 		if err := f.appendEventErrByType[req.EventType]; err != nil {
-			return app.LedgerEvent{}, err
+			return ledger.Event{}, err
 		}
 	}
 	f.events = append(f.events, req)
-	event := app.LedgerEvent{
+	event := ledger.Event{
 		EventID:          req.EventID,
 		MissionID:        req.MissionID,
 		Sequence:         int64(len(f.ledgerEvents) + 1),
@@ -3964,25 +3996,25 @@ func (f *fakeMCPService) AppendEvent(_ context.Context, req app.AppendEventReque
 
 func (f *fakeMCPService) CreateEvidenceProposal(
 	ctx context.Context,
-	req app.CreateEvidenceProposalRequest,
-) (app.EvidenceProposalResult, error) {
+	req researchproposal.CreateEvidenceProposalRequest,
+) (researchproposal.EvidenceProposalResult, error) {
 	evidenceEvent, err := f.AppendEvent(ctx, req.EvidenceEvent)
 	if err != nil {
-		return app.EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
 	proposalEvent, err := f.AppendEvent(ctx, req.ProposalEvent)
 	if err != nil {
-		return app.EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
 	evidence, err := f.CreateEvidenceRecord(ctx, req.Evidence)
 	if err != nil {
-		return app.EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
 	proposal, err := f.CreateProposalBundle(ctx, req.Proposal)
 	if err != nil {
-		return app.EvidenceProposalResult{}, err
+		return researchproposal.EvidenceProposalResult{}, err
 	}
-	return app.EvidenceProposalResult{
+	return researchproposal.EvidenceProposalResult{
 		Evidence:      evidence,
 		Proposal:      proposal,
 		EvidenceEvent: evidenceEvent,
@@ -3992,25 +4024,25 @@ func (f *fakeMCPService) CreateEvidenceProposal(
 
 func (f *fakeMCPService) CreateQuestionProposal(
 	ctx context.Context,
-	req app.CreateQuestionProposalRequest,
-) (app.QuestionProposalResult, error) {
+	req researchproposal.CreateQuestionProposalRequest,
+) (researchproposal.QuestionProposalResult, error) {
 	questionEvent, err := f.AppendEvent(ctx, req.QuestionEvent)
 	if err != nil {
-		return app.QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
 	proposalEvent, err := f.AppendEvent(ctx, req.ProposalEvent)
 	if err != nil {
-		return app.QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
 	question, err := f.CreateQuestionRecord(ctx, req.Question)
 	if err != nil {
-		return app.QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
 	proposal, err := f.CreateProposalBundle(ctx, req.Proposal)
 	if err != nil {
-		return app.QuestionProposalResult{}, err
+		return researchproposal.QuestionProposalResult{}, err
 	}
-	return app.QuestionProposalResult{
+	return researchproposal.QuestionProposalResult{
 		Question:      question,
 		Proposal:      proposal,
 		QuestionEvent: questionEvent,
@@ -4020,25 +4052,25 @@ func (f *fakeMCPService) CreateQuestionProposal(
 
 func (f *fakeMCPService) CreateClaimProposal(
 	ctx context.Context,
-	req app.CreateClaimProposalRequest,
-) (app.ClaimProposalResult, error) {
+	req researchproposal.CreateClaimProposalRequest,
+) (researchproposal.ClaimProposalResult, error) {
 	claimEvent, err := f.AppendEvent(ctx, req.ClaimEvent)
 	if err != nil {
-		return app.ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
 	proposalEvent, err := f.AppendEvent(ctx, req.ProposalEvent)
 	if err != nil {
-		return app.ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
 	claim, err := f.CreateClaimRecord(ctx, req.Claim)
 	if err != nil {
-		return app.ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
 	proposal, err := f.CreateProposalBundle(ctx, req.Proposal)
 	if err != nil {
-		return app.ClaimProposalResult{}, err
+		return researchproposal.ClaimProposalResult{}, err
 	}
-	return app.ClaimProposalResult{
+	return researchproposal.ClaimProposalResult{
 		Claim:         claim,
 		Proposal:      proposal,
 		ClaimEvent:    claimEvent,
@@ -4048,19 +4080,19 @@ func (f *fakeMCPService) CreateClaimProposal(
 
 func (f *fakeMCPService) UpdateClaimConfidence(
 	ctx context.Context,
-	req app.UpdateClaimConfidenceRequest,
-) (app.LedgerEvent, error) {
+	req researchrecords.UpdateClaimConfidenceRequest,
+) (ledger.Event, error) {
 	f.confidenceRequests = append(f.confidenceRequests, req)
-	return f.AppendEvent(ctx, app.AppendEventRequest{
+	return f.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   req.EventID,
 		MissionID: req.MissionID,
-		EventType: app.ClaimConfidenceUpdatedEvent,
+		EventType: researchrecords.ClaimConfidenceUpdatedEvent,
 		Producer:  req.Producer,
 		Payload:   mustJSON(takeConfidencePayload(req)),
 	})
 }
 
-func takeConfidencePayload(req app.UpdateClaimConfidenceRequest) map[string]any {
+func takeConfidencePayload(req researchrecords.UpdateClaimConfidenceRequest) map[string]any {
 	return map[string]any{
 		"claim_id":           req.ClaimID,
 		"confidence":         req.Confidence,
@@ -4086,11 +4118,11 @@ func (f *fakeMCPService) SubmitProposal(
 
 func (f *fakeMCPService) CreateEvidenceRecord(
 	_ context.Context,
-	req app.CreateEvidenceRecordRequest,
-) (app.EvidenceRecord, error) {
+	req researchrecords.CreateEvidenceRecordRequest,
+) (researchrecords.EvidenceRecord, error) {
 	f.evidenceRequests = append(f.evidenceRequests, req)
-	record := app.EvidenceRecord{
-		ObjectKind:     app.EvidenceRecordObjectKind,
+	record := researchrecords.EvidenceRecord{
+		ObjectKind:     researchrecords.EvidenceRecordObjectKind,
 		EvidenceID:     req.EvidenceID,
 		MissionID:      req.MissionID,
 		State:          req.State,
@@ -4107,11 +4139,11 @@ func (f *fakeMCPService) CreateEvidenceRecord(
 
 func (f *fakeMCPService) CreateQuestionRecord(
 	_ context.Context,
-	req app.CreateQuestionRecordRequest,
-) (app.QuestionRecord, error) {
+	req researchrecords.CreateQuestionRecordRequest,
+) (researchrecords.QuestionRecord, error) {
 	f.questionRequests = append(f.questionRequests, req)
-	record := app.QuestionRecord{
-		ObjectKind:         app.QuestionRecordObjectKind,
+	record := researchrecords.QuestionRecord{
+		ObjectKind:         researchrecords.QuestionRecordObjectKind,
 		QuestionID:         req.QuestionID,
 		MissionID:          req.MissionID,
 		State:              req.State,
@@ -4128,11 +4160,11 @@ func (f *fakeMCPService) CreateQuestionRecord(
 
 func (f *fakeMCPService) CreateClaimRecord(
 	_ context.Context,
-	req app.CreateClaimRecordRequest,
-) (app.ClaimRecord, error) {
+	req researchrecords.CreateClaimRecordRequest,
+) (researchrecords.ClaimRecord, error) {
 	f.claimRequests = append(f.claimRequests, req)
-	record := app.ClaimRecord{
-		ObjectKind:            app.ClaimRecordObjectKind,
+	record := researchrecords.ClaimRecord{
+		ObjectKind:            researchrecords.ClaimRecordObjectKind,
 		ClaimID:               req.ClaimID,
 		MissionID:             req.MissionID,
 		State:                 req.State,
@@ -4152,14 +4184,14 @@ func (f *fakeMCPService) CreateClaimRecord(
 
 func (f *fakeMCPService) CreateProposalBundle(
 	_ context.Context,
-	req app.CreateProposalBundleRequest,
-) (app.ProposalBundle, error) {
+	req researchproposal.CreateProposalBundleRequest,
+) (researchproposal.ProposalBundle, error) {
 	if req.RequestedDecision != "approve" {
-		return app.ProposalBundle{}, errors.New("unsupported requested decision")
+		return researchproposal.ProposalBundle{}, errors.New("unsupported requested decision")
 	}
 	f.proposalRequests = append(f.proposalRequests, req)
-	return app.ProposalBundle{
-		ObjectKind:        app.ProposalBundleObjectKind,
+	return researchproposal.ProposalBundle{
+		ObjectKind:        researchproposal.ProposalBundleObjectKind,
 		ProposalID:        req.ProposalID,
 		MissionID:         req.MissionID,
 		State:             req.State,
@@ -4174,30 +4206,30 @@ type fakeMCPConnector struct{}
 
 func (fakeMCPConnector) SearchLiquid2Sources(
 	context.Context,
-	app.Liquid2SourceSearchRequest,
-) (app.Liquid2SourceSearchResult, error) {
-	return app.Liquid2SourceSearchResult{}, nil
+	liquid2source.Liquid2SourceSearchRequest,
+) (liquid2source.Liquid2SourceSearchResult, error) {
+	return liquid2source.Liquid2SourceSearchResult{}, nil
 }
 
 func (fakeMCPConnector) ReadLiquid2Source(
 	context.Context,
-	app.Liquid2SourceReadRequest,
-) (app.Liquid2SourceDocument, error) {
-	return app.Liquid2SourceDocument{}, nil
+	liquid2source.Liquid2SourceReadRequest,
+) (liquid2source.Liquid2SourceDocument, error) {
+	return liquid2source.Liquid2SourceDocument{}, nil
 }
 
 type fakeMCPConfluenceConnector struct{}
 
 func (fakeMCPConfluenceConnector) SearchConfluenceSources(
 	context.Context,
-	app.ConfluenceSourceSearchRequest,
-) (app.ConfluenceSourceSearchResult, error) {
-	return app.ConfluenceSourceSearchResult{}, nil
+	confluencesource.ConfluenceSourceSearchRequest,
+) (confluencesource.ConfluenceSourceSearchResult, error) {
+	return confluencesource.ConfluenceSourceSearchResult{}, nil
 }
 
 func (fakeMCPConfluenceConnector) ReadConfluenceSource(
 	context.Context,
-	app.ConfluenceSourceReadRequest,
-) (app.ConfluenceSourcePage, error) {
-	return app.ConfluenceSourcePage{}, nil
+	confluencesource.ConfluenceSourceReadRequest,
+) (confluencesource.ConfluenceSourcePage, error) {
+	return confluencesource.ConfluenceSourcePage{}, nil
 }

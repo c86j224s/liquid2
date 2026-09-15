@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportexecution"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportprompt"
@@ -16,61 +18,6 @@ import (
 	workflowplan "github.com/c86j224s/liquid2/plasma/internal/reportworkflow/plan"
 	"github.com/c86j224s/liquid2/plasma/internal/storage/sqlite"
 )
-
-func retryPending(id, origin, parent, strategy string) app.LedgerEvent {
-	payload, _ := json.Marshal(map[string]any{"origin_pending_event_id": origin, "retry_of_pending_event_id": parent, "retry_strategy": strategy})
-	return app.LedgerEvent{EventID: id, MissionID: "mis_1", EventType: "report.draft.pending", Payload: payload}
-}
-
-func TestReportRecoveryLineageIncludesAllAncestors(t *testing.T) {
-	events := []app.LedgerEvent{retryPending("evt_root", "evt_root", "", "initial"), retryPending("evt_one", "evt_root", "evt_root", "resume_failed"), retryPending("evt_two", "evt_root", "evt_one", "resume_failed")}
-	lineage, err := reportRecoveryLineage(events, "evt_two")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lineage) != 3 || lineage[0] != "evt_root" || lineage[2] != "evt_two" {
-		t.Fatalf("unexpected lineage: %#v", lineage)
-	}
-}
-
-func TestReportRecoveryLineageRejectsCycle(t *testing.T) {
-	events := []app.LedgerEvent{retryPending("evt_one", "evt_one", "evt_two", "resume_failed"), retryPending("evt_two", "evt_one", "evt_one", "resume_failed")}
-	if _, err := reportRecoveryLineage(events, "evt_one"); err == nil {
-		t.Fatal("expected cycle rejection")
-	}
-}
-
-func TestReportRecoveryLineageRejectsMissingAncestorAndOriginMismatch(t *testing.T) {
-	if _, err := reportRecoveryLineage([]app.LedgerEvent{retryPending("evt_retry", "evt_root", "evt_missing", "resume_failed")}, "evt_retry"); err == nil {
-		t.Fatal("expected missing ancestor")
-	}
-	events := []app.LedgerEvent{retryPending("evt_root", "evt_root", "", "initial"), retryPending("evt_retry", "evt_other", "evt_root", "resume_failed")}
-	if _, err := reportRecoveryLineage(events, "evt_retry"); err == nil {
-		t.Fatal("expected origin mismatch")
-	}
-}
-
-func TestReportRecoveryLineageRestartIsIsolated(t *testing.T) {
-	events := []app.LedgerEvent{retryPending("evt_root", "evt_root", "", "initial"), retryPending("evt_restart", "evt_root", "evt_root", "restart")}
-	lineage, err := reportRecoveryLineage(events, "evt_restart")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lineage) != 1 || lineage[0] != "evt_restart" {
-		t.Fatalf("restart reused ancestor: %#v", lineage)
-	}
-}
-
-func TestReportRecoveryLineageRestartBoundsDescendantResume(t *testing.T) {
-	events := []app.LedgerEvent{retryPending("evt_a", "evt_a", "", "initial"), retryPending("evt_b", "evt_a", "evt_a", "restart"), retryPending("evt_c", "evt_a", "evt_b", "resume_failed")}
-	lineage, err := reportRecoveryLineage(events, "evt_c")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lineage) != 2 || lineage[0] != "evt_b" || lineage[1] != "evt_c" {
-		t.Fatalf("restart boundary failed: %#v", lineage)
-	}
-}
 
 func TestApplyPartPlanProgressUsesReportingReplayValidation(t *testing.T) {
 	validProgress := func() sectionalReportProgress {
@@ -100,38 +47,38 @@ func TestApplyPartPlanProgressUsesReportingReplayValidation(t *testing.T) {
 	})
 	for _, tc := range []struct {
 		name   string
-		mutate func(*app.AppendEventRequest)
+		mutate func(*ledger.AppendRequest)
 	}{
-		{name: "producer drift", mutate: func(req *app.AppendEventRequest) {
-			req.Producer = app.Producer{Type: "agent_session", ID: "wrong-owner"}
+		{name: "producer drift", mutate: func(req *ledger.AppendRequest) {
+			req.Producer = ledger.Producer{Type: "agent_session", ID: "wrong-owner"}
 		}},
-		{name: "causation drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "causation drift", mutate: func(req *ledger.AppendRequest) {
 			req.CausationEventID = "evt_wrong_plan"
 		}},
-		{name: "correlation drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "correlation drift", mutate: func(req *ledger.AppendRequest) {
 			req.CorrelationID = "wrong-correlation"
 		}},
-		{name: "executor drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "executor drift", mutate: func(req *ledger.AppendRequest) {
 			payload := recoveryPayload(t, *req)
 			payload["agent_executor"] = "claude"
 			req.Payload = mustJSON(payload)
 		}},
-		{name: "session policy drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "session policy drift", mutate: func(req *ledger.AppendRequest) {
 			payload := recoveryPayload(t, *req)
 			payload["report_session_policy"] = "isolated_fork"
 			req.Payload = mustJSON(payload)
 		}},
-		{name: "returned session drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "returned session drift", mutate: func(req *ledger.AppendRequest) {
 			payload := recoveryPayload(t, *req)
 			payload["returned_agent_session_id"] = "wrong-owner"
 			req.Payload = mustJSON(payload)
 		}},
-		{name: "fork source drift", mutate: func(req *app.AppendEventRequest) {
+		{name: "fork source drift", mutate: func(req *ledger.AppendRequest) {
 			payload := recoveryPayload(t, *req)
 			payload["fork_source_agent_session_id"] = "wrong-source"
 			req.Payload = mustJSON(payload)
 		}},
-		{name: "malformed payload", mutate: func(req *app.AppendEventRequest) {
+		{name: "malformed payload", mutate: func(req *ledger.AppendRequest) {
 			req.Payload = json.RawMessage(`{`)
 		}},
 	} {
@@ -184,12 +131,12 @@ func TestEnsureSectionFanoutPlanUsesReplayedLifecycleEventProvenance(t *testing.
 	svc := app.NewService(store)
 	const missionID = "mis_fresh_plan_replay"
 	const pendingID = "evt_fresh_plan_replay_pending"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Fresh replay"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Fresh replay"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: pendingID, MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"},
+		Producer: ledger.Producer{Type: "user", ID: "test"},
 		Payload: mustJSON(map[string]any{
 			"kind":                        "markdown_report_artifact_pending",
 			"title":                       "Reader Report",
@@ -317,8 +264,8 @@ func TestReportDraftPendingRecoveryContractGate(t *testing.T) {
 		{name: "malformed", payload: json.RawMessage(`{`), want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			event := app.LedgerEvent{EventType: "report.draft.pending", Payload: tc.payload}
-			if got := reportDraftPendingHasRecoveryContract(event); got != tc.want {
+			event := ledger.Event{EventType: "report.draft.pending", Payload: tc.payload}
+			if got := reportexecution.DraftPendingRecoverable(event); got != tc.want {
 				t.Fatalf("recoverable=%t, want %t", got, tc.want)
 			}
 		})
@@ -334,12 +281,12 @@ func TestReportDraftRecoveryLeavesNonRecoverablePendingActive(t *testing.T) {
 	defer store.Close()
 	svc := app.NewService(store)
 	const missionID = "mis_nonrecoverable_pending"
-	if _, err := svc.CreateMission(ctx, app.CreateMissionRequest{MissionID: missionID, Title: "Nonrecoverable pending"}); err != nil {
+	if _, err := svc.CreateMission(ctx, mission.CreateRequest{MissionID: missionID, Title: "Nonrecoverable pending"}); err != nil {
 		t.Fatal(err)
 	}
-	event, err := svc.AppendEvent(ctx, app.AppendEventRequest{
+	event, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID: "evt_nonrecoverable_report", MissionID: missionID, EventType: "report.draft.pending",
-		Producer: app.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Visible active work"}),
+		Producer: ledger.Producer{Type: "user", ID: "test"}, Payload: mustJSON(map[string]any{"title": "Visible active work"}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -356,12 +303,12 @@ func TestReportDraftRecoveryLeavesNonRecoverablePendingActive(t *testing.T) {
 		t.Fatalf("nonrecoverable pending should not be terminalized: %#v", events)
 	}
 	active := app.ActiveWorkFromMissionState(events, nil)
-	if len(active.Blocks) != 1 || active.Blocks[0].ReasonCode != app.BlockingReasonReport || active.Blocks[0].PendingEventID != event.EventID {
+	if len(active.Blocks) != 1 || active.Blocks[0].ReasonCode != mission.BlockingReasonReport || active.Blocks[0].PendingEventID != event.EventID {
 		t.Fatalf("nonrecoverable pending must remain visible as active work: %#v", active)
 	}
 }
 
-func partPlanRecoveryEvent(t *testing.T, mutate func(*app.AppendEventRequest)) app.LedgerEvent {
+func partPlanRecoveryEvent(t *testing.T, mutate func(*ledger.AppendRequest)) ledger.Event {
 	t.Helper()
 	req := reporting.BuildPartPlanCreatedAppendRequest(reporting.PartPlanCreatedEventRequest{
 		MarkdownReportStageEventBase: reporting.MarkdownReportStageEventBase{
@@ -375,7 +322,7 @@ func partPlanRecoveryEvent(t *testing.T, mutate func(*app.AppendEventRequest)) a
 			GenerationGuidanceSHA256:  "guidance-sha",
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "provider-plan",
 			ReportSessionID: "provider-part-owner", ForkSourceAgentSessionID: "provider-plan",
-			Producer: app.Producer{Type: "agent_session", ID: "provider-part-owner"},
+			Producer: ledger.Producer{Type: "agent_session", ID: "provider-part-owner"},
 		},
 		PartIndex: 1,
 		Brief:     "canonical Part brief",
@@ -383,13 +330,13 @@ func partPlanRecoveryEvent(t *testing.T, mutate func(*app.AppendEventRequest)) a
 	if mutate != nil {
 		mutate(&req)
 	}
-	return app.LedgerEvent{
+	return ledger.Event{
 		EventID: req.EventID, MissionID: req.MissionID, EventType: req.EventType, Producer: req.Producer,
 		CausationEventID: req.CausationEventID, CorrelationID: req.CorrelationID, Payload: req.Payload,
 	}
 }
 
-func recoveryPayload(t *testing.T, req app.AppendEventRequest) map[string]any {
+func recoveryPayload(t *testing.T, req ledger.AppendRequest) map[string]any {
 	t.Helper()
 	payload := map[string]any{}
 	if err := json.Unmarshal(req.Payload, &payload); err != nil {
@@ -398,7 +345,7 @@ func recoveryPayload(t *testing.T, req app.AppendEventRequest) map[string]any {
 	return payload
 }
 
-func sectionFanoutParentPlanEvent(t *testing.T, mutate func(map[string]any)) app.LedgerEvent {
+func sectionFanoutParentPlanEvent(t *testing.T, mutate func(map[string]any)) ledger.Event {
 	t.Helper()
 	req := reporting.BuildMarkdownReportPlanCreatedAppendRequest(reporting.MarkdownReportPlanCreatedEventRequest{
 		MarkdownReportEventBase: reporting.MarkdownReportEventBase{
@@ -411,7 +358,7 @@ func sectionFanoutParentPlanEvent(t *testing.T, mutate func(map[string]any)) app
 			GenerationGuidanceProfile: reportprompt.ProfilePartConnectiveEconomyVoice,
 			GenerationGuidanceSHA256:  "stored-guidance-sha",
 			SessionChainKind:          "section_fanout_report", ReportPlanSessionID: "stored-report-plan-session",
-			CompositionStrategy: "sectional_preserve_markdown", Producer: app.Producer{Type: "agent_session", ID: "stored-report-plan-session"},
+			CompositionStrategy: "sectional_preserve_markdown", Producer: ledger.Producer{Type: "agent_session", ID: "stored-report-plan-session"},
 		},
 		ArtifactID: "art_plan", Plan: narrativeContractTestPlan(), AssemblyStrategy: "c4_normalized_section_headings",
 		PartEditEnabled: true, PartPlanningEnabled: true, PlanReviewState: "auto_accepted",
@@ -421,7 +368,7 @@ func sectionFanoutParentPlanEvent(t *testing.T, mutate func(map[string]any)) app
 		mutate(payload)
 	}
 	req.Payload = mustJSON(payload)
-	return app.LedgerEvent{
+	return ledger.Event{
 		EventID: req.EventID, MissionID: req.MissionID, EventType: req.EventType, Producer: req.Producer,
 		CausationEventID: req.CausationEventID, CorrelationID: req.CorrelationID, Payload: req.Payload,
 	}
@@ -448,7 +395,7 @@ func (executor *sectionFanoutPlanReplayExecutor) Run(ctx context.Context, req Ag
 			ReportMode: req.ReportPlan.ReportMode, ToolSessionID: req.ToolSessionID, PreviousProviderSessionID: req.ReportPlan.PreviousProviderSessionID,
 			AgentExecutor: req.AgentExecutor, AgentModel: req.ReportPlan.AgentModel, AgentReasoningEffort: req.ReportPlan.AgentReasoningEffort,
 			IdempotencyKey: req.ReportPlan.IdempotencyKey, ArgumentsHash: "fixture-arguments", PlanHash: planHash, Plan: encoded, Attempt: 1,
-			ToolProducer: app.Producer{Type: "agent_session", ID: req.ToolSessionID},
+			ToolProducer: ledger.Producer{Type: "agent_session", ID: req.ToolSessionID},
 		})
 		if err != nil {
 			return AgentResult{}, err
@@ -464,7 +411,7 @@ func (executor *sectionFanoutPlanReplayExecutor) Run(ctx context.Context, req Ag
 				GenerationGuidanceProfile:    reportprompt.ProfilePartConnectiveEconomyVoice,
 				GenerationGuidanceSHA256:     "stored-guidance-sha",
 				SessionChainKind:             "section_fanout_report", ReportPlanSessionID: "stored-report-plan-session",
-				CompositionStrategy: "sectional_preserve_markdown", Producer: app.Producer{Type: "agent_session", ID: "stored-report-plan-session"},
+				CompositionStrategy: "sectional_preserve_markdown", Producer: ledger.Producer{Type: "agent_session", ID: "stored-report-plan-session"},
 			},
 			ArtifactID: "art_fresh_plan_replay", Plan: plan, AssemblyStrategy: "c4_normalized_section_headings",
 			PartEditEnabled: true, PartPlanningEnabled: true, PlanReviewState: "auto_accepted",
@@ -484,7 +431,7 @@ func (executor *sectionFanoutPlanReplayExecutor) Run(ctx context.Context, req Ag
 		if _, err := executor.service.AppendEvent(ctx, canonical); err != nil {
 			return AgentResult{}, err
 		}
-		return AgentResult{Text: reporting.ReportPlanSubmittedSentinel, SessionID: "request-returned-session"}, nil
+		return AgentResult{Text: workflowplan.ReportPlanSubmittedSentinel, SessionID: "request-returned-session"}, nil
 	}
 	if strings.HasPrefix(req.UserText, "plan the reading flow for Part") {
 		executor.partPlanRequests = append(executor.partPlanRequests, req)

@@ -1,11 +1,20 @@
 package app
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"reflect"
 	"testing"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 type fakeStore struct {
@@ -25,108 +34,108 @@ func (f fakeStore) MigrationVersions(context.Context) ([]string, error) {
 	return f.migrationList, nil
 }
 
-func (f fakeStore) CreateMission(context.Context, Mission) error {
+func (f fakeStore) CreateMission(context.Context, mission.Mission) error {
 	return nil
 }
 
-func (f fakeStore) AppendLedgerEvent(_ context.Context, event LedgerEvent) (LedgerEvent, error) {
+func (f fakeStore) AppendLedgerEvent(_ context.Context, event ledger.Event) (ledger.Event, error) {
 	event.Sequence = 1
 	return event, nil
 }
 
-func (f fakeStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
-	return []LedgerEvent{{EventID: "evt_1"}}, nil
+func (f fakeStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
+	return []ledger.Event{{EventID: "evt_1"}}, nil
 }
 
-func (f fakeStore) SaveMissionProjection(context.Context, MissionProjection) error {
+func (f fakeStore) SaveMissionProjection(context.Context, mission.Projection) error {
 	return nil
 }
 
-func (f fakeStore) GetMissionProjection(context.Context, string) (MissionProjection, error) {
-	return MissionProjection{MissionID: "mis_1"}, nil
+func (f fakeStore) GetMissionProjection(context.Context, string) (mission.Projection, error) {
+	return mission.Projection{MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateRawArtifact(context.Context, RawArtifact) error {
+func (f fakeStore) CreateRawArtifact(context.Context, artifactcontract.Raw) error {
 	return nil
 }
 
-func (f fakeStore) GetRawArtifact(context.Context, string) (RawArtifact, error) {
-	return RawArtifact{ArtifactID: "art_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetRawArtifact(context.Context, string) (artifactcontract.Raw, error) {
+	return artifactcontract.Raw{ArtifactID: "art_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateSourceSnapshot(context.Context, SourceSnapshot) error {
+func (f fakeStore) CreateSourceSnapshot(context.Context, sourcecontract.Snapshot) error {
 	return nil
 }
 
-func (f fakeStore) GetSourceSnapshot(context.Context, string) (SourceSnapshot, error) {
-	return SourceSnapshot{SnapshotID: "src_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetSourceSnapshot(context.Context, string) (sourcecontract.Snapshot, error) {
+	return sourcecontract.Snapshot{SnapshotID: "src_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateEvidenceRecord(context.Context, EvidenceRecord) error {
+func (f fakeStore) CreateEvidenceRecord(context.Context, researchrecords.EvidenceRecord) error {
 	return nil
 }
 
-func (f fakeStore) GetEvidenceRecord(context.Context, string) (EvidenceRecord, error) {
-	return EvidenceRecord{EvidenceID: "evd_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetEvidenceRecord(context.Context, string) (researchrecords.EvidenceRecord, error) {
+	return researchrecords.EvidenceRecord{EvidenceID: "evd_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateClaimRecord(context.Context, ClaimRecord) error {
+func (f fakeStore) CreateClaimRecord(context.Context, researchrecords.ClaimRecord) error {
 	return nil
 }
 
-func (f fakeStore) GetClaimRecord(context.Context, string) (ClaimRecord, error) {
-	return ClaimRecord{ClaimID: "clm_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetClaimRecord(context.Context, string) (researchrecords.ClaimRecord, error) {
+	return researchrecords.ClaimRecord{ClaimID: "clm_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateQuestionRecord(context.Context, QuestionRecord) error {
+func (f fakeStore) CreateQuestionRecord(context.Context, researchrecords.QuestionRecord) error {
 	return nil
 }
 
-func (f fakeStore) GetQuestionRecord(context.Context, string) (QuestionRecord, error) {
-	return QuestionRecord{QuestionID: "qst_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetQuestionRecord(context.Context, string) (researchrecords.QuestionRecord, error) {
+	return researchrecords.QuestionRecord{QuestionID: "qst_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateOptionRecord(context.Context, OptionRecord) error {
+func (f fakeStore) CreateOptionRecord(context.Context, researchrecords.OptionRecord) error {
 	return nil
 }
 
-func (f fakeStore) GetOptionRecord(context.Context, string) (OptionRecord, error) {
-	return OptionRecord{OptionID: "opt_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetOptionRecord(context.Context, string) (researchrecords.OptionRecord, error) {
+	return researchrecords.OptionRecord{OptionID: "opt_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateProposalBundle(context.Context, ProposalBundle) error {
+func (f fakeStore) CreateProposalBundle(context.Context, researchproposal.ProposalBundle) error {
 	return nil
 }
 
-func (f fakeStore) GetProposalBundle(context.Context, string) (ProposalBundle, error) {
-	return ProposalBundle{ProposalID: "prp_1", MissionID: "mis_1", State: "pending_review"}, nil
+func (f fakeStore) GetProposalBundle(context.Context, string) (researchproposal.ProposalBundle, error) {
+	return researchproposal.ProposalBundle{ProposalID: "prp_1", MissionID: "mis_1", State: "pending_review"}, nil
 }
 
-func (f fakeStore) UpdateProposalBundleState(context.Context, ProposalBundleStateUpdate) error {
+func (f fakeStore) UpdateProposalBundleState(context.Context, researchproposal.ProposalBundleStateUpdate) error {
 	return nil
 }
 
-func (f fakeStore) CreateReport(context.Context, Report) error {
+func (f fakeStore) CreateReport(context.Context, reportdocument.Report) error {
 	return nil
 }
 
-func (f fakeStore) GetReport(context.Context, string) (Report, error) {
-	return Report{ReportID: "rpt_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetReport(context.Context, string) (reportdocument.Report, error) {
+	return reportdocument.Report{ReportID: "rpt_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) CreateReportVersion(context.Context, ReportVersion, []ReportBlock) error {
+func (f fakeStore) CreateReportVersion(context.Context, reportdocument.ReportVersion, []reportdocument.ReportBlock) error {
 	return nil
 }
 
-func (f fakeStore) GetReportVersion(context.Context, string) (ReportVersion, error) {
-	return ReportVersion{ReportVersionID: "rvn_1", ReportID: "rpt_1", MissionID: "mis_1"}, nil
+func (f fakeStore) GetReportVersion(context.Context, string) (reportdocument.ReportVersion, error) {
+	return reportdocument.ReportVersion{ReportVersionID: "rvn_1", ReportID: "rpt_1", MissionID: "mis_1"}, nil
 }
 
-func (f fakeStore) ListReportBlocks(context.Context, string) ([]ReportBlock, error) {
-	return []ReportBlock{}, nil
+func (f fakeStore) ListReportBlocks(context.Context, string) ([]reportdocument.ReportBlock, error) {
+	return []reportdocument.ReportBlock{}, nil
 }
 
-func (f fakeStore) PromoteReportVersion(context.Context, ReportVersionPromotion) error {
+func (f fakeStore) PromoteReportVersion(context.Context, reportdocument.ReportVersionPromotion) error {
 	return nil
 }
 
@@ -154,7 +163,7 @@ func TestHealthPropagatesStoreError(t *testing.T) {
 
 func TestMissionUseCasesValidateAndDelegate(t *testing.T) {
 	svc := NewService(fakeStore{})
-	mission, err := svc.CreateMission(context.Background(), CreateMissionRequest{
+	mission, err := svc.CreateMission(context.Background(), mission.CreateRequest{
 		MissionID: "mis_1",
 		Title:     " Test mission ",
 	})
@@ -165,11 +174,11 @@ func TestMissionUseCasesValidateAndDelegate(t *testing.T) {
 		t.Fatalf("expected trimmed title, got %q", mission.Title)
 	}
 
-	event, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+	event, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 	})
 	if err != nil {
 		t.Fatalf("AppendEvent returned error: %v", err)
@@ -182,31 +191,31 @@ func TestMissionUseCasesValidateAndDelegate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListEvents returned error: %v", err)
 	}
-	if !reflect.DeepEqual([]LedgerEvent{{EventID: "evt_1"}}, events) {
+	if !reflect.DeepEqual([]ledger.Event{{EventID: "evt_1"}}, events) {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 }
 
 func TestBuildMissionCreatedAppendRequestPreservesPayloadContract(t *testing.T) {
-	req := BuildMissionCreatedAppendRequest(MissionCreatedEventRequest{
+	req := BuildMissionCreatedAppendRequest(mission.CreatedEventRequest{
 		EventID:   "evt_mission",
 		MissionID: "mis_1",
 		Title:     "Mission title",
 		Objective: "Mission objective",
-		Scope: MissionScope{
+		Scope: mission.Scope{
 			Included: []string{"include-a", "include-b"},
 			Excluded: []string{"exclude-a"},
 		},
-		Producer: Producer{Type: "user", ID: "plasma-ui"},
+		Producer: ledger.Producer{Type: "user", ID: "plasma-ui"},
 	})
 	if req.EventID != "evt_mission" || req.MissionID != "mis_1" || req.EventType != "mission.created" ||
 		req.Producer.Type != "user" || req.Producer.ID != "plasma-ui" {
 		t.Fatalf("unexpected mission created event shell: %#v", req)
 	}
 	var payload struct {
-		Title     string       `json:"title"`
-		Objective string       `json:"objective"`
-		Scope     MissionScope `json:"scope"`
+		Title     string        `json:"title"`
+		Objective string        `json:"objective"`
+		Scope     mission.Scope `json:"scope"`
 	}
 	if err := json.Unmarshal(req.Payload, &payload); err != nil {
 		t.Fatalf("unmarshal payload: %v", err)
@@ -220,11 +229,11 @@ func TestBuildMissionCreatedAppendRequestPreservesPayloadContract(t *testing.T) 
 
 func TestAppendEventRejectsInvalidPayload(t *testing.T) {
 	svc := NewService(fakeStore{})
-	_, err := svc.AppendEvent(context.Background(), AppendEventRequest{
+	_, err := svc.AppendEvent(context.Background(), ledger.AppendRequest{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{bad`),
 	})
 	if !errors.Is(err, ErrInvalidInput) {

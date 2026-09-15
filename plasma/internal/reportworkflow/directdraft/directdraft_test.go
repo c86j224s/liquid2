@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,27 @@ func TestRunOneTakePreservesAgentRequestAndCandidate(t *testing.T) {
 		out.PreviousSessionID != "research-session-1" || out.Markdown != "# Quick\n\nBody." ||
 		out.ReportSessionPolicy != reportexecution.SessionPolicyFreshSession {
 		t.Fatalf("unexpected one_take candidate: %#v", out)
+	}
+}
+
+func TestRunOneTakeArticleUsesReaderIntentWithExistingTools(t *testing.T) {
+	input := baseInput()
+	input.OutputKind = reportexecution.OutputKindArticle
+	input.ArticleIntent = reportexecution.ArticleIntent{
+		Audience:      "처음 에이전트를 제품에 적용하는 엔지니어",
+		ReaderPromise: "작은 실제 결과부터 검증하는 순서를 이해한다",
+		Emphasis:      "기반시설보다 사용자 산출물을 먼저 만든다",
+	}
+	executor := &fakeExecutor{results: []agentexec.AgentResult{{Text: "# Article\n\nBody.", SessionID: "research-session-1"}}}
+	runner := Runner{Executor: executor, NewID: (&idRecorder{}).next, LatestSessionID: func(context.Context, string, string) string { return "research-session-1" }}
+	if _, err := runner.RunOneTake(context.Background(), input); err != nil {
+		t.Fatal(err)
+	}
+	req := executor.requests[0]
+	if req.UserText != "generate article artifact" || !strings.Contains(req.Prompt, "This output is an article, not a report.") ||
+		!strings.Contains(req.Prompt, input.ArticleIntent.Audience) || !strings.Contains(req.Prompt, input.ArticleIntent.ReaderPromise) ||
+		!reflect.DeepEqual(req.ExtraMCPTools, ReadMCPTools()) {
+		t.Fatalf("article did not reuse the one-take source path: %#v", req)
 	}
 }
 

@@ -1,5 +1,9 @@
 package app
 
+import uploadsource "github.com/c86j224s/liquid2/plasma/internal/source"
+
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"bytes"
 	"compress/zlib"
@@ -7,48 +11,57 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchinspection"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 	"testing"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestSummarizeSourceSnapshotPromotesUploadedFileLocatorMetadata(t *testing.T) {
-	imageLocators, err := json.Marshal([]UploadedFileLocator{{
-		LocatorType:       SourceLocatorTypeMedia,
-		MediaKind:         MediaKindImage,
+	imageLocators, err := json.Marshal([]sourcecontract.UploadedFileLocator{{
+		LocatorType:       sourcecontract.LocatorTypeMedia,
+		MediaKind:         sourcecontract.MediaKindImage,
 		OriginalFilename:  "Pixel Source.png",
 		SanitizedFilename: "Pixel-Source.png",
 		MIMEType:          "image/png",
 		ByteSize:          512,
 		SHA256:            "image-sha",
-		ContentKind:       UploadedContentKindImage,
+		ContentKind:       uploadsource.UploadedContentKindImage,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	image := summarizeSourceSnapshot(SourceSnapshot{
+	image := researchcatalog.SummarizeSourceSnapshot(sourcecontract.Snapshot{
 		SnapshotID: "src_image",
 		MissionID:  "mis_1",
-		Connector:  ConnectorRef{ConnectorType: SourceConnectorTypeFileUpload},
+		Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 		Locators:   imageLocators,
 	})
-	if image.Metadata["locator_type"] != SourceLocatorTypeMedia ||
-		image.Metadata["media_kind"] != MediaKindImage ||
+	if image.Metadata["locator_type"] != sourcecontract.LocatorTypeMedia ||
+		image.Metadata["media_kind"] != sourcecontract.MediaKindImage ||
 		image.Metadata["filename"] != "Pixel-Source.png" ||
 		image.Metadata["mime_type"] != "image/png" ||
-		image.Metadata["content_kind"] != UploadedContentKindImage {
+		image.Metadata["content_kind"] != uploadsource.UploadedContentKindImage {
 		t.Fatalf("expected uploaded image locator metadata, got %#v", image.Metadata)
 	}
 
-	legacyText := summarizeSourceSnapshot(SourceSnapshot{
+	legacyText := researchcatalog.SummarizeSourceSnapshot(sourcecontract.Snapshot{
 		SnapshotID: "src_text",
 		MissionID:  "mis_1",
-		Connector:  ConnectorRef{ConnectorType: SourceConnectorTypeFileUpload},
+		Connector:  sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 		Locators:   json.RawMessage(`[{"kind":"file_upload","original_filename":"Legacy Notes.md","sanitized_filename":"Legacy-Notes.md","media_type":"text/markdown","byte_size":128,"sha256":"text-sha","content_kind":"text"}]`),
 	})
-	if legacyText.Metadata["locator_type"] != SourceLocatorTypeFullDocument ||
+	if legacyText.Metadata["locator_type"] != sourcecontract.LocatorTypeFullDocument ||
 		legacyText.Metadata["filename"] != "Legacy-Notes.md" ||
 		legacyText.Metadata["mime_type"] != "text/markdown" ||
-		legacyText.Metadata["content_kind"] != UploadedContentKindText {
+		legacyText.Metadata["content_kind"] != uploadsource.UploadedContentKindText {
 		t.Fatalf("expected legacy uploaded text locator metadata, got %#v", legacyText.Metadata)
 	}
 }
@@ -56,15 +69,15 @@ func TestSummarizeSourceSnapshotPromotesUploadedFileLocatorMetadata(t *testing.T
 func TestReadMissionObjectSourceSnapshotPDFReturnsExtractedText(t *testing.T) {
 	pdfBytes := testResearchIDEPDFBytes(t, []string{"MCP PDF Source", "Alpha code is 67."})
 	svc := NewService(&researchIDEFakeStore{
-		snapshot: SourceSnapshot{
+		snapshot: sourcecontract.Snapshot{
 			SnapshotID:  "src_pdf",
 			MissionID:   "mis_1",
 			Title:       "PDF source",
 			ArtifactIDs: []string{"art_pdf"},
-			Connector:   ConnectorRef{ConnectorType: SourceConnectorTypeFileUpload},
-			Access:      SourceAccess{RetrievalPolicy: SourceRetrievalPolicySnapshotOnly},
+			Connector:   sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeFileUpload},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		},
-		artifact: RawArtifact{
+		artifact: artifactcontract.Raw{
 			ArtifactID: "art_pdf",
 			MissionID:  "mis_1",
 			MediaType:  "application/pdf",
@@ -75,16 +88,16 @@ func TestReadMissionObjectSourceSnapshotPDFReturnsExtractedText(t *testing.T) {
 		},
 	})
 
-	read, err := svc.ReadMissionObject(context.Background(), ResearchIDEReadRequest{
+	read, err := svc.ReadMissionObject(context.Background(), researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: ResearchIDEObjectSourceSnapshot,
+		ObjectKind: researchcatalog.ObjectSourceSnapshot,
 		ObjectID:   "src_pdf",
 		MaxBytes:   12,
 	})
 	if err != nil {
 		t.Fatalf("ReadMissionObject returned error: %v", err)
 	}
-	if read.ObjectKind != ResearchIDEObjectSourceSnapshot || read.ObjectID != "src_pdf" {
+	if read.ObjectKind != researchcatalog.ObjectSourceSnapshot || read.ObjectID != "src_pdf" {
 		t.Fatalf("unexpected read identity: %#v", read)
 	}
 	if !strings.Contains(read.Data, "MCP PDF") || strings.Contains(read.Data, "%PDF-") {
@@ -99,7 +112,7 @@ func TestReadMissionObjectSourceSnapshotPDFReturnsExtractedText(t *testing.T) {
 	}
 	if payload["extraction_type"] != "pdf_text" ||
 		payload["read_kind"] != "source_pdf_text" ||
-		payload["max_read_bytes"] != float64(researchIDEMaxBytes) {
+		payload["max_read_bytes"] != float64(researchinspection.MaxBytes) {
 		t.Fatalf("expected PDF source read metadata, got %#v", payload)
 	}
 	artifact, ok := payload["artifact"].(map[string]any)
@@ -114,9 +127,9 @@ func TestReadMissionObjectSourceSnapshotPDFReturnsExtractedText(t *testing.T) {
 		t.Fatalf("expected chunked PDF read metadata, got %#v", read)
 	}
 
-	next, err := svc.ReadMissionObject(context.Background(), ResearchIDEReadRequest{
+	next, err := svc.ReadMissionObject(context.Background(), researchinspection.ReadRequest{
 		MissionID:  "mis_1",
-		ObjectKind: ResearchIDEObjectSourceSnapshot,
+		ObjectKind: researchcatalog.ObjectSourceSnapshot,
 		ObjectID:   "src_pdf",
 		Offset:     read.NextOffset,
 		MaxBytes:   64,
@@ -132,15 +145,15 @@ func TestReadMissionObjectSourceSnapshotPDFReturnsExtractedText(t *testing.T) {
 func TestGrepMissionObjectsFindsSourceSnapshotPDFText(t *testing.T) {
 	pdfBytes := testResearchIDEPDFBytes(t, []string{"MCP PDF Source", "Alpha code is 67."})
 	svc := NewService(&researchIDEFakeStore{
-		snapshot: SourceSnapshot{
+		snapshot: sourcecontract.Snapshot{
 			SnapshotID:  "src_pdf",
 			MissionID:   "mis_1",
 			Title:       "PDF source",
 			ArtifactIDs: []string{"art_pdf"},
-			Connector:   ConnectorRef{ConnectorType: SourceConnectorTypeFileUpload},
-			Access:      SourceAccess{RetrievalPolicy: SourceRetrievalPolicySnapshotOnly},
+			Connector:   sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeFileUpload},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		},
-		artifact: RawArtifact{
+		artifact: artifactcontract.Raw{
 			ArtifactID: "art_pdf",
 			MissionID:  "mis_1",
 			MediaType:  "application/pdf",
@@ -156,7 +169,7 @@ func TestGrepMissionObjectsFindsSourceSnapshotPDFText(t *testing.T) {
 		t.Fatalf("GrepMissionObjects returned error: %v", err)
 	}
 	for _, match := range result.Matches {
-		if match.ObjectKind == ResearchIDEObjectSourceSnapshot && match.ObjectID == "src_pdf" {
+		if match.ObjectKind == researchcatalog.ObjectSourceSnapshot && match.ObjectID == "src_pdf" {
 			return
 		}
 	}
@@ -164,15 +177,15 @@ func TestGrepMissionObjectsFindsSourceSnapshotPDFText(t *testing.T) {
 }
 
 func TestGrepMissionObjectsReturnsNonOverlappingLiteralMatchesWithPagination(t *testing.T) {
-	event := LedgerEvent{
+	event := ledger.Event{
 		EventID:   "evt_overlap",
 		MissionID: "mis_1",
 		Sequence:  1,
 		EventType: "note.created",
 		Payload:   json.RawMessage(`{"body":"AaAaA"}`),
 	}
-	svc := NewService(&researchIDEGrepFakeStore{events: []LedgerEvent{event}})
-	candidateText := summarizeLedgerEvent(event).Summary + "\n" + string(mustJSON(event))
+	svc := NewService(&researchIDEGrepFakeStore{events: []ledger.Event{event}})
+	candidateText := researchcatalog.SummarizeLedgerEvent(event).Summary + "\n" + string(mustJSON(event))
 	base := strings.Index(candidateText, "AaAaA")
 	if base < 0 {
 		t.Fatalf("test fixture missing body in candidate text: %s", candidateText)
@@ -189,7 +202,7 @@ func TestGrepMissionObjectsReturnsNonOverlappingLiteralMatchesWithPagination(t *
 		t.Fatalf("match count = %d, want 2: %#v", len(result.Matches), result.Matches)
 	}
 	for i, match := range result.Matches {
-		if match.ObjectKind != ResearchIDEObjectLedgerEvent || match.ObjectID != "evt_overlap" {
+		if match.ObjectKind != researchcatalog.ObjectLedgerEvent || match.ObjectID != "evt_overlap" {
 			t.Fatalf("match %d has unexpected identity: %#v", i, match)
 		}
 	}
@@ -222,16 +235,16 @@ func TestGrepMissionObjectsReturnsNonOverlappingLiteralMatchesWithPagination(t *
 func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 	ctx := context.Background()
 	store := &researchIDEVisibilityStore{
-		projection: MissionProjection{MissionID: "mis_1", Title: "Mission", LastSequence: 1},
-		snapshots: []SourceSnapshot{{
+		projection: mission.Projection{MissionID: "mis_1", Title: "Mission", LastSequence: 1},
+		snapshots: []sourcecontract.Snapshot{{
 			SnapshotID:  "src_visible",
 			MissionID:   "mis_1",
 			Title:       "Visible source",
 			ArtifactIDs: []string{"art_visible"},
-			Connector:   ConnectorRef{ConnectorType: SourceConnectorTypeFileUpload},
-			Access:      SourceAccess{RetrievalPolicy: SourceRetrievalPolicySnapshotOnly},
+			Connector:   sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeFileUpload},
+			Access:      sourcecontract.Access{RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 		}},
-		artifacts: []RawArtifact{
+		artifacts: []artifactcontract.Raw{
 			{
 				ArtifactID: "art_visible",
 				MissionID:  "mis_1",
@@ -249,7 +262,7 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 				Content:    []byte("hidden report artifact needle"),
 			},
 		},
-		events: []LedgerEvent{
+		events: []ledger.Event{
 			{
 				EventID:   "evt_ordinary",
 				MissionID: "mis_1",
@@ -272,9 +285,9 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OutlineMission returned error: %v", err)
 	}
-	if outline.Counts[ResearchIDEObjectSourceSnapshot] != 1 ||
-		outline.Counts[ResearchIDEObjectRawArtifact] != 1 ||
-		outline.Counts[ResearchIDEObjectLedgerEvent] != 1 {
+	if outline.Counts[researchcatalog.ObjectSourceSnapshot] != 1 ||
+		outline.Counts[researchcatalog.ObjectRawArtifact] != 1 ||
+		outline.Counts[researchcatalog.ObjectLedgerEvent] != 1 {
 		t.Fatalf("unexpected non-legacy counts: %#v", outline.Counts)
 	}
 	if outline.LastSequence != 2 {
@@ -287,11 +300,11 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing ordinary recent event: %#v", outline.RecentLedgerEvents)
 	}
-	if !containsRef(ordinaryRecent.Refs, ResearchIDEObjectRawArtifact, "art_visible") || containsRef(ordinaryRecent.Refs, ResearchIDEObjectRawArtifact, "art_report") {
+	if !containsRef(ordinaryRecent.Refs, researchcatalog.ObjectRawArtifact, "art_visible") || containsRef(ordinaryRecent.Refs, researchcatalog.ObjectRawArtifact, "art_report") {
 		t.Fatalf("expected non-legacy outline recent refs to hide report artifact only, got %#v", ordinaryRecent.Refs)
 	}
 
-	rawPage, err := svc.ListMissionObjects(ctx, "mis_1", ResearchIDEObjectRawArtifact, 10, "")
+	rawPage, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectRawArtifact, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects raw_artifact returned error: %v", err)
 	}
@@ -299,48 +312,48 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 		t.Fatalf("unexpected non-legacy raw artifacts: %#v", rawPage.Items)
 	}
 
-	eventPage, err := svc.ListMissionObjects(ctx, "mis_1", ResearchIDEObjectLedgerEvent, 10, "")
+	eventPage, err := svc.ListMissionObjects(ctx, "mis_1", researchcatalog.ObjectLedgerEvent, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjects ledger_event returned error: %v", err)
 	}
 	if !containsSummaryID(eventPage.Items, "evt_ordinary") || containsSummaryID(eventPage.Items, "evt_report") {
 		t.Fatalf("unexpected non-legacy ledger events: %#v", eventPage.Items)
 	}
-	if len(eventPage.Items) != 1 || containsResearchIDERef(eventPage.Items[0].Refs, ResearchIDEObjectRef{ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: "art_report"}) {
+	if len(eventPage.Items) != 1 || researchcatalog.ContainsRef(eventPage.Items[0].Refs, researchcatalog.ObjectRef{ObjectKind: researchcatalog.ObjectRawArtifact, ObjectID: "art_report"}) {
 		t.Fatalf("expected hidden report artifact ref to be removed from visible event summary: %#v", eventPage.Items)
 	}
 
-	assertGrepHasMatch(t, svc, "mis_1", "visible raw artifact needle", ResearchIDEObjectRawArtifact, "art_visible")
-	assertGrepHasMatch(t, svc, "mis_1", "ordinary ledger needle", ResearchIDEObjectLedgerEvent, "evt_ordinary")
+	assertGrepHasMatch(t, svc, "mis_1", "visible raw artifact needle", researchcatalog.ObjectRawArtifact, "art_visible")
+	assertGrepHasMatch(t, svc, "mis_1", "ordinary ledger needle", researchcatalog.ObjectLedgerEvent, "evt_ordinary")
 	assertGrepHasNoMatch(t, svc, "mis_1", "hidden report artifact needle")
 	assertGrepHasNoMatch(t, svc, "mis_1", "report ledger needle")
 
-	visibleRefs, err := svc.ListObjectReferences(ctx, "mis_1", ResearchIDEObjectRawArtifact, "art_visible", 10, "")
+	visibleRefs, err := svc.ListObjectReferences(ctx, "mis_1", researchcatalog.ObjectRawArtifact, "art_visible", 10, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferences visible raw artifact returned error: %v", err)
 	}
-	if !containsRef(visibleRefs.Backward, ResearchIDEObjectLedgerEvent, "evt_ordinary") || containsRef(visibleRefs.Backward, ResearchIDEObjectLedgerEvent, "evt_report") {
+	if !containsRef(visibleRefs.Backward, researchcatalog.ObjectLedgerEvent, "evt_ordinary") || containsRef(visibleRefs.Backward, researchcatalog.ObjectLedgerEvent, "evt_report") {
 		t.Fatalf("unexpected visible raw artifact backward refs: %#v", visibleRefs.Backward)
 	}
 
-	ordinaryRefs, err := svc.ListObjectReferences(ctx, "mis_1", ResearchIDEObjectLedgerEvent, "evt_ordinary", 10, "")
+	ordinaryRefs, err := svc.ListObjectReferences(ctx, "mis_1", researchcatalog.ObjectLedgerEvent, "evt_ordinary", 10, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferences ordinary ledger event returned error: %v", err)
 	}
-	if !containsRef(ordinaryRefs.Forward, ResearchIDEObjectRawArtifact, "art_visible") || containsRef(ordinaryRefs.Forward, ResearchIDEObjectRawArtifact, "art_report") {
+	if !containsRef(ordinaryRefs.Forward, researchcatalog.ObjectRawArtifact, "art_visible") || containsRef(ordinaryRefs.Forward, researchcatalog.ObjectRawArtifact, "art_report") {
 		t.Fatalf("unexpected ordinary ledger event forward refs: %#v", ordinaryRefs.Forward)
 	}
-	assertReferencesInvalidInput(t, svc, "mis_1", ResearchIDEObjectRawArtifact, "art_report")
-	assertReferencesInvalidInput(t, svc, "mis_1", ResearchIDEObjectLedgerEvent, "evt_report")
+	assertReferencesInvalidInput(t, svc, "mis_1", researchcatalog.ObjectRawArtifact, "art_report")
+	assertReferencesInvalidInput(t, svc, "mis_1", researchcatalog.ObjectLedgerEvent, "evt_report")
 
-	reportArtifact, err := svc.ReadMissionObject(ctx, ResearchIDEReadRequest{MissionID: "mis_1", ObjectKind: ResearchIDEObjectRawArtifact, ObjectID: "art_report"})
+	reportArtifact, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{MissionID: "mis_1", ObjectKind: researchcatalog.ObjectRawArtifact, ObjectID: "art_report"})
 	if err != nil {
 		t.Fatalf("ReadMissionObject report raw artifact returned error: %v", err)
 	}
 	if !strings.Contains(reportArtifact.Data, "hidden report artifact needle") {
 		t.Fatalf("expected direct report artifact read, got %s", reportArtifact.Data)
 	}
-	reportEvent, err := svc.ReadMissionObject(ctx, ResearchIDEReadRequest{MissionID: "mis_1", ObjectKind: ResearchIDEObjectLedgerEvent, ObjectID: "evt_report"})
+	reportEvent, err := svc.ReadMissionObject(ctx, researchinspection.ReadRequest{MissionID: "mis_1", ObjectKind: researchcatalog.ObjectLedgerEvent, ObjectID: "evt_report"})
 	if err != nil {
 		t.Fatalf("ReadMissionObject report ledger event returned error: %v", err)
 	}
@@ -348,14 +361,14 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 		t.Fatalf("expected direct report event read, got %s", reportEvent.Data)
 	}
 
-	legacyRawPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", ResearchIDEObjectRawArtifact, 10, "")
+	legacyRawPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", researchcatalog.ObjectRawArtifact, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjectsLegacy raw_artifact returned error: %v", err)
 	}
 	if !containsSummaryID(legacyRawPage.Items, "art_visible") || !containsSummaryID(legacyRawPage.Items, "art_report") {
 		t.Fatalf("expected legacy raw artifact list to remain visible, got %#v", legacyRawPage.Items)
 	}
-	legacyEventPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", ResearchIDEObjectLedgerEvent, 10, "")
+	legacyEventPage, err := svc.ListMissionObjectsLegacy(ctx, "mis_1", researchcatalog.ObjectLedgerEvent, 10, "")
 	if err != nil {
 		t.Fatalf("ListMissionObjectsLegacy ledger_event returned error: %v", err)
 	}
@@ -370,21 +383,21 @@ func TestResearchDiscoveryHidesReportLineageOutsideLegacy(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing legacy ordinary recent event: %#v", legacyOutline.RecentLedgerEvents)
 	}
-	if !containsRef(legacyOrdinaryRecent.Refs, ResearchIDEObjectRawArtifact, "art_report") {
+	if !containsRef(legacyOrdinaryRecent.Refs, researchcatalog.ObjectRawArtifact, "art_report") {
 		t.Fatalf("expected legacy outline recent refs to retain report artifact, got %#v", legacyOrdinaryRecent.Refs)
 	}
-	legacyReportArtifactRefs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", ResearchIDEObjectRawArtifact, "art_report", 10, "")
+	legacyReportArtifactRefs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", researchcatalog.ObjectRawArtifact, "art_report", 10, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferencesLegacy report raw artifact returned error: %v", err)
 	}
-	if !containsRef(legacyReportArtifactRefs.Backward, ResearchIDEObjectLedgerEvent, "evt_report") {
+	if !containsRef(legacyReportArtifactRefs.Backward, researchcatalog.ObjectLedgerEvent, "evt_report") {
 		t.Fatalf("expected legacy references to include report event, got %#v", legacyReportArtifactRefs.Backward)
 	}
-	legacyReportEventRefs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", ResearchIDEObjectLedgerEvent, "evt_report", 10, "")
+	legacyReportEventRefs, err := svc.ListObjectReferencesLegacy(ctx, "mis_1", researchcatalog.ObjectLedgerEvent, "evt_report", 10, "")
 	if err != nil {
 		t.Fatalf("ListObjectReferencesLegacy report ledger event returned error: %v", err)
 	}
-	if !containsRef(legacyReportEventRefs.Forward, ResearchIDEObjectRawArtifact, "art_report") {
+	if !containsRef(legacyReportEventRefs.Forward, researchcatalog.ObjectRawArtifact, "art_report") {
 		t.Fatalf("expected legacy report event refs to include report artifact, got %#v", legacyReportEventRefs.Forward)
 	}
 }
@@ -393,7 +406,7 @@ func TestListObjectReferencesInvalidKindDoesNotConsultLedgerStore(t *testing.T) 
 	store := &researchIDEFailingLedgerStore{}
 	svc := NewService(store)
 
-	_, err := svc.ListObjectReferences(context.Background(), "mis_1", ResearchIDEObjectReport, "rpt_1", 10, "")
+	_, err := svc.ListObjectReferences(context.Background(), "mis_1", researchcatalog.ObjectReport, "rpt_1", 10, "")
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected ErrInvalidInput for unsupported object kind, got %v", err)
 	}
@@ -404,45 +417,45 @@ func TestListObjectReferencesInvalidKindDoesNotConsultLedgerStore(t *testing.T) 
 
 type researchIDEFakeStore struct {
 	fakeStore
-	snapshot SourceSnapshot
-	artifact RawArtifact
+	snapshot sourcecontract.Snapshot
+	artifact artifactcontract.Raw
 }
 
-func (store *researchIDEFakeStore) GetSourceSnapshot(_ context.Context, snapshotID string) (SourceSnapshot, error) {
+func (store *researchIDEFakeStore) GetSourceSnapshot(_ context.Context, snapshotID string) (sourcecontract.Snapshot, error) {
 	if store.snapshot.SnapshotID == snapshotID {
 		return store.snapshot, nil
 	}
-	return SourceSnapshot{}, fmt.Errorf("missing source snapshot")
+	return sourcecontract.Snapshot{}, fmt.Errorf("missing source snapshot")
 }
 
-func (store *researchIDEFakeStore) ListSourceSnapshots(_ context.Context, missionID string) ([]SourceSnapshot, error) {
+func (store *researchIDEFakeStore) ListSourceSnapshots(_ context.Context, missionID string) ([]sourcecontract.Snapshot, error) {
 	if store.snapshot.MissionID == missionID {
-		return []SourceSnapshot{store.snapshot}, nil
+		return []sourcecontract.Snapshot{store.snapshot}, nil
 	}
 	return nil, nil
 }
 
-func (store *researchIDEFakeStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (store *researchIDEFakeStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	if store.artifact.ArtifactID == artifactID {
 		return store.artifact, nil
 	}
-	return RawArtifact{}, fmt.Errorf("missing raw artifact")
+	return artifactcontract.Raw{}, fmt.Errorf("missing raw artifact")
 }
 
-func (store *researchIDEFakeStore) ListRawArtifacts(_ context.Context, missionID string) ([]RawArtifact, error) {
+func (store *researchIDEFakeStore) ListRawArtifacts(_ context.Context, missionID string) ([]artifactcontract.Raw, error) {
 	if store.artifact.MissionID == missionID {
-		return []RawArtifact{store.artifact}, nil
+		return []artifactcontract.Raw{store.artifact}, nil
 	}
 	return nil, nil
 }
 
 type researchIDEGrepFakeStore struct {
 	researchIDEFakeStore
-	events []LedgerEvent
+	events []ledger.Event
 }
 
-func (store *researchIDEGrepFakeStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	var events []LedgerEvent
+func (store *researchIDEGrepFakeStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	var events []ledger.Event
 	for _, event := range store.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -453,30 +466,30 @@ func (store *researchIDEGrepFakeStore) ListLedgerEvents(_ context.Context, missi
 
 type researchIDEVisibilityStore struct {
 	fakeStore
-	projection MissionProjection
-	snapshots  []SourceSnapshot
-	artifacts  []RawArtifact
-	events     []LedgerEvent
+	projection mission.Projection
+	snapshots  []sourcecontract.Snapshot
+	artifacts  []artifactcontract.Raw
+	events     []ledger.Event
 }
 
-func (store *researchIDEVisibilityStore) GetMissionProjection(_ context.Context, missionID string) (MissionProjection, error) {
+func (store *researchIDEVisibilityStore) GetMissionProjection(_ context.Context, missionID string) (mission.Projection, error) {
 	if store.projection.MissionID == missionID {
 		return store.projection, nil
 	}
-	return MissionProjection{}, fmt.Errorf("missing mission projection")
+	return mission.Projection{}, fmt.Errorf("missing mission projection")
 }
 
-func (store *researchIDEVisibilityStore) GetSourceSnapshot(_ context.Context, snapshotID string) (SourceSnapshot, error) {
+func (store *researchIDEVisibilityStore) GetSourceSnapshot(_ context.Context, snapshotID string) (sourcecontract.Snapshot, error) {
 	for _, snapshot := range store.snapshots {
 		if snapshot.SnapshotID == snapshotID {
 			return snapshot, nil
 		}
 	}
-	return SourceSnapshot{}, fmt.Errorf("missing source snapshot")
+	return sourcecontract.Snapshot{}, fmt.Errorf("missing source snapshot")
 }
 
-func (store *researchIDEVisibilityStore) ListSourceSnapshots(_ context.Context, missionID string) ([]SourceSnapshot, error) {
-	var snapshots []SourceSnapshot
+func (store *researchIDEVisibilityStore) ListSourceSnapshots(_ context.Context, missionID string) ([]sourcecontract.Snapshot, error) {
+	var snapshots []sourcecontract.Snapshot
 	for _, snapshot := range store.snapshots {
 		if snapshot.MissionID == missionID {
 			snapshots = append(snapshots, snapshot)
@@ -485,17 +498,17 @@ func (store *researchIDEVisibilityStore) ListSourceSnapshots(_ context.Context, 
 	return snapshots, nil
 }
 
-func (store *researchIDEVisibilityStore) GetRawArtifact(_ context.Context, artifactID string) (RawArtifact, error) {
+func (store *researchIDEVisibilityStore) GetRawArtifact(_ context.Context, artifactID string) (artifactcontract.Raw, error) {
 	for _, artifact := range store.artifacts {
 		if artifact.ArtifactID == artifactID {
 			return artifact, nil
 		}
 	}
-	return RawArtifact{}, fmt.Errorf("missing raw artifact")
+	return artifactcontract.Raw{}, fmt.Errorf("missing raw artifact")
 }
 
-func (store *researchIDEVisibilityStore) ListRawArtifacts(_ context.Context, missionID string) ([]RawArtifact, error) {
-	var artifacts []RawArtifact
+func (store *researchIDEVisibilityStore) ListRawArtifacts(_ context.Context, missionID string) ([]artifactcontract.Raw, error) {
+	var artifacts []artifactcontract.Raw
 	for _, artifact := range store.artifacts {
 		if artifact.MissionID == missionID {
 			artifacts = append(artifacts, artifact)
@@ -504,8 +517,8 @@ func (store *researchIDEVisibilityStore) ListRawArtifacts(_ context.Context, mis
 	return artifacts, nil
 }
 
-func (store *researchIDEVisibilityStore) ListLedgerEvents(_ context.Context, missionID string) ([]LedgerEvent, error) {
-	var events []LedgerEvent
+func (store *researchIDEVisibilityStore) ListLedgerEvents(_ context.Context, missionID string) ([]ledger.Event, error) {
+	var events []ledger.Event
 	for _, event := range store.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -514,31 +527,31 @@ func (store *researchIDEVisibilityStore) ListLedgerEvents(_ context.Context, mis
 	return events, nil
 }
 
-func (store *researchIDEVisibilityStore) ListEvidenceRecords(context.Context, string) ([]EvidenceRecord, error) {
+func (store *researchIDEVisibilityStore) ListEvidenceRecords(context.Context, string) ([]researchrecords.EvidenceRecord, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListClaimRecords(context.Context, string) ([]ClaimRecord, error) {
+func (store *researchIDEVisibilityStore) ListClaimRecords(context.Context, string) ([]researchrecords.ClaimRecord, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListQuestionRecords(context.Context, string) ([]QuestionRecord, error) {
+func (store *researchIDEVisibilityStore) ListQuestionRecords(context.Context, string) ([]researchrecords.QuestionRecord, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListOptionRecords(context.Context, string) ([]OptionRecord, error) {
+func (store *researchIDEVisibilityStore) ListOptionRecords(context.Context, string) ([]researchrecords.OptionRecord, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListProposalBundles(context.Context, string) ([]ProposalBundle, error) {
+func (store *researchIDEVisibilityStore) ListProposalBundles(context.Context, string) ([]researchproposal.ProposalBundle, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListReports(context.Context, string) ([]Report, error) {
+func (store *researchIDEVisibilityStore) ListReports(context.Context, string) ([]reportdocument.Report, error) {
 	return nil, nil
 }
 
-func (store *researchIDEVisibilityStore) ListReportVersions(context.Context, string) ([]ReportVersion, error) {
+func (store *researchIDEVisibilityStore) ListReportVersions(context.Context, string) ([]reportdocument.ReportVersion, error) {
 	return nil, nil
 }
 
@@ -547,12 +560,12 @@ type researchIDEFailingLedgerStore struct {
 	ledgerRead bool
 }
 
-func (store *researchIDEFailingLedgerStore) ListLedgerEvents(context.Context, string) ([]LedgerEvent, error) {
+func (store *researchIDEFailingLedgerStore) ListLedgerEvents(context.Context, string) ([]ledger.Event, error) {
 	store.ledgerRead = true
 	return nil, errors.New("ledger should not be read")
 }
 
-func containsSummaryID(items []ResearchIDEObjectSummary, objectID string) bool {
+func containsSummaryID(items []researchcatalog.ObjectSummary, objectID string) bool {
 	for _, item := range items {
 		if item.ObjectID == objectID {
 			return true
@@ -561,17 +574,17 @@ func containsSummaryID(items []ResearchIDEObjectSummary, objectID string) bool {
 	return false
 }
 
-func findSummaryByID(items []ResearchIDEObjectSummary, objectID string) (ResearchIDEObjectSummary, bool) {
+func findSummaryByID(items []researchcatalog.ObjectSummary, objectID string) (researchcatalog.ObjectSummary, bool) {
 	for _, item := range items {
 		if item.ObjectID == objectID {
 			return item, true
 		}
 	}
-	return ResearchIDEObjectSummary{}, false
+	return researchcatalog.ObjectSummary{}, false
 }
 
-func containsRef(refs []ResearchIDEObjectRef, objectKind string, objectID string) bool {
-	return containsResearchIDERef(refs, ResearchIDEObjectRef{ObjectKind: objectKind, ObjectID: objectID})
+func containsRef(refs []researchcatalog.ObjectRef, objectKind string, objectID string) bool {
+	return researchcatalog.ContainsRef(refs, researchcatalog.ObjectRef{ObjectKind: objectKind, ObjectID: objectID})
 }
 
 func assertReferencesInvalidInput(t *testing.T, svc *Service, missionID string, objectKind string, objectID string) {

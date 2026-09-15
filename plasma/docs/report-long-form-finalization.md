@@ -365,6 +365,8 @@ report cannot race with creation of the final canonical artifact and event.
 
 ## Completion And Retry
 
+Report IL Web retry checkpoint resolution is owned by `reportilphase0.ResolveRetryCheckpoint` after Web lists events once. It searches the retry pending chain in parent order, caps traversal at 64 entries, returns a nil resume on cycles, and does not apply normal report-execution lineage validation. It stops at the first stored checkpoint and does not load later lineage entries; only `no durable checkpoint` permits continuing. If storage has no checkpoint, source-selection recovery, Parts recovery, and legacy recovery are tried in that order. Recovered source-selection and Parts checkpoints are appended before reuse, while a successful legacy recovery is not appended. The storage contract is `LoadReportILResumeCheckpoint(ctx, missionID, pendingID)` and `AppendReportILCheckpoint(ctx, missionID, checkpoint)`; the document contract uses `ReadReportILLongFormPlan`.
+
 `FINAL_EDIT_STAGE_SUBMITTED` for writer/reader/style and `REPORT_FINALIZED` for
 the gate are the normal acknowledgement strings, but they are not the authority
 for completion. After each provider invocation, the runner reloads durable

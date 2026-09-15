@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
-func partEditRequirementMapMatches(events []app.LedgerEvent, acceptedPending map[string]bool, binding PartEditBinding) bool {
+func partEditRequirementMapMatches(events []ledger.Event, acceptedPending map[string]bool, binding PartEditBinding) bool {
 	if binding.RequirementMapEventID == "" && binding.RequirementMapHash == "" {
 		return true
 	}

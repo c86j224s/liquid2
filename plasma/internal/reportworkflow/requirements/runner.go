@@ -35,11 +35,11 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 		return Output{}, longformutil.StageFailure("requirements", input.PlanEventID, 0, 0,
 			fmt.Errorf("report requirement mapping requires a plan session"))
 	}
-	lifecycle, err := runner.Lifecycle.RunReportRequirementMapLifecycle(ctx, reporting.ReportRequirementMapLifecycleRequest{
+	lifecycle, err := runner.RunReportRequirementMapLifecycle(ctx, ReportRequirementMapLifecycleRequest{
 		MissionID: input.MissionID, PendingEventID: input.PendingEventID, PlanEventID: input.PlanEventID,
 		AgentExecutor: input.AgentExecutor, AgentModel: input.AgentModel, AgentReasoningEffort: input.ReasoningEffort,
 		PreviousProviderSessionID: input.PlanSessionID, Plan: input.Plan,
-		Invoke: func(ctx context.Context, binding reporting.ReportRequirementMapBinding) (reporting.ReportRequirementMapAgentResult, error) {
+		Invoke: func(ctx context.Context, binding reporting.ReportRequirementMapBinding) (ReportRequirementMapAgentResult, error) {
 			started := time.Now()
 			result, runErr := runner.Executor.Run(ctx, agentexec.AgentRequest{
 				UserText: "map explicit report requirements to the fixed long-form outline",
@@ -51,13 +51,13 @@ func (runner Runner) Run(ctx context.Context, input Input) (Output, error) {
 			})
 			durationMS := time.Since(started).Milliseconds()
 			if runErr != nil {
-				return reporting.ReportRequirementMapAgentResult{}, longformutil.AgentFailure(runErr, result, "report_requirements", durationMS, input.PlanSessionID)
+				return ReportRequirementMapAgentResult{}, longformutil.AgentFailure(runErr, result, "report_requirements", durationMS, input.PlanSessionID)
 			}
 			validated, validateErr := longformutil.ValidateSameSessionResult(result, input.PlanSessionID)
 			if validateErr != nil {
-				return reporting.ReportRequirementMapAgentResult{}, longformutil.AgentFailure(validateErr, result, "report_requirements", durationMS, input.PlanSessionID)
+				return ReportRequirementMapAgentResult{}, longformutil.AgentFailure(validateErr, result, "report_requirements", durationMS, input.PlanSessionID)
 			}
-			return reporting.ReportRequirementMapAgentResult{
+			return ReportRequirementMapAgentResult{
 				Text: strings.TrimSpace(validated.Text), SessionID: validated.SessionID, Resumed: validated.Resumed,
 				DurationMS: durationMS, Usage: validated.Usage,
 			}, nil

@@ -3,7 +3,7 @@ package reporting
 import (
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // MarkdownReportSectionStartedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -14,14 +14,14 @@ type MarkdownReportSectionStartedEventRequest struct {
 }
 
 // BuildMarkdownReportSectionStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildMarkdownReportSectionStartedAppendRequest(req MarkdownReportSectionStartedEventRequest) app.AppendEventRequest {
+func BuildMarkdownReportSectionStartedAppendRequest(req MarkdownReportSectionStartedEventRequest) ledger.AppendRequest {
 	base := req.MarkdownReportStageEventBase
 	payload := markdownReportStageStartedPayload(base)
 	payload["kind"] = "sectional_markdown_report_section_started"
 	payload["part_index"] = req.PartIndex
 	payload["section_index"] = req.SectionIndex
 	payload["text"] = firstNonEmpty(base.Text, "장문 리포트 섹션 Markdown 생성을 시작했습니다.")
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(base.EventID),
 		MissionID: strings.TrimSpace(base.MissionID),
 		EventType: "report.section.started",

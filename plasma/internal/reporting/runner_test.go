@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
+	"github.com/c86j224s/liquid2/plasma/internal/source/confluencesource"
 	"strings"
 	"sync"
 	"testing"
@@ -63,19 +65,19 @@ func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *te
 	svc := &fakeRunnerService{sources: []source.Snapshot{
 		{
 			SnapshotID: "src_2", MissionID: "mis_1", Title: "Unchecked page",
-			Connector:  app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType, ExternalVersion: "4", ExternalURI: "https://private.example/wiki/2"},
+			Connector:  sourcecontract.ConnectorRef{ConnectorType: confluencesource.ConfluenceConnectorType, ExternalVersion: "4", ExternalURI: "https://private.example/wiki/2"},
 			CapturedAt: checkedAt.Add(-2 * time.Hour), ExternalUpdatedAt: checkedAt.Add(-3 * time.Hour),
 		},
 		{
 			SnapshotID: "src_1", MissionID: "mis_1", Title: "Current page",
-			Connector:  app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType, ExternalVersion: "7"},
+			Connector:  sourcecontract.ConnectorRef{ConnectorType: confluencesource.ConfluenceConnectorType, ExternalVersion: "7"},
 			CapturedAt: checkedAt.Add(-time.Hour), ExternalUpdatedAt: checkedAt.Add(-90 * time.Minute),
-			State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+			State: sourcecontract.State{ConfluenceUpdate: &app.ConfluenceUpdateState{
 				Status: app.ConfluenceUpdateStatusAvailable, CheckedAt: checkedAt, CurrentVersion: 7, LatestVersion: 8,
 			}},
 		},
-		{SnapshotID: "src_local", MissionID: "mis_1", Connector: app.ConnectorRef{ConnectorType: app.SourceConnectorTypeLocalPath}},
-		{SnapshotID: "src_removed", MissionID: "mis_1", Connector: app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType}, State: app.SourceState{Removed: true}},
+		{SnapshotID: "src_local", MissionID: "mis_1", Connector: sourcecontract.ConnectorRef{ConnectorType: sourcecontract.ConnectorTypeLocalPath}},
+		{SnapshotID: "src_removed", MissionID: "mis_1", Connector: sourcecontract.ConnectorRef{ConnectorType: confluencesource.ConfluenceConnectorType}, State: sourcecontract.State{Removed: true}},
 	}}
 	generated := make(chan DraftRequest, 1)
 	runner := Runner{
@@ -134,10 +136,10 @@ func TestRunnerStartDraftFreezesConfluenceSourceContextOutsideDraftRequest(t *te
 func TestReportSourceContextDropsUnknownConfluenceErrorDetails(t *testing.T) {
 	svc := &fakeRunnerService{sources: []source.Snapshot{{
 		SnapshotID: "src_1", MissionID: "mis_1", Title: "Failed page",
-		Connector: app.ConnectorRef{ConnectorType: app.ConfluenceConnectorType},
-		State: app.SourceState{ConfluenceUpdate: &app.ConfluenceUpdateState{
+		Connector: sourcecontract.ConnectorRef{ConnectorType: confluencesource.ConfluenceConnectorType},
+		State: sourcecontract.State{ConfluenceUpdate: &app.ConfluenceUpdateState{
 			Status: app.ConfluenceUpdateStatusFailed, CheckedAt: time.Now().UTC(),
-			ErrorCategory: app.ConfluenceErrorCategoryAuth, ErrorCode: "raw_provider_detail",
+			ErrorCategory: confluencesource.ConfluenceErrorCategoryAuth, ErrorCode: "raw_provider_detail",
 		}},
 	}}}
 	runner := Runner{
@@ -181,9 +183,6 @@ func TestRunnerGenerationCallbacksDoNotInheritWorkflowStepDeadline(t *testing.T)
 		}},
 		{name: "design", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
 			return r.StartDesign(ctx, "mis_design", DesignRequest{}, ledger.Producer{Type: "user", ID: "test"})
-		}},
-		{name: "humanize", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
-			return r.StartHumanize(ctx, "mis_humanize", HumanizeRequest{}, ledger.Producer{Type: "user", ID: "test"})
 		}},
 		{name: "patch", start: func(ctx context.Context, r Runner) (ledger.Event, error) {
 			return r.StartPatch(ctx, "mis_patch", PatchRequest{}, ledger.Producer{Type: "user", ID: "test"})
@@ -1913,10 +1912,10 @@ func (svc *fakeRunnerService) AppendEvent(_ context.Context, req ledger.AppendRe
 	return event, nil
 }
 
-func (svc *fakeRunnerService) AppendEventConditionally(_ context.Context, missionID string, decide func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error) {
+func (svc *fakeRunnerService) AppendEventConditionally(_ context.Context, missionID string, decide func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error) {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	events := make([]app.LedgerEvent, 0, len(svc.events))
+	events := make([]ledger.Event, 0, len(svc.events))
 	for _, event := range svc.events {
 		if event.MissionID == missionID {
 			events = append(events, event)
@@ -1926,7 +1925,7 @@ func (svc *fakeRunnerService) AppendEventConditionally(_ context.Context, missio
 	if err != nil || !appendEvent {
 		return existing, false, err
 	}
-	event := app.LedgerEvent{
+	event := ledger.Event{
 		EventID: request.EventID, MissionID: request.MissionID, EventType: request.EventType, Producer: request.Producer,
 		CausationEventID: request.CausationEventID, CorrelationID: request.CorrelationID,
 		Payload: append(json.RawMessage(nil), request.Payload...), CreatedAt: time.Now().UTC(),

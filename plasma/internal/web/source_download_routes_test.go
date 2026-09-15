@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
 )
 
 func TestSafeStoredArtifactFilename(t *testing.T) {
@@ -36,7 +36,7 @@ func TestSafeStoredArtifactFilename(t *testing.T) {
 func TestWriteStoredArtifactDownloadExactBytesAndHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
 	content := []byte("<html>stored</html>")
-	writeStoredArtifactDownload(rec, app.RawArtifact{ArtifactID: "art_1", MediaType: "text/html; charset=utf-8", Filename: "dir\\page\".html", Content: content})
+	writeStoredArtifactDownload(rec, artifactcontract.Raw{ArtifactID: "art_1", MediaType: "text/html; charset=utf-8", Filename: "dir\\page\".html", Content: content})
 	if rec.Code != 200 || string(rec.Body.Bytes()) != string(content) {
 		t.Fatalf("unexpected response %d %q", rec.Code, rec.Body.Bytes())
 	}
@@ -58,7 +58,7 @@ func TestWriteStoredArtifactDownloadFallsBackForInvalidMediaTypes(t *testing.T) 
 	for _, mediaType := range []string{`text/html; charset="unterminated`, "text/html\x00evil"} {
 		t.Run(fmt.Sprintf("%q", mediaType), func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			writeStoredArtifactDownload(rec, app.RawArtifact{
+			writeStoredArtifactDownload(rec, artifactcontract.Raw{
 				ArtifactID: "art_1",
 				MediaType:  mediaType,
 				Filename:   "stored.bin",

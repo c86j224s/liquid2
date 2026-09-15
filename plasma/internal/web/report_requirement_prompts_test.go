@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	plasmamcp "github.com/c86j224s/liquid2/plasma/internal/mcp"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 	"github.com/c86j224s/liquid2/plasma/internal/reportworkflow/requirements"
@@ -16,7 +16,7 @@ func TestReportRequirementPromptOwnsDirectionAfterFixedOutline(t *testing.T) {
 	plan := agentSectionalReportPlan{Parts: []agentReportPart{{Title: "Part", Sections: []agentReportSection{{Title: "One", Purpose: "first purpose"}, {Title: "Two", Purpose: "comparison purpose"}}}}}
 	binding := reporting.ReportRequirementMapBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool",
-		IdempotencyKey: "rrk_1", AgentExecutor: "codex", Producer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+		IdempotencyKey: "rrk_1", AgentExecutor: "codex", Producer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
 	prompt := agentReportRequirementMapPrompt("Report", "include a comparison table", plan, []string{"evt_user", "evt_pending"}, binding)
 	for _, expected := range []string{"include a comparison table", "fixed", "Section 1.2: Two", "indices are 1-based", "indexed title and purpose", "evt_user", "every eligible event", "current pending event must appear", "unmapped_reason", "REQUIREMENTS_MAPPED", plasmamcp.ToolReportRequirementsSubmit} {
@@ -50,7 +50,7 @@ func TestAgentProvidersCarryReportRequirementMCPContext(t *testing.T) {
 	binding := reporting.ReportRequirementMapBinding{
 		MissionID: "mis_1", PendingEventID: "evt_pending", PlanEventID: "evt_plan", ToolSessionID: "ses_tool",
 		PreviousProviderSessionID: "ses_plan", IdempotencyKey: "rrk_1", AgentExecutor: "codex",
-		Producer: app.Producer{Type: "agent_session", ID: "ses_tool"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "ses_tool"},
 	}
 	request := AgentRequest{
 		MissionID: "mis_1", ToolSessionID: "ses_tool", AgentExecutor: "codex", ReplaceMCPTools: true,

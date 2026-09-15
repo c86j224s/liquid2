@@ -27,10 +27,15 @@ void main() {
     expect(find.text('Save page'), findsOneWidget);
     expect(find.text('Title override (optional)'), findsOneWidget);
 
-    await tester.enterText(
-      find.byType(TextField).first,
-      'https://example.com/a',
+    final urlInput = tester.widget<EditableText>(
+      find.descendant(
+        of: find.widgetWithText(TextField, 'URL'),
+        matching: find.byType(EditableText),
+      ),
     );
+    expect(urlInput.focusNode.hasPrimaryFocus, isTrue);
+    tester.testTextInput.enterText('https://example.com/a');
+    await tester.pump();
     await tester.tap(find.text('Save link'));
     await tester.pumpAndSettle();
 

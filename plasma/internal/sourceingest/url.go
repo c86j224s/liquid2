@@ -3,6 +3,7 @@ package sourceingest
 import (
 	"context"
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/source"
 	"strings"
 	"time"
 
@@ -65,7 +66,7 @@ func CreateFetchedURLSourceWithEvent(ctx context.Context, store Store, req Creat
 	if diagnosis := sourcediagnostics.DiagnoseBrowserRenderCandidate(req.Fetched.Content, req.Fetched.MediaType); diagnosis.Candidate {
 		payload["browser_render_candidate"] = diagnosis
 	}
-	result, err := store.CreateSourceSnapshotWithEvent(ctx, CreateSourceSnapshotWithEventRequest{
+	result, err := store.CreateSourceSnapshotWithEvent(ctx, source.CreateSourceSnapshotWithEventRequest{
 		Artifact: CreateRawArtifactRequest{
 			ArtifactID: req.ArtifactID,
 			MissionID:  req.MissionID,
@@ -136,7 +137,7 @@ func CreateStagedURLSourceWithEvent(ctx context.Context, store Store, req Create
 	if err != nil {
 		return URLSourceSnapshotResult{}, err
 	}
-	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, CreateExistingArtifactSourceSnapshotWithEventRequest{
+	result, err := store.CreateExistingArtifactSourceSnapshotWithEvent(ctx, source.CreateExistingArtifactSourceSnapshotWithEventRequest{
 		Snapshot: CreateSourceSnapshotRequest{
 			SnapshotID: req.SnapshotID,
 			MissionID:  req.MissionID,

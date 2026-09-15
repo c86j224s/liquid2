@@ -3,35 +3,38 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"path/filepath"
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
 )
 
 func TestLedgerAppendAndRead(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	mission := app.Mission{MissionID: "mis_1", Title: "Mission"}
+	mission := mission.Mission{MissionID: "mis_1", Title: "Mission"}
 	if err := store.CreateMission(ctx, mission); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 
-	first, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	first, err := store.AppendLedgerEvent(ctx, ledger.Event{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{"title":"Mission"}`),
 	})
 	if err != nil {
 		t.Fatalf("AppendLedgerEvent first returned error: %v", err)
 	}
-	second, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	second, err := store.AppendLedgerEvent(ctx, ledger.Event{
 		EventID:   "evt_2",
 		MissionID: "mis_1",
 		EventType: "mission.steered",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{}`),
 	})
 	if err != nil {
@@ -57,15 +60,15 @@ func TestListMissionActivityInputsReturnsOnlyRelevantEvents(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
 	for _, missionID := range []string{"mis_1", "mis_2"} {
-		if err := store.CreateMission(ctx, app.Mission{MissionID: missionID, Title: missionID}); err != nil {
+		if err := store.CreateMission(ctx, mission.Mission{MissionID: missionID, Title: missionID}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	appendEvent := func(eventID, missionID, eventType string, payload string) {
 		t.Helper()
-		if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+		if _, err := store.AppendLedgerEvent(ctx, ledger.Event{
 			EventID: eventID, MissionID: missionID, EventType: eventType,
-			Producer: app.Producer{Type: "test", ID: "test"}, Payload: []byte(payload),
+			Producer: ledger.Producer{Type: "test", ID: "test"}, Payload: []byte(payload),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -102,33 +105,33 @@ func TestListMissionActivityInputsReturnsOnlyRelevantEvents(t *testing.T) {
 func TestLedgerConditionalAppendReadsAndWritesInOneTransaction(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
-	if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	if _, err := store.AppendLedgerEvent(ctx, ledger.Event{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{}`),
 	}); err != nil {
 		t.Fatalf("AppendLedgerEvent returned error: %v", err)
 	}
-	appended, err := store.AppendLedgerEventsConditionally(ctx, "mis_1", func(events []app.LedgerEvent) ([]app.LedgerEvent, error) {
+	appended, err := store.AppendLedgerEventsConditionally(ctx, "mis_1", func(events []ledger.Event) ([]ledger.Event, error) {
 		if len(events) != 1 || events[0].EventID != "evt_1" {
 			t.Fatalf("expected conditional builder to see existing event, got %#v", events)
 		}
-		return []app.LedgerEvent{{
+		return []ledger.Event{{
 			EventID:   "evt_2",
 			MissionID: "mis_1",
 			EventType: "mission.steered",
-			Producer:  app.Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{}`),
 		}, {
 			EventID:   "evt_3",
 			MissionID: "mis_1",
 			EventType: "mission.note",
-			Producer:  app.Producer{Type: "user", ID: "ses_1"},
+			Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 			Payload:   []byte(`{}`),
 		}}, nil
 	})
@@ -142,11 +145,11 @@ func TestLedgerConditionalAppendReadsAndWritesInOneTransaction(t *testing.T) {
 
 func TestLedgerRejectsUnknownMission(t *testing.T) {
 	store := newTestStore(t)
-	_, err := store.AppendLedgerEvent(context.Background(), app.LedgerEvent{
+	_, err := store.AppendLedgerEvent(context.Background(), ledger.Event{
 		EventID:   "evt_1",
 		MissionID: "mis_missing",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{}`),
 	})
 	if err == nil {
@@ -157,14 +160,14 @@ func TestLedgerRejectsUnknownMission(t *testing.T) {
 func TestLedgerRejectsDuplicateEventID(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
-	event := app.LedgerEvent{
+	event := ledger.Event{
 		EventID:   "evt_1",
 		MissionID: "mis_1",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{}`),
 	}
 	if _, err := store.AppendLedgerEvent(ctx, event); err != nil {
@@ -188,12 +191,12 @@ func TestWorkflowRunRejectsActiveRunAcrossServiceInstances(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store2.Close()
-	if err := store1.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if err := store1.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	svc1 := app.NewService(store1)
 	svc2 := app.NewService(store2)
-	if _, err := svc1.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	if _, err := svc1.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_first",
 		MissionID:          "mis_1",
 		RequestedBySurface: app.WorkflowSurfaceCLI,
@@ -205,7 +208,7 @@ func TestWorkflowRunRejectsActiveRunAcrossServiceInstances(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("first RequestWorkflowRun returned error: %v", err)
 	}
-	if _, err := svc2.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	if _, err := svc2.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_second",
 		MissionID:          "mis_1",
 		RequestedBySurface: app.WorkflowSurfaceWeb,
@@ -232,33 +235,33 @@ func TestActiveAgentWorkRejectsConditionalAppendAcrossServiceInstances(t *testin
 		t.Fatal(err)
 	}
 	defer store2.Close()
-	if err := store1.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if err := store1.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	svc1 := app.NewService(store1)
 	svc2 := app.NewService(store2)
-	if _, err := svc1.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []app.AppendEventRequest{{
+	if _, err := svc1.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{{
 		EventID:   "evt_report_pending",
 		MissionID: "mis_1",
 		EventType: "report.draft.pending",
-		Producer:  app.Producer{Type: "user", ID: "web"},
+		Producer:  ledger.Producer{Type: "user", ID: "web"},
 		Payload:   []byte(`{"kind":"markdown_report_artifact_pending"}`),
 	}}); err != nil {
 		t.Fatalf("first conditional append returned error: %v", err)
 	}
-	_, err = svc2.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []app.AppendEventRequest{
+	_, err = svc2.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{
 		{
 			EventID:   "evt_user_next",
 			MissionID: "mis_1",
 			EventType: "turn.user",
-			Producer:  app.Producer{Type: "user", ID: "cli"},
+			Producer:  ledger.Producer{Type: "user", ID: "cli"},
 			Payload:   []byte(`{"kind":"user_turn","text":"next"}`),
 		},
 		{
 			EventID:   "evt_pending_next",
 			MissionID: "mis_1",
 			EventType: "turn.agent.pending",
-			Producer:  app.Producer{Type: "agent", ID: "codex"},
+			Producer:  ledger.Producer{Type: "agent", ID: "codex"},
 			Payload:   []byte(`{"kind":"agent_pending","user_event_id":"evt_user_next","agent_executor":"codex"}`),
 		},
 	})
@@ -277,11 +280,11 @@ func TestActiveAgentWorkRejectsConditionalAppendAcrossServiceInstances(t *testin
 func TestWorkflowEventsUseMissionLedger(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	if err := store.CreateMission(ctx, app.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
+	if err := store.CreateMission(ctx, mission.Mission{MissionID: "mis_1", Title: "Mission"}); err != nil {
 		t.Fatalf("CreateMission returned error: %v", err)
 	}
 	svc := app.NewService(store)
-	view, err := svc.RequestWorkflowRun(ctx, app.RequestWorkflowRunRequest{
+	view, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_sqlite",
 		MissionID:          "mis_1",
 		RequestedBySurface: app.WorkflowSurfaceCLI,

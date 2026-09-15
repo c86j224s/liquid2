@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -61,7 +61,7 @@ func testGateCompatibleFinalBinding() reporting.LongFormFinalizeBinding {
 		PostReportHumanize: reporting.FinalEditHumanizeDisabled, GenerationGuidanceProfile: "reader-style-gate",
 		GenerationGuidanceSHA256: strings.Repeat("a", 64), SessionChainKind: "report_final_edit",
 		PreReportResearchSessionID: "provider-research", ReportPlanSessionID: "provider-plan", ForkSourceAgentSessionID: "provider-plan",
-		Producer: app.Producer{Type: "agent_session", ID: "provider-gate"},
+		Producer: ledger.Producer{Type: "agent_session", ID: "provider-gate"},
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	missionadapter "github.com/c86j224s/liquid2/plasma/internal/mcp/mission"
 	"github.com/c86j224s/liquid2/plasma/internal/reporting"
 )
 
@@ -29,9 +30,9 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 	}
 	switch call.Name {
 	case ToolMissionGet:
-		return server.callMissionGet(ctx, call)
+		return server.mission.CallGet(ctx, call)
 	case ToolMissionUpdate:
-		return server.withUserMutationIdempotency(ctx, call, server.callMissionUpdate)
+		return server.withUserMutationIdempotency(ctx, call, server.mission.CallUpdate)
 	case ToolSourcesList:
 		return server.callSourcesList(ctx, call)
 	case ToolSourcesRead:
@@ -128,11 +129,11 @@ func (server *Server) dispatchCall(ctx context.Context, call ToolCall) ToolResul
 	case ToolMermaidValidate:
 		return server.callMermaidValidate(ctx, call)
 	case ToolWorkflowStart:
-		return server.callWorkflowStart(ctx, call)
+		return server.workflow.CallStart(ctx, call)
 	case ToolWorkflowStatus:
-		return server.callWorkflowStatus(ctx, call)
+		return server.workflow.CallStatus(ctx, call)
 	case ToolWorkflowStop:
-		return server.callWorkflowStop(ctx, call)
+		return server.workflow.CallStop(ctx, call)
 	case ToolReportPatchStart:
 		if !server.reportPatch {
 			return reportPatchDisabledResult(call)
@@ -417,7 +418,7 @@ func (server *Server) withUserMutationIdempotency(ctx context.Context, call Tool
 	if err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}
-	var input missionUpdateInput
+	var input missionadapter.UpdateInput
 	if err := decodeArgs(call.Arguments, &input); err != nil {
 		return errorResult(call.Name, missionID, "validation", err.Error(), false, nil)
 	}

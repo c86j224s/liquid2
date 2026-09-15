@@ -4,7 +4,8 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/agentusage"
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 // CLIMarkdownReportPlanCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -34,7 +35,7 @@ type CLIMarkdownReportPlanCreatedEventRequest struct {
 	ForkSourceAgentSessionID     string
 	CompositionStrategy          string
 	PlanText                     string
-	Producer                     app.Producer
+	Producer                     ledger.Producer
 }
 
 // CLIMarkdownReportArtifactCreatedEventRequest는 보고서 생성 파이프라인에 전달되는 요청 값이다.
@@ -43,7 +44,7 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	MissionID                    string
 	PendingEventID               string
 	Title                        string
-	Artifact                     app.RawArtifact
+	Artifact                     artifactcontract.Raw
 	AgentExecutor                string
 	AgentModel                   string
 	AgentReasoningEffort         string
@@ -73,12 +74,12 @@ type CLIMarkdownReportArtifactCreatedEventRequest struct {
 	AgentUsageSurface            string
 	AgentUsageDurationMS         int64
 	AgentResumed                 bool
-	Producer                     app.Producer
+	Producer                     ledger.Producer
 }
 
 // BuildCLIMarkdownReportPlanCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCreatedEventRequest) app.AppendEventRequest {
-	return app.AppendEventRequest{
+func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCreatedEventRequest) ledger.AppendRequest {
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.plan.created",
@@ -119,7 +120,7 @@ func BuildCLIMarkdownReportPlanCreatedAppendRequest(req CLIMarkdownReportPlanCre
 }
 
 // BuildCLIMarkdownReportArtifactCreatedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArtifactCreatedEventRequest) app.AppendEventRequest {
+func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArtifactCreatedEventRequest) ledger.AppendRequest {
 	artifact := req.Artifact
 	payload := map[string]any{
 		"kind":                            "markdown_report_artifact",
@@ -159,7 +160,7 @@ func BuildCLIMarkdownReportArtifactCreatedAppendRequest(req CLIMarkdownReportArt
 	if usage, ok := req.AgentUsage.ForEvent(req.AgentUsageSurface, req.AgentUsageDurationMS, "", req.AgentSessionID, req.AgentResumed, false); ok {
 		payload["agent_usage"] = usage
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: strings.TrimSpace(req.MissionID),
 		EventType: "report.artifact.created",

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/reportilcontract"
 )
 
@@ -36,13 +38,13 @@ func TestReadReportILEditorialMemoryBindsFinalizeTraceAndArtifactBytes(t *testin
 	}
 	content = append(content, '\n')
 	sum := sha256.Sum256(content)
-	artifact := RawArtifact{
+	artifact := artifactcontract.Raw{
 		ArtifactID: "art_editorial_memory", MissionID: catalog.MissionID,
 		MediaType: reportilcontract.EditorialMemoryMediaType,
 		SHA256:    hex.EncodeToString(sum[:]), ByteSize: int64(len(content)), Content: content,
 	}
 	finalize := reportILEditorialMemoryFinalizeEvent("evt_memory_finalize", "ses_memory", artifact, "ilm_memory", 2, 1)
-	service := NewService(reportILDocumentStore{events: []LedgerEvent{finalize}, artifact: artifact})
+	service := NewService(reportILDocumentStore{events: []ledger.Event{finalize}, artifact: artifact})
 	got, receipt, err := service.ReadReportILEditorialMemory(context.Background(), catalog.MissionID, "ses_memory", catalog)
 	if err != nil {
 		t.Fatal(err)
@@ -58,12 +60,12 @@ func TestReadReportILEditorialMemoryBindsFinalizeTraceAndArtifactBytes(t *testin
 		t.Fatal("test memory account not found")
 	}
 	copy(tampered.Content[accountOffset:], []byte("corrupted"))
-	tamperedService := NewService(reportILDocumentStore{events: []LedgerEvent{finalize}, artifact: tampered})
+	tamperedService := NewService(reportILDocumentStore{events: []ledger.Event{finalize}, artifact: tampered})
 	if _, _, err := tamperedService.ReadReportILEditorialMemory(context.Background(), catalog.MissionID, "ses_memory", catalog); err == nil || !strings.Contains(err.Error(), "artifact binding is invalid") {
 		t.Fatalf("tampered editorial memory error = %v", err)
 	}
 
-	duplicate := NewService(reportILDocumentStore{events: []LedgerEvent{finalize, reportILEditorialMemoryFinalizeEvent(
+	duplicate := NewService(reportILDocumentStore{events: []ledger.Event{finalize, reportILEditorialMemoryFinalizeEvent(
 		"evt_memory_finalize_2", "ses_memory", artifact, "ilm_memory_2", 2, 1,
 	)}, artifact: artifact})
 	if _, _, err := duplicate.ReadReportILEditorialMemory(context.Background(), catalog.MissionID, "ses_memory", catalog); err == nil {
@@ -71,7 +73,7 @@ func TestReadReportILEditorialMemoryBindsFinalizeTraceAndArtifactBytes(t *testin
 	}
 }
 
-func reportILEditorialMemoryFinalizeEvent(eventID, sessionID string, artifact RawArtifact, workspaceID string, revision, accounts int) LedgerEvent {
+func reportILEditorialMemoryFinalizeEvent(eventID, sessionID string, artifact artifactcontract.Raw, workspaceID string, revision, accounts int) ledger.Event {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":       reportilcontract.EditorialMemoryFinalizeTool,
 		"tool_session_id": sessionID,
@@ -83,7 +85,7 @@ func reportILEditorialMemoryFinalizeEvent(eventID, sessionID string, artifact Ra
 			"accounts": accounts, "finalized": true,
 		},
 	})
-	return LedgerEvent{
+	return ledger.Event{
 		EventID: eventID, MissionID: artifact.MissionID, EventType: "mcp.tool.called",
 		CorrelationID: sessionID, Payload: payload,
 	}

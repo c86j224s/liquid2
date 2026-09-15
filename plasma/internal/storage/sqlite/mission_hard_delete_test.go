@@ -1,14 +1,23 @@
 package sqlite
 
+import "github.com/c86j224s/liquid2/plasma/internal/reporting/reportdocument"
+
 import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchproposal"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	sourcecontract "github.com/c86j224s/liquid2/plasma/internal/source"
 )
 
 func TestMissionHardDeleteDeletesMissionScopedRowsAndKeepsOtherMissions(t *testing.T) {
@@ -90,7 +99,7 @@ func TestMissionHardDeleteRollsBackWhenValidatorRejects(t *testing.T) {
 	defer store.Close()
 	seedMissionHardDeleteFixture(t, ctx, store, "mis_delete", "art_delete", "src_delete", "rpt_delete")
 
-	_, err = store.HardDeleteMission(ctx, "mis_delete", func([]app.LedgerEvent) error {
+	_, err = store.HardDeleteMission(ctx, "mis_delete", func([]ledger.Event) error {
 		return app.ErrConflict
 	})
 	if !errors.Is(err, app.ErrConflict) {
@@ -107,17 +116,17 @@ func TestMissionHardDeleteRollsBackWhenValidatorRejects(t *testing.T) {
 func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Store, missionID, artifactID, snapshotID, reportID string) {
 	t.Helper()
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
-	if err := store.CreateMission(ctx, app.Mission{
-		MissionID: missionID, Title: missionID, CreatedAt: now, UpdatedAt: now, LifecycleState: app.MissionLifecycleArchived,
+	if err := store.CreateMission(ctx, mission.Mission{
+		MissionID: missionID, Title: missionID, CreatedAt: now, UpdatedAt: now, LifecycleState: mission.LifecycleArchived,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	for i, eventType := range []string{"mission.created", app.MissionArchivedEvent} {
-		if _, err := store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	for i, eventType := range []string{"mission.created", mission.ArchivedEvent} {
+		if _, err := store.AppendLedgerEvent(ctx, ledger.Event{
 			EventID:   "evt_" + missionID + "_" + eventType,
 			MissionID: missionID,
 			EventType: eventType,
-			Producer:  app.Producer{Type: "user", ID: "test"},
+			Producer:  ledger.Producer{Type: "user", ID: "test"},
 			Payload:   []byte(`{"title":"fixture"}`),
 			CreatedAt: now.Add(time.Duration(i) * time.Second),
 		}); err != nil {
@@ -125,13 +134,13 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 		}
 	}
 	content := []byte("fixture source")
-	if err := store.CreateRawArtifact(ctx, app.RawArtifact{
+	if err := store.CreateRawArtifact(ctx, artifactcontract.Raw{
 		ArtifactID: artifactID,
 		MissionID:  missionID,
 		MediaType:  "text/plain",
 		ByteSize:   int64(len(content)),
 		SHA256:     "sha_" + artifactID,
-		Producer:   app.Producer{Type: "user", ID: "test"},
+		Producer:   ledger.Producer{Type: "user", ID: "test"},
 		CreatedAt:  now,
 		Content:    content,
 		StorageURI: "",
@@ -139,54 +148,54 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateSourceSnapshot(ctx, app.SourceSnapshot{
+	if err := store.CreateSourceSnapshot(ctx, sourcecontract.Snapshot{
 		SnapshotID:  snapshotID,
 		MissionID:   missionID,
-		Connector:   app.ConnectorRef{ConnectorID: "test", ConnectorType: app.SourceConnectorTypeFileUpload},
+		Connector:   sourcecontract.ConnectorRef{ConnectorID: "test", ConnectorType: sourcecontract.ConnectorTypeFileUpload},
 		Title:       "Fixture source",
 		CapturedAt:  now,
 		ArtifactIDs: []string{artifactID},
-		ContentHash: app.ContentHash{Algorithm: "sha256", Value: "sha_" + artifactID},
+		ContentHash: sourcecontract.ContentHash{Algorithm: "sha256", Value: "sha_" + artifactID},
 		Locators:    []byte(`[]`),
-		Access:      app.SourceAccess{Visibility: "private", License: "unknown", RetrievalPolicy: app.SourceRetrievalPolicySnapshotOnly},
+		Access:      sourcecontract.Access{Visibility: "private", License: "unknown", RetrievalPolicy: sourcecontract.RetrievalPolicySnapshotOnly},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateEvidenceRecord(ctx, app.EvidenceRecord{
-		SchemaVersion:  app.EvidenceRecordSchemaVersion,
-		ObjectKind:     app.EvidenceRecordObjectKind,
+	if err := store.CreateEvidenceRecord(ctx, researchrecords.EvidenceRecord{
+		SchemaVersion:  researchrecords.EvidenceRecordSchemaVersion,
+		ObjectKind:     researchrecords.EvidenceRecordObjectKind,
 		EvidenceID:     "evd_" + missionID,
 		MissionID:      missionID,
 		State:          "approved",
 		Summary:        "Evidence",
 		EvidenceType:   "quote",
-		SnapshotRefs:   []app.SnapshotRef{{SnapshotID: snapshotID, ArtifactID: artifactID, Locator: []byte(`{}`)}},
-		Confidence:     app.Confidence{Level: "medium"},
-		Producer:       app.Producer{Type: "agent", ID: "test"},
+		SnapshotRefs:   []researchrecords.SnapshotRef{{SnapshotID: snapshotID, ArtifactID: artifactID, Locator: []byte(`{}`)}},
+		Confidence:     researchrecords.Confidence{Level: "medium"},
+		Producer:       ledger.Producer{Type: "agent", ID: "test"},
 		CreatedEventID: "evt_" + missionID + "_evidence",
 		CreatedAt:      now,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateClaimRecord(ctx, app.ClaimRecord{
-		SchemaVersion:         app.ClaimRecordSchemaVersion,
-		ObjectKind:            app.ClaimRecordObjectKind,
+	if err := store.CreateClaimRecord(ctx, researchrecords.ClaimRecord{
+		SchemaVersion:         researchrecords.ClaimRecordSchemaVersion,
+		ObjectKind:            researchrecords.ClaimRecordObjectKind,
 		ClaimID:               "clm_" + missionID,
 		MissionID:             missionID,
 		State:                 "approved",
 		Text:                  "Claim",
 		ClaimType:             "finding",
 		SupportingEvidenceIDs: []string{"evd_" + missionID},
-		Confidence:            app.Confidence{Level: "medium"},
-		Approval:              app.Approval{State: "approved"},
+		Confidence:            researchrecords.Confidence{Level: "medium"},
+		Approval:              researchrecords.ClaimApproval{State: "approved"},
 		CreatedEventID:        "evt_" + missionID + "_claim",
 		CreatedAt:             now,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateQuestionRecord(ctx, app.QuestionRecord{
-		SchemaVersion:  app.QuestionRecordSchemaVersion,
-		ObjectKind:     app.QuestionRecordObjectKind,
+	if err := store.CreateQuestionRecord(ctx, researchrecords.QuestionRecord{
+		SchemaVersion:  researchrecords.QuestionRecordSchemaVersion,
+		ObjectKind:     researchrecords.QuestionRecordObjectKind,
 		QuestionID:     "qst_" + missionID,
 		MissionID:      missionID,
 		State:          "open",
@@ -197,9 +206,9 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateOptionRecord(ctx, app.OptionRecord{
-		SchemaVersion:  app.OptionRecordSchemaVersion,
-		ObjectKind:     app.OptionRecordObjectKind,
+	if err := store.CreateOptionRecord(ctx, researchrecords.OptionRecord{
+		SchemaVersion:  researchrecords.OptionRecordSchemaVersion,
+		ObjectKind:     researchrecords.OptionRecordObjectKind,
 		OptionID:       "opt_" + missionID,
 		MissionID:      missionID,
 		State:          "open",
@@ -210,14 +219,14 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateProposalBundle(ctx, app.ProposalBundle{
-		SchemaVersion:     app.ProposalBundleSchemaVersion,
-		ObjectKind:        app.ProposalBundleObjectKind,
+	if err := store.CreateProposalBundle(ctx, researchproposal.ProposalBundle{
+		SchemaVersion:     researchproposal.ProposalBundleSchemaVersion,
+		ObjectKind:        researchproposal.ProposalBundleObjectKind,
 		ProposalID:        "prp_" + missionID,
 		MissionID:         missionID,
 		State:             "pending_review",
 		Title:             "Proposal",
-		ObjectRefs:        []app.ObjectRef{{ObjectKind: app.EvidenceRecordObjectKind, ObjectID: "evd_" + missionID}},
+		ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: researchrecords.EvidenceRecordObjectKind, ObjectID: "evd_" + missionID}},
 		RequestedDecision: "approve",
 		CreatedEventID:    "evt_" + missionID + "_proposal",
 		CreatedAt:         now,
@@ -227,9 +236,9 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 	}
 	versionID := "rvn_" + missionID
 	blockID := "blk_" + missionID
-	if err := store.CreateReport(ctx, app.Report{
-		SchemaVersion:   app.ReportSchemaVersion,
-		ObjectKind:      app.ReportObjectKind,
+	if err := store.CreateReport(ctx, reportdocument.Report{
+		SchemaVersion:   reportdocument.ReportSchemaVersion,
+		ObjectKind:      reportdocument.ReportObjectKind,
 		ReportID:        reportID,
 		MissionID:       missionID,
 		Title:           "Report",
@@ -240,9 +249,9 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateReportVersion(ctx, app.ReportVersion{
-		SchemaVersion:   app.ReportVersionSchemaVersion,
-		ObjectKind:      app.ReportVersionObjectKind,
+	if err := store.CreateReportVersion(ctx, reportdocument.ReportVersion{
+		SchemaVersion:   reportdocument.ReportVersionSchemaVersion,
+		ObjectKind:      reportdocument.ReportVersionObjectKind,
 		ReportVersionID: versionID,
 		ReportID:        reportID,
 		MissionID:       missionID,
@@ -251,18 +260,18 @@ func seedMissionHardDeleteFixture(t *testing.T, ctx context.Context, store *Stor
 		BlockIDs:        []string{blockID},
 		CreatedEventID:  "evt_" + missionID + "_report",
 		CreatedAt:       now,
-	}, []app.ReportBlock{{
-		SchemaVersion:   app.ReportBlockSchemaVersion,
-		ObjectKind:      app.ReportBlockObjectKind,
+	}, []reportdocument.ReportBlock{{
+		SchemaVersion:   reportdocument.ReportBlockSchemaVersion,
+		ObjectKind:      reportdocument.ReportBlockObjectKind,
 		BlockID:         blockID,
 		ReportVersionID: versionID,
 		MissionID:       missionID,
 		BlockType:       "paragraph",
 		Order:           1,
 		Content:         []byte(`{"text":"Report block"}`),
-		SourceRefs:      app.ReportBlockSourceRefs{EvidenceIDs: []string{"evd_" + missionID}},
-		Authorship:      app.ReportBlockAuthorship{Mode: "agent", Producer: app.Producer{Type: "agent", ID: "test"}},
-		Approval:        app.Approval{State: "pending"},
+		SourceRefs:      reportdocument.ReportBlockSourceRefs{EvidenceIDs: []string{"evd_" + missionID}},
+		Authorship:      reportdocument.ReportBlockAuthorship{Mode: "agent", Producer: ledger.Producer{Type: "agent", ID: "test"}},
+		Approval:        reportdocument.Approval{State: "pending"},
 	}}); err != nil {
 		t.Fatal(err)
 	}

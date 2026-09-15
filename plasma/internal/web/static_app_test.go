@@ -1469,6 +1469,7 @@ const mission = {call(name, arg){ if (name==="requireMission") return requireMis
 }
 
 func TestConversationExportStaticContracts(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
 	script := mustReadPlasmaReportScripts(t)
 	for _, expected := range []string{
 		"createConversationExport",
@@ -1477,13 +1478,23 @@ func TestConversationExportStaticContracts(t *testing.T) {
 		`"/conversation_exports"`,
 		`"conversation.exported"`,
 		`"conversation_export_markdown"`,
-		"data-conversation-export-create",
 		"data-conversation-export-id",
-		"대화내역 export",
+		"onConversationExportClick",
+		"renderConversationExportSettings",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("missing conversation export static contract %q", expected)
 		}
+	}
+	for _, expected := range []string{`id="conversationExportSettingsDetails"`, `id="conversationExportSettingsList"`, `data-conversation-export-create`, "대화내역 내보내기"} {
+		if !strings.Contains(index, expected) {
+			t.Fatalf("conversation export is not exposed in Settings: missing %q", expected)
+		}
+	}
+	reportStart, reportEnd := strings.Index(index, `data-tab-panel="reports"`), strings.Index(index, `data-tab-panel="ledger"`)
+	settingsStart := strings.Index(index, `data-tab-panel="settings"`)
+	if reportStart < 0 || reportEnd < reportStart || settingsStart < reportEnd || strings.Contains(index[reportStart:reportEnd], "conversationExportSettingsDetails") || !strings.Contains(index[settingsStart:], "conversationExportSettingsDetails") {
+		t.Fatal("conversation export Settings placement changed")
 	}
 }
 
@@ -2688,6 +2699,7 @@ function routedTarget(route) {
   return { closest(selector) { return route[selector] || null; } };
 }
 function clickRoute(route) { Plasma.reports.onReportListClick({target:routedTarget(route)}); }
+function clickConversationExport(route) { Plasma.reports.onConversationExportClick({target:routedTarget(route)}); }
 (async () => {
   for (const listener of domReady) await listener();
   await Promise.resolve(); await Promise.resolve();
@@ -2744,7 +2756,7 @@ function clickRoute(route) { Plasma.reports.onReportListClick({target:routedTarg
   getElement("reportRedpenStart").click();
   if (!getElement("detailBody").children.some((child) => child.className === "report-redpen-inline-editor")) throw new Error("redpen pointer edit did not create inline editor: " + JSON.stringify({html:getElement("detailBody").innerHTML, children:getElement("detailBody").children.map((child) => ({id:child.id, className:child.className, dataset:child.dataset}))}));
   const reportRoutes = [];
-  for (const name of ["viewReportArtifact","downloadReportArtifact","patchReportArtifact","exportReportArtifactHumanizedMarkdown","exportReportArtifactDesignedHTML","showReportPlan","showMCPTrace","exportReport","selectReport","createConversationExport","viewConversationExport","viewReportRedpenWorkcopy"]) {
+  for (const name of ["viewReportArtifact","downloadReportArtifact","patchReportArtifact","exportReportArtifactDesignedHTML","showReportPlan","showMCPTrace","exportReport","selectReport","createConversationExport","viewConversationExport","viewReportRedpenWorkcopy"]) {
     const original = Plasma.reports[name];
     Plasma.reports[name] = (...args) => { reportRoutes.push([name, ...args]); return original?.name === name ? undefined : Promise.resolve(); };
   }
@@ -2752,16 +2764,15 @@ function clickRoute(route) { Plasma.reports.onReportListClick({target:routedTarg
   clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"view"}}});
   clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"download-artifact"}}});
   clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"patch-artifact", reportTitle:"Report"}}});
-  clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"start-humanized-markdown-artifact"}}});
   clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"view-designed-html-artifact"}}});
   clickRoute({"[data-report-artifact-id][data-action]":{dataset:{reportArtifactId:"art_md", action:"view-redpen-artifact"}}});
   clickRoute({"[data-report-version-id][data-action]":{dataset:{reportVersionId:"ver_1", action:"plan"}}});
   clickRoute({"[data-report-version-id][data-action]":{dataset:{reportVersionId:"ver_1", action:"mcp-trace"}}});
   clickRoute({"[data-report-version-id][data-action]":{dataset:{reportVersionId:"ver_1", action:"download-markdown"}}});
   clickRoute({"[data-report-key]":{dataset:{reportKey:"version:ver_1"}}});
-  clickRoute({"[data-conversation-export-create]":{dataset:{}}});
-  clickRoute({"[data-conversation-export-id][data-action]":{dataset:{conversationExportId:"conv_1", action:"view"}}});
-  for (const expected of ["viewReportArtifact","downloadReportArtifact","patchReportArtifact","exportReportArtifactHumanizedMarkdown","exportReportArtifactDesignedHTML","showReportPlan","showMCPTrace","exportReport","selectReport","createConversationExport","viewConversationExport","viewReportRedpenWorkcopy"]) {
+  clickConversationExport({"[data-conversation-export-create]":{dataset:{}}});
+  clickConversationExport({"[data-conversation-export-id][data-action]":{dataset:{conversationExportId:"conv_1", action:"view"}}});
+  for (const expected of ["viewReportArtifact","downloadReportArtifact","patchReportArtifact","exportReportArtifactDesignedHTML","showReportPlan","showMCPTrace","exportReport","selectReport","createConversationExport","viewConversationExport","viewReportRedpenWorkcopy"]) {
     if (!reportRoutes.some((call) => call[0] === expected)) throw new Error("report list route missing " + expected);
   }
   const resume = {dataset:{reportRetry:"resume_failed"}, disabled:false, addEventListener(_event, listener){ this.listener = listener; }};
@@ -2941,6 +2952,10 @@ func TestStaticSegmentedSelectDesignCoversEveryLabeledCompactControl(t *testing.
 		"confluenceSiteSelect",
 		"confluenceRangeSelect",
 		"confluenceUpdateRangeSelect",
+		"articleRigor",
+		"articleAgentModel",
+		"articleAgentReasoningEffort",
+		"articleLongFormExecutionStrategy",
 		"reportRigor",
 		"reportAgentModel",
 		"reportAgentReasoningEffort",
@@ -3193,7 +3208,7 @@ func TestStaticReportDirectionIsOptionalAndPrecedesGenerationAction(t *testing.T
 	if !(settings < directionDetails && directionDetails < directionInput && directionInput < generate) {
 		t.Fatalf("unexpected report control order: details=%d input=%d settings=%d generate=%d", directionDetails, directionInput, settings, generate)
 	}
-	for _, expected := range []string{"방향 추가", "선택", "이번 요청에만 적용할 약한 편집 방향"} {
+	for _, expected := range []string{"방향 추가", "선택", "이번 보고서에만 적용할 약한 편집 방향"} {
 		if !strings.Contains(index, expected) {
 			t.Fatalf("missing optional direction wording %q", expected)
 		}
@@ -3322,16 +3337,119 @@ const showError = (err)=>{throw err;};
   if (Object.prototype.hasOwnProperty.call(classic,"pipeline_family")) throw new Error("classic payload changed family shape");
   if (classic.agent_executor!=="claude"||classic.mcp_mode!=="auto"||classic.agent_model!=="classic-model"||classic.rigor_level!=="exploratory") throw new Error("classic payload changed");
   for (const [profile,ilReport] of [["exploratory",exploratoryIL],["unverified",unverifiedIL],["strict",strictIL]]) {
-    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="planned"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="gpt-5.6-luna"||ilReport.agent_reasoning_effort!=="xhigh"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" IL report payload mismatch: "+JSON.stringify(ilReport));
+    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="planned"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="classic-model"||ilReport.agent_reasoning_effort!=="medium"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" IL report payload mismatch: "+JSON.stringify(ilReport));
   }
   for (const [profile,ilReport] of [["unverified",longIL[0]],["exploratory",longIL[1]],["strict",longIL[2]]]) {
-    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="long_form"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="gpt-5.6-luna"||ilReport.agent_reasoning_effort!=="xhigh"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" long IL report payload mismatch: "+JSON.stringify(ilReport));
+    if (ilReport.pipeline_family!=="report_il_experimental"||ilReport.report_mode!=="long_form"||ilReport.agent_executor!=="codex"||ilReport.agent_model!=="classic-model"||ilReport.agent_reasoning_effort!=="medium"||ilReport.mcp_mode!=="source_read_only"||ilReport.rigor_level!==profile||ilReport.post_report_humanize!=="disabled"||ilReport.generation_guidance_profile!==""||ilReport.execution_strategy!=="") throw new Error(profile+" long IL report payload mismatch: "+JSON.stringify(ilReport));
   }
   if (unverifiedClassicButton.pipeline_family!=="report_unverified"||unverifiedClassicButton.report_mode!=="planned"||unverifiedClassicButton.agent_executor!=="codex"||unverifiedClassicButton.agent_model!=="gpt-5.6-luna"||unverifiedClassicButton.agent_reasoning_effort!=="xhigh"||unverifiedClassicButton.mcp_mode!=="source_read_only"||unverifiedClassicButton.rigor_level!=="unverified"||unverifiedClassicButton.post_report_humanize!=="disabled"||unverifiedClassicButton.generation_guidance_profile!==""||unverifiedClassicButton.execution_strategy!=="") throw new Error("unverified classic payload mismatch: "+JSON.stringify(unverifiedClassicButton));
 })().catch((error)=>{console.error(error);process.exit(1);});
 `
 	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
 		t.Fatalf("IL report payload fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestReportTabSeparatesInputsAndActionsAndSortsOutputsNewestFirst(t *testing.T) {
+	html := string(mustReadStatic(t, "static/index.html"))
+	styles := mustReadAppCSSComposed(t)
+	scripts := mustReadPlasmaReportScripts(t)
+	for _, expected := range []string{
+		`class="source-tabstrip report-creation-tabstrip"`, `data-report-creation-tab="articleCreationPanel"`, `data-report-creation-tab="reportCreationPanel"`,
+		`id="articleCreationPanel"`, `id="reportCreationPanel"`, `class="article-inputs"`,
+		`.report-creation-tabstrip {`, `.report-creation-panel {`, `.report-creation-panel[hidden] {`, `.article-inputs {`,
+	} {
+		if !strings.Contains(html+styles, expected) {
+			t.Fatalf("report input/action hierarchy missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		`function outputTimestamp(value)`, `.sort((left, right) => outputTimestamp(right.createdAt) - outputTimestamp(left.createdAt))`,
+		`reports.renderConversationExportCard`, `reports.renderILArtifactCard`, `reports.renderArtifactCard`, `reports.renderLegacyReportCard`,
+	} {
+		if !strings.Contains(scripts, expected) {
+			t.Fatalf("newest-first output renderer missing %q", expected)
+		}
+	}
+	for _, forbidden := range []string{`<div class="list-section-label">Markdown artifact</div>`, `<div class="list-section-label">IL 보고서`, `<div class="list-section-label">Legacy AST report</div>`} {
+		if strings.Contains(scripts, forbidden) {
+			t.Fatalf("output renderer still groups by kind %q", forbidden)
+		}
+	}
+}
+
+func TestStaticArticleRequestUsesMinimalReaderIntent(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the article payload fixture")
+	}
+	html := string(mustReadStatic(t, "static/index.html"))
+	combined := html + "\n" + mustReadPlasmaReportScripts(t)
+	for _, expected := range []string{`id="draftArticle"`, `id="draftLongArticle"`, `id="articleAudience"`, `id="articleReaderPromise"`, `id="articleEmphasis"`, `output_kind`, `article_intent`, `article_artifact`, `longArticle`, `reports.draftArticle("long_form")`} {
+		if !strings.Contains(combined, expected) {
+			t.Fatalf("missing minimal article product contract %q", expected)
+		}
+	}
+	for _, forbidden := range []string{"article checkpoint", "article MCP", "9-cell"} {
+		if strings.Contains(combined, forbidden) {
+			t.Fatalf("article UI exposes infrastructure contract %q", forbidden)
+		}
+	}
+}
+
+func TestLongFormArticlePayloadUsesExistingILFamily(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the long-form Article payload fixture")
+	}
+	source := jsFunctionSource(t, mustReadPlasmaReportScripts(t), "draftReport")
+	source = strings.Replace(source, "function draftReport", "async function draftReport", 1)
+	fixture := `
+const calls=[];
+const nodes={articleRigor:{value:"exploratory"},articleAgentModel:{value:"custom"},articleAgentReasoningEffort:{value:"medium"},reportRigor:{value:"strict"},reportAgentModel:{value:""},reportAgentReasoningEffort:{value:""},reportLongFormExecutionStrategy:{value:"serial"},agentExecutor:{value:"claude"},mcpMode:{value:"auto"}};
+const $=(id)=>nodes[id]||{value:""};
+const state={detail:{projection:{title:"Mission"}},turnPending:false,workflowPending:false,workflowGoalDraftPending:false,reportPending:false};
+const requireMission=()=>true,captureMissionSelection=()=>({missionId:"mis_1"}),ownsMissionSelection=()=>true;
+const reports={REPORT_IL_PIPELINE_FAMILY:"report_il_experimental",REPORT_UNVERIFIED_PIPELINE_FAMILY:"report_unverified",modelSelection:{payload:(model,effort)=>({agent_model:model,agent_reasoning_effort:effort})},selectedReportGenerationGuidance:()=>"",direction:{current:()=>"article direction",clear(){}},setReportBusy(){},setReportNotice(){},reportPendingMessage(){return ""}};
+const missionApi=async(_owner,_path,init)=>{calls.push(init.body);return {pending_event:{Payload:init.body}};};
+const reloadMission=async()=>{},schedulePendingPoll=()=>{},showError=(err)=>{throw err;};
+` + source + `
+(async()=>{
+ await draftReport("one_take",{outputKind:"article",articleIntent:{audience:"Reader",reader_promise:"Promise"}});
+ await draftReport("long_form",{outputKind:"article",articleIntent:{audience:"Reader",reader_promise:"Promise"}});
+ const short=calls[0],long=calls[1];
+ if (Object.prototype.hasOwnProperty.call(short,"pipeline_family")||short.report_mode!=="one_take"||short.agent_model!=="custom") throw new Error("short Article path changed: "+JSON.stringify(short));
+ if (long.pipeline_family!=="report_il_experimental"||long.report_mode!=="long_form"||long.agent_executor!=="codex"||long.agent_model!=="custom"||long.agent_reasoning_effort!=="medium"||long.mcp_mode!=="source_read_only"||long.output_kind!=="article"||long.rigor_level!=="exploratory") throw new Error("long Article did not reuse IL path: "+JSON.stringify(long));
+})().catch((error)=>{console.error(error);process.exit(1)});
+`
+	if output, err := exec.Command("node", "-e", fixture).CombinedOutput(); err != nil {
+		t.Fatalf("long-form Article payload fixture failed: %v: %s", err, output)
+	}
+}
+
+func TestLongFormArticleStrategySelectorControlsPayload(t *testing.T) {
+	index := string(mustReadStatic(t, "static/index.html"))
+	scripts := mustReadPlasmaReportScripts(t)
+	for _, expected := range []string{`id="articleLongFormExecutionStrategy"`, `<option value="serial" selected>순차</option>`, `<option value="section_fanout">빠른 병렬</option>`, `$("articleLongFormExecutionStrategy")?.value`} {
+		if !strings.Contains(index+scripts, expected) {
+			t.Fatalf("long-form Article strategy UI missing %q", expected)
+		}
+	}
+}
+
+func TestArticleHTMLUsesReadingFirstSurface(t *testing.T) {
+	body := string(mustReadStatic(t, "static/plasma/reports_cards_artifacts.js")) + "\n" + mustReadPlasmaReportScripts(t)
+	for _, expected := range []string{`article ? "HTML로 읽기"`, `attempt.article ? "최신 글 생성"`, `mode: article ? (mode === "long_form" ? "장문 글" : "글")`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("article reading surface missing %q", expected)
+		}
+	}
+	goSource, err := os.ReadFile("report_export_adapter.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{`"Plasma Article"`, `" class=\"article-output\""`, `if !article {`} {
+		if !strings.Contains(string(goSource), expected) {
+			t.Fatalf("article HTML rendering missing %q", expected)
+		}
 	}
 }
 
@@ -3705,7 +3823,7 @@ func TestSetReportBusyPreservesEveryActiveWorkGuard(t *testing.T) {
 	source := jsFunctionSource(t, script, "activeWorkBlocksControl") + "\n" + jsFunctionSource(t, script, "syncReportControls") + "\n" + jsFunctionSource(t, script, "setReportBusy")
 	fixture := `
 const elements = {};
-for (const id of ["reportStatus","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport","cancelReportButton"]) {
+for (const id of ["reportStatus","articleRigor","articleAgentModel","articleAgentReasoningEffort","articleLongFormExecutionStrategy","articleDirectionHint","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftArticle","draftLongArticle","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport","cancelReportButton"]) {
   elements[id] = {disabled:false,textContent:"",classList:{toggle(){}}};
 }
 const $ = (id) => elements[id];
@@ -3716,7 +3834,7 @@ const window = {Plasma:{ui:{
   setButtonText(id, text) { elements[id].textContent = text; }
 }}};
 ` + source + `
-const controls = ["reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport"];
+const controls = ["articleRigor","articleAgentModel","articleAgentReasoningEffort","articleLongFormExecutionStrategy","articleDirectionHint","reportRigor","reportAgentModel","reportAgentReasoningEffort","reportLongFormExecutionStrategy","draftArticle","draftLongArticle","draftQuickReport","draftLongReport","draftExperimentalReport","draftLongExperimentalReport"];
 function assertDisabled(label) {
   if (!controls.every((id) => elements[id].disabled)) throw new Error(label + " re-enabled a report control");
 }
@@ -4203,8 +4321,8 @@ func TestStaticAppHidesReportHumanizeCreateRetry(t *testing.T) {
 	}
 	script := string(mustReadPlasmaReportScripts(t))
 	for _, retained := range []string{"exportReportArtifactHumanizedMarkdown", "/humanized_markdown_export"} {
-		if !strings.Contains(script, retained) {
-			t.Fatalf("expected static app to retain report humanize compatibility boundary %q", retained)
+		if strings.Contains(script, retained) {
+			t.Fatalf("static app retains retired H5 launch %q", retained)
 		}
 	}
 }

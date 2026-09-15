@@ -2,19 +2,22 @@
   "use strict";
   const reports = root.Plasma.reports;
 
-  function onReportListClick(event) {
-    if (reports.call("onDetailButtonClick", event)) return;
+  function onConversationExportClick(event) {
+    if (reports.call("onDetailButtonClick", event)) return true;
     if (event.target.closest("[data-conversation-export-create]")) {
       reports.createConversationExport();
-      return;
+      return true;
     }
-    const conversationExportButton = event.target.closest("[data-conversation-export-id][data-action]");
-    if (conversationExportButton) {
-      const artifactID = conversationExportButton.dataset.conversationExportId;
-      if (conversationExportButton.dataset.action === "download") reports.downloadReportArtifact(artifactID);
-      else reports.viewConversationExport(artifactID);
-      return;
-    }
+    const button = event.target.closest("[data-conversation-export-id][data-action]");
+    if (!button) return false;
+    const artifactID = button.dataset.conversationExportId;
+    if (button.dataset.action === "download") reports.downloadReportArtifact(artifactID);
+    else reports.viewConversationExport(artifactID);
+    return true;
+  }
+
+  function onReportListClick(event) {
+    if (reports.call("onDetailButtonClick", event)) return;
     const planButton = event.target.closest("[data-report-plan-event-id][data-action]");
     if (planButton) {
       reports.showReportPlanEvent(planButton.dataset.reportPlanEventId);
@@ -40,9 +43,6 @@
       else if (action === "download-html-artifact") reports.exportReportArtifactHTML(artifactID, { download: true });
       else if (action === "patch-artifact") reports.patchReportArtifact(artifactID, artifactButton.dataset.reportTitle || "");
       else if (action === "delete-report-artifact") reports.deleteReportArtifact(artifactID);
-      // Deprecated compatibility action. New artifact cards no longer emit it,
-      // but older embedded markup may still route through this handler.
-      else if (action === "start-humanized-markdown-artifact") reports.exportReportArtifactHumanizedMarkdown(artifactID);
       else if (action === "view-designed-html-artifact" || action === "start-designed-html-artifact") reports.exportReportArtifactDesignedHTML(artifactID);
       else if (action === "download-designed-html-artifact") reports.exportReportArtifactDesignedHTML(artifactID, { download: true });
       else reports.viewReportArtifact(artifactID);
@@ -64,5 +64,5 @@
     if (card) reports.selectReport(card.dataset.reportKey);
   }
 
-  reports.onReportListClick = onReportListClick;
+  Object.assign(reports, { onConversationExportClick, onReportListClick });
 })(window);

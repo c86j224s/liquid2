@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"errors"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/mission"
 	"testing"
 )
 
@@ -22,7 +24,7 @@ func TestMissionHardDeleteRequiresArchivedMissionAndConfirmation(t *testing.T) {
 		t.Fatalf("active mission preview = %#v", preview)
 	}
 	if _, err := svc.HardDeleteMission(ctx, MissionHardDeleteRequest{
-		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: Producer{Type: "user", ID: "test"},
+		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: ledger.Producer{Type: "user", ID: "test"},
 	}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected active mission hard delete conflict, got %v", err)
 	}
@@ -30,18 +32,18 @@ func TestMissionHardDeleteRequiresArchivedMissionAndConfirmation(t *testing.T) {
 		t.Fatal("active mission was deleted")
 	}
 
-	if _, err := svc.ArchiveMission(ctx, MissionLifecycleChangeRequest{
-		EventID: "evt_archive", MissionID: "mis_1", Producer: Producer{Type: "user", ID: "test"},
+	if _, err := svc.ArchiveMission(ctx, mission.MissionLifecycleChangeRequest{
+		EventID: "evt_archive", MissionID: "mis_1", Producer: ledger.Producer{Type: "user", ID: "test"},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.HardDeleteMission(ctx, MissionHardDeleteRequest{
-		MissionID: "mis_1", ConfirmMissionID: "mis_wrong", Producer: Producer{Type: "user", ID: "test"},
+		MissionID: "mis_1", ConfirmMissionID: "mis_wrong", Producer: ledger.Producer{Type: "user", ID: "test"},
 	}); !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected mismatched confirmation rejection, got %v", err)
 	}
 	result, err := svc.HardDeleteMission(ctx, MissionHardDeleteRequest{
-		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: Producer{Type: "user", ID: "test"},
+		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -58,17 +60,17 @@ func TestMissionHardDeleteRechecksActiveWorkAtDeleteTime(t *testing.T) {
 	if _, err := svc.RebuildProjection(ctx, "mis_1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ArchiveMission(ctx, MissionLifecycleChangeRequest{
-		EventID: "evt_archive", MissionID: "mis_1", Producer: Producer{Type: "user", ID: "test"},
+	if _, err := svc.ArchiveMission(ctx, mission.MissionLifecycleChangeRequest{
+		EventID: "evt_archive", MissionID: "mis_1", Producer: ledger.Producer{Type: "user", ID: "test"},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	events := append([]LedgerEvent(nil), store.events["mis_1"]...)
+	events := append([]ledger.Event(nil), store.events["mis_1"]...)
 	events = append(events, lifecycleEvent(t, "evt_turn_pending", "mis_1", int64(len(events)+1), "turn.agent.pending", map[string]any{"user_event_id": "evt_user"}))
 	store.deleteEvents = events
 
 	_, err := svc.HardDeleteMission(ctx, MissionHardDeleteRequest{
-		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: Producer{Type: "user", ID: "test"},
+		MissionID: "mis_1", ConfirmMissionID: "mis_1", Producer: ledger.Producer{Type: "user", ID: "test"},
 	})
 	if !errors.Is(err, ErrConflict) {
 		t.Fatalf("expected delete-time active work conflict, got %v", err)
@@ -81,7 +83,7 @@ func TestMissionHardDeleteRechecksActiveWorkAtDeleteTime(t *testing.T) {
 type hardDeleteLifecycleStore struct {
 	*lifecycleStore
 	impact       MissionHardDeleteImpact
-	deleteEvents []LedgerEvent
+	deleteEvents []ledger.Event
 	deleted      bool
 }
 
@@ -96,10 +98,10 @@ func (s *hardDeleteLifecycleStore) PreviewMissionHardDelete(context.Context, str
 	return s.impact, nil
 }
 
-func (s *hardDeleteLifecycleStore) HardDeleteMission(_ context.Context, missionID string, validate func([]LedgerEvent) error) (MissionHardDeleteImpact, error) {
-	events := append([]LedgerEvent(nil), s.events[missionID]...)
+func (s *hardDeleteLifecycleStore) HardDeleteMission(_ context.Context, missionID string, validate func([]ledger.Event) error) (MissionHardDeleteImpact, error) {
+	events := append([]ledger.Event(nil), s.events[missionID]...)
 	if s.deleteEvents != nil {
-		events = append([]LedgerEvent(nil), s.deleteEvents...)
+		events = append([]ledger.Event(nil), s.deleteEvents...)
 	}
 	if validate != nil {
 		if err := validate(events); err != nil {

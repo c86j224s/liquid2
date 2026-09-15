@@ -38,6 +38,11 @@ returned by `tools/list`.
 6. If original material is worth user review, use
    `plasma.sources.candidates.propose`.
 
+## Mission Tools
+
+- `plasma.mission.get`: read the mission projection. Use `include` values `sources`, `evidence`, `claims`, `questions`, `records`, `all`, or `*` for optional arrays; omitted arrays remain omitted or empty according to the wire contract.
+- `plasma.mission.update`: update one or more explicitly supplied mission metadata fields through the shared application service. It is mission-bound, user-produced, and idempotent.
+
 ## Source Tools
 
 - `plasma.sources.list`: list active source snapshots for a mission.
@@ -54,6 +59,11 @@ returned by `tools/list`.
 
 Operator-only source mutation tools are visible only when explicitly enabled for
 the server.
+
+The workflow start/status/stop handlers preserve the complete input shape from
+`tools/list`, enforce the bound mission, current-user-event fallback, and executor
+binding before calling the narrow workflowstate application port. They only record
+or read workflow state; the MCP call never invokes a provider.
 
 ## Workflow Tools
 

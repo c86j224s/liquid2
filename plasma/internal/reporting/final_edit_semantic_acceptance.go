@@ -2,12 +2,12 @@ package reporting
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"sort"
 	"strings"
-
-	"github.com/c86j224s/liquid2/plasma/internal/app"
 )
 
 const (
@@ -64,7 +64,7 @@ func FinalEditSemanticComparison(ctx context.Context, store FinalEditStageStore,
 	readerBlocks := markdownNonEmptyBlocks(string(style.SourceArtifact.Content))
 	styleBlocks := markdownNonEmptyBlocks(string(style.Artifact.Content))
 	if len(readerBlocks) != len(styleBlocks) {
-		return nil, fmt.Errorf("%w: semantic comparison paragraph lineage is incomplete", app.ErrConflict)
+		return nil, fmt.Errorf("%w: semantic comparison paragraph lineage is incomplete", producterror.ErrConflict)
 	}
 	out := []FinalEditSemanticComparisonParagraph{}
 	for i := range readerBlocks {
@@ -84,11 +84,11 @@ func FinalEditSemanticComparison(ctx context.Context, store FinalEditStageStore,
 	return out, nil
 }
 
-// ValidateFinalEditSemanticAcceptance는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
-func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, finalMarkdown string, reviews []FinalEditSemanticAcceptance) (FinalEditSemanticAttestation, error) {
+// validateFinalEditSemanticAcceptance는 보고서 생성 파이프라인 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.
+func validateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, finalMarkdown string, reviews []FinalEditSemanticAcceptance) (FinalEditSemanticAttestation, error) {
 	stageBinding = normalizeFinalEditStageBinding(stageBinding)
 	if stageBinding.Stage != FinalEditStageGate && stageBinding.Stage != FinalEditStageStyleSemanticValidation {
-		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance requires a semantic validation stage", app.ErrInvalidInput)
+		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance requires a semantic validation stage", producterror.ErrInvalidInput)
 	}
 	events, err := store.ListEvents(ctx, stageBinding.MissionID)
 	if err != nil {
@@ -100,7 +100,7 @@ func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditSta
 	}
 	if !ok || !style.Changed {
 		if len(reviews) != 0 {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review is foreign to unchanged style lineage", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review is foreign to unchanged style lineage", producterror.ErrConflict)
 		}
 		return FinalEditSemanticAttestation{}, nil
 	}
@@ -108,7 +108,7 @@ func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditSta
 	styleBlocks := markdownNonEmptyBlocks(string(style.Artifact.Content))
 	finalBlocks := markdownNonEmptyBlocks(finalMarkdown)
 	if len(readerBlocks) != len(styleBlocks) {
-		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance paragraph lineage is incomplete", app.ErrConflict)
+		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance paragraph lineage is incomplete", producterror.ErrConflict)
 	}
 	expected := map[int]StoredFinalEditSemanticAcceptance{}
 	for i := range readerBlocks {
@@ -124,7 +124,7 @@ func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditSta
 		}
 	}
 	if len(reviews) != len(expected) {
-		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review count differs from changed paragraphs", app.ErrConflict)
+		return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review count differs from changed paragraphs", producterror.ErrConflict)
 	}
 	records := make([]StoredFinalEditSemanticAcceptance, 0, len(reviews))
 	seenSource := map[int]bool{}
@@ -135,23 +135,23 @@ func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditSta
 			return FinalEditSemanticAttestation{}, err
 		}
 		if seenSource[normalized.ParagraphOrdinal] {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: duplicate semantic acceptance paragraph review", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: duplicate semantic acceptance paragraph review", producterror.ErrConflict)
 		}
 		seenSource[normalized.ParagraphOrdinal] = true
 		if normalized.FinalParagraphOrdinal > len(finalBlocks) {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance final paragraph is outside the final manuscript", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance final paragraph is outside the final manuscript", producterror.ErrConflict)
 		}
 		if seenFinal[normalized.FinalParagraphOrdinal] {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: duplicate semantic acceptance final paragraph review", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: duplicate semantic acceptance final paragraph review", producterror.ErrConflict)
 		}
 		seenFinal[normalized.FinalParagraphOrdinal] = true
 		want, ok := expected[normalized.ParagraphOrdinal]
 		if !ok {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review does not match durable lineage", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance review does not match durable lineage", producterror.ErrConflict)
 		}
 		finalBlock := strings.TrimSpace(finalBlocks[normalized.FinalParagraphOrdinal-1])
 		if finalBlock == "" {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance final paragraph is empty", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance final paragraph is empty", producterror.ErrConflict)
 		}
 		stored := StoredFinalEditSemanticAcceptance{
 			ParagraphOrdinal:      normalized.ParagraphOrdinal,
@@ -162,7 +162,7 @@ func ValidateFinalEditSemanticAcceptance(ctx context.Context, store FinalEditSta
 			FinalSHA256:           contentSHA256([]byte(finalBlock)),
 		}
 		if !semanticVerdictMatchesFinal(stored) {
-			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance verdict is unresolved", app.ErrConflict)
+			return FinalEditSemanticAttestation{}, fmt.Errorf("%w: semantic acceptance verdict is unresolved", producterror.ErrConflict)
 		}
 		records = append(records, stored)
 	}
@@ -186,22 +186,22 @@ func validateStoredFinalEditSemanticAcceptanceAgainstLineage(ctx context.Context
 			Verdict:               record.Verdict,
 		})
 	}
-	derived, err := ValidateFinalEditSemanticAcceptance(ctx, store, stageBinding, finalMarkdown, reviews)
+	derived, err := validateFinalEditSemanticAcceptance(ctx, store, stageBinding, finalMarkdown, reviews)
 	if err != nil {
 		return err
 	}
 	if derived.Count != stored.Count || derived.Digest != stored.Digest || !equalStoredFinalEditSemanticAcceptance(derived.Records, stored.Records) {
-		return fmt.Errorf("%w: semantic acceptance does not match durable lineage", app.ErrConflict)
+		return fmt.Errorf("%w: semantic acceptance does not match durable lineage", producterror.ErrConflict)
 	}
 	return nil
 }
 
 type finalEditStyleLineage struct {
 	FinalEditStageResult
-	SourceArtifact app.RawArtifact
+	SourceArtifact artifactcontract.Raw
 }
 
-func finalEditStyleSubmissionForGate(ctx context.Context, store FinalEditStageStore, events []app.LedgerEvent, gateBinding FinalEditStageBinding) (finalEditStyleLineage, bool, error) {
+func finalEditStyleSubmissionForGate(ctx context.Context, store FinalEditStageStore, events []ledger.Event, gateBinding FinalEditStageBinding) (finalEditStyleLineage, bool, error) {
 	plan, err := finalEditStagePlanForBinding(events, gateBinding)
 	if err != nil {
 		return finalEditStyleLineage{}, false, err
@@ -234,209 +234,13 @@ func finalEditStyleSubmissionForGate(ctx context.Context, store FinalEditStageSt
 		count++
 	}
 	if count > 1 {
-		return finalEditStyleLineage{}, false, fmt.Errorf("%w: multiple style submissions match corrective gate lineage", app.ErrConflict)
+		return finalEditStyleLineage{}, false, fmt.Errorf("%w: multiple style submissions match corrective gate lineage", producterror.ErrConflict)
 	}
 	return found, count == 1, nil
-}
-
-// BuildFinalEditStyleSemanticValidation는 보고서 생성 파이프라인에서 사용할 구조화된 값을 조립한다. 저장이나 외부 호출은 수행하지 않는다.
-func BuildFinalEditStyleSemanticValidation(ctx context.Context, store FinalEditStageStore, stageBinding FinalEditStageBinding, reviews []FinalEditSemanticAcceptance) (string, FinalEditSemanticAttestation, error) {
-	stageBinding = normalizeFinalEditStageBinding(stageBinding)
-	if stageBinding.Stage != FinalEditStageStyleSemanticValidation {
-		return "", FinalEditSemanticAttestation{}, fmt.Errorf("%w: style semantic validation requires its own stage", app.ErrInvalidInput)
-	}
-	events, err := store.ListEvents(ctx, stageBinding.MissionID)
-	if err != nil {
-		return "", FinalEditSemanticAttestation{}, err
-	}
-	style, ok, err := finalEditStyleSubmissionForGate(ctx, store, events, stageBinding)
-	if err != nil {
-		return "", FinalEditSemanticAttestation{}, err
-	}
-	if !ok {
-		return "", FinalEditSemanticAttestation{}, fmt.Errorf("%w: style semantic validation requires style lineage", app.ErrConflict)
-	}
-	resolved, normalizedReviews, err := resolveFinalEditStyleMarkdown(string(style.SourceArtifact.Content), string(style.Artifact.Content), reviews)
-	if err != nil {
-		return "", FinalEditSemanticAttestation{}, err
-	}
-	attestation, err := ValidateFinalEditSemanticAcceptance(ctx, store, stageBinding, resolved, normalizedReviews)
-	if err != nil {
-		return "", FinalEditSemanticAttestation{}, err
-	}
-	return resolved, attestation, nil
-}
-
-func resolveFinalEditStyleMarkdown(readerMarkdown string, styleMarkdown string, reviews []FinalEditSemanticAcceptance) (string, []FinalEditSemanticAcceptance, error) {
-	if err := ValidateFinalEditStyleMarkdown(readerMarkdown, styleMarkdown); err != nil {
-		return "", nil, err
-	}
-	readerBlocks := markdownNonEmptyBlockSpans(readerMarkdown)
-	styleBlocks := markdownNonEmptyBlockSpans(styleMarkdown)
-	if len(readerBlocks) != len(styleBlocks) {
-		return "", nil, fmt.Errorf("%w: semantic validation paragraph lineage is incomplete", app.ErrConflict)
-	}
-	expected := map[int]bool{}
-	for i := range readerBlocks {
-		if contentSHA256([]byte(readerBlocks[i].Text)) != contentSHA256([]byte(styleBlocks[i].Text)) {
-			expected[i+1] = true
-		}
-	}
-	if len(reviews) != len(expected) {
-		return "", nil, fmt.Errorf("%w: semantic validation review count differs from changed paragraphs", app.ErrConflict)
-	}
-	byOrdinal := map[int]FinalEditSemanticAcceptance{}
-	for _, review := range reviews {
-		review.Verdict = strings.TrimSpace(review.Verdict)
-		if review.ParagraphOrdinal <= 0 || review.FinalParagraphOrdinal != 0 {
-			return "", nil, fmt.Errorf("%w: semantic validation review is incomplete", app.ErrInvalidInput)
-		}
-		if !expected[review.ParagraphOrdinal] || byOrdinal[review.ParagraphOrdinal].ParagraphOrdinal != 0 {
-			return "", nil, fmt.Errorf("%w: semantic validation review does not match durable lineage", app.ErrConflict)
-		}
-		switch review.Verdict {
-		case FinalEditSemanticAcceptedEquivalent, FinalEditSemanticRejectedRevertToReader:
-		default:
-			return "", nil, fmt.Errorf("%w: unsupported semantic validation verdict", app.ErrInvalidInput)
-		}
-		byOrdinal[review.ParagraphOrdinal] = review
-	}
-	var out strings.Builder
-	cursor := 0
-	normalized := make([]FinalEditSemanticAcceptance, 0, len(reviews))
-	for i, styleBlock := range styleBlocks {
-		out.WriteString(styleMarkdown[cursor:styleBlock.Start])
-		ordinal := i + 1
-		review, changed := byOrdinal[ordinal]
-		switch {
-		case !changed:
-			out.WriteString(styleMarkdown[styleBlock.Start:styleBlock.End])
-		case review.Verdict == FinalEditSemanticAcceptedEquivalent:
-			out.WriteString(styleBlock.Text)
-			review.FinalParagraphOrdinal = ordinal
-			normalized = append(normalized, review)
-		case review.Verdict == FinalEditSemanticRejectedRevertToReader:
-			out.WriteString(readerBlocks[i].Text)
-			review.FinalParagraphOrdinal = ordinal
-			normalized = append(normalized, review)
-		}
-		cursor = styleBlock.End
-	}
-	out.WriteString(styleMarkdown[cursor:])
-	resolved := out.String()
-	if err := ValidateFinalEditStyleMarkdown(readerMarkdown, resolved); err != nil {
-		return "", nil, err
-	}
-	return resolved, normalized, nil
 }
 
 type markdownBlockSpan struct {
 	Start int
 	End   int
 	Text  string
-}
-
-func markdownNonEmptyBlockSpans(text string) []markdownBlockSpan {
-	blocks := []markdownBlockSpan{}
-	start := -1
-	lastNonSpace := -1
-	for i := 0; i < len(text); i++ {
-		if text[i] == '\n' {
-			j := i + 1
-			for j < len(text) && (text[j] == ' ' || text[j] == '\t' || text[j] == '\r') {
-				j++
-			}
-			if j < len(text) && text[j] == '\n' {
-				if start >= 0 {
-					blocks = append(blocks, markdownBlockSpan{Start: start, End: lastNonSpace + 1, Text: text[start : lastNonSpace+1]})
-					start = -1
-					lastNonSpace = -1
-				}
-				i = j
-				continue
-			}
-		}
-		if !isASCIISpace(text[i]) {
-			if start < 0 {
-				start = i
-			}
-			lastNonSpace = i
-		}
-	}
-	if start >= 0 {
-		blocks = append(blocks, markdownBlockSpan{Start: start, End: lastNonSpace + 1, Text: text[start : lastNonSpace+1]})
-	}
-	return blocks
-}
-
-func isASCIISpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
-}
-
-func normalizeFinalEditSemanticAcceptanceInput(review FinalEditSemanticAcceptance) (FinalEditSemanticAcceptance, error) {
-	review.Verdict = strings.TrimSpace(review.Verdict)
-	if review.ParagraphOrdinal <= 0 || review.FinalParagraphOrdinal <= 0 {
-		return FinalEditSemanticAcceptance{}, fmt.Errorf("%w: semantic acceptance review is incomplete", app.ErrInvalidInput)
-	}
-	switch review.Verdict {
-	case FinalEditSemanticAcceptedEquivalent, FinalEditSemanticRevertedToReader, FinalEditSemanticRejectedRevertToReader, FinalEditSemanticRepairedByGate:
-	default:
-		return FinalEditSemanticAcceptance{}, fmt.Errorf("%w: unsupported semantic acceptance verdict", app.ErrInvalidInput)
-	}
-	return review, nil
-}
-
-func normalizeStoredFinalEditSemanticAcceptance(review StoredFinalEditSemanticAcceptance) (StoredFinalEditSemanticAcceptance, error) {
-	review.Verdict = strings.TrimSpace(review.Verdict)
-	review.ReaderSHA256 = strings.TrimSpace(review.ReaderSHA256)
-	review.StyleSHA256 = strings.TrimSpace(review.StyleSHA256)
-	review.FinalSHA256 = strings.TrimSpace(review.FinalSHA256)
-	if review.ParagraphOrdinal <= 0 || review.FinalParagraphOrdinal <= 0 ||
-		!validStoredFinalEditStatementSHA256(review.ReaderSHA256) ||
-		!validStoredFinalEditStatementSHA256(review.StyleSHA256) ||
-		!validStoredFinalEditStatementSHA256(review.FinalSHA256) {
-		return StoredFinalEditSemanticAcceptance{}, fmt.Errorf("%w: semantic acceptance payload is incomplete", app.ErrInvalidInput)
-	}
-	switch review.Verdict {
-	case FinalEditSemanticAcceptedEquivalent, FinalEditSemanticRevertedToReader, FinalEditSemanticRejectedRevertToReader, FinalEditSemanticRepairedByGate:
-	default:
-		return StoredFinalEditSemanticAcceptance{}, fmt.Errorf("%w: unsupported semantic acceptance verdict", app.ErrInvalidInput)
-	}
-	return review, nil
-}
-
-func semanticVerdictMatchesFinal(review StoredFinalEditSemanticAcceptance) bool {
-	switch review.Verdict {
-	case FinalEditSemanticAcceptedEquivalent:
-		return review.FinalSHA256 == review.StyleSHA256
-	case FinalEditSemanticRevertedToReader, FinalEditSemanticRejectedRevertToReader:
-		return review.FinalSHA256 == review.ReaderSHA256
-	case FinalEditSemanticRepairedByGate:
-		return review.FinalSHA256 != review.StyleSHA256 && review.FinalSHA256 != review.ReaderSHA256
-	default:
-		return false
-	}
-}
-
-func finalEditSemanticAcceptanceDigest(records []StoredFinalEditSemanticAcceptance) (string, error) {
-	if len(records) == 0 {
-		return "", nil
-	}
-	encoded, err := json.Marshal(records)
-	if err != nil {
-		return "", err
-	}
-	return contentSHA256(encoded), nil
-}
-
-func equalStoredFinalEditSemanticAcceptance(left, right []StoredFinalEditSemanticAcceptance) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
 }

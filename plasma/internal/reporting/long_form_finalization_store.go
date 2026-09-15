@@ -6,24 +6,26 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
 // LongFormFinalizationStore는 장문 보고서 최종화 입력을 복원하는 조회 포트다.
 type LongFormFinalizationStore interface {
-	ListEvents(context.Context, string) ([]app.LedgerEvent, error)
-	GetRawArtifact(context.Context, string) (app.RawArtifact, error)
-	AppendEventConditionally(context.Context, string, func([]app.LedgerEvent) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.LedgerEvent, bool, error)
-	CreateRawArtifactWithEventConditionally(context.Context, app.CreateRawArtifactRequest, func([]app.LedgerEvent, app.RawArtifact) (app.AppendEventRequest, app.LedgerEvent, bool, error)) (app.RawArtifact, app.LedgerEvent, bool, error)
+	ListEvents(context.Context, string) ([]ledger.Event, error)
+	GetRawArtifact(context.Context, string) (artifactcontract.Raw, error)
+	AppendEventConditionally(context.Context, string, func([]ledger.Event) (ledger.AppendRequest, ledger.Event, bool, error)) (ledger.Event, bool, error)
+	CreateRawArtifactWithEventConditionally(context.Context, artifactcontract.CreateRequest, func([]ledger.Event, artifactcontract.Raw) (ledger.AppendRequest, ledger.Event, bool, error)) (artifactcontract.Raw, ledger.Event, bool, error)
 }
 
-func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStore, events []app.LedgerEvent, binding LongFormFinalizeBinding) error {
+func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStore, events []ledger.Event, binding LongFormFinalizeBinding) error {
 	acceptedPending, err := longFormPendingLineage(events, binding.PendingEventID)
 	if err != nil {
 		return err
 	}
 	if !acceptedPending[binding.PendingEventID] {
-		return fmt.Errorf("%w: bound report pending event does not exist", app.ErrConflict)
+		return fmt.Errorf("%w: bound report pending event does not exist", producterror.ErrConflict)
 	}
 	planCount := 0
 	partEditEnabled := false
@@ -38,22 +40,22 @@ func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStor
 			continue
 		}
 		if pending == binding.PendingEventID && (event.EventType == "report.draft.failed" || event.EventType == "report.final.failed" || event.EventType == "report.artifact.created") {
-			return fmt.Errorf("%w: report finalization is terminal", app.ErrConflict)
+			return fmt.Errorf("%w: report finalization is terminal", producterror.ErrConflict)
 		}
 		if event.EventType == "report.plan.created" {
 			planCount++
 			if event.EventID != binding.PlanEventID || payload["report_mode"] != ModeLongForm || payload["artifact_id"] != binding.ArtifactID {
-				return fmt.Errorf("%w: long-form plan lineage differs from binding", app.ErrConflict)
+				return fmt.Errorf("%w: long-form plan lineage differs from binding", producterror.ErrConflict)
 			}
 			partEditEnabled = payloadBool(payload, "part_edit_enabled")
 		}
 		if event.EventType == "report.part.created" {
 			if payload["plan_event_id"] != binding.PlanEventID {
-				return fmt.Errorf("%w: long-form part plan lineage differs from binding", app.ErrConflict)
+				return fmt.Errorf("%w: long-form part plan lineage differs from binding", producterror.ErrConflict)
 			}
 			index := jsonInt(payload["part_index"])
 			if index < 1 || index > len(parts) || partSeen[index-1] {
-				return fmt.Errorf("%w: duplicate or out-of-range long-form part index", app.ErrConflict)
+				return fmt.Errorf("%w: duplicate or out-of-range long-form part index", producterror.ErrConflict)
 			}
 			partSeen[index-1] = true
 			parts[index-1], _ = payload["artifact_id"].(string)
@@ -61,12 +63,12 @@ func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStor
 		}
 		if event.EventType == "report.section.created" {
 			if payload["plan_event_id"] != binding.PlanEventID {
-				return fmt.Errorf("%w: long-form section plan lineage differs from binding", app.ErrConflict)
+				return fmt.Errorf("%w: long-form section plan lineage differs from binding", producterror.ErrConflict)
 			}
 			partIndex, sectionIndex := jsonInt(payload["part_index"]), jsonInt(payload["section_index"])
 			key := [2]int{partIndex, sectionIndex}
 			if partIndex < 1 || partIndex > len(parts) || sectionIndex < 1 || sectionsByIndex[key] != "" {
-				return fmt.Errorf("%w: duplicate or out-of-range long-form section index", app.ErrConflict)
+				return fmt.Errorf("%w: duplicate or out-of-range long-form section index", producterror.ErrConflict)
 			}
 			sectionsByIndex[key], _ = payload["artifact_id"].(string)
 		}
@@ -82,13 +84,13 @@ func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStor
 	lastByPart := map[int]int{}
 	for _, key := range keys {
 		if key[1] != lastByPart[key[0]]+1 {
-			return fmt.Errorf("%w: long-form section indexes are not contiguous", app.ErrConflict)
+			return fmt.Errorf("%w: long-form section indexes are not contiguous", producterror.ErrConflict)
 		}
 		lastByPart[key[0]] = key[1]
 		sections = append(sections, sectionsByIndex[key])
 	}
 	if planCount != 1 {
-		return fmt.Errorf("%w: long-form finalization plan count differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: long-form finalization plan count differs from binding", producterror.ErrConflict)
 	}
 	if partEditEnabled {
 		editedParts := make([]string, len(parts))
@@ -100,23 +102,23 @@ func validateLongFormLineage(ctx context.Context, store LongFormFinalizationStor
 				return err
 			}
 			if len(outcomes) != 1 {
-				return fmt.Errorf("%w: long-form finalization requires exactly one valid reviewed edited Part", app.ErrConflict)
+				return fmt.Errorf("%w: long-form finalization requires exactly one valid reviewed edited Part", producterror.ErrConflict)
 			}
 			providerSessionID := payloadString(eventPayload(outcomes[0].Event), "provider_session_id")
 			if providerSessionID == "" || providerSessions[providerSessionID] {
-				return fmt.Errorf("%w: long-form finalization Part editor session lineage differs", app.ErrConflict)
+				return fmt.Errorf("%w: long-form finalization Part editor session lineage differs", producterror.ErrConflict)
 			}
 			providerSessions[providerSessionID] = true
 			editedParts[index] = outcomes[0].Artifact.ArtifactID
 		}
 		if !equalStrings(editedParts, binding.PartArtifactIDs) {
-			return fmt.Errorf("%w: long-form finalization edited part lineage differs from binding", app.ErrConflict)
+			return fmt.Errorf("%w: long-form finalization edited part lineage differs from binding", producterror.ErrConflict)
 		}
 	} else if !equalStrings(parts, binding.PartArtifactIDs) {
-		return fmt.Errorf("%w: long-form finalization part lineage differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: long-form finalization part lineage differs from binding", producterror.ErrConflict)
 	}
 	if !equalStrings(sections, binding.SectionArtifactIDs) {
-		return fmt.Errorf("%w: long-form finalization section lineage differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: long-form finalization section lineage differs from binding", producterror.ErrConflict)
 	}
 	return nil
 }
@@ -142,14 +144,14 @@ func loadLongFormParts(ctx context.Context, store LongFormFinalizationStore, bin
 			return nil, err
 		}
 		if artifact.MissionID != binding.MissionID || artifact.MediaType != "text/markdown; charset=utf-8" {
-			return nil, fmt.Errorf("%w: bound part artifact is foreign or not Markdown", app.ErrConflict)
+			return nil, fmt.Errorf("%w: bound part artifact is foreign or not Markdown", producterror.ErrConflict)
 		}
 		parts = append(parts, string(artifact.Content))
 	}
 	return parts, nil
 }
 
-func eventPayload(event app.LedgerEvent) map[string]any {
+func eventPayload(event ledger.Event) map[string]any {
 	value := map[string]any{}
 	_ = json.Unmarshal(event.Payload, &value)
 	return value

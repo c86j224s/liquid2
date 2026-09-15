@@ -2,40 +2,33 @@ package researchproposal
 
 import (
 	"encoding/json"
+	"github.com/c86j224s/liquid2/plasma/internal/researchcatalog"
+	"github.com/c86j224s/liquid2/plasma/internal/researchrecords"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
-// Producer는 app.Producer의 proposal builder용 alias다.
-type Producer = app.Producer
+// Producer는 ledger.Producer의 proposal builder용 alias다.
+type Producer = ledger.Producer
 
 // AppendEventRequest는 proposal builder가 app service에 넘길 event append 요청 alias다.
-type AppendEventRequest = app.AppendEventRequest
-
-// ObjectRef는 proposal이 가리키는 후보 객체 참조 alias다.
-type ObjectRef = app.ObjectRef
-
-// CreateProposalBundleRequest는 proposal bundle 생성 요청 alias다.
-type CreateProposalBundleRequest = app.CreateProposalBundleRequest
-
-// CreateEvidenceProposalRequest는 evidence proposal 생성을 한 번에 넘기는 요청 alias다.
-type CreateEvidenceProposalRequest = app.CreateEvidenceProposalRequest
+type AppendEventRequest = ledger.AppendRequest
 
 // CreateEvidenceRecordRequest는 evidence record 생성 요청 alias다.
-type CreateEvidenceRecordRequest = app.CreateEvidenceRecordRequest
+type CreateEvidenceRecordRequest = researchrecords.CreateEvidenceRecordRequest
 
 // SnapshotRef는 evidence 후보가 참조하는 source snapshot alias다.
-type SnapshotRef = app.SnapshotRef
+type SnapshotRef = researchrecords.SnapshotRef
 
 // Confidence는 proposal 단계 evidence의 신뢰도 설명 alias다.
-type Confidence = app.Confidence
-
-// ProposalBundle은 승인/기각 대기 중인 후보 묶음 alias다.
-type ProposalBundle = app.ProposalBundle
+type Confidence = researchrecords.Confidence
 
 // EvidenceRecordObjectKind는 evidence record proposal의 object kind wire 값이다.
-const EvidenceRecordObjectKind = app.EvidenceRecordObjectKind
+const EvidenceRecordObjectKind = researchrecords.EvidenceRecordObjectKind
+
+// EvidenceRecordSchemaVersion는 evidence record의 stable schema 값이다.
+const EvidenceRecordSchemaVersion = researchrecords.EvidenceRecordSchemaVersion
 
 // EvidenceProposedEventRequest는 evidence.proposed event builder 입력이다.
 type EvidenceProposedEventRequest struct {
@@ -72,7 +65,7 @@ type ProposalSubmittedRequest struct {
 	MissionID                  string
 	ProposalID                 string
 	Title                      string
-	ObjectRefs                 []ObjectRef
+	ObjectRefs                 []researchcatalog.ObjectRef
 	RequestedDecision          string
 	Producer                   Producer
 	IncludeObjectRefsInPayload bool
@@ -225,7 +218,7 @@ func BuildManualEvidenceCandidateProposalRequest(req ManualEvidenceCandidateProp
 		MissionID:         req.MissionID,
 		ProposalID:        req.ProposalID,
 		Title:             "Save evidence candidate",
-		ObjectRefs:        []ObjectRef{{ObjectKind: EvidenceRecordObjectKind, ObjectID: req.EvidenceID}},
+		ObjectRefs:        []researchcatalog.ObjectRef{{ObjectKind: EvidenceRecordObjectKind, ObjectID: req.EvidenceID}},
 		RequestedDecision: "approve",
 		Producer:          req.Producer,
 	})
@@ -270,7 +263,7 @@ func mustMarshalJSON(value any) []byte {
 	return raw
 }
 
-func objectRefIDs(refs []ObjectRef) []string {
+func objectRefIDs(refs []researchcatalog.ObjectRef) []string {
 	ids := make([]string, 0, len(refs))
 	for _, ref := range refs {
 		id := strings.TrimSpace(ref.ObjectID)

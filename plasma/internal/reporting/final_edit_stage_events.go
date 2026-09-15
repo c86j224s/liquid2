@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -30,27 +31,27 @@ const (
 )
 
 // BuildFinalEditStageStartedAppendRequest는 보고서 생성 파이프라인에서 장부에 기록할 append 요청을 조립한다. 실제 저장과 조건부 append 결정은 호출자가 소유한다.
-func BuildFinalEditStageStartedAppendRequest(eventID string, binding FinalEditStageBinding) app.AppendEventRequest {
+func BuildFinalEditStageStartedAppendRequest(eventID string, binding FinalEditStageBinding) ledger.AppendRequest {
 	binding = normalizeFinalEditStageBinding(binding)
 	payload := finalEditStageBasePayload(binding)
 	payload["kind"] = "long_form_final_edit_" + binding.Stage + "_started"
 	payload["text"] = fmt.Sprintf("장문 리포트 %s 단계를 시작했습니다.", binding.Stage)
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        binding.MissionID,
 		EventType:        finalEditStartedEventType(binding.Stage),
-		Producer:         app.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
+		Producer:         ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
 		CausationEventID: binding.PlanEventID,
 		CorrelationID:    binding.IdempotencyKey,
 		Payload:          mustJSON(payload),
 	}
 }
 
-func buildFinalEditSubmittedAppendRequest(eventID string, binding FinalEditStageBinding, source, artifact app.RawArtifact, operationCount int, changed bool, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) app.AppendEventRequest {
+func buildFinalEditSubmittedAppendRequest(eventID string, binding FinalEditStageBinding, source, artifact artifactcontract.Raw, operationCount int, changed bool, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) ledger.AppendRequest {
 	return buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID, binding, source, artifact, operationCount, changed, nil, findings, semanticReview)
 }
 
-func buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID string, binding FinalEditStageBinding, source, artifact app.RawArtifact, operationCount int, changed bool, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) app.AppendEventRequest {
+func buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID string, binding FinalEditStageBinding, source, artifact artifactcontract.Raw, operationCount int, changed bool, diagnoses []FinalEditStyleOperationDiagnosis, findings []StoredFinalEditGateFinding, semanticReview FinalEditSemanticAttestation) ledger.AppendRequest {
 	payload := finalEditSubmittedPayload{
 		Kind:                         "long_form_final_edit_" + binding.Stage + "_submitted",
 		PendingEventID:               binding.PendingEventID,
@@ -101,11 +102,11 @@ func buildFinalEditSubmittedAppendRequestWithStyleDiagnoses(eventID string, bind
 		payload.StyleDiagnosesVersion = FinalEditStyleOperationDiagnosesVersion
 		payload.StyleOperationDiagnoses = &copied
 	}
-	return app.AppendEventRequest{
+	return ledger.AppendRequest{
 		EventID:          strings.TrimSpace(eventID),
 		MissionID:        binding.MissionID,
 		EventType:        finalEditSubmittedEventType(binding.Stage),
-		Producer:         app.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
+		Producer:         ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID},
 		CausationEventID: binding.PlanEventID,
 		CorrelationID:    binding.IdempotencyKey,
 		Payload:          mustJSON(payload),

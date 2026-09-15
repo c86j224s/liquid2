@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/c86j224s/liquid2/plasma/internal/app"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 
 	_ "modernc.org/sqlite"
 )
@@ -110,11 +111,11 @@ func TestForeignKeysEnabledOnPooledConnections(t *testing.T) {
 		t.Fatalf("close second conn: %v", err)
 	}
 
-	_, err = store.AppendLedgerEvent(ctx, app.LedgerEvent{
+	_, err = store.AppendLedgerEvent(ctx, ledger.Event{
 		EventID:   "evt_1",
 		MissionID: "mis_missing",
 		EventType: "mission.created",
-		Producer:  app.Producer{Type: "user", ID: "ses_1"},
+		Producer:  ledger.Producer{Type: "user", ID: "ses_1"},
 		Payload:   []byte(`{}`),
 	})
 	if err == nil {

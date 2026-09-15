@@ -3,6 +3,9 @@ package app
 import (
 	"context"
 	"strings"
+
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 )
 
 const (
@@ -20,13 +23,13 @@ type ConversationExportRequest struct {
 	ArtifactID string
 	MissionID  string
 	Title      string
-	Producer   Producer
+	Producer   ledger.Producer
 }
 
 // ConversationExportResult는 생성된 대화내역 artifact와 기록 event를 함께 반환한다.
 type ConversationExportResult struct {
-	Artifact   RawArtifact
-	Event      LedgerEvent
+	Artifact   artifactcontract.Raw
+	Event      ledger.Event
 	EntryCount int
 }
 
@@ -52,7 +55,7 @@ func (s *Service) ExportConversation(ctx context.Context, req ConversationExport
 	if err != nil {
 		return ConversationExportResult{}, err
 	}
-	artifact, err := buildRawArtifact(CreateRawArtifactRequest{
+	artifact, err := artifactcontract.Build(artifactcontract.CreateRequest{
 		ArtifactID: strings.TrimSpace(req.ArtifactID),
 		MissionID:  missionID,
 		MediaType:  "text/markdown; charset=utf-8",
@@ -63,7 +66,7 @@ func (s *Service) ExportConversation(ctx context.Context, req ConversationExport
 	if err != nil {
 		return ConversationExportResult{}, err
 	}
-	event, err := buildLedgerEvent(AppendEventRequest{
+	event, err := buildLedgerEvent(ledger.AppendRequest{
 		EventID:   strings.TrimSpace(req.EventID),
 		MissionID: missionID,
 		EventType: ConversationExportedEvent,
@@ -81,8 +84,8 @@ func (s *Service) ExportConversation(ctx context.Context, req ConversationExport
 		return ConversationExportResult{}, err
 	}
 	committed, err := s.commitAtomicWrite(ctx, AtomicWrite{
-		Events:       []LedgerEvent{event},
-		RawArtifacts: []RawArtifact{artifact},
+		Events:       []ledger.Event{event},
+		RawArtifacts: []artifactcontract.Raw{artifact},
 	})
 	if err != nil {
 		return ConversationExportResult{}, err

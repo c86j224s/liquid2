@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/c86j224s/liquid2/plasma/internal/app"
+	artifactcontract "github.com/c86j224s/liquid2/plasma/internal/artifact"
+	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 )
 
-func partEditStartEventMatches(event app.LedgerEvent, binding PartEditBinding) bool {
+func partEditStartEventMatches(event ledger.Event, binding PartEditBinding) bool {
 	stored, ok := partEditBindingFromStartEvent(event)
 	return ok && stored == normalizePartEditBinding(binding)
 }
 
-func partEditStartedEventMatches(events []app.LedgerEvent, acceptedPending map[string]bool, binding PartEditBinding) bool {
+func partEditStartedEventMatches(events []ledger.Event, acceptedPending map[string]bool, binding PartEditBinding) bool {
 	count := 0
 	for _, event := range events {
 		if event.EventType != PartEditStartedEventType || event.CorrelationID != binding.IdempotencyKey {
@@ -28,7 +30,7 @@ func partEditStartedEventMatches(events []app.LedgerEvent, acceptedPending map[s
 	return count == 1
 }
 
-func partEditBindingFromStartEvent(event app.LedgerEvent) (PartEditBinding, bool) {
+func partEditBindingFromStartEvent(event ledger.Event) (PartEditBinding, bool) {
 	payload := eventPayload(event)
 	binding := PartEditBinding{
 		MissionID:                    strings.TrimSpace(event.MissionID),
@@ -62,7 +64,7 @@ func partEditBindingFromStartEvent(event app.LedgerEvent) (PartEditBinding, bool
 	if payloadString(payload, "kind") != "sectional_markdown_report_part_edit_started" ||
 		payloadString(payload, "stage_kind") != "part_edit" ||
 		payloadString(payload, "stage_id") != fmt.Sprintf("part-edit-%d", binding.PartIndex) ||
-		event.Producer != (app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) ||
+		event.Producer != (ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) ||
 		strings.TrimSpace(event.CausationEventID) != binding.SourcePartEventID ||
 		strings.TrimSpace(event.CorrelationID) != binding.IdempotencyKey ||
 		ValidatePartEditBinding(binding) != nil {
@@ -71,18 +73,18 @@ func partEditBindingFromStartEvent(event app.LedgerEvent) (PartEditBinding, bool
 	return binding, true
 }
 
-func validatePartEditRequirementMap(events []app.LedgerEvent, binding PartEditBinding) error {
+func validatePartEditRequirementMap(events []ledger.Event, binding PartEditBinding) error {
 	acceptedPending, err := longFormPendingLineage(events, binding.PendingEventID)
 	if err != nil {
 		return err
 	}
 	if !partEditRequirementMapMatches(events, acceptedPending, binding) {
-		return fmt.Errorf("%w: Part edit requirement map differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: Part edit requirement map differs from binding", producterror.ErrConflict)
 	}
 	return nil
 }
 
-func validatePartEditLineage(events []app.LedgerEvent, binding PartEditBinding) error {
+func validatePartEditLineage(events []ledger.Event, binding PartEditBinding) error {
 	acceptedPending, err := longFormPendingLineage(events, binding.PendingEventID)
 	if err != nil {
 		return err
@@ -95,35 +97,35 @@ func validatePartEditLineage(events []app.LedgerEvent, binding PartEditBinding) 
 		payload := eventPayload(event)
 		pendingID := payloadString(payload, "pending_event_id")
 		if !acceptedPending[pendingID] || payloadString(payload, "plan_event_id") != binding.PlanEventID || payloadString(payload, "artifact_id") != binding.SourceArtifactID || jsonInt(payload["part_index"]) != binding.PartIndex {
-			return fmt.Errorf("%w: source part lineage differs from edit binding", app.ErrConflict)
+			return fmt.Errorf("%w: source part lineage differs from edit binding", producterror.ErrConflict)
 		}
 		count++
 	}
 	if count != 1 {
-		return fmt.Errorf("%w: source part lineage is missing or duplicated", app.ErrConflict)
+		return fmt.Errorf("%w: source part lineage is missing or duplicated", producterror.ErrConflict)
 	}
 	return nil
 }
 
-func canonicalPartEditEvent(events []app.LedgerEvent, binding PartEditBinding) (app.LedgerEvent, bool, error) {
-	var found app.LedgerEvent
+func canonicalPartEditEvent(events []ledger.Event, binding PartEditBinding) (ledger.Event, bool, error) {
+	var found ledger.Event
 	count := 0
 	for _, candidate := range events {
 		if candidate.EventType != PartEditedEventType || candidate.CorrelationID != binding.IdempotencyKey {
 			continue
 		}
 		if !partEditEventMatches(candidate, binding) {
-			return app.LedgerEvent{}, false, fmt.Errorf("%w: part edit replay binding differs", app.ErrConflict)
+			return ledger.Event{}, false, fmt.Errorf("%w: part edit replay binding differs", producterror.ErrConflict)
 		}
 		found, count = candidate, count+1
 	}
 	if count > 1 {
-		return app.LedgerEvent{}, false, fmt.Errorf("%w: multiple part edits match binding", app.ErrConflict)
+		return ledger.Event{}, false, fmt.Errorf("%w: multiple part edits match binding", producterror.ErrConflict)
 	}
 	return found, count == 1, nil
 }
 
-func partEditResultFromEvent(ctx context.Context, store PartEditOutcomeStore, binding PartEditBinding, event app.LedgerEvent, replay bool) (PartEditResult, error) {
+func partEditResultFromEvent(ctx context.Context, store PartEditOutcomeStore, binding PartEditBinding, event ledger.Event, replay bool) (PartEditResult, error) {
 	artifactID := payloadString(eventPayload(event), "artifact_id")
 	artifact, err := store.GetRawArtifact(ctx, artifactID)
 	if err != nil {
@@ -135,12 +137,12 @@ func partEditResultFromEvent(ctx context.Context, store PartEditOutcomeStore, bi
 	return PartEditResult{Artifact: artifact, Event: event, Replay: replay}, nil
 }
 
-func partEditEventMatches(event app.LedgerEvent, binding PartEditBinding) bool {
+func partEditEventMatches(event ledger.Event, binding PartEditBinding) bool {
 	payload := eventPayload(event)
 	artifactID := payloadString(payload, "artifact_id")
 	changed := payloadBool(payload, "changed")
 	artifactMatches := (!changed && artifactID == binding.SourceArtifactID) || (changed && artifactID != "" && artifactID != binding.SourceArtifactID)
-	return event.Producer == (app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) &&
+	return event.Producer == (ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) &&
 		event.CausationEventID == binding.SourcePartEventID && event.CorrelationID == binding.IdempotencyKey &&
 		payloadString(payload, "kind") == PartEditedKind && payloadString(payload, "idempotency_key") == binding.IdempotencyKey &&
 		payloadString(payload, "pending_event_id") == binding.PendingEventID && payloadString(payload, "plan_event_id") == binding.PlanEventID &&
@@ -157,18 +159,18 @@ func partEditEventMatches(event app.LedgerEvent, binding PartEditBinding) bool {
 		payloadString(payload, "fork_source_agent_session_id") == binding.ForkSourceAgentSessionID
 }
 
-func validatePartEditArtifact(artifact app.RawArtifact, binding PartEditBinding, eventArtifactID string, changed bool) error {
+func validatePartEditArtifact(artifact artifactcontract.Raw, binding PartEditBinding, eventArtifactID string, changed bool) error {
 	if artifact.ArtifactID != eventArtifactID || artifact.MissionID != binding.MissionID || artifact.MediaType != "text/markdown; charset=utf-8" {
-		return fmt.Errorf("%w: edited part artifact differs from binding", app.ErrConflict)
+		return fmt.Errorf("%w: edited part artifact differs from binding", producterror.ErrConflict)
 	}
 	if !changed {
 		if artifact.ArtifactID != binding.SourceArtifactID {
-			return fmt.Errorf("%w: unchanged part edit must reuse source artifact", app.ErrConflict)
+			return fmt.Errorf("%w: unchanged part edit must reuse source artifact", producterror.ErrConflict)
 		}
 		return nil
 	}
-	if artifact.ArtifactID == binding.SourceArtifactID || artifact.Producer != (app.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) {
-		return fmt.Errorf("%w: edited part artifact differs from binding", app.ErrConflict)
+	if artifact.ArtifactID == binding.SourceArtifactID || artifact.Producer != (ledger.Producer{Type: "agent_session", ID: binding.ProviderSessionID}) {
+		return fmt.Errorf("%w: edited part artifact differs from binding", producterror.ErrConflict)
 	}
 	return nil
 }
