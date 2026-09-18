@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app/providers.dart';
+import '../ingest/ingest_qr_scanner.dart';
 import '../../shared/async_panel.dart';
 import 'document_list_panel.dart';
 import 'library_filters_panel.dart';
@@ -49,6 +50,7 @@ class LibraryPage extends ConsumerWidget {
             onPressed: () => context.go('/ingest'),
             icon: const Icon(Icons.add),
           ),
+          const QrQuickSaveButton(),
           IconButton(
             tooltip: 'Refresh',
             onPressed: () => ref.invalidate(librarySnapshotProvider),

@@ -4,5 +4,5 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/liquid2_app.dart';
 
 void main() {
-  runApp(const ProviderScope(child: Liquid2App()));
+  runApp(const ProviderScope(child: Liquid2App(androidSharing: true)));
 }

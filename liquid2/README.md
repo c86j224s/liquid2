@@ -148,8 +148,12 @@ fix: handle duplicate translation jobs
 ci: update macOS release workflow
 ```
 
-A public release is a source-only snapshot selected from an internal source
-commit. After the public snapshot is reviewed and pushed, an annotated `vX.Y.Z`
-tag is created and a GitHub pre-release publishes the release notes. The GitHub
-Release is the tag-and-notes surface; binary application assets are not attached
-or part of the installation contract.
+A public release is a snapshot selected from an internal source commit. After
+the public snapshot is reviewed and pushed, an annotated `vX.Y.Z` tag is created
+and a GitHub pre-release publishes the release notes. When the release includes
+the Android app, build the production-flavor APK locally with
+`make android-release-asset RELEASE_VERSION=X.Y.Z RELEASE_BUILD_NUMBER=N`; add
+`UPLOAD=1` only after the GitHub pre-release exists. The command clean-builds,
+verifies package/version/debug signing, writes a SHA-256 file, and optionally
+uploads both files. This tester APK uses the debug key and is not a Play Store
+artifact. GitHub Actions are not used for mobile publication.

@@ -1,5 +1,6 @@
 OPENAPI_JAVA_HOME ?= /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 OPENAPI_JAVA_BIN ?= /opt/homebrew/opt/openjdk@21/bin
+FLUTTER ?= flutter
 DEMO_API_LABEL ?= com.c86j224s.liquid2.demo-api
 DEMO_API_BIN ?= /tmp/liquid2-api
 DEMO_API_BASE_URL ?= http://localhost:8080
@@ -17,6 +18,27 @@ frontend-analyze:
 
 frontend-test:
 	cd client && flutter test
+
+.PHONY: android-dev-apk android-release-apk android-apks android-release-asset
+
+# Run sequentially: both flavors share Flutter/Gradle build state.
+android-apks:
+	$(MAKE) android-dev-apk
+	$(MAKE) android-release-apk
+
+android-dev-apk:
+	cd client && "$(FLUTTER)" build apk --release --flavor dev --dart-define=LIQUID2_ENVIRONMENT_LABEL=DEV
+	@printf '%s\n' 'APK: client/build/app/outputs/flutter-apk/app-dev-release.apk'
+
+# Production identity; currently still signed with the development key.
+android-release-apk:
+	cd client && "$(FLUTTER)" build apk --release --flavor prod
+	@printf '%s\n' 'APK: client/build/app/outputs/flutter-apk/app-prod-release.apk' 'Signing: development key (not for production distribution)'
+
+android-release-asset:
+	@test -n "$(RELEASE_VERSION)" || (printf '%s\n' 'RELEASE_VERSION is required (X.Y.Z)' >&2; exit 2)
+	@test -n "$(RELEASE_BUILD_NUMBER)" || (printf '%s\n' 'RELEASE_BUILD_NUMBER is required (positive integer)' >&2; exit 2)
+	./scripts/release-android-apk.sh --version "$(RELEASE_VERSION)" --build-number "$(RELEASE_BUILD_NUMBER)" $(if $(UPLOAD),--upload,)
 
 shell-test:
 	../scripts/tests/wsl-process-test.sh

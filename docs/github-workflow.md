@@ -463,13 +463,20 @@ deprecated 설명을 붙인다.
    source 또는 snapshot 입력을 수정한다.
 5. 검토한 public snapshot commit을 public repository에 push한다.
 6. public snapshot commit을 가리키는 annotated `vX.Y.Z` tag를 만든다.
-7. tag와 release notes를 사용해 source-only GitHub pre-release를 만든다. 바이너리
-   애플리케이션 asset은 첨부하지 않는다.
-8. GitHub Release는 tag와 notes를 확인하는 표면으로 유지한다.
-9. release 후 사용자가 issue를 닫는다.
+7. tag와 release notes를 사용해 GitHub pre-release를 만든다.
+8. Android 앱이 포함된 release는 같은 내부 source commit에서 production flavor APK를
+   로컬 clean build한다. `X.Y.Z` version name과 증가하는 positive version code를
+   명시하고 package/version/debug-signing을 검증한 뒤, versioned APK와 SHA-256 파일을
+   해당 GitHub pre-release에 업로드한다. GitHub Actions로 mobile artifact를 빌드하거나
+   업로드하지 않는다.
+9. 업로드한 asset의 이름, 크기, 상태와 로컬 SHA-256 검증 결과를 확인한다. 현재 APK는
+   production application ID를 사용하지만 debug key로 서명된 tester sideload build이며
+   Play Store 배포 artifact가 아니다.
+10. GitHub Release는 tag, notes, Android tester asset을 확인하는 표면으로 유지한다.
+11. release 후 사용자가 issue를 닫는다.
 
-GitHub Release는 설치 asset의 계약이 아니다. 설치 방법은 repository source와 기존
-installation design을 따른다.
+Android 앱이 없는 release는 기존처럼 source snapshot과 notes만 배포한다. 다른 설치
+방법은 repository source와 기존 installation design을 따른다.
 
 이미 release된 버전에 긴급 패치가 필요하고 `main`이 다음 버전 작업으로 많이 앞서간
 상태라면, 해당 tag에서 `release/x.y` 브랜치를 만들고 패치한 뒤 `vX.Y.Z+1` tag를

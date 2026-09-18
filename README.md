@@ -64,9 +64,11 @@ make check
 Liquid2 public releases are prepared manually from a selected internal source
 commit. The process runs a public snapshot dry-run, stages and reviews the public
 snapshot, pushes the public snapshot commit, creates an annotated `vX.Y.Z` tag,
-and publishes a source-only GitHub pre-release with release notes. GitHub Release
-is the tag-and-notes surface; binary application assets are not part of the
-release contract.
+and publishes a GitHub pre-release with release notes. Releases that include the
+Android app also build the production-flavor APK locally and attach the APK plus
+its SHA-256 file. GitHub Actions do not build or upload mobile artifacts. The APK
+currently uses the Android debug key and is a tester sideload build, not a Play
+Store distribution artifact.
 
 ## Development Servers
 

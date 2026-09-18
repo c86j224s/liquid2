@@ -15,12 +15,21 @@ import 'api_config.dart';
 
 final themeModeProvider = StateProvider<ThemeMode>((ref) => ThemeMode.system);
 
+final androidServerUrlProvider = StateProvider<String?>((ref) => null);
+
 final apiBaseUrlProvider = Provider<String>(
-  (ref) => resolveLiquid2ApiBaseUrl(),
+  (ref) => ref.watch(androidServerUrlProvider) ?? resolveLiquid2ApiBaseUrl(),
 );
 
 final liquid2ApiProvider = Provider<Liquid2Api>((ref) {
-  return Liquid2Api(basePathOverride: ref.watch(apiBaseUrlProvider));
+  final api = Liquid2Api(basePathOverride: ref.watch(apiBaseUrlProvider));
+  if (ref.watch(androidServerUrlProvider) != null) {
+    // Scraping includes a server-side fetch; the generated three-second default
+    // can abandon a successful write and cause an unnecessary bookmark fallback.
+    api.dio.options.receiveTimeout = const Duration(seconds: 120);
+    api.dio.options.connectTimeout = const Duration(seconds: 15);
+  }
+  return api;
 });
 
 final libraryRepositoryProvider = Provider<LibraryRepository>((ref) {
