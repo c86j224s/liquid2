@@ -8,6 +8,8 @@ import '../../shared/async_panel.dart';
 import 'document_list_panel.dart';
 import 'library_filters_panel.dart';
 import 'library_mobile_filter_bar.dart';
+import 'library_pane_focus.dart';
+import 'text_qr_dialog.dart';
 
 // Cycles through System → Light → Dark → System.
 class _ThemeModeButton extends ConsumerWidget {
@@ -52,6 +54,11 @@ class LibraryPage extends ConsumerWidget {
           ),
           const QrQuickSaveButton(),
           IconButton(
+            tooltip: 'Text QR code',
+            onPressed: () => showTextQrDialog(context),
+            icon: const Icon(Icons.qr_code_2),
+          ),
+          IconButton(
             tooltip: 'Refresh',
             onPressed: () => ref.invalidate(librarySnapshotProvider),
             icon: const Icon(Icons.refresh),
@@ -79,27 +86,33 @@ class LibraryPage extends ConsumerWidget {
                 },
               );
               if (constraints.maxWidth < 820) {
-                return Column(
-                  children: [
-                    LibraryMobileFilterBar(
-                      folders: data.folders,
-                      tags: data.tags,
-                    ),
-                    ActiveFilterChips(
-                      folders: data.folders,
-                      tags: data.tags,
-                    ),
-                    const Divider(height: 1),
-                    Expanded(child: list),
-                  ],
+                return LibraryFolderPaneScope(
+                  enabled: false,
+                  child: Column(
+                    children: [
+                      LibraryMobileFilterBar(
+                        folders: data.folders,
+                        tags: data.tags,
+                      ),
+                      ActiveFilterChips(
+                        folders: data.folders,
+                        tags: data.tags,
+                      ),
+                      const Divider(height: 1),
+                      Expanded(child: list),
+                    ],
+                  ),
                 );
               }
-              return Row(
-                children: [
-                  SizedBox(width: 320, child: filters),
-                  const VerticalDivider(width: 1),
-                  Expanded(child: list),
-                ],
+              return LibraryFolderPaneScope(
+                enabled: true,
+                child: Row(
+                  children: [
+                    SizedBox(width: 320, child: filters),
+                    const VerticalDivider(width: 1),
+                    Expanded(child: list),
+                  ],
+                ),
               );
             },
           );

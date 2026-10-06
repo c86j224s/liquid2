@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/c86j224s/liquid2/plasma/internal/agentpolicy"
 	"github.com/c86j224s/liquid2/plasma/internal/conversation"
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
@@ -90,8 +91,19 @@ func (runner Runner) runStep(ctx context.Context, view workflowstate.WorkflowRun
 		return workflowstate.WorkflowRunView{}, err
 	}
 	previousSessionID := LatestAgentSessionID(events, view.AgentExecutor)
+	switchRecap := ""
+	if previousSessionID == "" {
+		switchRecap = agentpolicy.SwitchRecap(events, view.AgentExecutor)
+		if switchRecap != "" {
+			if from := agentpolicy.PriorExecutor(events, view.AgentExecutor); from != "" {
+				_, _ = runner.Service.AppendEvent(ctx, agentpolicy.BuildExecutorSwitchedAppendRequest(
+					runner.newID("evt"), view.MissionID, from, view.AgentExecutor, ledger.Producer{Type: "agent", ID: view.AgentExecutor},
+				))
+			}
+		}
+	}
 	started := runner.now()
-	prompt := StepPrompt(view, instruction, toolSessionID, previousSessionID != "")
+	prompt := StepPrompt(view, instruction, toolSessionID, previousSessionID != "", switchRecap)
 	agentCtx, cancelAgent := context.WithTimeout(ctx, runner.stepTimeout())
 	defer cancelAgent()
 	result, err := runner.Agent.Run(agentCtx, AgentRequest{

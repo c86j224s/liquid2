@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:liquid2_api/liquid2_api.dart';
 
 import '../../app/app_theme.dart';
@@ -7,6 +9,8 @@ import '../../app/providers.dart';
 import 'document_list_load_more_row.dart';
 import 'document_list_scroll_buttons.dart';
 import 'document_list_tile.dart';
+import 'library_hint_mode.dart';
+import 'library_keyboard_cursor.dart';
 
 class DocumentListPanel extends ConsumerStatefulWidget {
   const DocumentListPanel({
@@ -32,7 +36,20 @@ class DocumentListPanel extends ConsumerStatefulWidget {
 
 class _DocumentListPanelState extends ConsumerState<DocumentListPanel> {
   final _scrollController = ScrollController();
+  final _rowKeys = <String, GlobalKey>{};
   String? _openSwipeDocumentId;
+
+  @override
+  void didUpdateWidget(DocumentListPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (identical(widget.documents, oldWidget.documents)) return;
+    final ids = {for (final document in widget.documents) document.id};
+    _rowKeys.removeWhere((id, _) => !ids.contains(id));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(libraryCursorProvider.notifier).clampTo(widget.documents.length);
+    });
+  }
 
   @override
   void dispose() {
@@ -54,6 +71,61 @@ class _DocumentListPanelState extends ConsumerState<DocumentListPanel> {
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOut,
     );
+  }
+
+  void _revealCursor(int index, {required bool downward, bool retry = true}) {
+    if (index < 0 || index >= widget.documents.length) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _rowKeys[widget.documents[index].id]?.currentContext;
+      if (target == null) {
+        if (!retry || !_scrollController.hasClients) return;
+        final edge = index == 0
+            ? 0.0
+            : index == widget.documents.length - 1
+            ? _scrollController.position.maxScrollExtent
+            : null;
+        if (edge == null) return;
+        _scrollController.jumpTo(edge);
+        _revealCursor(index, downward: downward, retry: false);
+        return;
+      }
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        alignmentPolicy: downward
+            ? ScrollPositionAlignmentPolicy.keepVisibleAtEnd
+            : ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+    });
+  }
+
+  void _openDocument(int index) {
+    context.go('/documents/${widget.documents[index].id}');
+  }
+
+  List<LibraryHintTarget> _hintTargets() {
+    final targets = <LibraryHintTarget>[];
+    Rect? viewport;
+    for (var index = 0; index < widget.documents.length; index++) {
+      final rowContext = _rowKeys[widget.documents[index].id]?.currentContext;
+      final box = rowContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached || !box.hasSize) continue;
+      viewport ??= _viewportRect(box);
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      if (viewport != null && !viewport.overlaps(rect)) continue;
+      targets.add(LibraryHintTarget(index: index, rect: rect));
+    }
+    return targets;
+  }
+
+  Rect? _viewportRect(RenderBox row) {
+    final viewport = RenderAbstractViewport.maybeOf(row);
+    if (viewport is! RenderBox) return null;
+    final box = viewport as RenderBox;
+    if (!box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
   }
 
   void _closeSwipe() {
@@ -101,64 +173,82 @@ class _DocumentListPanelState extends ConsumerState<DocumentListPanel> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen(libraryCursorProvider, (previous, next) {
+      _revealCursor(next, downward: next >= (previous ?? -1));
+    });
+    final cursor = ref.watch(libraryCursorProvider);
     if (widget.documents.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.x3l),
-          child: Text(
-            'No documents match the current filters.',
-            style: Theme.of(context).textTheme.bodySmall,
+      return LibraryKeyboardCursor(
+        length: 0,
+        onOpen: _openDocument,
+        hintTargets: _hintTargets,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.x3l),
+            child: Text(
+              'No documents match the current filters.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ),
       );
     }
     return Stack(
       children: [
-        GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: _closeSwipe,
-          child: ListView.separated(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.lg,
-              vertical: AppSpacing.md,
+        LibraryKeyboardCursor(
+          length: widget.documents.length,
+          onOpen: _openDocument,
+          hintTargets: _hintTargets,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _closeSwipe,
+            child: ListView.separated(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.md,
+              ),
+              itemCount: widget.documents.length + 2,
+              separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(
+                      left: AppSpacing.xs,
+                      bottom: AppSpacing.sm,
+                    ),
+                    child: Text(
+                      _documentCountText(widget.totalCount),
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  );
+                }
+                if (index == widget.documents.length + 1) {
+                  return LoadMoreRow(
+                    hasMore: widget.hasMore,
+                    isLoadingMore: widget.isLoadingMore,
+                    error: widget.loadMoreError,
+                    onPressed: widget.onLoadMore,
+                  );
+                }
+                final document = widget.documents[index - 1];
+                return KeyedSubtree(
+                  key: _rowKeys.putIfAbsent(document.id, GlobalKey.new),
+                  child: DocumentListTile(
+                    key: ValueKey('document-list-tile-${document.id}'),
+                    document: document,
+                    isCursor: cursor == index - 1,
+                    isSwipeOpen: _openSwipeDocumentId == document.id,
+                    onSwipeOpen: () =>
+                        setState(() => _openSwipeDocumentId = document.id),
+                    onSwipeClose: _closeSwipe,
+                    onMarkRead: () => _markRead(document),
+                    onMoveToTrash: () => _moveToTrash(document),
+                    onDismissed: () => _removeDocument(document),
+                  ),
+                );
+              },
             ),
-            itemCount: widget.documents.length + 2,
-            separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.xs),
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return Padding(
-                  padding: const EdgeInsets.only(
-                    left: AppSpacing.xs,
-                    bottom: AppSpacing.sm,
-                  ),
-                  child: Text(
-                    _documentCountText(widget.totalCount),
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                );
-              }
-              if (index == widget.documents.length + 1) {
-                return LoadMoreRow(
-                  hasMore: widget.hasMore,
-                  isLoadingMore: widget.isLoadingMore,
-                  error: widget.loadMoreError,
-                  onPressed: widget.onLoadMore,
-                );
-              }
-              final document = widget.documents[index - 1];
-              return DocumentListTile(
-                key: ValueKey('document-list-tile-${document.id}'),
-                document: document,
-                isSwipeOpen: _openSwipeDocumentId == document.id,
-                onSwipeOpen: () =>
-                    setState(() => _openSwipeDocumentId = document.id),
-                onSwipeClose: _closeSwipe,
-                onMarkRead: () => _markRead(document),
-                onMoveToTrash: () => _moveToTrash(document),
-                onDismissed: () => _removeDocument(document),
-              );
-            },
           ),
         ),
         Positioned(

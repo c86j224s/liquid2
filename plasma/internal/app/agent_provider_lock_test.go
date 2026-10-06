@@ -33,7 +33,7 @@ func TestAgentProviderLockRejectsMixedProviderPartPlanAppend(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
+	appendOpenAgentTurn(t, svc, ctx, "mis_1", "codex")
 
 	_, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_part_plan_claude",
@@ -52,8 +52,8 @@ func TestAgentProviderLockRejectsMixedProviderPartPlanAppend(t *testing.T) {
 	if !errors.Is(err, ErrInvalidInput) {
 		t.Fatalf("expected provider lock rejection, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "already using codex") {
-		t.Fatalf("expected locked provider message, got %v", err)
+	if !strings.Contains(err.Error(), "in progress with codex") {
+		t.Fatalf("expected active provider message, got %v", err)
 	}
 	if len(store.events) != 2 {
 		t.Fatalf("mixed-provider Part plan append should not add events, got %#v", store.events)

@@ -17,10 +17,12 @@ class FakeLibraryRepository
   FakeLibraryRepository({
     this.hasSecondPage = false,
     this.includeChildFolder = false,
+    this.extraDocuments = 0,
   });
 
   final bool hasSecondPage;
   final bool includeChildFolder;
+  final int extraDocuments;
   int? rating = 3;
   var read = false;
   var movedToTrash = false;
@@ -38,7 +40,11 @@ class FakeLibraryRepository
   }) async {
     requestedCursors.add(cursor);
     requestedFilters.add(filters);
-    final allDocs = [_summary('doc_1'), if (hasSecondPage) _summary('doc_2')];
+    final allDocs = [
+      _summary('doc_1'),
+      if (hasSecondPage) _summary('doc_2'),
+      for (var i = 0; i < extraDocuments; i++) _summary('doc_${i + 3}'),
+    ];
     final matches = allDocs.where((doc) => _matches(doc, filters)).toList();
     final docs = cursor == 'page_2' ? matches.skip(1) : matches.take(1);
     return LibrarySnapshot(
@@ -128,7 +134,11 @@ class FakeLibraryRepository
     return DocumentSummary(
       (b) => b
         ..id = id
-        ..title = id == 'doc_1' ? documentTitle : 'Second document'
+        ..title = switch (id) {
+          'doc_1' => documentTitle,
+          'doc_2' => 'Second document',
+          _ => 'Document $id',
+        }
         ..kind = 'bookmark'
         ..status = read ? 'read' : 'unread'
         ..rating = rating

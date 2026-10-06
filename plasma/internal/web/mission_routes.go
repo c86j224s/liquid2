@@ -399,7 +399,7 @@ func (server *Server) missionDetail(ctx context.Context, missionID string) (miss
 		WorkflowRuns:        workflowRuns,
 		Recall:              recall,
 		AgentExecutors:      server.agentStatuses(),
-		LockedAgentExecutor: agentpolicy.LockedExecutorFromEvents(events),
+		LockedAgentExecutor: agentpolicy.ActiveExecutorFromEvents(events),
 		ActiveWork:          app.ActiveWorkFromMissionState(events, workflowRuns),
 		ReportProgress:      app.ReportProgressFromEvents(events),
 	}, nil

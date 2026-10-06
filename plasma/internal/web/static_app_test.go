@@ -675,6 +675,16 @@ func TestStaticIndexKeepsAppCSSAsStableCompositionEntry(t *testing.T) {
 	}
 }
 
+func TestStaticIndexReasoningEffortLabelIsNotExecutorSpecific(t *testing.T) {
+	html := string(mustReadStatic(t, "static/index.html"))
+	if strings.Contains(html, "추론 강도(Codex)") || strings.Contains(html, "추론 강도(codex)") {
+		t.Fatal("reasoning effort label must not hardcode a single executor now that Claude also supports it")
+	}
+	if !strings.Contains(html, `<span class="segmented-select-label">추론 강도</span>`) {
+		t.Fatal("expected a generic reasoning effort label")
+	}
+}
+
 func TestStaticMissionScopedActiveWorkContracts(t *testing.T) {
 	index := string(mustReadStatic(t, "static/index.html"))
 	script := mustReadPlasmaReportScripts(t) + mustReadPlasmaConversationScripts(t)
@@ -805,7 +815,7 @@ const state = {
     locked_agent_executor:"",
     agent_executors:[
       {name:"codex", label:"Codex", configured:true, default_model:"gpt-default", default_model_label:"GPT Default", default_reasoning_effort:"medium", models:[{name:"gpt-default", label:"GPT Default", reasoning_efforts:["low","medium"]}]},
-      {name:"claude", label:"Claude", configured:true, reasoning_effort_supported:false}
+      {name:"claude", label:"Claude", configured:true, reasoning_effort_supported:true, default_reasoning_effort:"high", models:[{name:"sonnet", label:"Claude Sonnet", reasoning_efforts:["low","medium","high","xhigh","max"]}]}
     ],
     events:[{EventType:"turn.agent.response", Payload:{kind:"agent_response", user_event_id:"user-1", agent_executor:"codex", agent_session_id:"sess_1", agent_model:"gpt-default", agent_reasoning_effort:"medium"}}]
   },
@@ -864,6 +874,12 @@ if (!calls.some((call) => call[0] === "missionApi" && call[1] === "/turns/cancel
 conversation.renderAgentOptions(state.detail.agent_executors);
 conversation.renderAgentModelOptions(state.detail.events);
 conversation.renderAgentReasoningEffortOptions(state.detail.events);
+nodes.agentExecutor.value = "claude";
+conversation.onAgentExecutorChange();
+if (!nodes.agentModel.innerHTML.includes("Claude Sonnet")) throw new Error("claude model options must come from server-provided catalog");
+if (nodes.agentReasoningEffort.disabled) throw new Error("claude reasoning effort must not be disabled when the server reports support");
+if (nodes.agentReasoningEffort.innerHTML.includes("지정 불가") || !nodes.agentReasoningEffort.innerHTML.includes("Xhigh")) throw new Error("claude reasoning effort options must come from server-provided catalog, not a hardcoded fallback");
+nodes.agentExecutor.value = "codex";
 conversation.onAgentExecutorChange();
 state.workflowPending = true;
 conversation.onAgentExecutorChange();

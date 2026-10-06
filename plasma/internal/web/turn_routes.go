@@ -398,7 +398,20 @@ func (server *Server) runAgentTurn(
 	if err != nil {
 		return ledger.Event{}, err
 	}
-	prompt := agentPrompt(userText, recall, mcpMode, previousSessionID != "", toolSessionID, controller)
+	switchRecap := ""
+	if previousSessionID == "" {
+		if events, err := server.service.ListEvents(ctx, missionID); err == nil {
+			switchRecap = agentpolicy.SwitchRecap(events, executorName)
+			if switchRecap != "" {
+				if from := agentpolicy.PriorExecutor(events, executorName); from != "" {
+					_, _ = server.service.AppendEvent(ctx, agentpolicy.BuildExecutorSwitchedAppendRequest(
+						newID("evt"), missionID, from, executorName, ledger.Producer{Type: "agent", ID: executorName},
+					))
+				}
+			}
+		}
+	}
+	prompt := agentPrompt(userText, recall, mcpMode, previousSessionID != "", toolSessionID, controller, switchRecap)
 	started := time.Now()
 	agentReq := AgentRequest{
 		UserText:          userText,
@@ -1228,14 +1241,22 @@ func (server *Server) latestAgentReasoningEffort(ctx context.Context, missionID 
 }
 
 func resolveAgentSettings(executorName, model, effort, previousSessionID string) (string, string, error) {
-	if executorName != "codex" {
+	switch executorName {
+	case "codex":
+		model, effort, err := agentmodels.ResolveForSession(model, effort, previousSessionID)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: %v", app.ErrInvalidInput, err)
+		}
+		return model, effort, nil
+	case "claude":
+		effort, err := agentmodels.ResolveClaudeForSession(effort, previousSessionID)
+		if err != nil {
+			return "", "", fmt.Errorf("%w: %v", app.ErrInvalidInput, err)
+		}
+		return strings.TrimSpace(model), effort, nil
+	default:
 		return strings.TrimSpace(model), "", nil
 	}
-	model, effort, err := agentmodels.ResolveForSession(model, effort, previousSessionID)
-	if err != nil {
-		return "", "", fmt.Errorf("%w: %v", app.ErrInvalidInput, err)
-	}
-	return model, effort, nil
 }
 
 func (server *Server) hasOpenAgentTurn(ctx context.Context, missionID string) bool {
@@ -1549,10 +1570,15 @@ func agentExecutorStatusFor(name string, label string, executor AgentExecutor) a
 			status.Models = append(status.Models, agentModelCapability{Name: model.Name, Label: model.Label, ReasoningEfforts: model.ReasoningEfforts, DefaultReasoningEffort: model.DefaultReasoningEffort})
 		}
 	case "claude":
-		status.ReasoningEffortSupported = false
-		status.ReasoningEffortNote = "Claude 실행기는 아직 추론 강도 지정을 지원하지 않습니다."
-		for _, model := range []string{"haiku", "sonnet", "opus"} {
-			status.Models = append(status.Models, agentModelCapability{Name: model, Label: claudeModelDisplayName(model)})
+		status.ReasoningEffortSupported = true
+		status.DefaultReasoningEffort = agentmodels.DefaultClaudeReasoningEffort
+		for _, model := range claudeModelCatalog {
+			status.Models = append(status.Models, agentModelCapability{
+				Name:                   model,
+				Label:                  claudeModelDisplayName(model),
+				ReasoningEfforts:       append([]string(nil), agentmodels.ClaudeReasoningEfforts...),
+				DefaultReasoningEffort: agentmodels.DefaultClaudeReasoningEffort,
+			})
 		}
 	}
 	return status
@@ -1581,6 +1607,21 @@ func agentDefaultModelMetadata(name string, executor AgentExecutor) (string, str
 	}
 }
 
+// claudeModelCatalog는 Plasma UI/API에 노출되는 선택 가능한 Claude 모델
+// 목록이다. 기존 CLI 별칭(haiku/sonnet/opus)은 하위 호환을 위해 유지하고,
+// 그 뒤에 구체적인 최신 프론티어 모델 ID를 추가한다.
+var claudeModelCatalog = []string{
+	"haiku",
+	"sonnet",
+	"opus",
+	"claude-haiku-4-5-20251001",
+	"claude-sonnet-5",
+	"claude-sonnet-5-5",
+	"claude-opus-5",
+	"claude-opus-5-5",
+	"claude-fable-5-1",
+}
+
 func claudeModelDisplayName(model string) string {
 	switch strings.TrimSpace(strings.ToLower(model)) {
 	case "haiku":
@@ -1589,6 +1630,18 @@ func claudeModelDisplayName(model string) string {
 		return "Claude Sonnet"
 	case "opus":
 		return "Claude Opus"
+	case "claude-haiku-4-5-20251001":
+		return "Claude Haiku 4.5"
+	case "claude-sonnet-5":
+		return "Claude Sonnet 5"
+	case "claude-sonnet-5-5":
+		return "Claude Sonnet 5.5"
+	case "claude-opus-5":
+		return "Claude Opus 5"
+	case "claude-opus-5-5":
+		return "Claude Opus 5.5"
+	case "claude-fable-5-1":
+		return "Claude Fable 5.1"
 	default:
 		if strings.TrimSpace(model) == "" {
 			return ""

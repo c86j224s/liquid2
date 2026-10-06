@@ -887,7 +887,7 @@ func TestStepPromptUsesLayeredShapeForLegacyCurrentMode(t *testing.T) {
 		UserInstructionRaw: "다각도로 조사",
 		RunGoal:            "여러 가능성을 열어둔 조사",
 		Instruction:        "첫 자료를 확인",
-	}, "Investigate one thing", "ses_1", true)
+	}, "Investigate one thing", "ses_1", true, "")
 	for _, expected := range []string{
 		"Continue the existing Plasma research agent session",
 		"one bounded workflow step",
@@ -946,7 +946,7 @@ func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
 		UserInstructionRaw:  "다각도로 조사",
 		RunGoal:             "여러 가능성을 열어둔 조사",
 		Instruction:         "첫 자료를 확인",
-	}, "Investigate one thing", "ses_1", true)
+	}, "Investigate one thing", "ses_1", true, "")
 	for _, expected := range []string{
 		"Continue the existing Plasma research agent session",
 		"User's original autonomous-run request",
@@ -976,8 +976,8 @@ func TestStepPromptLayeredModeKeepsRawGoalAndStepBoundary(t *testing.T) {
 
 func TestStepPromptRequiresOutlineOrientationForEveryWorkflowRunFirstStep(t *testing.T) {
 	firstStep := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
-	fresh := StepPrompt(firstStep, "첫 단계", "ses_tool", false)
-	resumed := StepPrompt(firstStep, "새 실행의 첫 단계", "ses_tool", true)
+	fresh := StepPrompt(firstStep, "첫 단계", "ses_tool", false, "")
+	resumed := StepPrompt(firstStep, "새 실행의 첫 단계", "ses_tool", true, "")
 
 	if !strings.Contains(fresh, "Start with plasma.research.outline") {
 		t.Fatalf("fresh workflow prompt must establish mission orientation:\n%s", fresh)
@@ -1000,7 +1000,7 @@ func TestStepPromptRequiresOutlineOrientationForEveryWorkflowRunFirstStep(t *tes
 
 func TestStepPromptSkipsRepeatedOutlineOrientationAfterWorkflowRunFirstStep(t *testing.T) {
 	view := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사", CompletedStepCount: 1}
-	resumed := StepPrompt(view, "같은 실행의 다음 단계", "ses_tool", true)
+	resumed := StepPrompt(view, "같은 실행의 다음 단계", "ses_tool", true, "")
 
 	if strings.Contains(resumed, "Start with plasma.research.outline") {
 		t.Fatalf("resumed later-step prompt must not require repeated orientation:\n%s", resumed)
@@ -1016,6 +1016,24 @@ func TestStepPromptSkipsRepeatedOutlineOrientationAfterWorkflowRunFirstStep(t *t
 	} {
 		if !strings.Contains(resumed, expected) {
 			t.Fatalf("resumed workflow prompt is missing %q:\n%s", expected, resumed)
+		}
+	}
+}
+
+func TestStepPromptOmitsRecapBlockWhenEmpty(t *testing.T) {
+	firstStep := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
+	prompt := StepPrompt(firstStep, "첫 단계", "ses_tool", false, "")
+	if strings.Contains(prompt, "Prior conversation history") {
+		t.Fatalf("expected no recap block when switchRecap is empty:\n%s", prompt)
+	}
+}
+
+func TestStepPromptIncludesRecapBlockOnExecutorSwitch(t *testing.T) {
+	firstStep := workflowstate.WorkflowRunView{MissionID: "mis_1", Instruction: "조사"}
+	prompt := StepPrompt(firstStep, "첫 단계", "ses_tool", false, "- user: 지난 질문\n  codex: 지난 답변")
+	for _, expected := range []string{"Prior conversation history", "지난 질문", "지난 답변"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected recap block to contain %q:\n%s", expected, prompt)
 		}
 	}
 }

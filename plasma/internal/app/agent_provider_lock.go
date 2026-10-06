@@ -10,9 +10,11 @@ func NormalizeAgentExecutorName(value string) (string, error) {
 	return agentpolicy.NormalizeExecutorName(value)
 }
 
-// LockedAgentExecutorFromEvents는 과거 이벤트가 이미 고정한 agent executor를 찾는다.
+// LockedAgentExecutorFromEvents는 현재 진행 중인 작업이 있어 실질적으로 고정된
+// agent executor를 찾는다. 진행 중인 작업이 없으면 빈 문자열을 반환하며, 이 경우
+// 다음 요청은 다른 executor를 자유롭게 선택할 수 있다.
 func LockedAgentExecutorFromEvents(events []ledger.Event) string {
-	return agentpolicy.LockedExecutorFromEvents(events)
+	return agentpolicy.ActiveExecutorFromEvents(events)
 }
 
 // ValidateMissionAgentExecutorForEvents는 애플리케이션 서비스 계층 계약을 검사한다. 제품 상태를 변경하지 않는 순수 검증 경계다.

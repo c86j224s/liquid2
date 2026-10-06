@@ -9,6 +9,7 @@ import 'document_list_tile_body.dart';
 class DocumentListTile extends StatefulWidget {
   const DocumentListTile({
     required this.document,
+    required this.isCursor,
     required this.isSwipeOpen,
     required this.onSwipeOpen,
     required this.onSwipeClose,
@@ -19,6 +20,7 @@ class DocumentListTile extends StatefulWidget {
   });
 
   final DocumentSummary document;
+  final bool isCursor;
   final bool isSwipeOpen;
   final VoidCallback onSwipeOpen;
   final VoidCallback onSwipeClose;
@@ -151,6 +153,7 @@ class _DocumentListTileState extends State<DocumentListTile> {
                         child: DocumentTileSurface(
                           key: Key('document-tile-${widget.document.id}'),
                           document: widget.document,
+                          isCursor: widget.isCursor,
                           onTap: () => _handleTap(context),
                         ),
                       ),

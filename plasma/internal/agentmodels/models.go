@@ -11,7 +11,14 @@ const (
 	DefaultModel           = "gpt-5.6-luna"
 	DefaultReasoningEffort = "xhigh"
 	genericDefaultEffort   = "medium"
+
+	// DefaultClaudeReasoningEffort는 Claude 실행기에서 별도 선택이 없을 때 적용하는
+	// 제품 기본값이다. `claude --effort` CLI 옵션이 받는 값과 동일한 표기를 쓴다.
+	DefaultClaudeReasoningEffort = "high"
 )
+
+// ClaudeReasoningEfforts는 `claude --effort` CLI 옵션이 허용하는 값의 닫힌 목록이다.
+var ClaudeReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // Model은 UI와 API에 노출되는 선택 가능한 Codex 모델의 안정적인 메타데이터다.
 //
@@ -26,6 +33,9 @@ type Model struct {
 }
 
 var catalog = []Model{
+	{Name: "gpt-6-astra", Label: "GPT-6 Astra", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-6-sol", Label: "GPT-6 Sol", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
+	{Name: "gpt-6-luna", Label: "GPT-6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.6-sol", Label: "GPT-5.6 Sol", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.6-terra", Label: "GPT-5.6 Terra", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max", "ultra"}, DefaultReasoningEffort: "medium"},
 	{Name: "gpt-5.6-luna", Label: "GPT-5.6 Luna", ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}, DefaultReasoningEffort: DefaultReasoningEffort},
@@ -92,6 +102,29 @@ func ResolveForSession(model, effort, previousSessionID string) (string, string,
 		return "", "", nil
 	}
 	return Resolve(model, effort)
+}
+
+// ResolveClaude는 Claude 실행기의 reasoning effort 입력에 제품 기본값을 적용하고
+// `claude --effort`가 허용하는 값인지 검증한다.
+func ResolveClaude(effort string) (string, error) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		effort = DefaultClaudeReasoningEffort
+	}
+	if !contains(ClaudeReasoningEfforts, effort) {
+		return "", fmt.Errorf("unsupported reasoning effort %q for claude", effort)
+	}
+	return effort, nil
+}
+
+// ResolveClaudeForSession은 기존 provider session을 이어갈 때 기록되지 않은
+// reasoning effort 설정을 그대로 비워 둔다. ResolveForSession과 동일한 resume
+// 불변 조건을 Claude 실행기에도 적용한다.
+func ResolveClaudeForSession(effort, previousSessionID string) (string, error) {
+	if strings.TrimSpace(previousSessionID) != "" && strings.TrimSpace(effort) == "" {
+		return "", nil
+	}
+	return ResolveClaude(effort)
 }
 
 func lookup(name string) (Model, bool) {

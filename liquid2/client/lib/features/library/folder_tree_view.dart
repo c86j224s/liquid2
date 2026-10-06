@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:liquid2_api/liquid2_api.dart';
 
 import '../../data/folder_tree.dart';
 import '../../domain/folder_system_role.dart';
+import 'library_pane_focus.dart';
 
-class FolderTreeView extends StatelessWidget {
+class FolderTreeView extends ConsumerStatefulWidget {
   const FolderTreeView({
     required this.items,
     required this.selectedFolderId,
@@ -17,32 +19,77 @@ class FolderTreeView extends StatelessWidget {
   final ValueChanged<String?> onSelected;
 
   @override
+  ConsumerState<FolderTreeView> createState() => _FolderTreeViewState();
+}
+
+class _FolderTreeViewState extends ConsumerState<FolderTreeView> {
+  final _rowKeys = <int, GlobalKey>{};
+
+  void _revealCursor(int row) {
+    if (ref.read(libraryPaneProvider) != LibraryPane.folders) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final target = _rowKeys[row]?.currentContext;
+      if (target == null) return;
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        alignment: 0.5,
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    ref.listen(libraryFolderCursorProvider, (_, next) => _revealCursor(next));
+    ref.listen(libraryPaneProvider, (_, next) {
+      if (next == LibraryPane.folders) {
+        _revealCursor(ref.read(libraryFolderCursorProvider));
+      }
+    });
+    final cursor = ref.watch(libraryPaneProvider) == LibraryPane.folders
+        ? ref.watch(libraryFolderCursorProvider)
+        : -1;
     return Material(
       color: Colors.transparent,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _FilterRow(
-            label: 'All documents',
-            depth: 0,
-            selected: selectedFolderId == null,
-            icon: Icons.library_books,
-            onTap: () => onSelected(null),
+          _keyed(
+            0,
+            FolderTreeRow(
+              key: const Key('folder-tree-row-0'),
+              label: 'All documents',
+              depth: 0,
+              selected: widget.selectedFolderId == null,
+              isCursor: cursor == 0,
+              icon: Icons.library_books,
+              onTap: () => widget.onSelected(null),
+            ),
           ),
           const SizedBox(height: 8),
           const _SectionLabel('Folders'),
           const SizedBox(height: 6),
-          for (final item in items)
-            _FilterRow(
-              label: item.folder.name,
-              depth: item.depth,
-              selected: selectedFolderId == item.folder.id,
-              icon: _folderIcon(item.folder, selectedFolderId),
-              onTap: () => onSelected(item.folder.id),
+          for (var index = 0; index < widget.items.length; index++)
+            _keyed(
+              index + 1,
+              FolderTreeRow(
+                key: Key('folder-tree-row-${index + 1}'),
+                label: widget.items[index].folder.name,
+                depth: widget.items[index].depth,
+                selected:
+                    widget.selectedFolderId == widget.items[index].folder.id,
+                isCursor: cursor == index + 1,
+                icon: _folderIcon(
+                  widget.items[index].folder,
+                  widget.selectedFolderId,
+                ),
+                onTap: () => widget.onSelected(widget.items[index].folder.id),
+              ),
             ),
-          if (items.isEmpty)
+          if (widget.items.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: Text(
@@ -54,6 +101,11 @@ class FolderTreeView extends StatelessWidget {
       ),
     );
   }
+
+  Widget _keyed(int row, Widget child) => KeyedSubtree(
+    key: _rowKeys.putIfAbsent(row, GlobalKey.new),
+    child: child,
+  );
 }
 
 IconData _folderIcon(Folder folder, String? selectedFolderId) {
@@ -87,18 +139,21 @@ class _SectionLabel extends StatelessWidget {
   }
 }
 
-class _FilterRow extends StatelessWidget {
-  const _FilterRow({
+class FolderTreeRow extends StatelessWidget {
+  const FolderTreeRow({
     required this.label,
     required this.depth,
     required this.selected,
+    required this.isCursor,
     required this.icon,
     required this.onTap,
+    super.key,
   });
 
   final String label;
   final int depth;
   final bool selected;
+  final bool isCursor;
   final IconData icon;
   final VoidCallback onTap;
 
@@ -116,6 +171,9 @@ class _FilterRow extends StatelessWidget {
           padding: EdgeInsets.only(left: leftPadding, right: 8),
           decoration: BoxDecoration(
             color: selected ? colors.secondaryContainer : Colors.transparent,
+            border: isCursor
+                ? Border.all(color: colors.primary, width: 1.5)
+                : null,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(

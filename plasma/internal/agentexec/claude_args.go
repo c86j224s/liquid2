@@ -12,6 +12,9 @@ func (executor ClaudeExecutor) baseArgs(requestModel string, disableTools bool) 
 
 func (executor ClaudeExecutor) baseArgsForRequest(req AgentRequest) []string {
 	args := executor.baseArgsWithToolMode(req.Model, req.DisableTools, req.ReplaceMCPTools)
+	if effort := strings.TrimSpace(req.ReasoningEffort); effort != "" {
+		args = append(args, "--effort", effort)
+	}
 	if req.IgnoreUserConfig {
 		args = append(args, "--safe-mode")
 	}

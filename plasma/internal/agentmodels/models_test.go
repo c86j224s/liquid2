@@ -67,6 +67,36 @@ func TestResolveValidatesModelCapabilities(t *testing.T) {
 	}
 }
 
+func TestCatalogPublishesGPT6Models(t *testing.T) {
+	want := map[string]struct {
+		label          string
+		ultraSupported bool
+	}{
+		"gpt-6-astra": {"GPT-6 Astra", true},
+		"gpt-6-sol":   {"GPT-6 Sol", true},
+		"gpt-6-luna":  {"GPT-6 Luna", false},
+	}
+	found := map[string]bool{}
+	for _, model := range Catalog() {
+		expect, ok := want[model.Name]
+		if !ok {
+			continue
+		}
+		found[model.Name] = true
+		if model.Label != expect.label {
+			t.Fatalf("model %q label = %q, want %q", model.Name, model.Label, expect.label)
+		}
+		if contains(model.ReasoningEfforts, "ultra") != expect.ultraSupported {
+			t.Fatalf("model %q ultra support = %v, want %v", model.Name, contains(model.ReasoningEfforts, "ultra"), expect.ultraSupported)
+		}
+	}
+	for name := range want {
+		if !found[name] {
+			t.Fatalf("catalog missing model %q", name)
+		}
+	}
+}
+
 func TestResolveForSessionPreservesEmptyLegacyResume(t *testing.T) {
 	model, effort, err := ResolveForSession("", "", "legacy-session")
 	if err != nil {

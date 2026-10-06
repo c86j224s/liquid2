@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/c86j224s/liquid2/plasma/internal/ledger"
+	"github.com/c86j224s/liquid2/plasma/internal/ledgerstate"
 	"github.com/c86j224s/liquid2/plasma/internal/producterror"
 	"github.com/c86j224s/liquid2/plasma/internal/reportpipeline"
 	"github.com/c86j224s/liquid2/plasma/internal/workflowstate"
@@ -25,31 +26,100 @@ func NormalizeExecutorName(value string) (string, error) {
 	}
 }
 
-// LockedExecutorFromEvents returns the first durable event that explicitly
-// fixes a mission to one executor.
-func LockedExecutorFromEvents(events []ledger.Event) string {
-	for index, event := range events {
-		if event.EventType == "report.artifact.created" && independentReportTerminal(event, events[:index]) {
+// ActiveExecutorFromEvents returns the executor currently bound to a mission
+// because it owns an in-flight, not-yet-terminal provider-backed operation
+// (an open agent turn, an open report pipeline stage, or a non-terminal
+// workflow run). Once every such operation reaches a terminal state, the
+// mission has no active executor and a request may use a different one.
+//
+// This intentionally replaces the previous "first use permanently locks the
+// mission" behavior: the lock exists only to prevent two executors from
+// racing on the same in-flight operation, not to fix a mission's identity.
+func ActiveExecutorFromEvents(events []ledger.Event) string {
+	if pending, ok := ledgerstate.OpenAgentPendingEvent(toLedgerStateEvents(events)); ok {
+		if executor := rawEventExecutor(pending.Payload); executor != "" {
+			return executor
+		}
+	}
+	if pending, ok := ledgerstate.OpenReportPendingEvent(toLedgerStateEvents(events)); ok {
+		if executor := rawEventExecutor(pending.Payload); executor != "" {
+			return executor
+		}
+	}
+	for _, run := range workflowstate.ProjectRuns(toWorkflowStateEvents(events)) {
+		if workflowstate.TerminalStatus(run.Status) {
 			continue
 		}
-		if executor, ok := ExplicitLockingExecutor(event); ok {
+		if strings.TrimSpace(run.AgentExecutor) == "" {
+			continue
+		}
+		if executor, err := NormalizeExecutorName(run.AgentExecutor); err == nil {
 			return executor
 		}
 	}
 	return ""
 }
 
-// ValidateMissionExecutor rejects an executor that conflicts with durable state.
+// rawEventExecutor reads the agent_executor field directly off a pending
+// event's payload, without the "independent report" exemption that
+// explicitLockingExecutor applies. An in-flight independent report still
+// actively occupies its executor even though it never permanently locks the
+// mission's identity.
+func rawEventExecutor(payload json.RawMessage) string {
+	var typed struct {
+		AgentExecutor string `json:"agent_executor"`
+	}
+	if json.Unmarshal(payload, &typed) != nil || strings.TrimSpace(typed.AgentExecutor) == "" {
+		return ""
+	}
+	executor, err := NormalizeExecutorName(typed.AgentExecutor)
+	if err != nil {
+		return ""
+	}
+	return executor
+}
+
+// ValidateMissionExecutor rejects an executor that conflicts with an
+// operation the mission is currently, actively running.
 func ValidateMissionExecutor(events []ledger.Event, requested string) error {
 	requested, err := NormalizeExecutorName(requested)
 	if err != nil {
 		return err
 	}
-	locked := LockedExecutorFromEvents(events)
-	if locked == "" || locked == requested {
+	active := ActiveExecutorFromEvents(events)
+	if active == "" || active == requested {
 		return nil
 	}
-	return fmt.Errorf("%w: this mission is already using %s; create a new mission to use %s", producterror.ErrInvalidInput, locked, requested)
+	return fmt.Errorf("%w: this mission has an operation still in progress with %s; wait for it to finish before switching to %s", producterror.ErrInvalidInput, active, requested)
+}
+
+func toLedgerStateEvents(events []ledger.Event) []ledgerstate.Event {
+	converted := make([]ledgerstate.Event, 0, len(events))
+	for _, event := range events {
+		converted = append(converted, ledgerstate.Event{
+			EventID:   event.EventID,
+			Sequence:  event.Sequence,
+			EventType: event.EventType,
+			Payload:   event.Payload,
+			CreatedAt: event.CreatedAt,
+		})
+	}
+	return converted
+}
+
+func toWorkflowStateEvents(events []ledger.Event) []workflowstate.Event {
+	converted := make([]workflowstate.Event, 0, len(events))
+	for _, event := range events {
+		converted = append(converted, workflowstate.Event{
+			EventID:   event.EventID,
+			MissionID: event.MissionID,
+			Sequence:  event.Sequence,
+			EventType: event.EventType,
+			Payload:   event.Payload,
+			CreatedAt: event.CreatedAt,
+		})
+	}
+	return converted
 }
 
 // ValidateAppend ensures one append cannot introduce mixed or conflicting executors.

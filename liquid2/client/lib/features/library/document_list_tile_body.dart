@@ -8,11 +8,13 @@ import '../../shared/star_rating.dart';
 class DocumentTileSurface extends StatelessWidget {
   const DocumentTileSurface({
     required this.document,
+    required this.isCursor,
     required this.onTap,
     super.key,
   });
 
   final DocumentSummary document;
+  final bool isCursor;
   final VoidCallback onTap;
 
   @override
@@ -36,7 +38,9 @@ class DocumentTileSurface extends StatelessWidget {
                 : BorderSide(color: primary, width: kUnreadBorderWidth),
           ),
           borderRadius: const BorderRadius.all(AppRadius.md),
-          color: theme.colorScheme.surface,
+          color: isCursor
+              ? theme.colorScheme.primaryContainer
+              : theme.colorScheme.surface,
         ),
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,

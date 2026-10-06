@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +25,16 @@ void main() {
       expect(qrUrl(value), isNull);
     }
   });
+  test('QR stream text uploads as txt titled by its first line', () {
+    final text = '\n  회의록 ${'긴 제목 ' * 20}\n본문';
+    final input = qrTextUpload(text);
+    expect(input.filename, 'qr-transfer.txt');
+    expect(utf8.decode(input.bytes), text);
+    expect(input.title, startsWith('회의록 긴 제목'));
+    expect(input.title!.length, 80);
+    expect(qrTextUpload('  \n').title, 'QR 텍스트');
+  });
+
   testWidgets('Scanner entry is Android-only', (tester) async {
     final controller = TextEditingController();
     addTearDown(controller.dispose);

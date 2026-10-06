@@ -805,7 +805,7 @@ func TestAgentProviderLockRejectsMixedProviderTurnAppend(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
+	appendOpenAgentTurn(t, svc, ctx, "mis_1", "codex")
 
 	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{
 		agentTurnUserEventRequest("evt_user_claude", "claude"),
@@ -822,10 +822,10 @@ func TestAgentProviderLockRejectsMixedProviderTurnAppend(t *testing.T) {
 		},
 	})
 	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected provider lock rejection, got %v", err)
+		t.Fatalf("expected active-turn rejection, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "already using codex") {
-		t.Fatalf("expected locked provider message, got %v", err)
+	if !strings.Contains(err.Error(), "agent turn is already running") {
+		t.Fatalf("expected active-turn message, got %v", err)
 	}
 	if len(store.events) != 2 {
 		t.Fatalf("mixed-provider append should not add events, got %#v", store.events)
@@ -836,7 +836,7 @@ func TestAgentProviderLockRejectsMixedProviderWorkflowRequest(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
+	appendOpenAgentTurn(t, svc, ctx, "mis_1", "codex")
 
 	_, err := svc.RequestWorkflowRun(ctx, workflowstate.RequestWorkflowRunRequest{
 		WorkflowRunID:      "wfr_claude",
@@ -849,10 +849,10 @@ func TestAgentProviderLockRejectsMixedProviderWorkflowRequest(t *testing.T) {
 		MaxDurationMS:      60000,
 	})
 	if !errors.Is(err, ErrInvalidInput) {
-		t.Fatalf("expected provider lock rejection, got %v", err)
+		t.Fatalf("expected active-turn rejection, got %v", err)
 	}
-	if !strings.Contains(err.Error(), "already using codex") {
-		t.Fatalf("expected locked provider message, got %v", err)
+	if !strings.Contains(err.Error(), "agent turn is already running") {
+		t.Fatalf("expected active-turn message, got %v", err)
 	}
 	if len(store.events) != 2 {
 		t.Fatalf("mixed-provider workflow should not add events, got %#v", store.events)
@@ -863,7 +863,7 @@ func TestAgentProviderLockRejectsMixedProviderDirectEvent(t *testing.T) {
 	store := &workflowStore{}
 	svc := NewService(store)
 	ctx := context.Background()
-	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
+	appendOpenAgentTurn(t, svc, ctx, "mis_1", "codex")
 
 	_, err := svc.AppendEvent(ctx, ledger.AppendRequest{
 		EventID:   "evt_claude_response",
@@ -877,6 +877,34 @@ func TestAgentProviderLockRejectsMixedProviderDirectEvent(t *testing.T) {
 	}
 	if len(store.events) != 2 {
 		t.Fatalf("mixed-provider direct append should not add events, got %#v", store.events)
+	}
+}
+
+func TestAgentProviderLockAllowsSwitchAfterTurnCompletes(t *testing.T) {
+	store := &workflowStore{}
+	svc := NewService(store)
+	ctx := context.Background()
+	appendCompletedAgentTurn(t, svc, ctx, "mis_1", "codex")
+
+	_, err := svc.AppendEventsIfNoActiveAgentWork(ctx, "mis_1", []ledger.AppendRequest{
+		agentTurnUserEventRequest("evt_user_claude", "claude"),
+		{
+			EventID:   "evt_pending_claude",
+			MissionID: "mis_1",
+			EventType: "turn.agent.pending",
+			Producer:  ledger.Producer{Type: "agent", ID: "claude"},
+			Payload: mustJSONRaw(map[string]any{
+				"kind":           "agent_pending",
+				"user_event_id":  "evt_user_claude",
+				"agent_executor": "claude",
+			}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("switching executor after the prior turn completed should be allowed, got %v", err)
+	}
+	if len(store.events) != 4 {
+		t.Fatalf("expected the claude turn to be appended, got %#v", store.events)
 	}
 }
 
@@ -918,6 +946,27 @@ func TestRequestWorkflowRunRejectsInvalidProvider(t *testing.T) {
 	}
 	if len(store.events) != 0 {
 		t.Fatalf("invalid provider workflow should not add events, got %#v", store.events)
+	}
+}
+
+func appendOpenAgentTurn(t *testing.T, svc *Service, ctx context.Context, missionID string, executor string) {
+	t.Helper()
+	userEventID := "evt_user_" + executor
+	if _, err := svc.AppendEvent(ctx, agentTurnUserEventRequest(userEventID, executor)); err != nil {
+		t.Fatalf("append %s turn.user returned error: %v", executor, err)
+	}
+	if _, err := svc.AppendEvent(ctx, ledger.AppendRequest{
+		EventID:   "evt_pending_" + executor,
+		MissionID: missionID,
+		EventType: "turn.agent.pending",
+		Producer:  ledger.Producer{Type: "agent", ID: executor},
+		Payload: mustJSONRaw(map[string]any{
+			"kind":           "agent_pending",
+			"user_event_id":  userEventID,
+			"agent_executor": executor,
+		}),
+	}); err != nil {
+		t.Fatalf("append %s turn.agent.pending returned error: %v", executor, err)
 	}
 }
 

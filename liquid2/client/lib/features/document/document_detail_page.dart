@@ -10,6 +10,7 @@ import '../../shared/formatters.dart';
 import 'document_actions_bar.dart';
 import 'document_content_view.dart';
 import 'document_scroll_actions.dart';
+import 'document_sibling_navigation.dart';
 import 'document_tag_editor.dart';
 import 'document_title_editor.dart';
 import 'document_translation_panel.dart';
@@ -36,36 +37,39 @@ class _DocumentDetailPageState extends ConsumerState<DocumentDetailPage> {
   @override
   Widget build(BuildContext context) {
     final detail = ref.watch(documentDetailProvider(widget.id));
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: () => context.go('/'),
-          icon: const Icon(Icons.arrow_back),
-        ),
-        title: const Text('Document'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: () {
-              ref
-                ..invalidate(documentDetailProvider(widget.id))
-                ..invalidate(documentNotesProvider(widget.id));
-            },
-            icon: const Icon(Icons.refresh),
+    return DocumentSiblingNavigation(
+      documentId: widget.id,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            tooltip: 'Back',
+            onPressed: () => context.go('/'),
+            icon: const Icon(Icons.arrow_back),
           ),
-        ],
-      ),
-      body: AsyncPanel(
-        value: detail,
-        builder: (data) => _DocumentDetailBody(
-          detail: data,
-          scrollController: _scrollController,
+          title: const Text('Document'),
+          actions: [
+            IconButton(
+              tooltip: 'Refresh',
+              onPressed: () {
+                ref
+                  ..invalidate(documentDetailProvider(widget.id))
+                  ..invalidate(documentNotesProvider(widget.id));
+              },
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
         ),
-      ),
-      floatingActionButton: DocumentScrollActions(
-        controller: _scrollController,
-        heroTagPrefix: 'document-detail-${widget.id}',
+        body: AsyncPanel(
+          value: detail,
+          builder: (data) => _DocumentDetailBody(
+            detail: data,
+            scrollController: _scrollController,
+          ),
+        ),
+        floatingActionButton: DocumentScrollActions(
+          controller: _scrollController,
+          heroTagPrefix: 'document-detail-${widget.id}',
+        ),
       ),
     );
   }

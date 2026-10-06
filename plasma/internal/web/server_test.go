@@ -8337,15 +8337,25 @@ func TestMissionDetailIncludesAgentDefaultModelMetadata(t *testing.T) {
 	if claude["default_model"] != "sonnet" || claude["default_model_label"] != "Claude Sonnet" || claude["default_model_version"] != "sonnet" {
 		t.Fatalf("unexpected claude model metadata: %#v", claude)
 	}
-	if claude["reasoning_effort_supported"] != false || !strings.Contains(nestedStringFromMap(t, claude, "reasoning_effort_note"), "지원하지 않습니다") {
+	if claude["reasoning_effort_supported"] != true || claude["default_reasoning_effort"] != "high" {
 		t.Fatalf("unexpected claude reasoning metadata: %#v", claude)
 	}
 	claudeModels, ok := claude["models"].([]any)
 	if !ok {
 		t.Fatalf("missing Claude model catalog: %#v", claude)
 	}
-	for _, name := range []string{"haiku", "sonnet", "opus"} {
-		agentModelByName(t, claudeModels, name)
+	for _, name := range []string{
+		"haiku", "sonnet", "opus",
+		"claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-sonnet-5-5",
+		"claude-opus-5", "claude-opus-5-5", "claude-fable-5-1",
+	} {
+		model := agentModelByName(t, claudeModels, name)
+		if len(stringSliceFromMap(t, model, "reasoning_efforts")) != 5 {
+			t.Fatalf("unexpected claude %s capabilities: %#v", name, model)
+		}
+	}
+	if model := agentModelByName(t, claudeModels, "claude-sonnet-5-5"); model["label"] != "Claude Sonnet 5.5" {
+		t.Fatalf("unexpected claude-sonnet-5-5 label: %#v", model)
 	}
 }
 
@@ -8432,7 +8442,7 @@ func TestReportDraftInvalidSelectionHasNoSideEffects(t *testing.T) {
 	}
 }
 
-func TestAgentSessionResetRequiresLockedExecutor(t *testing.T) {
+func TestAgentSessionResetAllowsProviderSwitchAfterTurnCompletes(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -8457,12 +8467,11 @@ func TestAgentSessionResetRequiresLockedExecutor(t *testing.T) {
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "codex", "agent_executor": "codex"})
 	waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
-	status, body := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/agent_sessions/reset", map[string]any{"agent_executor": "claude"})
-	if status != http.StatusBadRequest {
-		t.Fatalf("expected provider switch reset to fail with 400, got %d %#v", status, body)
-	}
-	if !strings.Contains(nestedString(t, body, "error", "message"), "already using codex") {
-		t.Fatalf("expected locked-provider error, got %#v", body)
+	// The codex turn already reached a terminal state, so this mission has no
+	// active executor lock and a reset onto claude must be allowed.
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/agent_sessions/reset", map[string]any{"agent_executor": "claude"})
+	if got := webServer.latestAgentSessionID(ctx, missionID, "codex"); got != "codex-session-1" {
+		t.Fatalf("expected codex session to remain untouched by the claude reset, got %q", got)
 	}
 
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/agent_sessions/reset", map[string]any{"agent_executor": "codex"})
@@ -8470,7 +8479,7 @@ func TestAgentSessionResetRequiresLockedExecutor(t *testing.T) {
 		t.Fatalf("expected codex reset to clear codex session, got %q", got)
 	}
 	if len(claude.requests) != 0 {
-		t.Fatalf("expected locked mission not to invoke claude, got %d requests", len(claude.requests))
+		t.Fatalf("expected resetting a session not to invoke the executor, got %d requests", len(claude.requests))
 	}
 }
 
@@ -8500,7 +8509,7 @@ func TestAgentSessionResetValidatesGPT56ReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestMissionRejectsProviderSwitchAfterFirstTurn(t *testing.T) {
+func TestMissionAllowsProviderSwitchAfterFirstTurnCompletes(t *testing.T) {
 	ctx := context.Background()
 	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "plasma.db"))
 	if err != nil {
@@ -8509,10 +8518,7 @@ func TestMissionRejectsProviderSwitchAfterFirstTurn(t *testing.T) {
 	defer store.Close()
 
 	codex := &fakeAgentExecutor{
-		responses: []AgentResult{
-			{Text: "codex first", SessionID: "codex-session-1"},
-			{Text: "codex second", SessionID: "codex-session-1", Resumed: true},
-		},
+		responses: []AgentResult{{Text: "codex first", SessionID: "codex-session-1"}},
 	}
 	claude := &fakeAgentExecutor{
 		responses: []AgentResult{{Text: "claude first", SessionID: "claude-session-1"}},
@@ -8530,25 +8536,55 @@ func TestMissionRejectsProviderSwitchAfterFirstTurn(t *testing.T) {
 	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "codex first", "agent_executor": "codex"})
 	detail := waitForEventType(t, server.URL, missionID, "turn.agent.response")
 
-	if detail["locked_agent_executor"] != "codex" {
-		t.Fatalf("expected mission to lock to codex, got %#v", detail["locked_agent_executor"])
+	if got := detail["locked_agent_executor"]; got != nil && got != "" {
+		t.Fatalf("expected no active executor lock once the first turn completed, got %#v", got)
 	}
-	status, body := postJSONFailure(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "claude first", "agent_executor": "claude"})
-	if status != http.StatusBadRequest {
-		t.Fatalf("expected provider switch turn to fail with 400, got %d %#v", status, body)
-	}
-	if !strings.Contains(nestedString(t, body, "error", "message"), "already using codex") {
-		t.Fatalf("expected locked-provider error, got %#v", body)
-	}
-	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "codex second", "agent_executor": "codex"})
+	// The prior codex turn already reached a terminal state, so switching to
+	// claude for the next turn must be allowed instead of rejected.
+	postJSON(t, server.URL+"/api/missions/"+missionID+"/turns", map[string]any{"text": "claude first", "agent_executor": "claude"})
 	waitForEventTypeCount(t, server.URL, missionID, "turn.agent.response", 2)
 
-	if len(claude.requests) != 0 {
-		t.Fatalf("expected locked mission not to invoke claude, got %d requests", len(claude.requests))
+	if len(codex.requests) != 1 {
+		t.Fatalf("expected codex to be invoked exactly once, got %d requests", len(codex.requests))
 	}
-	if codex.requests[1].PreviousSessionID != "codex-session-1" {
-		t.Fatalf("expected codex to resume codex session, got %q", codex.requests[1].PreviousSessionID)
+	if len(claude.requests) != 1 {
+		t.Fatalf("expected claude to be invoked once after the switch, got %d requests", len(claude.requests))
 	}
+	if claude.requests[0].PreviousSessionID != "" {
+		t.Fatalf("expected claude to start a fresh session, got previous session %q", claude.requests[0].PreviousSessionID)
+	}
+	if !strings.Contains(claude.requests[0].Prompt, "Prior conversation history") {
+		t.Fatalf("expected claude's prompt to include a switch recap, got %q", claude.requests[0].Prompt)
+	}
+	if !strings.Contains(claude.requests[0].Prompt, "codex first") {
+		t.Fatalf("expected claude's prompt to include the prior codex turn text, got %q", claude.requests[0].Prompt)
+	}
+	detail = waitForEventType(t, server.URL, missionID, "agent.executor.switched")
+	payload := eventPayloadForType(t, detail, "agent.executor.switched")
+	if payload["from"] != "codex" || payload["to"] != "claude" {
+		t.Fatalf("expected executor switch audit event from codex to claude, got %#v", payload)
+	}
+}
+
+func eventPayloadForType(t *testing.T, detail map[string]any, eventType string) map[string]any {
+	t.Helper()
+	values, ok := detail["events"].([]any)
+	if !ok {
+		t.Fatalf("expected events list in mission detail, got %#v", detail)
+	}
+	for _, value := range values {
+		event, ok := value.(map[string]any)
+		if !ok || event["EventType"] != eventType {
+			continue
+		}
+		payload, ok := event["Payload"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected payload object for %s event, got %#v", eventType, event["Payload"])
+		}
+		return payload
+	}
+	t.Fatalf("no %s event found in detail: %#v", eventType, detail)
+	return nil
 }
 
 func TestSeparateMissionsCanUseDifferentExecutors(t *testing.T) {
@@ -8578,26 +8614,30 @@ func TestSeparateMissionsCanUseDifferentExecutors(t *testing.T) {
 	postJSON(t, server.URL+"/api/missions/"+claudeMissionID+"/turns", map[string]any{"text": "claude", "agent_executor": "claude"})
 	claudeDetail := waitForEventType(t, server.URL, claudeMissionID, "turn.agent.response")
 
-	if codexDetail["locked_agent_executor"] != "codex" {
-		t.Fatalf("expected codex mission lock, got %#v", codexDetail["locked_agent_executor"])
+	if got := codexDetail["locked_agent_executor"]; got != nil && got != "" {
+		t.Fatalf("expected no active lock once the codex mission's turn completed, got %#v", got)
 	}
-	if claudeDetail["locked_agent_executor"] != "claude" {
-		t.Fatalf("expected claude mission lock, got %#v", claudeDetail["locked_agent_executor"])
+	if got := claudeDetail["locked_agent_executor"]; got != nil && got != "" {
+		t.Fatalf("expected no active lock once the claude mission's turn completed, got %#v", got)
 	}
 }
 
 func TestProviderLockIgnoresEventsWithoutExplicitExecutor(t *testing.T) {
 	events := []ledger.Event{
-		{EventType: "turn.agent.response", Payload: []byte(`{"kind":"agent_response","text":"legacy"}`)},
-		{EventType: "report.draft.pending", Payload: []byte(`{"kind":"report_draft_pending"}`)},
+		{EventID: "evt_user", EventType: "turn.user", Payload: []byte(`{"kind":"user_turn","text":"hi"}`)},
+		{EventID: "evt_pending", EventType: "turn.agent.pending", Payload: []byte(`{"kind":"agent_pending","user_event_id":"evt_user"}`)},
+		{EventID: "evt_report_pending", EventType: "report.draft.pending", Payload: []byte(`{"kind":"report_draft_pending"}`)},
 	}
 	if got := app.LockedAgentExecutorFromEvents(events); got != "" {
-		t.Fatalf("expected no lock from events without agent_executor, got %q", got)
+		t.Fatalf("expected no lock from open events without agent_executor, got %q", got)
 	}
 
-	events = append(events, ledger.Event{EventType: "turn.agent.response", Payload: []byte(`{"kind":"agent_response","agent_executor":"claude"}`)})
+	events = []ledger.Event{
+		{EventID: "evt_user", EventType: "turn.user", Payload: []byte(`{"kind":"user_turn","text":"hi","agent_executor":"claude"}`)},
+		{EventID: "evt_pending", EventType: "turn.agent.pending", Payload: []byte(`{"kind":"agent_pending","user_event_id":"evt_user","agent_executor":"claude"}`)},
+	}
 	if got := app.LockedAgentExecutorFromEvents(events); got != "claude" {
-		t.Fatalf("expected explicit claude lock, got %q", got)
+		t.Fatalf("expected explicit claude lock while the turn is still open, got %q", got)
 	}
 }
 

@@ -5,20 +5,9 @@
   const { $, escapeHTML, escapeAttr } = Plasma.dom;
   const conversation = Plasma.conversation = Plasma.conversation || {};
 
-  const AGENT_MODEL_OPTIONS = {
-    claude: [
-      { value: "", label: "기본값" },
-      { value: "haiku", label: "Claude Haiku (haiku)" },
-      { value: "sonnet", label: "Claude Sonnet (sonnet)" },
-      { value: "opus", label: "Claude Opus (opus)" }
-    ]
-  };
+  const AGENT_MODEL_OPTIONS = {};
 
-  const AGENT_REASONING_EFFORT_OPTIONS = {
-    claude: [
-      { value: "", label: "지정 불가" }
-    ]
-  };
+  const AGENT_REASONING_EFFORT_OPTIONS = {};
 
   function renderAgentModelOptions(events) {
     const select = $("agentModel");
@@ -42,8 +31,8 @@
   }
 
   function agentModelOptions(executor, status) {
-    if (executor === "codex") {
-      const catalog = Array.isArray(status?.models) ? status.models : [];
+    const catalog = Array.isArray(status?.models) ? status.models : [];
+    if (catalog.length > 0) {
       return [{ value: "", label: "기본값" }, ...catalog.map((model) => ({
         value: String(model.name || "").trim(),
         label: String(model.label || model.name || "").trim()
@@ -94,11 +83,13 @@
   }
 
   function agentReasoningEffortOptions(executor, status) {
-    if (executor === "codex") {
+    const catalog = Array.isArray(status?.models) ? status.models : [];
+    if (catalog.length > 0) {
       const model = conversation.selectedAgentModel() || String(status?.default_model || "").trim();
-      const catalog = Array.isArray(status?.models) ? status.models : [];
       const selected = catalog.find((item) => String(item.name || "").trim() === model);
-      const efforts = Array.isArray(selected?.reasoning_efforts) ? selected.reasoning_efforts : ["low", "medium", "high", "xhigh"];
+      const efforts = Array.isArray(selected?.reasoning_efforts) && selected.reasoning_efforts.length > 0
+        ? selected.reasoning_efforts
+        : (Array.isArray(status?.reasoning_efforts) ? status.reasoning_efforts : ["low", "medium", "high", "xhigh"]);
       return efforts.map((effort) => ({ value: String(effort), label: String(effort).replace(/^./, (letter) => letter.toUpperCase()) }));
     }
     return AGENT_REASONING_EFFORT_OPTIONS[executor] || [{ value: "", label: "지정 불가" }];

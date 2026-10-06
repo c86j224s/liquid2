@@ -47,7 +47,7 @@ func TestAgentPromptAutoUsesC1ReadLoopWithoutLegacyMutations(t *testing.T) {
 			Objective: "근거 기반 조사",
 		},
 	}
-	prompt := agentPrompt("조사해줘", recall, "auto", false, "ses_1", selectControllerStrategy("", "조사해줘", recall, false))
+	prompt := agentPrompt("조사해줘", recall, "auto", false, "ses_1", selectControllerStrategy("", "조사해줘", recall, false), "")
 	for _, expected := range []string{
 		"plasma.research.outline",
 		"retain its last_sequence",
@@ -98,7 +98,7 @@ func TestAgentPromptAutoUsesC1ReadLoopWithoutLegacyMutations(t *testing.T) {
 func TestAgentPromptResumedUsesChangesWithoutForcedOutline(t *testing.T) {
 	recall := recallPreview{Mission: recallMission{MissionID: "mis_1", Title: "조사 미션"}}
 	for _, mode := range []string{"", "auto"} {
-		prompt := agentPrompt("이어서 조사해줘", recall, mode, true, "ses_1", selectControllerStrategy("", "이어서 조사해줘", recall, false))
+		prompt := agentPrompt("이어서 조사해줘", recall, mode, true, "ses_1", selectControllerStrategy("", "이어서 조사해줘", recall, false), "")
 		for _, expected := range []string{
 			"Continue from the existing session context",
 			"plasma.research.changes",
@@ -114,6 +114,25 @@ func TestAgentPromptResumedUsesChangesWithoutForcedOutline(t *testing.T) {
 			if strings.Contains(prompt, forbidden) {
 				t.Fatalf("resumed prompt for mode %q forces full orientation with %q:\n%s", mode, forbidden, prompt)
 			}
+		}
+	}
+}
+
+func TestAgentPromptOmitsRecapBlockWhenEmpty(t *testing.T) {
+	recall := recallPreview{Mission: recallMission{MissionID: "mis_1", Title: "조사 미션"}}
+	prompt := agentPrompt("조사해줘", recall, "auto", false, "ses_1", selectControllerStrategy("", "조사해줘", recall, false), "")
+	if strings.Contains(prompt, "Prior conversation history") {
+		t.Fatalf("expected no recap block for a fresh mission:\n%s", prompt)
+	}
+}
+
+func TestAgentPromptIncludesRecapBlockOnExecutorSwitch(t *testing.T) {
+	recall := recallPreview{Mission: recallMission{MissionID: "mis_1", Title: "조사 미션"}}
+	recap := "- user: 지난 요청\n  codex: 지난 응답"
+	prompt := agentPrompt("이어서 진행해줘", recall, "auto", false, "ses_1", selectControllerStrategy("", "이어서 진행해줘", recall, false), recap)
+	for _, expected := range []string{"Prior conversation history", "지난 요청", "지난 응답"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected prompt to contain %q:\n%s", expected, prompt)
 		}
 	}
 }
